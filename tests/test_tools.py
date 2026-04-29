@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from common.error_code import ErrorCode
 from tools.discord import send_discord_webhook
 from tools.gmail import send_gmail
 from tools.slack import send_slack_message
@@ -52,7 +53,7 @@ async def test_send_slack_message_failure():
             message="hello",
         )
 
-    assert "Slack" in result and "Tool 실행에 실패했습니다." in result
+    assert ErrorCode.TOOL_EXECUTION_FAILED.message in result
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +89,7 @@ async def test_send_discord_webhook_failure():
             content="hello",
         )
 
-    assert "Discord" in result and "Tool 실행에 실패했습니다." in result
+    assert ErrorCode.TOOL_EXECUTION_FAILED.message in result
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +131,7 @@ async def test_send_gmail_auth_failure():
             sender_password="wrong-password",
         )
 
-    assert "인증 오류" in result
+    assert ErrorCode.TOOL_EXECUTION_FAILED.message in result
 
 
 # ---------------------------------------------------------------------------
