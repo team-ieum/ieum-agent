@@ -1,5 +1,7 @@
 import httpx
 
+from common.error_code import ErrorCode
+
 
 async def send_discord_webhook(webhook_url: str, content: str, username: str = "IEUM Bot") -> str:
     """
@@ -21,6 +23,6 @@ async def send_discord_webhook(webhook_url: str, content: str, username: str = "
             response.raise_for_status()
             return "Discord 메시지 발송 성공"
     except httpx.HTTPStatusError as e:
-        return f"Discord 발송 실패: HTTP {e.response.status_code}"
+        return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Discord: HTTP {e.response.status_code})"
     except Exception as e:
-        return f"Discord 발송 실패: {str(e)}"
+        return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Discord: {str(e)})"
