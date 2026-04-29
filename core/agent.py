@@ -9,6 +9,7 @@ from google.genai import types
 
 from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
+from common.error_code import ErrorCode
 from db.mongodb import execution_logs
 from tools import get_tools_for_request
 
@@ -96,7 +97,11 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
         )
 
     except Exception as e:
-        result = AgentExecutionResult(success=False, errorMessage=str(e))
+        result = AgentExecutionResult(
+            success=False,
+            errorMessage=ErrorCode.AGENT_EXECUTION_FAILED.message,
+            metadata={"detail": str(e)},
+        )
 
     finally:
         if env_key:

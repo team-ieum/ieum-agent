@@ -52,7 +52,7 @@ async def test_send_slack_message_failure():
             message="hello",
         )
 
-    assert "Slack 발송 실패:" in result
+    assert "Slack" in result and "Tool 실행에 실패했습니다." in result
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ async def test_send_discord_webhook_failure():
             content="hello",
         )
 
-    assert "Discord 발송 실패:" in result
+    assert "Discord" in result and "Tool 실행에 실패했습니다." in result
 
 
 # ---------------------------------------------------------------------------
