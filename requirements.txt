@@ -1,0 +1,25 @@
+# Server
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+
+# AI Agent
+google-adk>=1.0.0
+
+# Database
+motor>=3.5.1
+
+# Config & Validation
+pydantic>=2.7.0
+pydantic-settings>=2.5.2
+python-dotenv>=1.0.0
+
+# HTTP
+httpx>=0.28.1
+
+# AI Providers
+anthropic>=0.30.0
+openai>=1.35.0
+
+# Test
+pytest>=8.2.0
+pytest-asyncio>=0.23.0
