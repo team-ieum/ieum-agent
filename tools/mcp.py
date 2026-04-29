@@ -3,6 +3,8 @@ import json
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 
+from common.error_code import ErrorCode
+
 
 async def call_mcp_tool(server_url: str, tool_name: str, arguments: dict) -> str:
     """
@@ -29,7 +31,7 @@ async def call_mcp_tool(server_url: str, tool_name: str, arguments: dict) -> str
                             error_parts.append(content.text)
                         else:
                             error_parts.append(str(content))
-                    return f"MCP Tool 실행 실패: {' '.join(error_parts)}"
+                    return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (MCP: {' '.join(error_parts)})"
 
                 parts = []
                 for content in result.content:
@@ -42,4 +44,4 @@ async def call_mcp_tool(server_url: str, tool_name: str, arguments: dict) -> str
 
                 return "\n".join(parts) if parts else "MCP Tool 실행 완료 (결과 없음)"
     except Exception as e:
-        return f"MCP Tool 호출 실패: {str(e)}"
+        return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (MCP: {str(e)})"
