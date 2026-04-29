@@ -2,6 +2,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+from common.error_code import ErrorCode
+
 
 async def send_gmail(
     to: str,
@@ -41,8 +43,8 @@ async def send_gmail(
 
         return f"{to}로 이메일 발송 성공"
     except smtplib.SMTPAuthenticationError:
-        return "Gmail 발송 실패: 인증 오류 (앱 비밀번호를 확인하세요)"
+        return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Gmail: 인증 오류)"
     except smtplib.SMTPException as e:
-        return f"Gmail 발송 실패: {str(e)}"
+        return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Gmail: {str(e)})"
     except Exception as e:
-        return f"Gmail 발송 실패: {str(e)}"
+        return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Gmail: {str(e)})"
