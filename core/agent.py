@@ -33,7 +33,9 @@ _ENV_KEY_MAP = {
 _env_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
-def resolve_model(provider: str) -> str:
+def resolve_model(provider: str, model: str = None) -> str:
+    if model:
+        return model
     return _MODEL_MAP.get(provider.upper(), "gemini-2.5-flash")
 
 
@@ -64,12 +66,12 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
                     os.environ[env_key] = api_key
 
                 tools = get_tools_for_request(request.tools or [])
-                model = resolve_model(provider)
+                model = resolve_model(provider, request.model)
 
                 agent = LlmAgent(
                     name="ieum_agent",
                     model=model,
-                    instruction="You are a helpful assistant.",
+                    instruction=request.systemMessage or "You are a helpful assistant.",
                     tools=tools,
                 )
 
@@ -116,11 +118,16 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
         else:
             output = await _execute()
 
-        result = AgentExecutionResult(success=True, output=output)
+        result = AgentExecutionResult(
+            success=True,
+            status="COMPLETED",
+            output=output,
+        )
 
     except Exception as e:
         result = AgentExecutionResult(
             success=False,
+            status="ERROR",
             errorMessage=ErrorCode.AGENT_EXECUTION_FAILED.message,
         )
 
