@@ -1,3 +1,5 @@
+import json
+
 import httpx
 
 from common.error_code import ErrorCode
@@ -21,8 +23,8 @@ async def send_discord_webhook(webhook_url: str, content: str, username: str = "
         async with httpx.AsyncClient() as client:
             response = await client.post(webhook_url, json=payload, timeout=10.0)
             response.raise_for_status()
-            return "Discord 메시지 발송 성공"
+            return json.dumps({"success": True, "message": "Discord 메시지 발송 성공"}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
-        return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Discord: HTTP {e.response.status_code})"
+        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Discord: HTTP {e.response.status_code})"}, ensure_ascii=False)
     except Exception as e:
-        return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Discord: {str(e)})"
+        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Discord: {str(e)})"}, ensure_ascii=False)

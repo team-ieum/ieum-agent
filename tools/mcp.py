@@ -31,7 +31,7 @@ async def call_mcp_tool(server_url: str, tool_name: str, arguments: dict) -> str
                             error_parts.append(content.text)
                         else:
                             error_parts.append(str(content))
-                    return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (MCP: {' '.join(error_parts)})"
+                    return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (MCP: {' '.join(error_parts)})"}, ensure_ascii=False)
 
                 parts = []
                 for content in result.content:
@@ -42,6 +42,7 @@ async def call_mcp_tool(server_url: str, tool_name: str, arguments: dict) -> str
                     else:
                         parts.append(str(content))
 
-                return "\n".join(parts) if parts else "MCP Tool 실행 완료 (결과 없음)"
+                output = "\n".join(parts) if parts else ""
+                return json.dumps({"success": True, "message": "MCP Tool 실행 완료", "output": output}, ensure_ascii=False)
     except Exception as e:
-        return f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (MCP: {str(e)})"
+        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (MCP: {str(e)})"}, ensure_ascii=False)

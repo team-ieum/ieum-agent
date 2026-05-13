@@ -36,7 +36,10 @@ async def test_send_slack_message_success():
             message="hello",
         )
 
-    assert result == "Slack 메시지 발송 성공"
+    import json
+    data = json.loads(result)
+    assert data["success"] is True
+    assert "Slack" in data["message"]
 
 
 @pytest.mark.asyncio
@@ -72,7 +75,10 @@ async def test_send_discord_webhook_success():
             content="hello",
         )
 
-    assert result == "Discord 메시지 발송 성공"
+    import json
+    data = json.loads(result)
+    assert data["success"] is True
+    assert "Discord" in data["message"]
 
 
 @pytest.mark.asyncio
