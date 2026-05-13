@@ -1,8 +1,7 @@
+import asyncio
 import json
 import logging
 import os
-from collections import defaultdict
-import asyncio
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
@@ -11,6 +10,7 @@ from google.genai import types
 
 from api.schemas.generate_workflow import GenerateWorkflowResponse, WorkflowNode, WorkflowEdge
 from common.error_code import ErrorCode
+from core.env_lock import get_env_lock
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,6 @@ _ENV_KEY_MAP = {
     "OPENAI": "OPENAI_API_KEY",
     "GEMINI": "GOOGLE_API_KEY",
 }
-
-_env_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 _SYSTEM_PROMPT = """
 You are a workflow automation assistant.
@@ -130,7 +128,7 @@ async def generate_workflow(
 ) -> GenerateWorkflowResponse:
     model = _MODEL_MAP.get(provider.upper(), "gemini-2.5-flash")
     env_key = _ENV_KEY_MAP.get(provider.upper())
-    lock = _env_locks[env_key] if env_key else None
+    lock = get_env_lock(env_key) if env_key else None
 
     async def _execute() -> str:
         prev_value = os.environ.get(env_key) if env_key else None
