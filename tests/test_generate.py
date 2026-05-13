@@ -1,8 +1,7 @@
 import json
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 
-from api.schemas.generate_workflow import GenerateWorkflowRequest
 from core.workflow_generator import generate_workflow
 
 
@@ -33,39 +32,54 @@ VALID_WORKFLOW_JSON = json.dumps({
 })
 
 
+def _make_runner_mock(text_output: str):
+    """지정한 텍스트를 최종 응답으로 반환하는 Runner mock을 생성한다."""
+    mock_event = MagicMock()
+    mock_event.is_final_response.return_value = True
+    mock_event.content.parts = [type("Part", (), {"text": text_output})()]
+
+    async def mock_run_async(**kwargs):
+        yield mock_event
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = mock_run_async
+    return mock_runner
+
+
+@pytest.fixture
+def mock_adk(request):
+    """
+    ADK Runner, InMemorySessionService, env_lock을 mock으로 교체하는 공통 픽스처.
+    request.param으로 LLM 출력 텍스트를 주입한다.
+    """
+    text_output = getattr(request, "param", VALID_WORKFLOW_JSON)
+
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("core.workflow_generator.Runner", return_value=_make_runner_mock(text_output)), \
+         patch("core.workflow_generator.InMemorySessionService", return_value=mock_session_service), \
+         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
+        yield
+
+
 @pytest.mark.asyncio
-async def test_generate_workflow_정상_json_파싱():
+async def test_generate_workflow_정상_json_파싱(mock_adk):
     """LLM이 정상 JSON을 반환하면 GenerateWorkflowResponse로 파싱된다."""
-    with patch("core.workflow_generator.Runner") as mock_runner_cls, \
-         patch("core.workflow_generator.InMemorySessionService") as mock_session_cls, \
-         patch("core.workflow_generator.get_env_lock") as mock_lock:
+    result = await generate_workflow("매일 9시에 경제뉴스 정리해줘", "CLAUDE", "test-key")
 
-        # Lock mock
-        mock_lock.return_value.__aenter__ = AsyncMock(return_value=None)
-        mock_lock.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        # Session mock
-        mock_session = AsyncMock()
-        mock_session.id = "test-session"
-        mock_session_cls.return_value.create_session = AsyncMock(return_value=mock_session)
-
-        # Runner mock — 정상 JSON 반환
-        mock_event = AsyncMock()
-        mock_event.is_final_response.return_value = True
-        mock_event.content.parts = [type("Part", (), {"text": VALID_WORKFLOW_JSON})()]
-
-        async def mock_run_async(**kwargs):
-            yield mock_event
-
-        mock_runner_cls.return_value.run_async = mock_run_async
-
-        result = await generate_workflow("매일 9시에 경제뉴스 정리해줘", "CLAUDE", "test-key")
-
-        assert len(result.nodes) == 2
-        assert result.nodes[0].type == "TRIGGER"
-        assert result.nodes[1].type == "AI"
-        assert len(result.edges) == 1
-        assert result.rawPrompt == "매일 9시에 경제뉴스 정리해줘"
+    assert len(result.nodes) == 2
+    assert result.nodes[0].type == "TRIGGER"
+    assert result.nodes[1].type == "AI"
+    assert len(result.edges) == 1
+    assert result.rawPrompt == "매일 9시에 경제뉴스 정리해줘"
 
 
 @pytest.mark.asyncio
@@ -73,25 +87,18 @@ async def test_generate_workflow_코드펜스_제거():
     """LLM이 마크다운 코드 펜스로 감싸 반환해도 정상 파싱된다."""
     fenced_output = f"```json\n{VALID_WORKFLOW_JSON}\n```"
 
-    with patch("core.workflow_generator.Runner") as mock_runner_cls, \
-         patch("core.workflow_generator.InMemorySessionService") as mock_session_cls, \
-         patch("core.workflow_generator.get_env_lock") as mock_lock:
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-        mock_lock.return_value.__aenter__ = AsyncMock(return_value=None)
-        mock_lock.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
 
-        mock_session = AsyncMock()
-        mock_session.id = "test-session"
-        mock_session_cls.return_value.create_session = AsyncMock(return_value=mock_session)
-
-        mock_event = AsyncMock()
-        mock_event.is_final_response.return_value = True
-        mock_event.content.parts = [type("Part", (), {"text": fenced_output})()]
-
-        async def mock_run_async(**kwargs):
-            yield mock_event
-
-        mock_runner_cls.return_value.run_async = mock_run_async
+    with patch("core.workflow_generator.Runner", return_value=_make_runner_mock(fenced_output)), \
+         patch("core.workflow_generator.InMemorySessionService", return_value=mock_session_service), \
+         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
 
         result = await generate_workflow("테스트", "CLAUDE", "test-key")
         assert len(result.nodes) == 2
@@ -100,25 +107,18 @@ async def test_generate_workflow_코드펜스_제거():
 @pytest.mark.asyncio
 async def test_generate_workflow_빈_응답_에러():
     """LLM이 빈 응답을 반환하면 ValueError가 발생한다."""
-    with patch("core.workflow_generator.Runner") as mock_runner_cls, \
-         patch("core.workflow_generator.InMemorySessionService") as mock_session_cls, \
-         patch("core.workflow_generator.get_env_lock") as mock_lock:
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-        mock_lock.return_value.__aenter__ = AsyncMock(return_value=None)
-        mock_lock.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
 
-        mock_session = AsyncMock()
-        mock_session.id = "test-session"
-        mock_session_cls.return_value.create_session = AsyncMock(return_value=mock_session)
-
-        mock_event = AsyncMock()
-        mock_event.is_final_response.return_value = True
-        mock_event.content.parts = [type("Part", (), {"text": ""})()]
-
-        async def mock_run_async(**kwargs):
-            yield mock_event
-
-        mock_runner_cls.return_value.run_async = mock_run_async
+    with patch("core.workflow_generator.Runner", return_value=_make_runner_mock("")), \
+         patch("core.workflow_generator.InMemorySessionService", return_value=mock_session_service), \
+         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
 
         with pytest.raises(ValueError, match="빈 응답"):
             await generate_workflow("테스트", "CLAUDE", "test-key")
@@ -127,25 +127,18 @@ async def test_generate_workflow_빈_응답_에러():
 @pytest.mark.asyncio
 async def test_generate_workflow_잘못된_json_에러():
     """LLM이 잘못된 JSON을 반환하면 ValueError가 발생한다."""
-    with patch("core.workflow_generator.Runner") as mock_runner_cls, \
-         patch("core.workflow_generator.InMemorySessionService") as mock_session_cls, \
-         patch("core.workflow_generator.get_env_lock") as mock_lock:
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-        mock_lock.return_value.__aenter__ = AsyncMock(return_value=None)
-        mock_lock.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
 
-        mock_session = AsyncMock()
-        mock_session.id = "test-session"
-        mock_session_cls.return_value.create_session = AsyncMock(return_value=mock_session)
-
-        mock_event = AsyncMock()
-        mock_event.is_final_response.return_value = True
-        mock_event.content.parts = [type("Part", (), {"text": "이건 JSON이 아닙니다"})()]
-
-        async def mock_run_async(**kwargs):
-            yield mock_event
-
-        mock_runner_cls.return_value.run_async = mock_run_async
+    with patch("core.workflow_generator.Runner", return_value=_make_runner_mock("이건 JSON이 아닙니다")), \
+         patch("core.workflow_generator.InMemorySessionService", return_value=mock_session_service), \
+         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
 
         with pytest.raises(ValueError, match="JSON 파싱 실패"):
             await generate_workflow("테스트", "CLAUDE", "test-key")

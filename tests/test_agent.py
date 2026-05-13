@@ -16,7 +16,8 @@ import pytest
 from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
 from common.error_code import ErrorCode
-from core.agent import resolve_model, run_agent
+from core.agent import run_agent
+from core.provider_config import resolve_model
 from core.env_lock import _env_locks
 from core.provider_config import MODEL_MAP as _MODEL_MAP, ENV_KEY_MAP as _ENV_KEY_MAP
 
