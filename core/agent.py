@@ -13,26 +13,11 @@ from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
 from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
+from core.provider_config import resolve_model, resolve_env_key
 from db.mongodb import execution_logs
 from tools import get_tools_for_request
 
 logger = logging.getLogger(__name__)
-
-_MODEL_MAP = {
-    "CLAUDE": "claude-sonnet-4-20250514",
-    "OPENAI": "gpt-4o",
-    "GEMINI": "gemini-2.5-flash",
-}
-
-_ENV_KEY_MAP = {
-    "CLAUDE": "ANTHROPIC_API_KEY",
-    "OPENAI": "OPENAI_API_KEY",
-    "GEMINI": "GOOGLE_API_KEY",
-}
-
-def resolve_model(provider: str) -> str:
-    return _MODEL_MAP.get(provider.upper(), "gemini-2.5-flash")
-
 
 async def save_execution_log(node_id: str, provider: str, result: AgentExecutionResult, duration_ms: int):
     await execution_logs.insert_one({
@@ -50,7 +35,7 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
     start = time.monotonic()
     result = AgentExecutionResult(success=False)
 
-    env_key = _ENV_KEY_MAP.get(provider.upper())
+    env_key = resolve_env_key(provider)
     lock = get_env_lock(env_key) if env_key else None
 
     try:
