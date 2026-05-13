@@ -44,6 +44,31 @@ def _extract_plain_text(blocks: list) -> str:
     return "\n".join(texts)
 
 
+async def _fetch_all_blocks(client: httpx.AsyncClient, page_id: str, token: str) -> list[dict]:
+    """Notion 블록을 페이지네이션을 처리하며 전체 조회한다."""
+    all_blocks = []
+    cursor = None
+
+    while True:
+        params = {"page_size": 100}
+        if cursor:
+            params["start_cursor"] = cursor
+
+        response = await client.get(
+            f"{_NOTION_API_BASE}/blocks/{page_id}/children",
+            headers=_headers(token),
+            params=params,
+        )
+        data = response.json()
+        all_blocks.extend(data.get("results", []))
+
+        if not data.get("has_more"):
+            break
+        cursor = data.get("next_cursor")
+
+    return all_blocks
+
+
 async def notion_create_page(
     token: str,
     parent_page_id: str,
@@ -131,13 +156,8 @@ async def notion_read_page(
 
             last_edited = page_data.get("last_edited_time", "")
 
-            # 블록(본문) 조회
-            blocks_response = await client.get(
-                f"{_NOTION_API_BASE}/blocks/{page_id}/children",
-                headers=_headers(token),
-            )
-            blocks_data = blocks_response.json()
-            blocks = blocks_data.get("results", [])
+            # 블록(본문) 전체 조회 (페이지네이션 처리)
+            blocks = await _fetch_all_blocks(client, page_id, token)
             body_text = _extract_plain_text(blocks)
 
         return json.dumps({
@@ -260,29 +280,32 @@ async def notion_update_page(
                         "error": f"Notion API 오류 ({title_response.status_code}): {data.get('message', '알 수 없는 오류')}"
                     }, ensure_ascii=False)
 
-            # 본문 수정 — 기존 블록 전체 삭제 후 새 블록 추가
+            # 본문 수정 — 새 블록 먼저 추가 후 기존 블록 삭제 (데이터 손실 최소화)
+            # NOTE: Notion API는 트랜잭션을 지원하지 않으므로 완전한 원자성 보장 불가.
+            #       새 블록 추가 성공 후 기존 블록 삭제 순서로 데이터 손실 위험을 최소화한다.
             if content is not None:
-                # 기존 블록 조회
-                blocks_response = await client.get(
+                # 1단계: 기존 블록 목록 조회 (페이지네이션 처리)
+                existing_blocks = await _fetch_all_blocks(client, page_id, token)
+
+                # 2단계: 새 블록 먼저 추가
+                append_payload = {"children": _blocks_from_text(content)}
+                append_response = await client.patch(
                     f"{_NOTION_API_BASE}/blocks/{page_id}/children",
                     headers=_headers(token),
+                    json=append_payload,
                 )
-                existing_blocks = blocks_response.json().get("results", [])
+                if append_response.status_code != 200:
+                    data = append_response.json()
+                    return json.dumps({
+                        "error": f"새 블록 추가 실패 ({append_response.status_code}): {data.get('message', '알 수 없는 오류')}"
+                    }, ensure_ascii=False)
 
-                # 기존 블록 삭제
+                # 3단계: 새 블록 추가 성공 후 기존 블록 삭제
                 for block in existing_blocks:
                     await client.delete(
                         f"{_NOTION_API_BASE}/blocks/{block['id']}",
                         headers=_headers(token),
                     )
-
-                # 새 블록 추가
-                append_payload = {"children": _blocks_from_text(content)}
-                await client.patch(
-                    f"{_NOTION_API_BASE}/blocks/{page_id}/children",
-                    headers=_headers(token),
-                    json=append_payload,
-                )
 
             # 최종 페이지 정보 조회
             page_response = await client.get(
