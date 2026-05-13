@@ -87,6 +87,13 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 ## Available Tools (AI 노드에서 사용 가능)
 - builtin:http_fetch        : 외부 URL에 HTTP 요청 (뉴스 API, 외부 서비스 호출 등)
 - builtin:notion_create_page: Notion 페이지 생성 (token, parent_page_id 필요)
+- builtin:notion_read_page  : Notion 페이지 내용 읽기 (token, page_id 필요)
+- builtin:notion_search     : Notion 워크스페이스 검색 (token, query 필요)
+- builtin:notion_update_page: Notion 페이지 제목/내용 수정 (token, page_id 필요)
+- builtin:notion_append_block: Notion 페이지에 블록 추가 (token, page_id 필요)
+- builtin:json_parse        : JSON 문자열에서 특정 키 값 추출 (key_path 점 표기법 지원)
+- builtin:text_extract      : 텍스트에서 정규식 패턴으로 값 추출
+- builtin:date_format       : 날짜 문자열 포맷 변환 (ISO 8601 자동 파싱, 타임존 지원)
 - slack                     : Slack 메시지 발송
 - discord                   : Discord 웹훅 메시지 발송
 - gmail                     : Gmail 발송
