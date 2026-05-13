@@ -59,6 +59,7 @@ def test_text_extract_기본_매치():
     result = json.loads(text_extract("가격: 1,500원", r"\d[\d,]+"))
     assert result["success"] is True
     assert result["value"] == "1,500"
+    assert "matches" not in result
 
 
 def test_text_extract_find_all():
@@ -82,12 +83,29 @@ def test_text_extract_매치_없음():
     result = json.loads(text_extract("abc", r"\d+"))
     assert result["success"] is True
     assert result["value"] is None
+    assert "matches" not in result
 
 
 def test_text_extract_잘못된_정규식():
     """잘못된 정규식은 에러를 반환한다."""
     result = json.loads(text_extract("abc", r"[invalid"))
     assert "error" in result
+
+
+def test_text_extract_패턴_길이_초과():
+    """패턴이 200자를 초과하면 에러를 반환한다."""
+    long_pattern = "a" * 201
+    result = json.loads(text_extract("abc", long_pattern))
+    assert "error" in result
+    assert "패턴 길이" in result["error"]
+
+
+def test_text_extract_텍스트_길이_초과():
+    """텍스트가 100,000자를 초과하면 에러를 반환한다."""
+    long_text = "a" * 100_001
+    result = json.loads(text_extract(long_text, r"\d+"))
+    assert "error" in result
+    assert "텍스트 길이" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -126,3 +144,17 @@ def test_date_format_파싱_실패():
     """파싱할 수 없는 날짜 문자열은 에러를 반환한다."""
     result = json.loads(date_format("이건 날짜가 아닙니다", output_format="%Y-%m-%d"))
     assert "error" in result
+
+
+def test_date_format_타임존_오프셋_지원():
+    """+09:00 타임존 오프셋이 포함된 ISO 8601 형식도 파싱된다."""
+    result = json.loads(date_format("2026-05-13T09:00:00+09:00", output_format="%Y-%m-%d"))
+    assert result["success"] is True
+    assert result["formatted"] == "2026-05-13"
+
+
+def test_date_format_utc_오프셋_지원():
+    """+00:00 UTC 오프셋이 포함된 ISO 8601 형식도 파싱된다."""
+    result = json.loads(date_format("2026-05-13T00:00:00+00:00", output_format="%Y-%m-%d %H:%M"))
+    assert result["success"] is True
+    assert result["formatted"] == "2026-05-13 00:00"
