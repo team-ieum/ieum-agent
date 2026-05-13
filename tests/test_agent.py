@@ -16,7 +16,10 @@ import pytest
 from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
 from common.error_code import ErrorCode
-from core.agent import resolve_model, run_agent, _MODEL_MAP, _ENV_KEY_MAP, _env_locks
+from core.agent import run_agent
+from core.provider_config import resolve_model
+from core.env_lock import _env_locks
+from core.provider_config import MODEL_MAP as _MODEL_MAP, ENV_KEY_MAP as _ENV_KEY_MAP
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +384,7 @@ async def test_run_agent_known_provider_uses_env_lock():
         patch("core.agent.InMemorySessionService", return_value=mock_session_service),
         patch("core.agent.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
-        patch.dict("core.agent._env_locks", {env_key: spy_lock}),
+        patch.dict("core.env_lock._env_locks", {env_key: spy_lock}),
     ):
         result = await run_agent(request, provider="CLAUDE", api_key="sk-test")
 
