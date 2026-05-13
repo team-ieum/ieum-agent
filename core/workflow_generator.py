@@ -178,10 +178,15 @@ async def generate_workflow(
     try:
         # 마크다운 코드 펜스 제거 (LLM이 실수로 감쌀 경우 대비)
         cleaned = raw_output.strip()
+
+        if not cleaned:
+            logger.error("LLM이 빈 응답을 반환했습니다. provider: %s", provider)
+            raise ValueError("LLM이 빈 응답을 반환했습니다.")
+
         if cleaned.startswith("```"):
             cleaned = "\n".join(cleaned.split("\n")[1:])
-        if cleaned.endswith("```"):
-            cleaned = "\n".join(cleaned.split("\n")[:-1])
+        if cleaned.rstrip().endswith("```"):
+            cleaned = "\n".join(cleaned.rstrip().split("\n")[:-1])
         cleaned = cleaned.strip()
 
         data = json.loads(cleaned)
