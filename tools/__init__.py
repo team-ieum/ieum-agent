@@ -4,6 +4,14 @@ from tools.slack import send_slack_message
 from tools.discord import send_discord_webhook
 from tools.gmail import send_gmail
 from tools.mcp import call_mcp_tool
+from tools.http_fetch import http_fetch
+from tools.notion import (
+    notion_create_page,
+    notion_read_page,
+    notion_search,
+    notion_update_page,
+    notion_append_block,
+)
 
 
 def get_tools_for_request(tool_names: list) -> list:
@@ -12,6 +20,12 @@ def get_tools_for_request(tool_names: list) -> list:
         "discord": FunctionTool(send_discord_webhook),
         "gmail": FunctionTool(send_gmail),
         "mcp": FunctionTool(call_mcp_tool),
+        "builtin:http_fetch": FunctionTool(http_fetch),
+        "builtin:notion_create_page": FunctionTool(notion_create_page),
+        "builtin:notion_read_page": FunctionTool(notion_read_page),
+        "builtin:notion_search": FunctionTool(notion_search),
+        "builtin:notion_update_page": FunctionTool(notion_update_page),
+        "builtin:notion_append_block": FunctionTool(notion_append_block),
     }
     result = []
     for item in tool_names:
