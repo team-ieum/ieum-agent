@@ -61,6 +61,11 @@ def json_parse(
         }, ensure_ascii=False)
 
 
+# ReDoS 방어를 위한 길이 제한
+_TEXT_EXTRACT_MAX_PATTERN_LEN = 200
+_TEXT_EXTRACT_MAX_TEXT_LEN = 100_000
+
+
 def text_extract(
     text: str,
     pattern: str,
@@ -71,15 +76,30 @@ def text_extract(
     텍스트에서 정규식 패턴으로 값을 추출합니다.
 
     Args:
-        text: 대상 텍스트
-        pattern: Python 정규식 패턴
+        text: 대상 텍스트 (최대 100,000자)
+        pattern: Python 정규식 패턴 (최대 200자)
         group: 캡처 그룹 번호 (기본값: 0 = 전체 매치)
         find_all: 모든 매치 반환 여부 (기본값: False)
 
     Returns:
         추출된 값 또는 값 목록을 포함한 JSON 문자열
+
+    Note:
+        ReDoS 방어를 위해 패턴 및 텍스트 길이를 제한한다.
+        Python re 모듈은 타임아웃을 지원하지 않으므로 길이 제한이 현실적인 방어책이다.
     """
     try:
+        # ReDoS 방어: 패턴/텍스트 길이 제한
+        if len(pattern) > _TEXT_EXTRACT_MAX_PATTERN_LEN:
+            return json.dumps({
+                "error": f"패턴 길이가 너무 깁니다. 최대 {_TEXT_EXTRACT_MAX_PATTERN_LEN}자 허용."
+            }, ensure_ascii=False)
+
+        if len(text) > _TEXT_EXTRACT_MAX_TEXT_LEN:
+            return json.dumps({
+                "error": f"텍스트 길이가 너무 깁니다. 최대 {_TEXT_EXTRACT_MAX_TEXT_LEN:,}자 허용."
+            }, ensure_ascii=False)
+
         if find_all:
             matches = re.findall(pattern, text)
             return json.dumps({
@@ -93,16 +113,13 @@ def text_extract(
             return json.dumps({
                 "success": True,
                 "value": None,
-                "matches": [],
             }, ensure_ascii=False)
 
         value = match.group(group)
-        all_matches = re.findall(pattern, text)
 
         return json.dumps({
             "success": True,
             "value": value,
-            "matches": all_matches,
         }, ensure_ascii=False)
 
     except re.error as e:
@@ -151,13 +168,21 @@ def date_format(
         if input_format:
             dt = datetime.strptime(date_string, input_format)
         else:
-            # ISO 8601 자동 파싱 시도
-            for fmt in _ISO_FORMATS:
-                try:
-                    dt = datetime.strptime(date_string, fmt)
-                    break
-                except ValueError:
-                    continue
+            # datetime.fromisoformat()으로 타임존 오프셋 포함 ISO 8601 먼저 시도
+            # Python 3.7+에서 +09:00, +00:00 등 오프셋 형식 지원
+            try:
+                dt = datetime.fromisoformat(date_string.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+
+            # fromisoformat 실패 시 후보 포맷 순서대로 시도
+            if dt is None:
+                for fmt in _ISO_FORMATS:
+                    try:
+                        dt = datetime.strptime(date_string, fmt)
+                        break
+                    except ValueError:
+                        continue
 
         if dt is None:
             return json.dumps({
