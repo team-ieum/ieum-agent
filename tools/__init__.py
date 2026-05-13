@@ -5,6 +5,7 @@ from tools.discord import send_discord_webhook
 from tools.gmail import send_gmail
 from tools.mcp import call_mcp_tool
 from tools.http_fetch import http_fetch
+from tools.utils import json_parse, text_extract, date_format
 from tools.notion import (
     notion_create_page,
     notion_read_page,
@@ -26,6 +27,9 @@ def get_tools_for_request(tool_names: list) -> list:
         "builtin:notion_search": FunctionTool(notion_search),
         "builtin:notion_update_page": FunctionTool(notion_update_page),
         "builtin:notion_append_block": FunctionTool(notion_append_block),
+        "builtin:json_parse": FunctionTool(json_parse),
+        "builtin:text_extract": FunctionTool(text_extract),
+        "builtin:date_format": FunctionTool(date_format),
     }
     result = []
     for item in tool_names:
