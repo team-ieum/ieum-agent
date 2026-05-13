@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import time
-from collections import defaultdict
 from datetime import datetime, timezone
 
 from google.adk.agents import LlmAgent
@@ -13,6 +12,7 @@ from google.genai import types
 from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
 from common.error_code import ErrorCode
+from core.env_lock import get_env_lock
 from db.mongodb import execution_logs
 from tools import get_tools_for_request
 
@@ -29,9 +29,6 @@ _ENV_KEY_MAP = {
     "OPENAI": "OPENAI_API_KEY",
     "GEMINI": "GOOGLE_API_KEY",
 }
-
-_env_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-
 
 def resolve_model(provider: str) -> str:
     return _MODEL_MAP.get(provider.upper(), "gemini-2.5-flash")
@@ -54,7 +51,7 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
     result = AgentExecutionResult(success=False)
 
     env_key = _ENV_KEY_MAP.get(provider.upper())
-    lock = _env_locks[env_key] if env_key else None
+    lock = get_env_lock(env_key) if env_key else None
 
     try:
         async def _execute():
