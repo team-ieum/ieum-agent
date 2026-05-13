@@ -107,6 +107,18 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 5. AI 노드에서 외부 API 호출이나 Notion 저장이 필요하면 agentType을 "react"로 설정한다.
 6. credentialId는 빈 문자열("")로 설정한다. Spring Boot에서 주입한다.
 7. JSON 외 어떤 텍스트도 출력하지 않는다.
+8. AI 노드의 llmProvider는 반드시 사용자 요청에 사용된 provider와 동일하게 설정한다.
+   예: 요청 헤더가 GEMINI면 모든 AI 노드의 llmProvider는 "GEMINI"로 설정한다.
+   provider를 알 수 없는 경우에만 "CLAUDE"를 기본값으로 사용한다.
+9. parent_page_id 등 사용자가 명시하지 않은 값은 빈 문자열("")로 설정한다.
+   절대 플레이스홀더(YOUR_XXX_HERE, <값> 형태 등)를 사용하지 않는다.
+10. prompt, systemMessage, label은 반드시 사용자 요청과 동일한 언어로 작성한다.
+    한국어로 요청하면 한국어로, 영어로 요청하면 영어로 작성한다.
+11. 서로 다른 외부 서비스를 호출하는 작업은 반드시 별도의 AI 노드로 분리한다.
+    예: 뉴스 API 호출(http_fetch)과 Notion 저장(notion_create_page)은 각각 다른 노드로 구성한다.
+    하나의 AI 노드에는 동일한 목적의 도구만 포함한다.
+    나쁜 예: tools: [builtin:http_fetch, builtin:notion_create_page] → 하나의 노드에 혼합
+    좋은 예: node-2(tools: [builtin:http_fetch]) → node-3(tools: [builtin:notion_create_page])
 """
 
 
@@ -128,7 +140,7 @@ async def generate_workflow(
             agent = LlmAgent(
                 name="workflow_generator",
                 model=model,
-                instruction=_SYSTEM_PROMPT,
+                instruction=_SYSTEM_PROMPT + f"\n\n## Current Request Context\n- provider: {provider.upper()}\n  (모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정한다)",
             )
 
             session_service = InMemorySessionService()
