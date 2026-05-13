@@ -12,12 +12,16 @@ _MAX_REDIRECTS = 5
 
 
 def _is_private_host(hostname: str) -> bool:
+    # NOTE: DNS 조회 시점과 실제 요청 시점 사이의 TOCTOU 취약점이 존재한다.
+    # DNS rebinding 공격의 완전한 방어는 네트워크 레벨(egress firewall)에서 수행해야 한다.
+    # 여기서는 best-effort 방어를 제공하며, DNS 실패 시 fail-close(차단) 정책을 적용한다.
     try:
         ip = socket.gethostbyname(hostname)
         addr = ipaddress.ip_address(ip)
         return addr.is_private or addr.is_loopback or addr.is_link_local
     except Exception:
-        return False
+        # DNS 해석 실패 시 차단 (fail-close)
+        return True
 
 
 async def http_fetch(
@@ -46,6 +50,12 @@ async def http_fetch(
 
     if _is_private_host(parsed.hostname or ""):
         return json.dumps({"error": "내부 네트워크 주소로의 요청은 허용되지 않습니다."}, ensure_ascii=False)
+
+    _ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+    if method.upper() not in _ALLOWED_METHODS:
+        return json.dumps({
+            "error": f"지원하지 않는 HTTP 메서드입니다. 허용된 메서드: {', '.join(sorted(_ALLOWED_METHODS))}"
+        }, ensure_ascii=False)
 
     try:
         async with httpx.AsyncClient(
