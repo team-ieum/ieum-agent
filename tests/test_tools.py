@@ -1,3 +1,4 @@
+import json
 import smtplib
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -36,7 +37,9 @@ async def test_send_slack_message_success():
             message="hello",
         )
 
-    assert result == "Slack 메시지 발송 성공"
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    assert parsed["message"] == "Slack 메시지 발송 성공"
 
 
 @pytest.mark.asyncio
@@ -53,7 +56,9 @@ async def test_send_slack_message_failure():
             message="hello",
         )
 
-    assert ErrorCode.TOOL_EXECUTION_FAILED.message in result
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert ErrorCode.TOOL_EXECUTION_FAILED.message in parsed["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +77,9 @@ async def test_send_discord_webhook_success():
             content="hello",
         )
 
-    assert result == "Discord 메시지 발송 성공"
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    assert parsed["message"] == "Discord 메시지 발송 성공"
 
 
 @pytest.mark.asyncio
@@ -89,7 +96,9 @@ async def test_send_discord_webhook_failure():
             content="hello",
         )
 
-    assert ErrorCode.TOOL_EXECUTION_FAILED.message in result
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert ErrorCode.TOOL_EXECUTION_FAILED.message in parsed["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -111,8 +120,10 @@ async def test_send_gmail_success():
             sender_password="app-password",
         )
 
-    assert "recipient@example.com" in result
-    assert "성공" in result
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    assert "recipient@example.com" in parsed["message"]
+    assert "성공" in parsed["message"]
 
 
 @pytest.mark.asyncio
@@ -131,7 +142,9 @@ async def test_send_gmail_auth_failure():
             sender_password="wrong-password",
         )
 
-    assert ErrorCode.TOOL_EXECUTION_FAILED.message in result
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert ErrorCode.TOOL_EXECUTION_FAILED.message in parsed["error"]
 
 
 # ---------------------------------------------------------------------------
