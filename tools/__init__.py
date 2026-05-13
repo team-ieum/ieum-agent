@@ -9,6 +9,8 @@ from tools.notion import (
     notion_create_page,
     notion_read_page,
     notion_search,
+    notion_update_page,
+    notion_append_block,
 )
 
 
@@ -22,6 +24,8 @@ def get_tools_for_request(tool_names: list) -> list:
         "builtin:notion_create_page": FunctionTool(notion_create_page),
         "builtin:notion_read_page": FunctionTool(notion_read_page),
         "builtin:notion_search": FunctionTool(notion_search),
+        "builtin:notion_update_page": FunctionTool(notion_update_page),
+        "builtin:notion_append_block": FunctionTool(notion_append_block),
     }
     result = []
     for item in tool_names:

@@ -220,3 +220,128 @@ async def notion_search(
         return json.dumps({
             "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (notion_search: {str(e)})"
         }, ensure_ascii=False)
+
+
+async def notion_update_page(
+    token: str,
+    page_id: str,
+    title: str = None,
+    content: str = None,
+) -> str:
+    """
+    Notion 페이지의 제목 또는 본문을 수정합니다.
+
+    Args:
+        token: Notion Integration Token (secret_xxx 형태)
+        page_id: 수정할 페이지 ID
+        title: 새 페이지 제목 (optional, 없으면 기존 유지)
+        content: 새 본문 내용 (optional, 기존 내용을 전체 덮어씀)
+
+    Returns:
+        수정된 페이지 ID, URL을 포함한 JSON 문자열
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            # 제목 수정
+            if title is not None:
+                properties_payload = {
+                    "properties": {
+                        "title": {"title": [{"type": "text", "text": {"content": title}}]}
+                    }
+                }
+                title_response = await client.patch(
+                    f"{_NOTION_API_BASE}/pages/{page_id}",
+                    headers=_headers(token),
+                    json=properties_payload,
+                )
+                if title_response.status_code != 200:
+                    data = title_response.json()
+                    return json.dumps({
+                        "error": f"Notion API 오류 ({title_response.status_code}): {data.get('message', '알 수 없는 오류')}"
+                    }, ensure_ascii=False)
+
+            # 본문 수정 — 기존 블록 전체 삭제 후 새 블록 추가
+            if content is not None:
+                # 기존 블록 조회
+                blocks_response = await client.get(
+                    f"{_NOTION_API_BASE}/blocks/{page_id}/children",
+                    headers=_headers(token),
+                )
+                existing_blocks = blocks_response.json().get("results", [])
+
+                # 기존 블록 삭제
+                for block in existing_blocks:
+                    await client.delete(
+                        f"{_NOTION_API_BASE}/blocks/{block['id']}",
+                        headers=_headers(token),
+                    )
+
+                # 새 블록 추가
+                append_payload = {"children": _blocks_from_text(content)}
+                await client.patch(
+                    f"{_NOTION_API_BASE}/blocks/{page_id}/children",
+                    headers=_headers(token),
+                    json=append_payload,
+                )
+
+            # 최종 페이지 정보 조회
+            page_response = await client.get(
+                f"{_NOTION_API_BASE}/pages/{page_id}",
+                headers=_headers(token),
+            )
+            page_data = page_response.json()
+
+        return json.dumps({
+            "success": True,
+            "pageId": page_id,
+            "url": page_data.get("url", ""),
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({
+            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (notion_update_page: {str(e)})"
+        }, ensure_ascii=False)
+
+
+async def notion_append_block(
+    token: str,
+    page_id: str,
+    content: str,
+) -> str:
+    """
+    Notion 페이지 하단에 텍스트 블록을 추가합니다.
+
+    Args:
+        token: Notion Integration Token (secret_xxx 형태)
+        page_id: 블록을 추가할 페이지 ID
+        content: 추가할 텍스트 내용
+
+    Returns:
+        추가된 블록 ID 목록을 포함한 JSON 문자열
+    """
+    payload = {"children": _blocks_from_text(content)}
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            response = await client.patch(
+                f"{_NOTION_API_BASE}/blocks/{page_id}/children",
+                headers=_headers(token),
+                json=payload,
+            )
+        data = response.json()
+        if response.status_code != 200:
+            return json.dumps({
+                "error": f"Notion API 오류 ({response.status_code}): {data.get('message', '알 수 없는 오류')}"
+            }, ensure_ascii=False)
+
+        block_ids = [b.get("id", "") for b in data.get("results", [])]
+        return json.dumps({
+            "success": True,
+            "blockIds": block_ids,
+            "appendedCount": len(block_ids),
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({
+            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (notion_append_block: {str(e)})"
+        }, ensure_ascii=False)
