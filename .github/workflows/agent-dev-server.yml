@@ -18,7 +18,6 @@ env:
   CONTAINER_NAME: ieum-agent
   DOCKER_NETWORK: ieum_net_green
   AGENT_IP: 10.10.10.14
-  AGENT_PORT: '8000'
   ENV_FILE: /home/kwung/deploy/ieum-agent/.env
 
 jobs:
@@ -32,12 +31,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure env file exists
+      - name: Render server env file from GitHub Secrets
+        env:
+          MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
+          MONGODB_DB_NAME: ${{ secrets.AGENT_MONGODB_DB_NAME }}
+          PORT: ${{ secrets.AGENT_PORT }}
+          CLAUDE_DEFAULT_MODEL: ${{ secrets.AGENT_CLAUDE_DEFAULT_MODEL }}
+          OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
+          GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
         run: |
-          if [ ! -f "$ENV_FILE" ]; then
-            echo "::error::$ENV_FILE 파일이 없습니다."
+          missing_vars=()
+          [ -n "$MONGODB_URL" ] || missing_vars+=("AGENT_MONGODB_URL")
+          [ -n "$MONGODB_DB_NAME" ] || missing_vars+=("AGENT_MONGODB_DB_NAME")
+          [ -n "$PORT" ] || missing_vars+=("AGENT_PORT")
+          [ -n "$CLAUDE_DEFAULT_MODEL" ] || missing_vars+=("AGENT_CLAUDE_DEFAULT_MODEL")
+          [ -n "$OPENAI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_OPENAI_DEFAULT_MODEL")
+          [ -n "$GEMINI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_GEMINI_DEFAULT_MODEL")
+
+          if [ ${#missing_vars[@]} -gt 0 ]; then
+            echo "::error::Missing GitHub Secrets for: ${missing_vars[*]}"
             exit 1
           fi
+
+          mkdir -p "$(dirname "$ENV_FILE")"
+          umask 077
+          tmp_env="$(mktemp)"
+
+          {
+            printf 'MONGODB_URL=%s\n' "$MONGODB_URL"
+            printf 'MONGODB_DB_NAME=%s\n' "$MONGODB_DB_NAME"
+            printf 'PORT=%s\n' "$PORT"
+            printf 'CLAUDE_DEFAULT_MODEL=%s\n' "$CLAUDE_DEFAULT_MODEL"
+            printf 'OPENAI_DEFAULT_MODEL=%s\n' "$OPENAI_DEFAULT_MODEL"
+            printf 'GEMINI_DEFAULT_MODEL=%s\n' "$GEMINI_DEFAULT_MODEL"
+          } > "$tmp_env"
+
+          mv "$tmp_env" "$ENV_FILE"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -50,10 +79,15 @@ jobs:
           pip install -r requirements.txt
 
       - name: Test
-        run: pytest tests/
         env:
-          MONGODB_URL: mongodb://localhost:27017
-          MONGODB_DB_NAME: ieum_test
+          APP_MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
+          TEST_MONGODB_URL: ${{ secrets.AGENT_TEST_MONGODB_URL }}
+          TEST_MONGODB_DB_NAME: ${{ secrets.AGENT_TEST_MONGODB_DB_NAME }}
+        run: |
+          export MONGODB_URL="${TEST_MONGODB_URL:-$APP_MONGODB_URL}"
+          export MONGODB_DB_NAME="${TEST_MONGODB_DB_NAME:-ieum_test}"
+
+          pytest tests/
 
       - name: Build Docker image
         run: |
@@ -77,9 +111,11 @@ jobs:
             "$IMAGE_NAME:latest"
 
       - name: Health check
+        env:
+          PORT: ${{ secrets.AGENT_PORT }}
         run: |
           for i in $(seq 1 30); do
-            if curl -fsS "http://$AGENT_IP:$AGENT_PORT/health" >/dev/null; then
+            if curl -fsS "http://$AGENT_IP:$PORT/health" >/dev/null; then
               exit 0
             fi
             sleep 2
