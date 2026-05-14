@@ -1,8 +1,13 @@
-MODEL_MAP: dict[str, str] = {
-    "CLAUDE": "claude-sonnet-4-20250514",
-    "OPENAI": "gpt-4o",
-    "GEMINI": "gemini-2.5-flash",
-}
+from core.config import settings
+
+
+def _build_model_map() -> dict[str, str]:
+    return {
+        "CLAUDE": settings.CLAUDE_DEFAULT_MODEL,
+        "OPENAI": settings.OPENAI_DEFAULT_MODEL,
+        "GEMINI": settings.GEMINI_DEFAULT_MODEL,
+    }
+
 
 ENV_KEY_MAP: dict[str, str] = {
     "CLAUDE": "ANTHROPIC_API_KEY",
@@ -11,10 +16,14 @@ ENV_KEY_MAP: dict[str, str] = {
 }
 
 
+# 하위 호환: 테스트에서 직접 import 가능하도록 모듈 레벨에서 노출
+MODEL_MAP: dict[str, str] = _build_model_map()
+
+
 def resolve_model(provider: str, model_override: str | None = None) -> str:
     if model_override:
         return model_override
-    return MODEL_MAP.get(provider.upper(), "gemini-2.5-flash")
+    return _build_model_map().get(provider.upper(), settings.GEMINI_DEFAULT_MODEL)
 
 
 def resolve_env_key(provider: str) -> str | None:
