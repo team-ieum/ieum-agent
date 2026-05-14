@@ -14,6 +14,7 @@ from tools.notion import (
     notion_append_block,
 )
 from tools.google_sheets import google_sheets_read, google_sheets_write
+from tools.google_calendar import google_calendar_create, google_calendar_list
 
 
 def get_tools_for_request(tool_names: list) -> list:
@@ -30,6 +31,8 @@ def get_tools_for_request(tool_names: list) -> list:
         "builtin:notion_append_block": FunctionTool(notion_append_block),
         "builtin:google_sheets_read": FunctionTool(google_sheets_read),
         "builtin:google_sheets_write": FunctionTool(google_sheets_write),
+        "builtin:google_calendar_create": FunctionTool(google_calendar_create),
+        "builtin:google_calendar_list": FunctionTool(google_calendar_list),
         "builtin:json_parse": FunctionTool(json_parse),
         "builtin:text_extract": FunctionTool(text_extract),
         "builtin:date_format": FunctionTool(date_format),
