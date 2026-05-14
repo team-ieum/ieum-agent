@@ -93,11 +93,11 @@ def test_model_map_reflects_settings():
     assert _MODEL_MAP["GEMINI"] == settings.GEMINI_DEFAULT_MODEL
 
 
-def test_env_key_map_reflects_settings():
-    """ENV_KEY_MAP이 settings의 환경변수 키 설정과 일치한다."""
-    assert _ENV_KEY_MAP["CLAUDE"] == settings.CLAUDE_ENV_KEY
-    assert _ENV_KEY_MAP["OPENAI"] == settings.OPENAI_ENV_KEY
-    assert _ENV_KEY_MAP["GEMINI"] == settings.GEMINI_ENV_KEY
+def test_env_key_map_has_known_providers():
+    """ENV_KEY_MAP이 알려진 provider 환경변수 키를 포함한다."""
+    assert _ENV_KEY_MAP["CLAUDE"] == "ANTHROPIC_API_KEY"
+    assert _ENV_KEY_MAP["OPENAI"] == "OPENAI_API_KEY"
+    assert _ENV_KEY_MAP["GEMINI"] == "GOOGLE_API_KEY"
 
 
 def test_resolve_model_uses_settings_default():
