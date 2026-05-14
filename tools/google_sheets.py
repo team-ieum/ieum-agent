@@ -18,7 +18,7 @@ def _headers(access_token: str) -> dict:
 async def google_sheets_read(
     access_token: str,
     spreadsheet_id: str,
-    range: str,
+    cell_range: str,
 ) -> str:
     """
     Google Sheets에서 지정 범위의 데이터를 읽습니다.
@@ -26,7 +26,7 @@ async def google_sheets_read(
     Args:
         access_token: Google OAuth Access Token
         spreadsheet_id: 스프레드시트 ID (URL에서 추출)
-        range: 읽을 범위 (A1 표기법, 예: "Sheet1!A1:D10")
+        cell_range: 읽을 범위 (A1 표기법, 예: "Sheet1!A1:D10")
 
     Returns:
         범위, 값 목록을 포함한 JSON 문자열
@@ -34,18 +34,18 @@ async def google_sheets_read(
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.get(
-                f"{_SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}/values/{range}",
+                f"{_SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
                 headers=_headers(access_token),
             )
         data = response.json()
-        if response.status_code != 200:
+        if not response.is_success:
             return json.dumps({
                 "error": f"Google Sheets API 오류 ({response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
             }, ensure_ascii=False)
 
         return json.dumps({
             "success": True,
-            "range": data.get("range", range),
+            "range": data.get("range", cell_range),
             "values": data.get("values", []),
         }, ensure_ascii=False)
 
@@ -58,7 +58,7 @@ async def google_sheets_read(
 async def google_sheets_write(
     access_token: str,
     spreadsheet_id: str,
-    range: str,
+    cell_range: str,
     values: str,
 ) -> str:
     """
@@ -67,7 +67,7 @@ async def google_sheets_write(
     Args:
         access_token: Google OAuth Access Token
         spreadsheet_id: 스프레드시트 ID (URL에서 추출)
-        range: 쓸 범위 (A1 표기법, 예: "Sheet1!A1")
+        cell_range: 쓸 범위 (A1 표기법, 예: "Sheet1!A1")
         values: JSON 배열 문자열 (2차원, 예: '[["이름","점수"],["홍길동","100"]]')
 
     Returns:
@@ -81,7 +81,7 @@ async def google_sheets_write(
         }, ensure_ascii=False)
 
     payload = {
-        "range": range,
+        "range": cell_range,
         "majorDimension": "ROWS",
         "values": parsed_values,
     }
@@ -89,20 +89,20 @@ async def google_sheets_write(
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.put(
-                f"{_SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}/values/{range}",
+                f"{_SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
                 headers=_headers(access_token),
                 params={"valueInputOption": "USER_ENTERED"},
                 json=payload,
             )
         data = response.json()
-        if response.status_code != 200:
+        if not response.is_success:
             return json.dumps({
                 "error": f"Google Sheets API 오류 ({response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
             }, ensure_ascii=False)
 
         return json.dumps({
             "success": True,
-            "updatedRange": data.get("updatedRange", range),
+            "updatedRange": data.get("updatedRange", cell_range),
             "updatedCells": data.get("updatedCells", 0),
         }, ensure_ascii=False)
 

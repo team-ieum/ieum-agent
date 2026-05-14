@@ -52,7 +52,7 @@ async def google_calendar_create(
                 json=payload,
             )
         data = response.json()
-        if response.status_code != 200:
+        if not response.is_success:
             return json.dumps({
                 "error": f"Google Calendar API 오류 ({response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
             }, ensure_ascii=False)
@@ -105,7 +105,7 @@ async def google_calendar_list(
                 params=params,
             )
         data = response.json()
-        if response.status_code != 200:
+        if not response.is_success:
             return json.dumps({
                 "error": f"Google Calendar API 오류 ({response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
             }, ensure_ascii=False)

@@ -43,7 +43,7 @@ async def google_drive_read(
                 headers=_headers(access_token),
                 params={"fields": "name,mimeType"},
             )
-            if meta_response.status_code != 200:
+            if not meta_response.is_success:
                 data = meta_response.json()
                 return json.dumps({
                     "error": f"Google Drive API 오류 ({meta_response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
@@ -62,13 +62,20 @@ async def google_drive_read(
                     params={"mimeType": export_mime},
                 )
             else:
+                _TEXT_MIME_PREFIXES = ("text/", "application/json", "application/xml",
+                                       "application/javascript", "application/x-yaml")
+                if not any(mime_type.startswith(p) for p in _TEXT_MIME_PREFIXES):
+                    return json.dumps({
+                        "error": f"지원하지 않는 파일 형식입니다: {mime_type}. 텍스트 파일만 읽을 수 있습니다."
+                    }, ensure_ascii=False)
+
                 content_response = await client.get(
                     f"{_DRIVE_API_BASE}/files/{file_id}",
                     headers=_headers(access_token),
                     params={"alt": "media"},
                 )
 
-            if content_response.status_code != 200:
+            if not content_response.is_success:
                 return json.dumps({
                     "error": f"Google Drive 파일 읽기 실패 ({content_response.status_code})"
                 }, ensure_ascii=False)
@@ -77,7 +84,12 @@ async def google_drive_read(
             if len(raw) > _MAX_CONTENT_BYTES:
                 raw = raw[:_MAX_CONTENT_BYTES]
 
-            content = raw.decode("utf-8", errors="replace")
+            try:
+                content = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                return json.dumps({
+                    "error": "파일 인코딩을 읽을 수 없습니다. UTF-8 인코딩 파일만 지원합니다."
+                }, ensure_ascii=False)
 
         return json.dumps({
             "success": True,
@@ -143,7 +155,7 @@ async def google_drive_upload(
                 content=body.encode("utf-8"),
             )
         data = response.json()
-        if response.status_code != 200:
+        if not response.is_success:
             return json.dumps({
                 "error": f"Google Drive API 오류 ({response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
             }, ensure_ascii=False)
