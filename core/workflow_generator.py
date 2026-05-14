@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import os
+import time
+from datetime import datetime, timezone
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
@@ -12,6 +14,7 @@ from api.schemas.generate_workflow import GenerateWorkflowResponse, WorkflowNode
 from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
+from db.mongodb import generate_workflow_logs
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +137,7 @@ async def generate_workflow(
     provider: str,
     api_key: str,
 ) -> GenerateWorkflowResponse:
+    start = time.monotonic()
     model = resolve_model(provider)
     env_key = resolve_env_key(provider)
     lock = get_env_lock(env_key) if env_key else None
@@ -213,12 +217,48 @@ async def generate_workflow(
         nodes = [WorkflowNode(**n) for n in data.get("nodes", [])]
         edges = [WorkflowEdge(**e) for e in data.get("edges", [])]
 
-        return GenerateWorkflowResponse(
+        response = GenerateWorkflowResponse(
             nodes=nodes,
             edges=edges,
             rawPrompt=prompt,
         )
 
+        # 성공 로그 저장
+        duration_ms = int((time.monotonic() - start) * 1000)
+        try:
+            await generate_workflow_logs.insert_one({
+                "prompt": prompt,
+                "provider": provider,
+                "model": model,
+                "success": True,
+                "nodeCount": len(nodes),
+                "edgeCount": len(edges),
+                "errorMessage": None,
+                "durationMs": duration_ms,
+                "createdAt": datetime.now(timezone.utc),
+            })
+        except Exception:
+            logger.warning("Failed to save generate_workflow log", exc_info=True)
+
+        return response
+
     except Exception as e:
+        # 실패 로그 저장
+        duration_ms = int((time.monotonic() - start) * 1000)
+        try:
+            await generate_workflow_logs.insert_one({
+                "prompt": prompt,
+                "provider": provider,
+                "model": model,
+                "success": False,
+                "nodeCount": None,
+                "edgeCount": None,
+                "errorMessage": str(e),
+                "durationMs": duration_ms,
+                "createdAt": datetime.now(timezone.utc),
+            })
+        except Exception:
+            logger.warning("Failed to save generate_workflow error log", exc_info=True)
+
         logger.error("워크플로우 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
         raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(e)})")
