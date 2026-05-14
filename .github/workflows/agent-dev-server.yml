@@ -1,0 +1,89 @@
+name: Agent Dev Server Deploy
+
+on:
+  push:
+    branches: [gitaction-patch-1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent_dev_server
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.11'
+  IMAGE_NAME: ieum-agent-dev
+  CONTAINER_NAME: ieum-agent
+  DOCKER_NETWORK: ieum_net_green
+  AGENT_IP: 10.10.10.14
+  AGENT_PORT: '8000'
+  ENV_FILE: /home/kwung/deploy/ieum-agent/.env
+
+jobs:
+  deploy:
+    name: Deploy Agent to Self Hosted Server
+    runs-on:
+      group: ieum_dev_server
+      labels: [self-hosted, linux, x64, ieum-agent]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure env file exists
+        run: |
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "::error::$ENV_FILE 파일이 없습니다."
+            exit 1
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Test
+        run: pytest tests/
+        env:
+          MONGODB_URL: mongodb://localhost:27017
+          MONGODB_DB_NAME: ieum_test
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t $IMAGE_NAME:${{ github.sha }} \
+            -t $IMAGE_NAME:latest .
+
+      - name: Restart agent container
+        run: |
+          docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1 \
+            || docker network create --subnet 10.10.10.0/24 "$DOCKER_NETWORK"
+
+          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+
+          docker run -d \
+            --name "$CONTAINER_NAME" \
+            --restart unless-stopped \
+            --network "$DOCKER_NETWORK" \
+            --ip "$AGENT_IP" \
+            --env-file "$ENV_FILE" \
+            "$IMAGE_NAME:latest"
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "http://$AGENT_IP:$AGENT_PORT/health" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs --tail 100 "$CONTAINER_NAME"
+          exit 1
