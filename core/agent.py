@@ -19,15 +19,29 @@ from tools import get_tools_for_request
 
 logger = logging.getLogger(__name__)
 
-async def save_execution_log(node_id: str, provider: str, result: AgentExecutionResult, duration_ms: int):
+async def save_execution_log(
+    node_id: str,
+    workflow_execution_id: str | None,
+    provider: str,
+    model: str,
+    agent_type: str,
+    result: AgentExecutionResult,
+    duration_ms: int,
+):
     await execution_logs.insert_one({
         "nodeId": node_id,
+        "workflowExecutionId": workflow_execution_id,
         "provider": provider,
+        "model": model,
+        "agentType": agent_type,
+        "status": result.status,
         "success": result.success,
         "output": result.output,
         "errorMessage": result.errorMessage,
+        "toolCalls": [tc.model_dump() for tc in result.toolCalls] if result.toolCalls else [],
+        "usage": result.usage.model_dump() if result.usage else None,
         "durationMs": duration_ms,
-        "createdAt": datetime.now(timezone.utc)
+        "createdAt": datetime.now(timezone.utc),
     })
 
 
@@ -38,6 +52,8 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
     env_key = resolve_env_key(provider)
     lock = get_env_lock(env_key) if env_key else None
 
+    model = resolve_model(provider, request.model)
+
     try:
         async def _execute():
             prev_value = os.environ.get(env_key) if env_key else None
@@ -46,12 +62,11 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
                     os.environ[env_key] = api_key
 
                 tools = get_tools_for_request(request.tools or [])
-                model = resolve_model(provider)
 
                 agent = LlmAgent(
                     name="ieum_agent",
                     model=model,
-                    instruction="You are a helpful assistant.",
+                    instruction=request.systemMessage or "You are a helpful assistant.",
                     tools=tools,
                 )
 
@@ -98,18 +113,27 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
         else:
             output = await _execute()
 
-        result = AgentExecutionResult(success=True, output=output)
+        result = AgentExecutionResult(success=True, status="COMPLETED", output=output)
 
     except Exception as e:
         result = AgentExecutionResult(
             success=False,
+            status="ERROR",
             errorMessage=ErrorCode.AGENT_EXECUTION_FAILED.message,
         )
 
     duration_ms = int((time.monotonic() - start) * 1000)
 
     try:
-        await save_execution_log(request.nodeId, provider, result, duration_ms)
+        await save_execution_log(
+            node_id=request.nodeId,
+            workflow_execution_id=request.workflowExecutionId,
+            provider=provider,
+            model=model,
+            agent_type=request.agentType,
+            result=result,
+            duration_ms=duration_ms,
+        )
     except Exception:
         logger.warning("Failed to save execution log for node %s", request.nodeId, exc_info=True)
 

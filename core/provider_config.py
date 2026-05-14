@@ -11,7 +11,9 @@ ENV_KEY_MAP: dict[str, str] = {
 }
 
 
-def resolve_model(provider: str) -> str:
+def resolve_model(provider: str, model_override: str | None = None) -> str:
+    if model_override:
+        return model_override
     return MODEL_MAP.get(provider.upper(), "gemini-2.5-flash")
 
 
