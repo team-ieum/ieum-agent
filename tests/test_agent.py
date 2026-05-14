@@ -19,6 +19,7 @@ from common.error_code import ErrorCode
 from core.agent import run_agent
 from core.provider_config import resolve_model
 from core.env_lock import _env_locks
+from core.config import settings
 from core.provider_config import MODEL_MAP as _MODEL_MAP, ENV_KEY_MAP as _ENV_KEY_MAP
 
 
@@ -83,6 +84,25 @@ def test_resolve_model_unknown_provider_returns_default():
 
 def test_resolve_model_empty_string_returns_default():
     assert resolve_model("") == "gemini-2.5-flash"
+
+
+def test_model_map_reflects_settings():
+    """MODEL_MAP이 settings의 모델명 설정과 일치한다."""
+    assert _MODEL_MAP["CLAUDE"] == settings.CLAUDE_DEFAULT_MODEL
+    assert _MODEL_MAP["OPENAI"] == settings.OPENAI_DEFAULT_MODEL
+    assert _MODEL_MAP["GEMINI"] == settings.GEMINI_DEFAULT_MODEL
+
+
+def test_env_key_map_has_known_providers():
+    """ENV_KEY_MAP이 알려진 provider 환경변수 키를 포함한다."""
+    assert _ENV_KEY_MAP["CLAUDE"] == "ANTHROPIC_API_KEY"
+    assert _ENV_KEY_MAP["OPENAI"] == "OPENAI_API_KEY"
+    assert _ENV_KEY_MAP["GEMINI"] == "GOOGLE_API_KEY"
+
+
+def test_resolve_model_uses_settings_default():
+    """알 수 없는 provider는 settings.GEMINI_DEFAULT_MODEL을 기본값으로 반환한다."""
+    assert resolve_model("UNKNOWN") == settings.GEMINI_DEFAULT_MODEL
 
 
 # ---------------------------------------------------------------------------
