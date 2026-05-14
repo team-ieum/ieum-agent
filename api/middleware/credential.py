@@ -8,5 +8,5 @@ async def get_llm_credentials(
     x_llm_api_key: str = Header(..., alias="X-LLM-Api-Key")
 ):
     if not x_llm_provider or not x_llm_api_key:
-        raise HTTPException(status_code=400, detail=ErrorCode.MISSING_CREDENTIAL.message)
+        raise HTTPException(status_code=ErrorCode.MISSING_CREDENTIAL.status_code, detail=ErrorCode.MISSING_CREDENTIAL.message)
     return {"provider": x_llm_provider, "api_key": x_llm_api_key}
