@@ -84,14 +84,15 @@ def _make_patches(text_output: str):
         patch("core.workflow_modifier.Runner", return_value=_make_runner_mock(text_output)),
         patch("core.workflow_modifier.InMemorySessionService", return_value=mock_session_service),
         patch("core.workflow_modifier.get_env_lock", return_value=mock_lock),
+        patch("core.workflow_modifier._save_modify_workflow_log", new_callable=AsyncMock),
     )
 
 
 @pytest.mark.asyncio
 async def test_modify_workflow_정상_json_파싱():
     """유효한 수정 결과 JSON을 반환하면 ModifyWorkflowResponse로 파싱된다."""
-    p1, p2, p3 = _make_patches(VALID_MODIFY_JSON)
-    with p1, p2, p3:
+    p1, p2, p3, p4 = _make_patches(VALID_MODIFY_JSON)
+    with p1, p2, p3, p4:
         result = await modify_workflow(
             "Slack 알림 노드를 추가해줘", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
         )
@@ -108,8 +109,8 @@ async def test_modify_workflow_정상_json_파싱():
 async def test_modify_workflow_코드펜스_제거():
     """LLM이 마크다운 코드 펜스로 감싸 반환해도 정상 파싱된다."""
     fenced_output = f"```json\n{VALID_MODIFY_JSON}\n```"
-    p1, p2, p3 = _make_patches(fenced_output)
-    with p1, p2, p3:
+    p1, p2, p3, p4 = _make_patches(fenced_output)
+    with p1, p2, p3, p4:
         result = await modify_workflow(
             "테스트", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
         )
@@ -119,9 +120,9 @@ async def test_modify_workflow_코드펜스_제거():
 @pytest.mark.asyncio
 async def test_modify_workflow_빈_응답_에러():
     """LLM이 빈 응답을 반환하면 ValueError가 발생한다."""
-    p1, p2, p3 = _make_patches("")
-    with p1, p2, p3:
-        with pytest.raises(ValueError, match="빈 응답"):
+    p1, p2, p3, p4 = _make_patches("")
+    with p1, p2, p3, p4:
+        with pytest.raises(ValueError, match="파싱에 실패했습니다"):
             await modify_workflow(
                 "테스트", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
             )
@@ -130,9 +131,9 @@ async def test_modify_workflow_빈_응답_에러():
 @pytest.mark.asyncio
 async def test_modify_workflow_잘못된_json_에러():
     """LLM이 잘못된 JSON을 반환하면 ValueError가 발생한다."""
-    p1, p2, p3 = _make_patches("이건 JSON이 아닙니다")
-    with p1, p2, p3:
-        with pytest.raises(ValueError, match="JSON 파싱 실패"):
+    p1, p2, p3, p4 = _make_patches("이건 JSON이 아닙니다")
+    with p1, p2, p3, p4:
+        with pytest.raises(ValueError, match="파싱에 실패했습니다"):
             await modify_workflow(
                 "테스트", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
             )

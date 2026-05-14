@@ -270,4 +270,4 @@ async def modify_workflow(
         )
 
         logger.error("워크플로우 수정 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
-        raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(e)})")
+        raise ValueError(f"{ErrorCode.WORKFLOW_MODIFY_PARSE_FAILED.message}")
