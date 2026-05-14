@@ -2,7 +2,7 @@ import json
 
 import httpx
 
-from common.error_code import ErrorCode
+from common.error_code import ToolErrorCode
 
 
 async def send_slack_message(webhook_url: str, message: str, channel: str = None) -> str:
@@ -27,6 +27,6 @@ async def send_slack_message(webhook_url: str, message: str, channel: str = None
             response.raise_for_status()
             return json.dumps({"success": True, "message": "Slack 메시지 발송 성공"}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
-        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Slack: HTTP {e.response.status_code})"}, ensure_ascii=False)
+        return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (Slack: HTTP {e.response.status_code})"}, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Slack: {str(e)})"}, ensure_ascii=False)
+        return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (Slack: {str(e)})"}, ensure_ascii=False)
