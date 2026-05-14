@@ -13,7 +13,7 @@ class AgentNodeRequest(BaseModel):
     promptTemplateId: Optional[str] = None
     renderedPrompt: str
     systemMessage: Optional[str] = None
-    agentType: Optional[str] = "simple"          # "simple" | "react"
+    agentType: str = "simple"                    # "simple" | "react"
     model: Optional[str] = None
     parameters: Optional[ModelParameters] = None
     tools: Optional[List[Dict[str, Any]]] = None

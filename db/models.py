@@ -4,16 +4,23 @@ from pydantic import BaseModel
 
 
 class ToolCallLog(BaseModel):
-    """AI 에이전트가 실행한 도구 호출 기록."""
-    tool: str
-    input: Optional[dict] = None
-    output: Optional[str] = None
+    """
+    AI 에이전트가 실행한 도구 호출 기록.
+    api/schemas/response.py의 ToolCallRecord.model_dump() 결과와 동일한 구조.
+    """
+    name: str                                    # 도구 이름 (예: builtin:http_fetch)
+    arguments: Optional[dict] = None             # 도구 호출 인자
+    result: Optional[str] = None                 # 도구 실행 결과
 
 
 class TokenUsage(BaseModel):
-    """LLM 토큰 사용량."""
-    inputTokens: int = 0
-    outputTokens: int = 0
+    """
+    LLM 토큰 사용량.
+    api/schemas/response.py의 UsageRecord.model_dump() 결과와 동일한 구조.
+    """
+    promptTokens: Optional[int] = None          # 입력 토큰 수
+    completionTokens: Optional[int] = None      # 출력 토큰 수
+    totalTokens: Optional[int] = None           # 전체 토큰 수
 
 
 class ExecutionLog(BaseModel):
@@ -33,7 +40,7 @@ class ExecutionLog(BaseModel):
     output: Optional[str] = None
     errorMessage: Optional[str] = None
     toolCalls: List[ToolCallLog] = []
-    usage: Optional[TokenUsage] = None
+    usage: Optional[TokenUsage] = None           # UsageRecord 구조와 동일
     durationMs: int
     createdAt: datetime
 

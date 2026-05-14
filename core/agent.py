@@ -129,7 +129,7 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
             workflow_execution_id=request.workflowExecutionId,
             provider=provider,
             model=resolve_model(provider, request.model),
-            agent_type=request.agentType or "simple",
+            agent_type=request.agentType,
             result=result,
             duration_ms=duration_ms,
         )
