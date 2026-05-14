@@ -132,6 +132,33 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 """
 
 
+async def _save_generate_workflow_log(
+    prompt: str,
+    provider: str,
+    model: str,
+    success: bool,
+    duration_ms: int,
+    node_count: int | None = None,
+    edge_count: int | None = None,
+    error_message: str | None = None,
+) -> None:
+    """generate_workflow 실행 결과를 MongoDB에 저장한다. 실패 시 경고 로그만 남긴다."""
+    try:
+        await generate_workflow_logs.insert_one({
+            "prompt": prompt,
+            "provider": provider,
+            "model": model,
+            "success": success,
+            "nodeCount": node_count,
+            "edgeCount": edge_count,
+            "errorMessage": error_message,
+            "durationMs": duration_ms,
+            "createdAt": datetime.now(timezone.utc),
+        })
+    except Exception:
+        logger.warning("Failed to save generate_workflow log", exc_info=True)
+
+
 async def generate_workflow(
     prompt: str,
     provider: str,
@@ -225,40 +252,29 @@ async def generate_workflow(
 
         # 성공 로그 저장
         duration_ms = int((time.monotonic() - start) * 1000)
-        try:
-            await generate_workflow_logs.insert_one({
-                "prompt": prompt,
-                "provider": provider,
-                "model": model,
-                "success": True,
-                "nodeCount": len(nodes),
-                "edgeCount": len(edges),
-                "errorMessage": None,
-                "durationMs": duration_ms,
-                "createdAt": datetime.now(timezone.utc),
-            })
-        except Exception:
-            logger.warning("Failed to save generate_workflow log", exc_info=True)
+        await _save_generate_workflow_log(
+            prompt=prompt,
+            provider=provider,
+            model=model,
+            success=True,
+            duration_ms=duration_ms,
+            node_count=len(nodes),
+            edge_count=len(edges),
+        )
 
         return response
 
     except Exception as e:
         # 실패 로그 저장
         duration_ms = int((time.monotonic() - start) * 1000)
-        try:
-            await generate_workflow_logs.insert_one({
-                "prompt": prompt,
-                "provider": provider,
-                "model": model,
-                "success": False,
-                "nodeCount": None,
-                "edgeCount": None,
-                "errorMessage": str(e),
-                "durationMs": duration_ms,
-                "createdAt": datetime.now(timezone.utc),
-            })
-        except Exception:
-            logger.warning("Failed to save generate_workflow error log", exc_info=True)
+        await _save_generate_workflow_log(
+            prompt=prompt,
+            provider=provider,
+            model=model,
+            success=False,
+            duration_ms=duration_ms,
+            error_message=str(e),
+        )
 
         logger.error("워크플로우 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
         raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(e)})")
