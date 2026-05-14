@@ -13,6 +13,7 @@ from tools.notion import (
     notion_update_page,
     notion_append_block,
 )
+from tools.google_sheets import google_sheets_read, google_sheets_write
 
 
 def get_tools_for_request(tool_names: list) -> list:
@@ -27,6 +28,8 @@ def get_tools_for_request(tool_names: list) -> list:
         "builtin:notion_search": FunctionTool(notion_search),
         "builtin:notion_update_page": FunctionTool(notion_update_page),
         "builtin:notion_append_block": FunctionTool(notion_append_block),
+        "builtin:google_sheets_read": FunctionTool(google_sheets_read),
+        "builtin:google_sheets_write": FunctionTool(google_sheets_write),
         "builtin:json_parse": FunctionTool(json_parse),
         "builtin:text_extract": FunctionTool(text_extract),
         "builtin:date_format": FunctionTool(date_format),
