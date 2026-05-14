@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from common.error_code import ErrorCode
+from common.error_code import ToolErrorCode
 from tools.discord import send_discord_webhook
 from tools.gmail import send_gmail
 from tools.slack import send_slack_message
@@ -58,7 +58,7 @@ async def test_send_slack_message_failure():
 
     parsed = json.loads(result)
     assert "error" in parsed
-    assert ErrorCode.TOOL_EXECUTION_FAILED.message in parsed["error"]
+    assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ async def test_send_discord_webhook_failure():
 
     parsed = json.loads(result)
     assert "error" in parsed
-    assert ErrorCode.TOOL_EXECUTION_FAILED.message in parsed["error"]
+    assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ async def test_send_gmail_auth_failure():
 
     parsed = json.loads(result)
     assert "error" in parsed
-    assert ErrorCode.TOOL_EXECUTION_FAILED.message in parsed["error"]
+    assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
 
 
 # ---------------------------------------------------------------------------
