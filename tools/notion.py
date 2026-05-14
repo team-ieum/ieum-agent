@@ -1,6 +1,6 @@
 import json
 import httpx
-from common.error_code import ErrorCode
+from common.error_code import ToolErrorCode
 
 _NOTION_API_BASE = "https://api.notion.com/v1"
 _NOTION_VERSION = "2022-06-28"
@@ -114,7 +114,7 @@ async def notion_create_page(
         }, ensure_ascii=False)
     except Exception as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (notion_create_page: {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (notion_create_page: {str(e)})"
         }, ensure_ascii=False)
 
 
@@ -170,7 +170,7 @@ async def notion_read_page(
 
     except Exception as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (notion_read_page: {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (notion_read_page: {str(e)})"
         }, ensure_ascii=False)
 
 
@@ -238,7 +238,7 @@ async def notion_search(
 
     except Exception as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (notion_search: {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (notion_search: {str(e)})"
         }, ensure_ascii=False)
 
 
@@ -322,7 +322,7 @@ async def notion_update_page(
 
     except Exception as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (notion_update_page: {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (notion_update_page: {str(e)})"
         }, ensure_ascii=False)
 
 
@@ -366,5 +366,5 @@ async def notion_append_block(
 
     except Exception as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (notion_append_block: {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (notion_append_block: {str(e)})"
         }, ensure_ascii=False)

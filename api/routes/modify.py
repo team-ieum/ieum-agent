@@ -26,7 +26,9 @@ async def modify_workflow_endpoint(
             api_key=credentials["api_key"],
         )
     except ValueError:
-        raise HTTPException(status_code=502, detail=ErrorCode.WORKFLOW_MODIFY_PARSE_FAILED.message)
+        raise HTTPException(status_code=ErrorCode.WORKFLOW_MODIFY_PARSE_FAILED.status_code,
+                            detail=ErrorCode.WORKFLOW_MODIFY_PARSE_FAILED.message)
     except Exception as e:
         logger.error("워크플로우 수정 중 예상치 못한 오류: %s", str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail=ErrorCode.WORKFLOW_MODIFY_FAILED.message)
+        raise HTTPException(status_code=ErrorCode.WORKFLOW_MODIFY_FAILED.status_code,
+                            detail=ErrorCode.WORKFLOW_MODIFY_FAILED.message)

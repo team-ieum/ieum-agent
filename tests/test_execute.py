@@ -8,6 +8,7 @@ client = TestClient(app)
 HEADERS = {
     "X-LLM-Provider": "CLAUDE",
     "X-LLM-Api-Key": "test-key",
+    "X-User-Id": "test-user",
 }
 
 PAYLOAD = {

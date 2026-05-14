@@ -3,7 +3,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from common.error_code import ErrorCode
+from common.error_code import ToolErrorCode
 
 
 async def send_gmail(
@@ -44,8 +44,8 @@ async def send_gmail(
 
         return json.dumps({"success": True, "message": f"{to}로 이메일 발송 성공"}, ensure_ascii=False)
     except smtplib.SMTPAuthenticationError:
-        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Gmail: 인증 오류)"}, ensure_ascii=False)
+        return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (Gmail: 인증 오류)"}, ensure_ascii=False)
     except smtplib.SMTPException as e:
-        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Gmail: {str(e)})"}, ensure_ascii=False)
+        return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (Gmail: {str(e)})"}, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (Gmail: {str(e)})"}, ensure_ascii=False)
+        return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (Gmail: {str(e)})"}, ensure_ascii=False)
