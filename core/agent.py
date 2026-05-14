@@ -52,6 +52,8 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
     env_key = resolve_env_key(provider)
     lock = get_env_lock(env_key) if env_key else None
 
+    model = resolve_model(provider, request.model)
+
     try:
         async def _execute():
             prev_value = os.environ.get(env_key) if env_key else None
@@ -60,7 +62,6 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
                     os.environ[env_key] = api_key
 
                 tools = get_tools_for_request(request.tools or [])
-                model = resolve_model(provider, request.model)
 
                 agent = LlmAgent(
                     name="ieum_agent",
@@ -128,7 +129,7 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
             node_id=request.nodeId,
             workflow_execution_id=request.workflowExecutionId,
             provider=provider,
-            model=resolve_model(provider, request.model),
+            model=model,
             agent_type=request.agentType,
             result=result,
             duration_ms=duration_ms,
