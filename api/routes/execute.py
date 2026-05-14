@@ -11,4 +11,4 @@ async def execute(
     request: AgentNodeRequest,
     credentials: dict = Depends(get_llm_credentials)
 ):
-    return await run_agent(request, credentials["provider"], credentials["api_key"])
+    return await run_agent(request, credentials["provider"], credentials["api_key"], credentials["user_id"])
