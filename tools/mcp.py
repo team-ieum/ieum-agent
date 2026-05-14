@@ -3,7 +3,7 @@ import json
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 
-from common.error_code import ErrorCode
+from common.error_code import ToolErrorCode
 
 
 async def call_mcp_tool(server_url: str, tool_name: str, arguments: dict) -> str:
@@ -31,7 +31,7 @@ async def call_mcp_tool(server_url: str, tool_name: str, arguments: dict) -> str
                             error_parts.append(content.text)
                         else:
                             error_parts.append(str(content))
-                    return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (MCP: {' '.join(error_parts)})"}, ensure_ascii=False)
+                    return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (MCP: {' '.join(error_parts)})"}, ensure_ascii=False)
 
                 parts = []
                 for content in result.content:
@@ -58,4 +58,4 @@ async def call_mcp_tool(server_url: str, tool_name: str, arguments: dict) -> str
                     "output": parsed_output,
                 }, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (MCP: {str(e)})"}, ensure_ascii=False)
+        return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (MCP: {str(e)})"}, ensure_ascii=False)
