@@ -14,6 +14,7 @@ from api.schemas.modify_workflow import ModifyWorkflowResponse
 from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
+from db.mongodb import modify_workflow_logs
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,33 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
     한국어로 요청하면 한국어로, 영어로 요청하면 영어로 작성한다.
 11. 서로 다른 외부 서비스를 호출하는 작업은 반드시 별도의 AI 노드로 분리한다.
 """
+
+
+async def _save_modify_workflow_log(
+    prompt: str,
+    provider: str,
+    model: str,
+    success: bool,
+    duration_ms: int,
+    node_count: int | None = None,
+    edge_count: int | None = None,
+    error_message: str | None = None,
+) -> None:
+    """modify_workflow 실행 결과를 MongoDB에 저장한다. 실패 시 경고 로그만 남긴다."""
+    try:
+        await modify_workflow_logs.insert_one({
+            "prompt": prompt,
+            "provider": provider,
+            "model": model,
+            "success": success,
+            "nodeCount": node_count,
+            "edgeCount": edge_count,
+            "errorMessage": error_message,
+            "durationMs": duration_ms,
+            "createdAt": datetime.now(timezone.utc),
+        })
+    except Exception:
+        logger.warning("Failed to save modify_workflow log", exc_info=True)
 
 
 async def modify_workflow(
@@ -215,16 +243,31 @@ async def modify_workflow(
             changeDescription=change_description,
         )
 
-        # TODO: modify_workflow_logs 컬렉션 로깅 (Commit 4에서 추가)
+        # 성공 로그 저장
         duration_ms = int((time.monotonic() - start) * 1000)
-        logger.info(
-            "워크플로우 수정 성공: nodes=%d, edges=%d, duration=%dms",
-            len(nodes), len(edges), duration_ms,
+        await _save_modify_workflow_log(
+            prompt=prompt,
+            provider=provider,
+            model=model,
+            success=True,
+            duration_ms=duration_ms,
+            node_count=len(nodes),
+            edge_count=len(edges),
         )
 
         return response
 
     except Exception as e:
+        # 실패 로그 저장
         duration_ms = int((time.monotonic() - start) * 1000)
+        await _save_modify_workflow_log(
+            prompt=prompt,
+            provider=provider,
+            model=model,
+            success=False,
+            duration_ms=duration_ms,
+            error_message=str(e),
+        )
+
         logger.error("워크플로우 수정 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
         raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(e)})")
