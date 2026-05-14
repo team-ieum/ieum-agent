@@ -2,7 +2,7 @@ name: Agent Dev Server Deploy
 
 on:
   push:
-    branches: [gitaction-patch-1]
+    branches: [dev]
   workflow_dispatch:
 
 permissions:
