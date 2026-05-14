@@ -20,6 +20,7 @@ from tools import get_tools_for_request
 logger = logging.getLogger(__name__)
 
 async def save_execution_log(
+    user_id: str,
     node_id: str,
     workflow_execution_id: str | None,
     provider: str,
@@ -29,6 +30,7 @@ async def save_execution_log(
     duration_ms: int,
 ):
     await execution_logs.insert_one({
+        "userId": user_id,
         "nodeId": node_id,
         "workflowExecutionId": workflow_execution_id,
         "provider": provider,
@@ -45,7 +47,7 @@ async def save_execution_log(
     })
 
 
-async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> AgentExecutionResult:
+async def run_agent(request: AgentNodeRequest, provider: str, api_key: str, user_id: str) -> AgentExecutionResult:
     start = time.monotonic()
     result = AgentExecutionResult(success=False)
 
@@ -79,7 +81,7 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
 
                 session = await session_service.create_session(
                     app_name="ieum-agent",
-                    user_id="user",
+                    user_id=user_id,
                 )
 
                 message = types.Content(
@@ -89,7 +91,7 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
 
                 output_parts = []
                 async for event in runner.run_async(
-                    user_id="user",
+                    user_id=user_id,
                     session_id=session.id,
                     new_message=message,
                 ):
@@ -126,6 +128,7 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str) -> A
 
     try:
         await save_execution_log(
+            user_id=user_id,
             node_id=request.nodeId,
             workflow_execution_id=request.workflowExecutionId,
             provider=provider,
