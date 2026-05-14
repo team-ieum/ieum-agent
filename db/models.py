@@ -60,3 +60,20 @@ class GenerateWorkflowLog(BaseModel):
     errorMessage: Optional[str] = None
     durationMs: int
     createdAt: datetime
+
+
+class ModifyWorkflowLog(BaseModel):
+    """
+    컬렉션: modify_workflow_logs
+
+    /v1/modify-workflow 호출 시 워크플로우 수정 결과를 저장한다.
+    """
+    prompt: str                                  # 사용자 자연어 수정 요청
+    provider: str                                # CLAUDE | OPENAI | GEMINI
+    model: str                                   # 실제 사용된 모델명
+    success: bool
+    nodeCount: Optional[int] = None              # 수정 후 노드 수
+    edgeCount: Optional[int] = None              # 수정 후 엣지 수
+    errorMessage: Optional[str] = None
+    durationMs: int
+    createdAt: datetime
