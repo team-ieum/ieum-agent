@@ -10,7 +10,7 @@ class ErrorCode(Enum):
     WORKFLOW_GENERATION_FAILED = ("AI_006", "워크플로우 생성에 실패했습니다.")
     WORKFLOW_PARSE_FAILED      = ("AI_007", "워크플로우 JSON 파싱에 실패했습니다. 다시 시도해주세요.")
     WORKFLOW_MODIFY_FAILED     = ("AI_008", "워크플로우 수정에 실패했습니다.")
-    WORKFLOW_MODIFY_PARSE_FAILED = ("AI_009", "워크플로우 수정 JSON 파싱에 실패했습니다. 다시 시도해주세요.")
+    WORKFLOW_MODIFY_PARSE_FAILED = ("AI_009", "수정된 워크플로우 파싱에 실패했습니다. 다시 시도해주세요.")
 
     def __init__(self, code: str, message: str):
         self.code = code
