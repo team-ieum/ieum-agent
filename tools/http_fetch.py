@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from common.error_code import ErrorCode
+from common.error_code import ToolErrorCode
 
 _MAX_RESPONSE_BYTES = 1 * 1024 * 1024
 _TIMEOUT = 30.0
@@ -87,6 +87,6 @@ async def http_fetch(
             return json.dumps(result, ensure_ascii=False)
 
     except httpx.TimeoutException:
-        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (http_fetch: 요청 타임아웃)"}, ensure_ascii=False)
+        return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (http_fetch: 요청 타임아웃)"}, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (http_fetch: {str(e)})"}, ensure_ascii=False)
+        return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (http_fetch: {str(e)})"}, ensure_ascii=False)

@@ -2,7 +2,7 @@ import json
 import re
 from datetime import datetime
 
-from common.error_code import ErrorCode
+from common.error_code import ToolErrorCode
 
 
 def json_parse(
@@ -53,11 +53,11 @@ def json_parse(
 
     except json.JSONDecodeError as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (json_parse: JSON 파싱 오류 - {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (json_parse: JSON 파싱 오류 - {str(e)})"
         }, ensure_ascii=False)
     except Exception as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (json_parse: {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (json_parse: {str(e)})"
         }, ensure_ascii=False)
 
 
@@ -124,15 +124,15 @@ def text_extract(
 
     except re.error as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (text_extract: 정규식 오류 - {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (text_extract: 정규식 오류 - {str(e)})"
         }, ensure_ascii=False)
     except IndexError:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (text_extract: 그룹 번호 {group}이 존재하지 않습니다)"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (text_extract: 그룹 번호 {group}이 존재하지 않습니다)"
         }, ensure_ascii=False)
     except Exception as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (text_extract: {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (text_extract: {str(e)})"
         }, ensure_ascii=False)
 
 
@@ -186,7 +186,7 @@ def date_format(
 
         if dt is None:
             return json.dumps({
-                "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (date_format: 날짜 파싱 실패 - '{date_string}'에 맞는 포맷을 찾을 수 없습니다)"
+                "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (date_format: 날짜 파싱 실패 - '{date_string}'에 맞는 포맷을 찾을 수 없습니다)"
             }, ensure_ascii=False)
 
         formatted = dt.strftime(output_format)
@@ -198,9 +198,9 @@ def date_format(
 
     except ValueError as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (date_format: {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (date_format: {str(e)})"
         }, ensure_ascii=False)
     except Exception as e:
         return json.dumps({
-            "error": f"{ErrorCode.TOOL_EXECUTION_FAILED.message} (date_format: {str(e)})"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (date_format: {str(e)})"
         }, ensure_ascii=False)
