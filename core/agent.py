@@ -111,7 +111,7 @@ async def run_agent(
     model = resolve_model(provider, request.model)
 
     try:
-        async def _execute():
+        async def _execute() -> tuple[str, int, int, int]:
             prev_value = os.environ.get(env_key) if env_key else None
             try:
                 if env_key:
@@ -178,7 +178,7 @@ async def run_agent(
                             total_output_tokens = output_count
                             total_token_count = total_count
 
-                return "\n".join(output_parts) if output_parts else "", total_input_tokens, total_output_tokens
+                return "\n".join(output_parts) if output_parts else "", total_input_tokens, total_output_tokens, total_token_count
 
             finally:
                 if env_key:
@@ -189,14 +189,14 @@ async def run_agent(
 
         if lock:
             async with lock:
-                output, input_tokens, output_tokens = await _execute()
+                output, input_tokens, output_tokens, total_tokens = await _execute()
         else:
-            output, input_tokens, output_tokens = await _execute()
+            output, input_tokens, output_tokens, total_tokens = await _execute()
 
         usage = UsageRecord(
             promptTokens=input_tokens,
             completionTokens=output_tokens,
-            totalTokens=input_tokens + output_tokens,
+            totalTokens=total_tokens or (input_tokens + output_tokens),
         ) if (input_tokens or output_tokens) else None
 
         result = AgentExecutionResult(
