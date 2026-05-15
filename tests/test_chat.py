@@ -226,10 +226,11 @@ async def test_chat_workflow_invalid_node_type():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "type": "INVALID_TYPE",
+            {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+            {"id": "node-2", "type": "INVALID_TYPE",
              "label": "잘못된 노드", "config": {}},
         ],
-        "edges": [],
+        "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
     p1, p2, p3, p4 = _make_patches(invalid_json)
     with p1, p2, p3, p4:
@@ -273,6 +274,23 @@ async def test_chat_workflow_invalid_edge_reference():
         ],
     })
     p1, p2, p3, p4 = _make_patches(invalid_json)
+    with p1, p2, p3, p4:
+        with pytest.raises(ValueError):
+            await _call()
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_generated_nodes_없으면_에러():
+    """WORKFLOW_GENERATED 타입인데 nodes가 None이면 ValueError가 발생한다."""
+    invalid = json.dumps({
+        "message": "생성했습니다.",
+        "type": "WORKFLOW_GENERATED",
+        "actions": [],
+        "changeDescription": None,
+        "nodes": None,
+        "edges": None,
+    })
+    p1, p2, p3, p4 = _make_patches(invalid)
     with p1, p2, p3, p4:
         with pytest.raises(ValueError):
             await _call()
