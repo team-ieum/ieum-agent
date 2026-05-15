@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import logging
 import os
 import time
@@ -7,6 +8,7 @@ from datetime import datetime, timezone
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.tools.function_tool import FunctionTool
 from google.genai import types
 
 from api.schemas.request import AgentNodeRequest
@@ -16,8 +18,36 @@ from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from db.mongodb import execution_logs
 from tools import get_tools_for_request
+from tools.google_sheets import google_sheets_read, google_sheets_write
+from tools.google_calendar import google_calendar_create, google_calendar_list
+from tools.google_drive import google_drive_read, google_drive_upload
 
 logger = logging.getLogger(__name__)
+
+_GOOGLE_TOOL_FUNCTIONS = {
+    google_sheets_read,
+    google_sheets_write,
+    google_calendar_create,
+    google_calendar_list,
+    google_drive_read,
+    google_drive_upload,
+}
+
+
+def _bind_google_token(tools: list, google_access_token: str) -> list:
+    """Google 도구의 access_token 파라미터를 실제 토큰으로 바인딩한다."""
+    bound = []
+    for tool in tools:
+        fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
+        if fn in _GOOGLE_TOOL_FUNCTIONS:
+            bound_fn = functools.partial(fn, access_token=google_access_token)
+            bound_fn.__name__ = fn.__name__
+            bound_fn.__doc__ = fn.__doc__
+            bound.append(FunctionTool(bound_fn))
+        else:
+            bound.append(tool)
+    return bound
+
 
 async def save_execution_log(
     user_id: str,
@@ -47,7 +77,13 @@ async def save_execution_log(
     })
 
 
-async def run_agent(request: AgentNodeRequest, provider: str, api_key: str, user_id: str) -> AgentExecutionResult:
+async def run_agent(
+    request: AgentNodeRequest,
+    provider: str,
+    api_key: str,
+    user_id: str,
+    google_access_token: str | None = None,
+) -> AgentExecutionResult:
     start = time.monotonic()
     result = AgentExecutionResult(success=False)
 
@@ -64,6 +100,8 @@ async def run_agent(request: AgentNodeRequest, provider: str, api_key: str, user
                     os.environ[env_key] = api_key
 
                 tools = get_tools_for_request(request.tools or [])
+                if google_access_token:
+                    tools = _bind_google_token(tools, google_access_token)
 
                 agent = LlmAgent(
                     name="ieum_agent",
