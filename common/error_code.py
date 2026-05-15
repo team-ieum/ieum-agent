@@ -11,6 +11,7 @@ class ErrorCode(Enum):
     WORKFLOW_MODIFY_FAILED       = (500, "워크플로우 수정에 실패했습니다.")
     WORKFLOW_MODIFY_PARSE_FAILED = (502, "수정된 워크플로우 파싱에 실패했습니다. 다시 시도해주세요.")
     CHAT_EXECUTION_FAILED        = (500, "채팅 처리에 실패했습니다.")
+    CHAT_PARSE_FAILED            = (502, "채팅 워크플로우 파싱에 실패했습니다. 다시 시도해주세요.")
 
     def __init__(self, status_code: int, message: str):
         self.status_code = status_code

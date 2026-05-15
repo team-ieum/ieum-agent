@@ -389,4 +389,4 @@ async def chat_workflow(
         )
 
         logger.error("채팅 워크플로우 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
-        raise ValueError(ErrorCode.CHAT_EXECUTION_FAILED.message)
+        raise ValueError(ErrorCode.CHAT_PARSE_FAILED.message)

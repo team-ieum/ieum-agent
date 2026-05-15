@@ -30,8 +30,8 @@ async def chat_endpoint(
         )
     except ValueError:
         raise HTTPException(
-            status_code=ErrorCode.CHAT_EXECUTION_FAILED.status_code,
-            detail=ErrorCode.CHAT_EXECUTION_FAILED.message,
+            status_code=ErrorCode.CHAT_PARSE_FAILED.status_code,
+            detail=ErrorCode.CHAT_PARSE_FAILED.message,
         )
     except Exception as e:
         logger.error("채팅 처리 중 예상치 못한 오류: %s", str(e), exc_info=True)
