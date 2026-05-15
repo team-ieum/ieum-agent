@@ -341,8 +341,9 @@ async def chat_workflow(
         raw_edges = data.get("edges")
 
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
-            if raw_nodes and raw_edges is not None:
-                _validate_workflow(raw_nodes, raw_edges)
+            if not raw_nodes:
+                raise ValueError("WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다.")
+            _validate_workflow(raw_nodes, raw_edges or [])
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
         edges = [WorkflowEdge(**e) for e in raw_edges] if raw_edges else None
