@@ -149,6 +149,8 @@ async def run_agent(
                 output_parts = []
                 total_input_tokens = 0
                 total_output_tokens = 0
+                total_token_count = 0
+                is_react = request.agentType == "react"
 
                 async for event in runner.run_async(
                     user_id=user_id,
@@ -161,8 +163,20 @@ async def run_agent(
                                 output_parts.append(part.text)
 
                     if hasattr(event, "usage_metadata") and event.usage_metadata:
-                        total_input_tokens += event.usage_metadata.prompt_token_count or 0
-                        total_output_tokens += event.usage_metadata.candidates_token_count or 0
+                        input_count = event.usage_metadata.prompt_token_count or 0
+                        output_count = event.usage_metadata.candidates_token_count or 0
+                        total_count = event.usage_metadata.total_token_count or 0
+
+                        if is_react:
+                            # ReAct: LLM 다회 호출 → 각 호출 단위 누적
+                            total_input_tokens += input_count
+                            total_output_tokens += output_count
+                            total_token_count += total_count
+                        else:
+                            # Simple: 단일 LLM 호출 → 마지막 값으로 덮어쓰기
+                            total_input_tokens = input_count
+                            total_output_tokens = output_count
+                            total_token_count = total_count
 
                 return "\n".join(output_parts) if output_parts else "", total_input_tokens, total_output_tokens
 
