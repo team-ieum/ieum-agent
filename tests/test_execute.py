@@ -1,7 +1,10 @@
-from unittest.mock import AsyncMock, patch
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 from main import app
+from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
+from core.agent import run_agent
 
 client = TestClient(app)
 
@@ -65,3 +68,125 @@ def test_execute_failure():
     data = response.json()
     assert data["success"] is False
     assert data["errorMessage"] == "some error"
+
+
+# ---------------------------------------------------------------------------
+# run_agent — usage_metadata 처리
+# ---------------------------------------------------------------------------
+
+def _make_agent_request(agent_type="simple"):
+    return AgentNodeRequest(
+        nodeId="node-1",
+        renderedPrompt="Hello",
+        agentType=agent_type,
+    )
+
+
+def _make_usage_mock(prompt=100, candidates=50, total=150):
+    usage = MagicMock()
+    usage.prompt_token_count = prompt
+    usage.candidates_token_count = candidates
+    usage.total_token_count = total
+    return usage
+
+
+def _make_event(is_final=False, text=None, usage_metadata=None):
+    event = MagicMock()
+    event.is_final_response.return_value = is_final
+    if is_final and text:
+        part = MagicMock()
+        part.text = text
+        event.content.parts = [part]
+    else:
+        event.content = None
+    event.usage_metadata = usage_metadata
+    return event
+
+
+async def _run_with_events(events, agent_type="simple"):
+    """공통 패치 설정 후 run_agent()를 직접 호출하고 결과를 반환한다."""
+    def _run_async_side_effect(*args, **kwargs):
+        async def _gen():
+            for e in events:
+                yield e
+        return _gen()
+
+    mock_runner = MagicMock()
+    mock_runner.run_async.side_effect = _run_async_side_effect
+
+    mock_session = MagicMock()
+    mock_session.id = "session-123"
+    mock_ss = AsyncMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+
+    with patch("core.agent.resolve_env_key", return_value=None), \
+         patch("core.agent.resolve_model", return_value="gemini-2.5-flash"), \
+         patch("core.agent.LlmAgent"), \
+         patch("core.agent.InMemorySessionService", return_value=mock_ss), \
+         patch("core.agent.Runner", return_value=mock_runner), \
+         patch("core.agent.execution_logs") as mock_logs:
+
+        mock_logs.insert_one = AsyncMock()
+
+        return await run_agent(
+            request=_make_agent_request(agent_type=agent_type),
+            provider="gemini",
+            api_key="test-key",
+            user_id="user-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_usage_simple_mode_last_value_wins():
+    """Simple 모드: 이벤트가 2개여도 마지막 값으로 덮어쓴다 (누적 아님)."""
+    usage = _make_usage_mock(prompt=100, candidates=50, total=150)
+
+    event1 = _make_event(is_final=False, usage_metadata=usage)
+    event2 = _make_event(is_final=True, text="결과", usage_metadata=usage)
+
+    result = await _run_with_events([event1, event2], agent_type="simple")
+
+    assert result.usage is not None
+    assert result.usage.promptTokens == 100  # 200이 아님
+    assert result.usage.completionTokens == 50
+    assert result.usage.totalTokens == 150
+
+
+@pytest.mark.asyncio
+async def test_usage_none_event_skipped():
+    """usage_metadata=None 이벤트가 섞여도 오류 없이 처리된다."""
+    usage = _make_usage_mock(prompt=80, candidates=40, total=120)
+
+    event_no_usage = _make_event(is_final=False, usage_metadata=None)
+    event_with_usage = _make_event(is_final=True, text="결과", usage_metadata=usage)
+
+    result = await _run_with_events([event_no_usage, event_with_usage], agent_type="simple")
+
+    assert result.usage is not None
+    assert result.usage.promptTokens == 80
+
+
+@pytest.mark.asyncio
+async def test_usage_none_prompt_token_treated_as_zero():
+    """prompt_token_count=None이면 or 0 패턴으로 0으로 처리된다."""
+    usage = _make_usage_mock(prompt=None, candidates=30, total=30)
+
+    event = _make_event(is_final=True, text="결과", usage_metadata=usage)
+
+    result = await _run_with_events([event], agent_type="simple")
+
+    assert result.usage is not None
+    assert result.usage.promptTokens == 0
+    assert result.usage.completionTokens == 30
+
+
+@pytest.mark.asyncio
+async def test_usage_all_zero_returns_none():
+    """input + output 모두 0이면 usage는 None이다."""
+    usage = _make_usage_mock(prompt=0, candidates=0, total=0)
+
+    event = _make_event(is_final=True, text="결과", usage_metadata=usage)
+
+    result = await _run_with_events([event], agent_type="simple")
+
+    assert result.usage is None
