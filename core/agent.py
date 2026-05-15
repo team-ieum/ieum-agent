@@ -120,8 +120,7 @@ async def run_agent(
                 tools = get_tools_for_request(request.tools or [])
                 if google_access_token:
                     tools = _bind_google_token(tools, google_access_token)
-                if request.workflowContext:
-                    tools = _bind_workflow_context(tools, request.workflowContext)
+                tools = _bind_workflow_context(tools, request.workflowContext or {})
 
                 agent = LlmAgent(
                     name="ieum_agent",
