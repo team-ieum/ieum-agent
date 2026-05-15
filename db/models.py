@@ -77,3 +77,25 @@ class ModifyWorkflowLog(BaseModel):
     errorMessage: Optional[str] = None
     durationMs: int
     createdAt: datetime
+
+
+class ChatLog(BaseModel):
+    """
+    컬렉션: chat_logs
+
+    /v1/chat 호출 시 워크플로우 Reasoning 결과를 저장한다.
+    디버깅/모니터링 전용. 대화 히스토리는 저장하지 않는다.
+    """
+    prompt: str                                  # 사용자 자연어 요청
+    provider: str                                # CLAUDE | OPENAI | GEMINI
+    model: str                                   # 실제 사용된 모델명
+    userId: str                                  # X-User-Id 헤더
+    type: Optional[str] = None                   # WORKFLOW_GENERATED | WORKFLOW_MODIFIED | INTEGRATION_REQUIRED | CLARIFICATION_NEEDED
+    success: bool
+    nodeCount: Optional[int] = None              # 응답 노드 수 (WORKFLOW_* 타입만)
+    edgeCount: Optional[int] = None              # 응답 엣지 수 (WORKFLOW_* 타입만)
+    errorMessage: Optional[str] = None
+    durationMs: int
+    createdAt: datetime
+    rawResponse: Optional[str] = None            # LLM 원문 응답 (hallucination 디버깅용)
+    parsedResponse: Optional[Any] = None         # 파싱 성공 시 최종 JSON
