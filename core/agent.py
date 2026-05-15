@@ -12,7 +12,7 @@ from google.adk.tools.function_tool import FunctionTool
 from google.genai import types
 
 from api.schemas.request import AgentNodeRequest
-from api.schemas.response import AgentExecutionResult
+from api.schemas.response import AgentExecutionResult, UsageRecord
 from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
@@ -175,11 +175,22 @@ async def run_agent(
 
         if lock:
             async with lock:
-                output = await _execute()
+                output, input_tokens, output_tokens = await _execute()
         else:
-            output = await _execute()
+            output, input_tokens, output_tokens = await _execute()
 
-        result = AgentExecutionResult(success=True, status="COMPLETED", output=output)
+        usage = UsageRecord(
+            promptTokens=input_tokens,
+            completionTokens=output_tokens,
+            totalTokens=input_tokens + output_tokens,
+        ) if (input_tokens or output_tokens) else None
+
+        result = AgentExecutionResult(
+            success=True,
+            status="COMPLETED",
+            output=output,
+            usage=usage,
+        )
 
     except Exception as e:
         result = AgentExecutionResult(
