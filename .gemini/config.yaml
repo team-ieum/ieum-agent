@@ -1,0 +1,5 @@
+code_review:
+  comment_severity_threshold: MEDIUM
+  auto_review_on_pr_open: true
+  language: ko
+  style_guide: .gemini/styleguide.md
