@@ -147,6 +147,9 @@ async def run_agent(
                 )
 
                 output_parts = []
+                total_input_tokens = 0
+                total_output_tokens = 0
+
                 async for event in runner.run_async(
                     user_id=user_id,
                     session_id=session.id,
@@ -157,7 +160,11 @@ async def run_agent(
                             if hasattr(part, "text") and part.text:
                                 output_parts.append(part.text)
 
-                return "\n".join(output_parts) if output_parts else ""
+                    if hasattr(event, "usage_metadata") and event.usage_metadata:
+                        total_input_tokens += event.usage_metadata.prompt_token_count or 0
+                        total_output_tokens += event.usage_metadata.candidates_token_count or 0
+
+                return "\n".join(output_parts) if output_parts else "", total_input_tokens, total_output_tokens
 
             finally:
                 if env_key:
