@@ -9,7 +9,12 @@ from common.error_code import ErrorCode
 
 
 def override_credentials():
-    return {"provider": "CLAUDE", "api_key": "test-key", "user_id": "test-user"}
+    return {
+        "provider": "CLAUDE",
+        "api_key": "test-key",
+        "user_id": "test-user",
+        "google_access_token": None,
+    }
 
 
 app.dependency_overrides[get_llm_credentials] = override_credentials
