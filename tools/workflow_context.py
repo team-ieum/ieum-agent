@@ -1,7 +1,10 @@
+import json
+from typing import Any
+
 from common.error_code import ToolErrorCode
 
 
-def _resolve_field_path(data: dict, field_path: str) -> tuple[bool, any, str]:
+def _resolve_field_path(data: dict, field_path: str) -> tuple[bool, Any, str]:
     """
     점(.) 구분자로 된 필드 경로를 순차 접근하여 값을 반환한다.
 
