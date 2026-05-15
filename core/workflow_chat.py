@@ -227,6 +227,8 @@ async def chat_workflow(
 
     # 동적 주입 — 연동 현황
     available_text = ""
+    # displayName은 Spring Boot에서 검증된 credential 이름만 수신한다.
+    # 사용자가 직접 입력한 값이 그대로 전달되지 않음 — prompt injection 위험 낮음.
     for integration in available_integrations:
         if integration.get("credentials"):
             names = ", ".join(c["displayName"] for c in integration["credentials"])
@@ -234,6 +236,7 @@ async def chat_workflow(
         else:
             available_text += f"- {integration['provider']}\n"
 
+    # provider 값은 IntegrationProvider Enum으로 검증된 값만 수신한다.
     unavailable_text = ", ".join(u["provider"] for u in unavailable_integrations) or "없음"
 
     integration_section = f"""
