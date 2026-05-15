@@ -12,7 +12,7 @@ from google.adk.tools.function_tool import FunctionTool
 from google.genai import types
 
 from api.schemas.request import AgentNodeRequest
-from api.schemas.response import AgentExecutionResult
+from api.schemas.response import AgentExecutionResult, UsageRecord
 from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
@@ -111,7 +111,7 @@ async def run_agent(
     model = resolve_model(provider, request.model)
 
     try:
-        async def _execute():
+        async def _execute() -> tuple[str, int, int, int]:
             prev_value = os.environ.get(env_key) if env_key else None
             try:
                 if env_key:
@@ -147,6 +147,11 @@ async def run_agent(
                 )
 
                 output_parts = []
+                total_input_tokens = 0
+                total_output_tokens = 0
+                total_token_count = 0
+                is_react = request.agentType == "react"
+
                 async for event in runner.run_async(
                     user_id=user_id,
                     session_id=session.id,
@@ -157,7 +162,23 @@ async def run_agent(
                             if hasattr(part, "text") and part.text:
                                 output_parts.append(part.text)
 
-                return "\n".join(output_parts) if output_parts else ""
+                    if hasattr(event, "usage_metadata") and event.usage_metadata:
+                        input_count = event.usage_metadata.prompt_token_count or 0
+                        output_count = event.usage_metadata.candidates_token_count or 0
+                        total_count = event.usage_metadata.total_token_count or 0
+
+                        if is_react:
+                            # ReAct: LLM 다회 호출 → 각 호출 단위 누적
+                            total_input_tokens += input_count
+                            total_output_tokens += output_count
+                            total_token_count += total_count
+                        else:
+                            # Simple: 단일 LLM 호출 → 마지막 값으로 덮어쓰기
+                            total_input_tokens = input_count
+                            total_output_tokens = output_count
+                            total_token_count = total_count
+
+                return "\n".join(output_parts) if output_parts else "", total_input_tokens, total_output_tokens, total_token_count
 
             finally:
                 if env_key:
@@ -168,11 +189,22 @@ async def run_agent(
 
         if lock:
             async with lock:
-                output = await _execute()
+                output, input_tokens, output_tokens, total_tokens = await _execute()
         else:
-            output = await _execute()
+            output, input_tokens, output_tokens, total_tokens = await _execute()
 
-        result = AgentExecutionResult(success=True, status="COMPLETED", output=output)
+        usage = UsageRecord(
+            promptTokens=input_tokens,
+            completionTokens=output_tokens,
+            totalTokens=total_tokens or (input_tokens + output_tokens),
+        ) if (input_tokens or output_tokens) else None
+
+        result = AgentExecutionResult(
+            success=True,
+            status="COMPLETED",
+            output=output,
+            usage=usage,
+        )
 
     except Exception as e:
         result = AgentExecutionResult(
