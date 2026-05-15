@@ -21,6 +21,7 @@ from tools import get_tools_for_request
 from tools.google_sheets import google_sheets_read, google_sheets_write
 from tools.google_calendar import google_calendar_create, google_calendar_list
 from tools.google_drive import google_drive_read, google_drive_upload
+from tools.workflow_context import workflow_context as _workflow_context_fn
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,23 @@ _GOOGLE_TOOL_FUNCTIONS = {
     google_drive_read,
     google_drive_upload,
 }
+
+_WORKFLOW_CONTEXT_FUNCTIONS = {_workflow_context_fn}
+
+
+def _bind_workflow_context(tools: list, context_data: dict) -> list:
+    """workflow_context 도구의 workflow_context_data 파라미터를 실제 컨텍스트 데이터로 바인딩한다."""
+    bound = []
+    for tool in tools:
+        fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
+        if fn in _WORKFLOW_CONTEXT_FUNCTIONS:
+            bound_fn = functools.partial(fn, workflow_context_data=context_data)
+            bound_fn.__name__ = fn.__name__
+            bound_fn.__doc__ = fn.__doc__
+            bound.append(FunctionTool(bound_fn))
+        else:
+            bound.append(tool)
+    return bound
 
 
 def _bind_google_token(tools: list, google_access_token: str) -> list:
@@ -102,6 +120,7 @@ async def run_agent(
                 tools = get_tools_for_request(request.tools or [])
                 if google_access_token:
                     tools = _bind_google_token(tools, google_access_token)
+                tools = _bind_workflow_context(tools, request.workflowContext or {})
 
                 agent = LlmAgent(
                     name="ieum_agent",
