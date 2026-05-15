@@ -16,6 +16,7 @@ from tools.notion import (
 from tools.google_sheets import google_sheets_read, google_sheets_write
 from tools.google_calendar import google_calendar_create, google_calendar_list
 from tools.google_drive import google_drive_read, google_drive_upload
+from tools.workflow_context import workflow_context
 
 
 def get_tools_for_request(tool_names: list) -> list:
@@ -36,6 +37,7 @@ def get_tools_for_request(tool_names: list) -> list:
         "builtin:google_calendar_list": FunctionTool(google_calendar_list),
         "builtin:google_drive_read": FunctionTool(google_drive_read),
         "builtin:google_drive_upload": FunctionTool(google_drive_upload),
+        "builtin:workflow_context": FunctionTool(workflow_context),
         "builtin:json_parse": FunctionTool(json_parse),
         "builtin:text_extract": FunctionTool(text_extract),
         "builtin:date_format": FunctionTool(date_format),
