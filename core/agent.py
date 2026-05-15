@@ -34,7 +34,7 @@ _GOOGLE_TOOL_FUNCTIONS = {
     google_drive_upload,
 }
 
-_WORKFLOW_CONTEXT_FUNCTION = {_workflow_context_fn}
+_WORKFLOW_CONTEXT_FUNCTIONS = {_workflow_context_fn}
 
 
 def _bind_workflow_context(tools: list, context_data: dict) -> list:
@@ -42,7 +42,7 @@ def _bind_workflow_context(tools: list, context_data: dict) -> list:
     bound = []
     for tool in tools:
         fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
-        if fn in _WORKFLOW_CONTEXT_FUNCTION:
+        if fn in _WORKFLOW_CONTEXT_FUNCTIONS:
             bound_fn = functools.partial(fn, workflow_context_data=context_data)
             bound_fn.__name__ = fn.__name__
             bound_fn.__doc__ = fn.__doc__
