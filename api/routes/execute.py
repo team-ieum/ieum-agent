@@ -11,4 +11,10 @@ async def execute(
     request: AgentNodeRequest,
     credentials: dict = Depends(get_llm_credentials)
 ):
-    return await run_agent(request, credentials["provider"], credentials["api_key"], credentials["user_id"])
+    return await run_agent(
+        request,
+        credentials["provider"],
+        credentials["api_key"],
+        credentials["user_id"],
+        credentials.get("google_access_token"),
+    )

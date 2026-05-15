@@ -88,6 +88,12 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 - builtin:json_parse        : JSON 문자열에서 특정 키 값 추출 (key_path 점 표기법 지원)
 - builtin:text_extract      : 텍스트에서 정규식 패턴으로 값 추출
 - builtin:date_format       : 날짜 문자열 포맷 변환 (ISO 8601 자동 파싱, 타임존 지원)
+- builtin:google_sheets_read    : Google Sheets 데이터 읽기 (access_token, spreadsheet_id, range 필요)
+- builtin:google_sheets_write   : Google Sheets 데이터 쓰기 (access_token, spreadsheet_id, range, values 필요)
+- builtin:google_calendar_create: Google Calendar 일정 생성 (access_token, summary, start_datetime, end_datetime 필요)
+- builtin:google_calendar_list  : Google Calendar 일정 조회 (access_token, time_min, time_max 필요)
+- builtin:google_drive_read     : Google Drive 파일 읽기 (access_token, file_id 필요)
+- builtin:google_drive_upload   : Google Drive 파일 업로드 (access_token, name, content 필요)
 - slack                     : Slack 메시지 발송
 - discord                   : Discord 웹훅 메시지 발송
 - gmail                     : Gmail 발송
@@ -111,6 +117,8 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 10. changeDescription은 반드시 사용자 요청과 동일한 언어로 작성한다.
     한국어로 요청하면 한국어로, 영어로 요청하면 영어로 작성한다.
 11. 서로 다른 외부 서비스를 호출하는 작업은 반드시 별도의 AI 노드로 분리한다.
+12. Google 빌트인 도구(builtin:google_sheets_*, builtin:google_calendar_*, builtin:google_drive_*)의
+    access_token 파라미터는 빈 문자열("")로 설정한다. Spring Boot에서 실행 시 주입한다.
 """
 
 
