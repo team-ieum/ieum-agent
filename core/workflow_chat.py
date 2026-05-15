@@ -312,6 +312,7 @@ async def chat_workflow(
                 else:
                     os.environ[env_key] = prev_value
 
+    raw_output = None
     if lock:
         async with lock:
             raw_output = await _execute()
