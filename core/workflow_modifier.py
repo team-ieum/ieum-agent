@@ -94,9 +94,11 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 - builtin:google_calendar_list  : Google Calendar 일정 조회 (access_token, time_min, time_max 필요)
 - builtin:google_drive_read     : Google Drive 파일 읽기 (access_token, file_id 필요)
 - builtin:google_drive_upload   : Google Drive 파일 업로드 (access_token, name, content 필요)
+- builtin:workflow_context      : 이전 노드의 출력 결과 조회 (get_node_output | list_completed_nodes | get_trigger_input)
 - slack                     : Slack 메시지 발송
 - discord                   : Discord 웹훅 메시지 발송
 - gmail                     : Gmail 발송
+- mcp                       : 외부 MCP 서버 Tool 호출 (server_url, tool_name, arguments 필요)
 
 ## Variable Reference Syntax
 이전 노드의 결과를 참조할 때는 반드시 아래 형식을 사용한다.
