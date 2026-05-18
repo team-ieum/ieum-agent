@@ -281,3 +281,80 @@ async def test_call_mcp_tool_exception_returns_json_error():
     parsed = json.loads(result)
     assert "error" in parsed
     assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
+
+
+@pytest.mark.asyncio
+async def test_call_mcp_tool_success_data_attribute_content():
+    """content에 data 속성이 있는 경우 json.dumps로 직렬화하여 output에 포함한다."""
+    mock_result = MagicMock()
+    mock_result.isError = False
+
+    # data 속성만 가진 content (text 없음)
+    mock_content = MagicMock(spec=["data"])
+    mock_content.data = {"key": "value", "count": 42}
+    mock_result.content = [mock_content]
+
+    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
+
+    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
+         patch("tools.mcp.ClientSession", return_value=mock_session):
+        result = await call_mcp_tool(
+            server_url="http://mcp-server/sse",
+            tool_name="some_tool",
+            arguments={},
+        )
+
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    # data 속성은 json.dumps 후 raw_output에 포함되므로
+    # 최종 output은 해당 JSON 문자열을 다시 파싱한 객체다 (이중 직렬화 방지)
+    assert parsed["output"] == {"key": "value", "count": 42}
+
+
+@pytest.mark.asyncio
+async def test_call_mcp_tool_success_no_attribute_content():
+    """content에 text도 data도 없는 경우 str()로 변환하여 output에 포함한다."""
+    mock_result = MagicMock()
+    mock_result.isError = False
+
+    # text도 data도 없는 content → str(content) fallback
+    mock_content = MagicMock(spec=[])
+    mock_result.content = [mock_content]
+
+    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
+
+    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
+         patch("tools.mcp.ClientSession", return_value=mock_session):
+        result = await call_mcp_tool(
+            server_url="http://mcp-server/sse",
+            tool_name="some_tool",
+            arguments={},
+        )
+
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    # str(MagicMock(spec=[])) 결과가 output으로 포함된다
+    assert parsed["output"] is not None
+
+
+@pytest.mark.asyncio
+async def test_call_mcp_tool_success_empty_content():
+    """result.content가 빈 목록일 때 output=None, 메시지에 '결과 없음'이 포함된다."""
+    mock_result = MagicMock()
+    mock_result.isError = False
+    mock_result.content = []  # 빈 목록
+
+    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
+
+    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
+         patch("tools.mcp.ClientSession", return_value=mock_session):
+        result = await call_mcp_tool(
+            server_url="http://mcp-server/sse",
+            tool_name="some_tool",
+            arguments={},
+        )
+
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    assert parsed["output"] is None
+    assert "결과 없음" in parsed["message"]
