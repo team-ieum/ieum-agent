@@ -107,6 +107,7 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 - slack                     : Slack 메시지 발송
 - discord                   : Discord 웹훅 메시지 발송
 - gmail                     : Gmail 발송
+- mcp                       : 외부 MCP 서버 Tool 호출 (server_url, tool_name, arguments 필요)
 
 ## Variable Reference Syntax
 이전 노드의 결과를 참조할 때는 반드시 아래 형식을 사용한다.
