@@ -166,29 +166,46 @@ def test_get_tools_for_request_unknown():
 # MCP
 # ---------------------------------------------------------------------------
 
+def _make_mcp_text_content(text: str):
+    """text 속성만 가진 MCP content mock을 생성한다."""
+    mock_content = MagicMock(spec=["text"])
+    mock_content.text = text
+    return mock_content
+
+
+def _make_mcp_session_context(call_tool_result):
+    """sse_client + ClientSession 2단계 컨텍스트 매니저 mock을 생성한다.
+
+    Returns:
+        (mock_sse_cm, mock_session) 튜플
+        — patch("tools.mcp.sse_client") return_value로 mock_sse_cm 사용
+        — patch("tools.mcp.ClientSession") return_value로 mock_session 사용
+    """
+    mock_session = AsyncMock()
+    mock_session.initialize = AsyncMock()
+    mock_session.call_tool = AsyncMock(return_value=call_tool_result)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+
+    mock_sse_cm = MagicMock()
+    mock_streams = (AsyncMock(), AsyncMock())
+    mock_sse_cm.__aenter__ = AsyncMock(return_value=mock_streams)
+    mock_sse_cm.__aexit__ = AsyncMock(return_value=None)
+
+    return mock_sse_cm, mock_session
+
+
 @pytest.mark.asyncio
 async def test_call_mcp_tool_success_returns_json():
     """MCP 도구 성공 시 success=True와 output 필드를 포함한 JSON을 반환한다."""
     mock_result = MagicMock()
     mock_result.isError = False
+    mock_result.content = [_make_mcp_text_content("some result text")]
 
-    mock_content = MagicMock()
-    mock_content.text = "some result text"
-    mock_result.content = [mock_content]
+    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
 
-    mock_session = AsyncMock()
-    mock_session.initialize = AsyncMock()
-    mock_session.call_tool = AsyncMock(return_value=mock_result)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-
-    mock_streams = (AsyncMock(), AsyncMock())
-
-    with patch("tools.mcp.sse_client") as mock_sse, \
+    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
          patch("tools.mcp.ClientSession", return_value=mock_session):
-        mock_sse.return_value.__aenter__ = AsyncMock(return_value=mock_streams)
-        mock_sse.return_value.__aexit__ = AsyncMock(return_value=None)
-
         result = await call_mcp_tool(
             server_url="http://mcp-server/sse",
             tool_name="some_tool",
@@ -206,24 +223,12 @@ async def test_call_mcp_tool_success_json_output_not_double_serialized():
     """MCP 결과가 JSON 문자열인 경우 이중 직렬화 없이 객체로 포함된다."""
     mock_result = MagicMock()
     mock_result.isError = False
+    mock_result.content = [_make_mcp_text_content('{"status": "ok", "count": 3}')]
 
-    mock_content = MagicMock()
-    mock_content.text = '{"status": "ok", "count": 3}'
-    mock_result.content = [mock_content]
+    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
 
-    mock_session = AsyncMock()
-    mock_session.initialize = AsyncMock()
-    mock_session.call_tool = AsyncMock(return_value=mock_result)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-
-    mock_streams = (AsyncMock(), AsyncMock())
-
-    with patch("tools.mcp.sse_client") as mock_sse, \
+    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
          patch("tools.mcp.ClientSession", return_value=mock_session):
-        mock_sse.return_value.__aenter__ = AsyncMock(return_value=mock_streams)
-        mock_sse.return_value.__aexit__ = AsyncMock(return_value=None)
-
         result = await call_mcp_tool(
             server_url="http://mcp-server/sse",
             tool_name="some_tool",
@@ -242,24 +247,12 @@ async def test_call_mcp_tool_error_returns_json_error():
     """MCP 도구 isError=True 시 error 키를 포함한 JSON을 반환한다."""
     mock_result = MagicMock()
     mock_result.isError = True
+    mock_result.content = [_make_mcp_text_content("tool execution failed")]
 
-    mock_content = MagicMock()
-    mock_content.text = "tool execution failed"
-    mock_result.content = [mock_content]
+    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
 
-    mock_session = AsyncMock()
-    mock_session.initialize = AsyncMock()
-    mock_session.call_tool = AsyncMock(return_value=mock_result)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-
-    mock_streams = (AsyncMock(), AsyncMock())
-
-    with patch("tools.mcp.sse_client") as mock_sse, \
+    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
          patch("tools.mcp.ClientSession", return_value=mock_session):
-        mock_sse.return_value.__aenter__ = AsyncMock(return_value=mock_streams)
-        mock_sse.return_value.__aexit__ = AsyncMock(return_value=None)
-
         result = await call_mcp_tool(
             server_url="http://mcp-server/sse",
             tool_name="some_tool",
@@ -274,10 +267,11 @@ async def test_call_mcp_tool_error_returns_json_error():
 @pytest.mark.asyncio
 async def test_call_mcp_tool_exception_returns_json_error():
     """MCP 연결 실패 등 예외 발생 시 error 키를 포함한 JSON을 반환한다."""
-    with patch("tools.mcp.sse_client") as mock_sse:
-        mock_sse.return_value.__aenter__ = AsyncMock(side_effect=Exception("connection refused"))
-        mock_sse.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_sse_cm = MagicMock()
+    mock_sse_cm.__aenter__ = AsyncMock(side_effect=Exception("connection refused"))
+    mock_sse_cm.__aexit__ = AsyncMock(return_value=None)
 
+    with patch("tools.mcp.sse_client", return_value=mock_sse_cm):
         result = await call_mcp_tool(
             server_url="http://mcp-server/sse",
             tool_name="some_tool",
