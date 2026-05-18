@@ -306,8 +306,7 @@ async def test_call_mcp_tool_success_data_attribute_content():
 
     parsed = json.loads(result)
     assert parsed["success"] is True
-    # data 속성은 json.dumps 후 raw_output에 포함되므로
-    # 최종 output은 해당 JSON 문자열을 다시 파싱한 객체다 (이중 직렬화 방지)
+    # data 속성 content는 dict 형태로 output에 포함된다
     assert parsed["output"] == {"key": "value", "count": 42}
 
 
@@ -334,7 +333,7 @@ async def test_call_mcp_tool_success_no_attribute_content():
     parsed = json.loads(result)
     assert parsed["success"] is True
     # str(MagicMock(spec=[])) 결과가 output으로 포함된다
-    assert parsed["output"] is not None
+    assert isinstance(parsed["output"], str)
 
 
 @pytest.mark.asyncio
