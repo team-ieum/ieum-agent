@@ -190,3 +190,31 @@ async def test_usage_all_zero_returns_none():
     result = await _run_with_events([event], agent_type="simple")
 
     assert result.usage is None
+
+
+# ---------------------------------------------------------------------------
+# X-Notion-Token 헤더 전달 경로 검증
+# ---------------------------------------------------------------------------
+
+def test_execute_notion_token_forwarded_to_run_agent():
+    """X-Notion-Token 헤더가 run_agent()의 notion_token keyword 인자로 전달된다."""
+    mock_result = AgentExecutionResult(success=True, output="ok")
+    with patch("api.routes.execute.run_agent", new=AsyncMock(return_value=mock_result)) as mock_run:
+        client.post(
+            "/v1/execute",
+            json=PAYLOAD,
+            headers={**HEADERS, "X-Notion-Token": "secret_test_token"},
+        )
+    assert mock_run.call_args.kwargs.get("notion_token") == "secret_test_token"
+
+
+def test_execute_no_notion_token_header_passes_none():
+    """X-Notion-Token 헤더가 없으면 run_agent()에 None이 전달된다."""
+    mock_result = AgentExecutionResult(success=True, output="ok")
+    with patch("api.routes.execute.run_agent", new=AsyncMock(return_value=mock_result)) as mock_run:
+        client.post(
+            "/v1/execute",
+            json=PAYLOAD,
+            headers=HEADERS,  # X-Notion-Token 없음
+        )
+    assert mock_run.call_args.kwargs.get("notion_token") is None

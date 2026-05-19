@@ -21,6 +21,13 @@ from tools import get_tools_for_request
 from tools.google_sheets import google_sheets_read, google_sheets_write
 from tools.google_calendar import google_calendar_create, google_calendar_list
 from tools.google_drive import google_drive_read, google_drive_upload
+from tools.notion import (
+    notion_create_page,
+    notion_read_page,
+    notion_search,
+    notion_update_page,
+    notion_append_block,
+)
 from tools.workflow_context import workflow_context as _workflow_context_fn
 
 logger = logging.getLogger(__name__)
@@ -32,6 +39,14 @@ _GOOGLE_TOOL_FUNCTIONS = {
     google_calendar_list,
     google_drive_read,
     google_drive_upload,
+}
+
+_NOTION_TOOL_FUNCTIONS = {
+    notion_create_page,
+    notion_read_page,
+    notion_search,
+    notion_update_page,
+    notion_append_block,
 }
 
 _WORKFLOW_CONTEXT_FUNCTIONS = {_workflow_context_fn}
@@ -59,6 +74,21 @@ def _bind_google_token(tools: list, google_access_token: str) -> list:
         fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
         if fn in _GOOGLE_TOOL_FUNCTIONS:
             bound_fn = functools.partial(fn, access_token=google_access_token)
+            bound_fn.__name__ = fn.__name__
+            bound_fn.__doc__ = fn.__doc__
+            bound.append(FunctionTool(bound_fn))
+        else:
+            bound.append(tool)
+    return bound
+
+
+def _bind_notion_token(tools: list, notion_token: str) -> list:
+    """notion_* 도구의 token 파라미터를 실제 Notion Integration Token으로 바인딩한다."""
+    bound = []
+    for tool in tools:
+        fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
+        if fn in _NOTION_TOOL_FUNCTIONS:
+            bound_fn = functools.partial(fn, token=notion_token)
             bound_fn.__name__ = fn.__name__
             bound_fn.__doc__ = fn.__doc__
             bound.append(FunctionTool(bound_fn))
@@ -101,6 +131,7 @@ async def run_agent(
     api_key: str,
     user_id: str,
     google_access_token: str | None = None,
+    notion_token: str | None = None,
 ) -> AgentExecutionResult:
     start = time.monotonic()
     result = AgentExecutionResult(success=False)
@@ -120,6 +151,8 @@ async def run_agent(
                 tools = get_tools_for_request(request.tools or [])
                 if google_access_token:
                     tools = _bind_google_token(tools, google_access_token)
+                if notion_token:
+                    tools = _bind_notion_token(tools, notion_token)
                 tools = _bind_workflow_context(tools, request.workflowContext or {})
 
                 agent = LlmAgent(

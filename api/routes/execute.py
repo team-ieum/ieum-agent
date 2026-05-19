@@ -16,5 +16,6 @@ async def execute(
         credentials["provider"],
         credentials["api_key"],
         credentials["user_id"],
-        credentials.get("google_access_token"),
+        google_access_token=credentials.get("google_access_token"),
+        notion_token=credentials.get("notion_token"),
     )
