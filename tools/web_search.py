@@ -102,14 +102,14 @@ def _parse_results(html_text: str, max_results: int) -> list[dict[str, str]]:
 
 async def web_search(
     query: str,
-    maxResults: int = 5,
+    max_results: int = 5,
 ) -> str:
     """
     웹 검색 결과를 가져옵니다.
 
     Args:
         query: 검색어
-        maxResults: 반환할 최대 검색 결과 수 (1~10)
+        max_results: 반환할 최대 검색 결과 수 (1~10)
 
     Returns:
         title, url, snippet 목록을 포함한 JSON 문자열
@@ -117,7 +117,7 @@ async def web_search(
     if not query or not query.strip():
         return json.dumps({"error": "검색어는 필수입니다."}, ensure_ascii=False)
 
-    max_results = max(1, min(maxResults, _MAX_RESULTS))
+    max_results = max(1, min(max_results, _MAX_RESULTS))
     params = urlencode({"q": query.strip()})
 
     try:

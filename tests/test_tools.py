@@ -60,7 +60,7 @@ async def test_http_fetch_headers_json_success():
         result = await http_fetch(
             url="https://example.com",
             method="GET",
-            headersJson='{"Accept":"application/json"}',
+            headers_json='{"Accept":"application/json"}',
         )
 
     parsed = json.loads(result)
@@ -76,12 +76,12 @@ async def test_http_fetch_invalid_headers_json_returns_error():
         result = await http_fetch(
             url="https://example.com",
             method="GET",
-            headersJson="not-json",
+            headers_json="not-json",
         )
 
     parsed = json.loads(result)
     assert "error" in parsed
-    assert "headersJson" in parsed["error"]
+    assert "headers_json" in parsed["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ async def test_web_search_success_returns_structured_results():
     mock_client = _make_async_get_client(get_mock)
 
     with patch("httpx.AsyncClient", return_value=mock_client):
-        result = await web_search("world economy news", maxResults=2)
+        result = await web_search("world economy news", max_results=2)
 
     parsed = json.loads(result)
     assert parsed["success"] is True
