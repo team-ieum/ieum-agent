@@ -1,3 +1,4 @@
+import json
 import ipaddress
 import socket
 from urllib.parse import urlparse
@@ -9,6 +10,24 @@ from common.error_code import ToolErrorCode
 _MAX_RESPONSE_BYTES = 1 * 1024 * 1024
 _TIMEOUT = 30.0
 _MAX_REDIRECTS = 5
+
+
+def _parse_headers(headers_json: str | dict | None) -> tuple[dict[str, str], str | None]:
+    if not headers_json:
+        return {}, None
+
+    if isinstance(headers_json, dict):
+        parsed = headers_json
+    else:
+        try:
+            parsed = json.loads(headers_json)
+        except json.JSONDecodeError:
+            return {}, "headers_json은 JSON 객체 문자열이어야 합니다."
+
+    if not isinstance(parsed, dict):
+        return {}, "headers_json은 JSON 객체 문자열이어야 합니다."
+
+    return {str(key): str(value) for key, value in parsed.items()}, None
 
 
 def _is_private_host(hostname: str) -> bool:
@@ -26,8 +45,8 @@ def _is_private_host(hostname: str) -> bool:
 
 async def http_fetch(
     url: str,
-    method: str,
-    headers: dict = None,
+    method: str = "GET",
+    headers_json: str | dict | None = None,
     body: str = None,
 ) -> str:
     """
@@ -36,14 +55,12 @@ async def http_fetch(
     Args:
         url: 요청 URL (https:// 필수)
         method: HTTP 메서드 (GET, POST, PUT, PATCH, DELETE)
-        headers: 요청 헤더 key-value (optional)
+        headers_json: 요청 헤더 JSON 객체 문자열 또는 dict (optional, 예: {"Accept":"application/json"})
         body: 요청 본문 문자열 (POST/PUT/PATCH 시 optional)
 
     Returns:
         statusCode, headers, body를 포함한 JSON 문자열
     """
-    import json
-
     parsed = urlparse(url)
     if parsed.scheme != "https":
         return json.dumps({"error": "HTTPS URL만 허용됩니다."}, ensure_ascii=False)
@@ -57,6 +74,10 @@ async def http_fetch(
             "error": f"지원하지 않는 HTTP 메서드입니다. 허용된 메서드: {', '.join(sorted(_ALLOWED_METHODS))}"
         }, ensure_ascii=False)
 
+    headers, header_error = _parse_headers(headers_json)
+    if header_error:
+        return json.dumps({"error": header_error}, ensure_ascii=False)
+
     try:
         async with httpx.AsyncClient(
             follow_redirects=True,
@@ -66,7 +87,7 @@ async def http_fetch(
             response = await client.request(
                 method=method.upper(),
                 url=url,
-                headers=headers or {},
+                headers=headers,
                 content=body.encode() if body else None,
             )
 
