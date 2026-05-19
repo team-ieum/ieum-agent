@@ -12,6 +12,9 @@ _TIMEOUT = 15.0
 _MAX_RESULTS = 10
 
 
+# NOTE: DuckDuckGo HTML 내부 CSS 클래스(result__a, result__snippet)에 의존한다.
+# DuckDuckGo가 HTML 구조를 변경하면 예고 없이 무결과를 반환할 수 있다.
+# 프로덕션 전 공식 API(Brave Search API, SerpAPI 등)로 교체를 권장한다.
 class _DuckDuckGoResultParser(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -59,7 +62,7 @@ class _DuckDuckGoResultParser(HTMLParser):
             self._append_current()
             return
 
-        if self._current is not None and tag == "div":
+        if self._current is not None and tag == "div" and self._current["snippet"]:
             self._append_current()
 
     def _append_current(self):
