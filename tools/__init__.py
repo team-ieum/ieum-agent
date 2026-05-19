@@ -23,60 +23,66 @@ from tools.google_drive import google_drive_read, google_drive_upload
 from tools.workflow_context import workflow_context
 
 
+def _make_partial(fn, **bound_args):
+    """fn의 일부 파라미터를 바인딩하고 __signature__에서 해당 파라미터를 제거한 partial을 반환한다."""
+    sig = inspect.signature(fn)
+    p = functools.partial(fn, **bound_args)
+    p.__name__ = fn.__name__
+    p.__doc__ = fn.__doc__
+    p.__signature__ = sig.replace(
+        parameters=[v for k, v in sig.parameters.items() if k not in bound_args]
+    )
+    return p
+
+
 def _bind_config(fn, config: dict | None):
     if not config:
         return fn
 
-    signature = inspect.signature(fn)
+    sig = inspect.signature(fn)
     bindable_args = {
         key: value
         for key, value in config.items()
-        if key in signature.parameters
+        if key in sig.parameters
     }
 
     if not bindable_args:
         return fn
 
-    bound_fn = functools.partial(fn, **bindable_args)
-    bound_fn.__name__ = fn.__name__
-    bound_fn.__doc__ = fn.__doc__
-    bound_fn.__signature__ = signature.replace(parameters=[
-        parameter
-        for name, parameter in signature.parameters.items()
-        if name not in bindable_args
-    ])
-    return bound_fn
+    return _make_partial(fn, **bindable_args)
+
+
+_TOOL_MAP: dict = {
+    "slack": send_slack_message,
+    "discord": send_discord_webhook,
+    "gmail": send_gmail,
+    "mcp": call_mcp_tool,
+    "builtin:http_fetch": http_fetch,
+    "builtin:web_search": web_search,
+    "builtin:notion_create_page": notion_create_page,
+    "builtin:notion_read_page": notion_read_page,
+    "builtin:notion_search": notion_search,
+    "builtin:notion_update_page": notion_update_page,
+    "builtin:notion_append_block": notion_append_block,
+    "builtin:google_sheets_read": google_sheets_read,
+    "builtin:google_sheets_write": google_sheets_write,
+    "builtin:google_calendar_create": google_calendar_create,
+    "builtin:google_calendar_list": google_calendar_list,
+    "builtin:google_drive_read": google_drive_read,
+    "builtin:google_drive_upload": google_drive_upload,
+    "builtin:workflow_context": workflow_context,
+    "builtin:json_parse": json_parse,
+    "builtin:text_extract": text_extract,
+    "builtin:date_format": date_format,
+}
 
 
 def get_tools_for_request(tool_names: list) -> list:
-    tool_map = {
-        "slack": send_slack_message,
-        "discord": send_discord_webhook,
-        "gmail": send_gmail,
-        "mcp": call_mcp_tool,
-        "builtin:http_fetch": http_fetch,
-        "builtin:web_search": web_search,
-        "builtin:notion_create_page": notion_create_page,
-        "builtin:notion_read_page": notion_read_page,
-        "builtin:notion_search": notion_search,
-        "builtin:notion_update_page": notion_update_page,
-        "builtin:notion_append_block": notion_append_block,
-        "builtin:google_sheets_read": google_sheets_read,
-        "builtin:google_sheets_write": google_sheets_write,
-        "builtin:google_calendar_create": google_calendar_create,
-        "builtin:google_calendar_list": google_calendar_list,
-        "builtin:google_drive_read": google_drive_read,
-        "builtin:google_drive_upload": google_drive_upload,
-        "builtin:workflow_context": workflow_context,
-        "builtin:json_parse": json_parse,
-        "builtin:text_extract": text_extract,
-        "builtin:date_format": date_format,
-    }
     result = []
     for item in tool_names:
         name = item.get("name") if isinstance(item, dict) else item
-        if name in tool_map:
+        if name in _TOOL_MAP:
             config = item.get("config") if isinstance(item, dict) else None
-            configured_fn = _bind_config(tool_map[name], config)
+            configured_fn = _bind_config(_TOOL_MAP[name], config)
             result.append(FunctionTool(configured_fn))
     return result

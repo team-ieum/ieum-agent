@@ -63,21 +63,24 @@ def _get_base_function(fn):
     return fn
 
 
+def _make_partial(fn, **bound_args):
+    """fn의 일부 파라미터를 바인딩하고 __signature__에서 해당 파라미터를 제거한 partial을 반환한다."""
+    sig = inspect.signature(fn)
+    p = functools.partial(fn, **bound_args)
+    p.__name__ = fn.__name__
+    p.__doc__ = fn.__doc__
+    p.__signature__ = sig.replace(
+        parameters=[v for k, v in sig.parameters.items() if k not in bound_args]
+    )
+    return p
+
+
 def _bind_tool_argument(tool, **bound_args):
     fn = _get_tool_function(tool)
     if fn is None:
         return tool
 
-    base_fn = _get_base_function(fn)
-    bound_fn = functools.partial(fn, **bound_args)
-    bound_fn.__name__ = base_fn.__name__
-    bound_fn.__doc__ = base_fn.__doc__
-    signature = inspect.signature(fn)
-    bound_fn.__signature__ = signature.replace(parameters=[
-        parameter
-        for name, parameter in signature.parameters.items()
-        if name not in bound_args
-    ])
+    bound_fn = _make_partial(fn, **bound_args)
     return FunctionTool(bound_fn)
 
 
