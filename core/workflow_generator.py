@@ -60,6 +60,7 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
   "model": null,
   "agentType": "simple | react",   // 도구 사용이 필요하면 react, 아니면 simple
   "tools": [
+    {"name": "builtin:web_search"},
     {"name": "builtin:http_fetch"},
     {"name": "builtin:notion_create_page"}
   ]
@@ -88,6 +89,7 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 }
 
 ## Available Tools (AI 노드에서 사용 가능)
+- builtin:web_search        : 웹 검색 결과 조회 (query, maxResults 필요)
 - builtin:http_fetch        : 외부 URL에 HTTP 요청 (뉴스 API, 외부 서비스 호출 등)
 - builtin:notion_create_page: Notion 페이지 생성 (token, parent_page_id 필요)
 - builtin:notion_read_page  : Notion 페이지 내용 읽기 (token, page_id 필요)

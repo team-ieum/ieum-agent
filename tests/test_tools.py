@@ -8,8 +8,10 @@ import pytest
 from common.error_code import ToolErrorCode
 from tools.discord import send_discord_webhook
 from tools.gmail import send_gmail
+from tools.http_fetch import http_fetch
 from tools.mcp import call_mcp_tool
 from tools.slack import send_slack_message
+from tools.web_search import web_search
 from tools import get_tools_for_request
 
 
@@ -20,6 +22,115 @@ def _make_async_http_client(post_mock):
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
     return mock_client
+
+
+def _make_async_request_client(request_mock):
+    """request 메서드를 가진 httpx.AsyncClient 컨텍스트 매니저 mock 생성 헬퍼"""
+    mock_client = AsyncMock()
+    mock_client.request = request_mock
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    return mock_client
+
+
+def _make_async_get_client(get_mock):
+    """get 메서드를 가진 httpx.AsyncClient 컨텍스트 매니저 mock 생성 헬퍼"""
+    mock_client = AsyncMock()
+    mock_client.get = get_mock
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    return mock_client
+
+
+# ---------------------------------------------------------------------------
+# HTTP Fetch
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_http_fetch_headers_json_success():
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.headers = {"content-type": "application/json"}
+    mock_response.content = b'{"ok":true}'
+    request_mock = AsyncMock(return_value=mock_response)
+    mock_client = _make_async_request_client(request_mock)
+
+    with patch("tools.http_fetch._is_private_host", return_value=False), \
+         patch("httpx.AsyncClient", return_value=mock_client):
+        result = await http_fetch(
+            url="https://example.com",
+            method="GET",
+            headersJson='{"Accept":"application/json"}',
+        )
+
+    parsed = json.loads(result)
+    assert parsed["statusCode"] == 200
+    assert parsed["body"] == '{"ok":true}'
+    request_mock.assert_awaited_once()
+    assert request_mock.call_args.kwargs["headers"] == {"Accept": "application/json"}
+
+
+@pytest.mark.asyncio
+async def test_http_fetch_invalid_headers_json_returns_error():
+    with patch("tools.http_fetch._is_private_host", return_value=False):
+        result = await http_fetch(
+            url="https://example.com",
+            method="GET",
+            headersJson="not-json",
+        )
+
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "headersJson" in parsed["error"]
+
+
+# ---------------------------------------------------------------------------
+# Web Search
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_web_search_success_returns_structured_results():
+    html_body = """
+    <html><body>
+      <a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fnews">Example News</a>
+      <a class="result__snippet">Global economy update</a>
+      <a class="result__a" href="https://example.org/report">Example Report</a>
+      <a class="result__snippet">Markets and finance report</a>
+    </body></html>
+    """
+    mock_response = MagicMock()
+    mock_response.text = html_body
+    mock_response.raise_for_status = MagicMock()
+    get_mock = AsyncMock(return_value=mock_response)
+    mock_client = _make_async_get_client(get_mock)
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        result = await web_search("world economy news", maxResults=2)
+
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    assert parsed["query"] == "world economy news"
+    assert parsed["results"] == [
+        {
+            "title": "Example News",
+            "url": "https://example.com/news",
+            "snippet": "Global economy update",
+        },
+        {
+            "title": "Example Report",
+            "url": "https://example.org/report",
+            "snippet": "Markets and finance report",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_web_search_empty_query_returns_error():
+    result = await web_search(" ")
+
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "검색어" in parsed["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -153,13 +264,35 @@ async def test_send_gmail_auth_failure():
 # ---------------------------------------------------------------------------
 
 def test_get_tools_for_request():
-    result = get_tools_for_request([{"name": "slack"}, {"name": "discord"}])
-    assert len(result) == 2
+    result = get_tools_for_request([{"name": "slack"}, {"name": "discord"}, {"name": "builtin:web_search"}])
+    assert len(result) == 3
 
 
 def test_get_tools_for_request_unknown():
     result = get_tools_for_request([{"name": "unknown_tool"}])
     assert result == []
+
+
+def test_get_tools_for_request_binds_tool_config():
+    result = get_tools_for_request([
+        {
+            "name": "builtin:notion_create_page",
+            "config": {
+                "parent_page_id": "page-id",
+                "title": "테스트 제목",
+                "unknown": "ignored",
+            },
+        }
+    ])
+
+    declaration = result[0]._get_declaration()
+    properties = declaration.parameters.properties
+
+    assert "parent_page_id" not in properties
+    assert "title" not in properties
+    assert "unknown" not in properties
+    assert "token" in properties
+    assert "content" in properties
 
 
 # ---------------------------------------------------------------------------
