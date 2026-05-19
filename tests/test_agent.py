@@ -17,10 +17,12 @@ from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
 from common.error_code import ErrorCode
 from core.agent import run_agent
+from core.agent import _bind_notion_token
 from core.provider_config import resolve_model
 from core.env_lock import _env_locks
 from core.config import settings
 from core.provider_config import MODEL_MAP as _MODEL_MAP, ENV_KEY_MAP as _ENV_KEY_MAP
+from tools import get_tools_for_request
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +100,28 @@ def test_env_key_map_has_known_providers():
     assert _ENV_KEY_MAP["CLAUDE"] == "ANTHROPIC_API_KEY"
     assert _ENV_KEY_MAP["OPENAI"] == "OPENAI_API_KEY"
     assert _ENV_KEY_MAP["GEMINI"] == "GOOGLE_API_KEY"
+
+
+def test_bind_notion_token_preserves_config_binding():
+    """config로 일부 인자가 바인딩된 Notion 도구에도 token 바인딩이 적용된다."""
+    tools = get_tools_for_request([
+        {
+            "name": "builtin:notion_create_page",
+            "config": {
+                "parent_page_id": "page-id",
+                "title": "테스트 제목",
+            },
+        }
+    ])
+
+    bound_tools = _bind_notion_token(tools, "secret-token")
+    declaration = bound_tools[0]._get_declaration()
+    properties = declaration.parameters.properties
+
+    assert "token" not in properties
+    assert "parent_page_id" not in properties
+    assert "title" not in properties
+    assert "content" in properties
 
 
 def test_resolve_model_uses_settings_default():
