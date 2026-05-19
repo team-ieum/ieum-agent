@@ -17,4 +17,5 @@ async def execute(
         credentials["api_key"],
         credentials["user_id"],
         credentials.get("google_access_token"),
+        credentials.get("notion_token"),
     )
