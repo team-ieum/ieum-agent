@@ -73,9 +73,9 @@ def _bind_google_token(tools: list, google_access_token: str) -> list:
     for tool in tools:
         fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
         if fn in _GOOGLE_TOOL_FUNCTIONS:
-            bound_fn = functools.partial(fn, access_token=google_access_token)
-            bound_fn.__name__ = fn.__name__
-            bound_fn.__doc__ = fn.__doc__
+            @functools.wraps(fn)
+            async def bound_fn(*args, _fn=fn, **kwargs):
+                return await _fn(*args, access_token=google_access_token, **kwargs)
             bound.append(FunctionTool(bound_fn))
         else:
             bound.append(tool)
@@ -88,9 +88,9 @@ def _bind_notion_token(tools: list, notion_token: str) -> list:
     for tool in tools:
         fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
         if fn in _NOTION_TOOL_FUNCTIONS:
-            bound_fn = functools.partial(fn, token=notion_token)
-            bound_fn.__name__ = fn.__name__
-            bound_fn.__doc__ = fn.__doc__
+            @functools.wraps(fn)
+            async def bound_fn(*args, _fn=fn, **kwargs):
+                return await _fn(*args, token=notion_token, **kwargs)
             bound.append(FunctionTool(bound_fn))
         else:
             bound.append(tool)
