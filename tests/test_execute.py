@@ -192,6 +192,49 @@ async def test_usage_all_zero_returns_none():
     assert result.usage is None
 
 
+@pytest.mark.asyncio
+async def test_usage_react_mode_accumulates():
+    """ReAct 모드: 이벤트가 여러 개이면 토큰이 누적된다 (Simple 덮어쓰기와 반대)."""
+    usage1 = _make_usage_mock(prompt=100, candidates=50, total=150)
+    usage2 = _make_usage_mock(prompt=80, candidates=40, total=120)
+
+    event1 = _make_event(is_final=False, usage_metadata=usage1)
+    event2 = _make_event(is_final=True, text="결과", usage_metadata=usage2)
+
+    result = await _run_with_events([event1, event2], agent_type="react")
+
+    assert result.usage is not None
+    assert result.usage.promptTokens == 180       # 100 + 80 (누적)
+    assert result.usage.completionTokens == 90    # 50 + 40 (누적)
+    assert result.usage.totalTokens == 270        # 150 + 120 (누적)
+
+
+@pytest.mark.asyncio
+async def test_usage_react_mode_none_event_skipped():
+    """ReAct 모드: usage_metadata=None 이벤트는 0으로 처리된다."""
+    usage = _make_usage_mock(prompt=60, candidates=30, total=90)
+
+    event_no_usage = _make_event(is_final=False, usage_metadata=None)
+    event_with_usage = _make_event(is_final=True, text="결과", usage_metadata=usage)
+
+    result = await _run_with_events([event_no_usage, event_with_usage], agent_type="react")
+
+    assert result.usage is not None
+    assert result.usage.promptTokens == 60
+    assert result.usage.completionTokens == 30
+
+
+@pytest.mark.asyncio
+async def test_usage_react_mode_total_zero_returns_none():
+    """ReAct 모드: 누적 후 모두 0이면 usage=None이다."""
+    usage = _make_usage_mock(prompt=0, candidates=0, total=0)
+    event = _make_event(is_final=True, text="결과", usage_metadata=usage)
+
+    result = await _run_with_events([event], agent_type="react")
+
+    assert result.usage is None
+
+
 # ---------------------------------------------------------------------------
 # X-Notion-Token 헤더 전달 경로 검증
 # ---------------------------------------------------------------------------
