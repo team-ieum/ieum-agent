@@ -6,7 +6,6 @@ from google.adk.tools.function_tool import FunctionTool
 from tools.slack import send_slack_message
 from tools.discord import send_discord_webhook
 from tools.gmail import send_gmail
-from tools.mcp import call_mcp_tool
 from tools.http_fetch import http_fetch
 from tools.web_search import web_search
 from tools.utils import json_parse, text_extract, date_format
@@ -62,7 +61,6 @@ _TOOL_MAP: dict = {
     "slack": send_slack_message,
     "discord": send_discord_webhook,
     "gmail": send_gmail,
-    "mcp": call_mcp_tool,
     "builtin:http_fetch": http_fetch,
     "builtin:web_search": web_search,
     "builtin:notion_create_page": notion_create_page,
@@ -87,7 +85,40 @@ def get_tools_for_request(tool_names: list) -> list:
     result = []
     for item in tool_names:
         name = item.get("name") if isinstance(item, dict) else item
-        if name in _TOOL_MAP:
+        if name == "mcp":
+            config = item.get("config") if isinstance(item, dict) else {}
+            server_url = config.get("server_url") or config.get("serverUrl")
+            command = config.get("command")
+            args = config.get("args") or []
+            env = config.get("env")
+            prefix = config.get("tool_name_prefix") or config.get("toolNamePrefix")
+            
+            if server_url:
+                from google.adk.tools import McpToolset
+                from google.adk.tools.mcp_tool import SseConnectionParams
+                
+                toolset = McpToolset(
+                    connection_params=SseConnectionParams(
+                        url=server_url,
+                        headers=config.get("headers"),
+                    ),
+                    tool_name_prefix=prefix
+                )
+                result.append(toolset)
+            elif command:
+                from google.adk.tools import McpToolset
+                from mcp import StdioServerParameters
+                
+                toolset = McpToolset(
+                    connection_params=StdioServerParameters(
+                        command=command,
+                        args=args,
+                        env=env,
+                    ),
+                    tool_name_prefix=prefix
+                )
+                result.append(toolset)
+        elif name in _TOOL_MAP:
             config = item.get("config") if isinstance(item, dict) else None
             configured_fn = _bind_config(_TOOL_MAP[name], config)
             result.append(FunctionTool(configured_fn))
