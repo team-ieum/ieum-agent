@@ -72,6 +72,12 @@ def _make_partial(fn, **bound_args):
     p.__signature__ = sig.replace(
         parameters=[v for k, v in sig.parameters.items() if k not in bound_args]
     )
+    # ADK JSON_SCHEMA_FOR_FUNC_DECL 기능은 __annotations__로 타입 정보를 읽는다.
+    # functools.partial은 __annotations__를 복사하지 않으므로 명시적으로 설정한다.
+    p.__annotations__ = {
+        k: v for k, v in getattr(fn, "__annotations__", {}).items()
+        if k not in bound_args
+    }
     return p
 
 

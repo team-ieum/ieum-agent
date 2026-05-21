@@ -16,6 +16,9 @@ python-dotenv>=1.0.0
 # HTTP
 httpx>=0.28.1
 
+# MCP
+mcp>=1.0.0
+
 # AI Providers
 anthropic>=0.30.0
 openai>=1.35.0
