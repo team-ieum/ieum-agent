@@ -1,3 +1,4 @@
+import inspect
 import json
 import smtplib
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -285,14 +286,14 @@ def test_get_tools_for_request_binds_tool_config():
         }
     ])
 
-    declaration = result[0]._get_declaration()
-    properties = declaration.parameters.properties
+    fn = getattr(result[0], "func", None) or getattr(result[0], "_func", None)
+    params = list(inspect.signature(fn).parameters.keys())
 
-    assert "parent_page_id" not in properties
-    assert "title" not in properties
-    assert "unknown" not in properties
-    assert "token" in properties
-    assert "content" in properties
+    assert "parent_page_id" not in params
+    assert "title" not in params
+    assert "unknown" not in params
+    assert "token" in params
+    assert "content" in params
 
 
 # ---------------------------------------------------------------------------

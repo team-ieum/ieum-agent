@@ -8,6 +8,7 @@ core/agent.py의 resolve_model() 및 run_agent() 함수에 대한 단위 테스�
 """
 
 import asyncio
+import inspect
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -115,13 +116,13 @@ def test_bind_notion_token_preserves_config_binding():
     ])
 
     bound_tools = _bind_notion_token(tools, "secret-token")
-    declaration = bound_tools[0]._get_declaration()
-    properties = declaration.parameters.properties
+    fn = getattr(bound_tools[0], "func", None) or getattr(bound_tools[0], "_func", None)
+    params = list(inspect.signature(fn).parameters.keys())
 
-    assert "token" not in properties
-    assert "parent_page_id" not in properties
-    assert "title" not in properties
-    assert "content" in properties
+    assert "token" not in params
+    assert "parent_page_id" not in params
+    assert "title" not in params
+    assert "content" in params
 
 
 def test_resolve_model_uses_settings_default():
