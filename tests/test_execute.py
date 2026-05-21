@@ -193,7 +193,7 @@ async def test_usage_all_zero_returns_none():
 
 
 @pytest.mark.asyncio
-async def test_usage_react_mode_accumulates():
+async def test_usage_react_mode_accumulates() -> None:
     """ReAct 모드: 이벤트가 여러 개이면 토큰이 누적된다 (Simple 덮어쓰기와 반대)."""
     usage1 = _make_usage_mock(prompt=100, candidates=50, total=150)
     usage2 = _make_usage_mock(prompt=80, candidates=40, total=120)
@@ -210,7 +210,7 @@ async def test_usage_react_mode_accumulates():
 
 
 @pytest.mark.asyncio
-async def test_usage_react_mode_none_event_skipped():
+async def test_usage_react_mode_none_event_skipped() -> None:
     """ReAct 모드: usage_metadata=None 이벤트는 0으로 처리된다."""
     usage = _make_usage_mock(prompt=60, candidates=30, total=90)
 
@@ -222,10 +222,11 @@ async def test_usage_react_mode_none_event_skipped():
     assert result.usage is not None
     assert result.usage.promptTokens == 60
     assert result.usage.completionTokens == 30
+    assert result.usage.totalTokens == 90
 
 
 @pytest.mark.asyncio
-async def test_usage_react_mode_total_zero_returns_none():
+async def test_usage_react_mode_total_zero_returns_none() -> None:
     """ReAct 모드: 누적 후 모두 0이면 usage=None이다."""
     usage = _make_usage_mock(prompt=0, candidates=0, total=0)
     event = _make_event(is_final=True, text="결과", usage_metadata=usage)
