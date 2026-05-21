@@ -10,7 +10,6 @@ from common.error_code import ToolErrorCode
 from tools.discord import send_discord_webhook
 from tools.gmail import send_gmail
 from tools.http_fetch import http_fetch
-from tools.mcp import call_mcp_tool
 from tools.slack import send_slack_message
 from tools.web_search import web_search
 from tools import get_tools_for_request
@@ -297,197 +296,50 @@ def test_get_tools_for_request_binds_tool_config():
 
 
 # ---------------------------------------------------------------------------
-# MCP
+# McpToolset integration
 # ---------------------------------------------------------------------------
 
-def _make_mcp_text_content(text: str):
-    """text 속성만 가진 MCP content mock을 생성한다."""
-    mock_content = MagicMock(spec=["text"])
-    mock_content.text = text
-    return mock_content
+def test_get_tools_for_request_mcp_sse():
+    """get_tools_for_request가 SSE 기반의 McpToolset을 올바르게 반환한다."""
+    result = get_tools_for_request([
+        {
+            "name": "mcp",
+            "config": {
+                "server_url": "http://mcp-server/sse",
+                "tool_name_prefix": "prefix:",
+            }
+        }
+    ])
+    assert len(result) == 1
+    toolset = result[0]
+    
+    from google.adk.tools import McpToolset
+    from google.adk.tools.mcp_tool import SseConnectionParams
+    
+    assert isinstance(toolset, McpToolset)
+    assert isinstance(toolset._connection_params, SseConnectionParams)
+    assert toolset._connection_params.url == "http://mcp-server/sse"
+    assert toolset.tool_name_prefix == "prefix:"
 
 
-def _make_mcp_session_context(call_tool_result):
-    """sse_client + ClientSession 2단계 컨텍스트 매니저 mock을 생성한다.
-
-    Returns:
-        (mock_sse_cm, mock_session) 튜플
-        — patch("tools.mcp.sse_client") return_value로 mock_sse_cm 사용
-        — patch("tools.mcp.ClientSession") return_value로 mock_session 사용
-    """
-    mock_session = AsyncMock()
-    mock_session.initialize = AsyncMock()
-    mock_session.call_tool = AsyncMock(return_value=call_tool_result)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-
-    mock_sse_cm = MagicMock()
-    mock_streams = (AsyncMock(), AsyncMock())
-    mock_sse_cm.__aenter__ = AsyncMock(return_value=mock_streams)
-    mock_sse_cm.__aexit__ = AsyncMock(return_value=None)
-
-    return mock_sse_cm, mock_session
-
-
-@pytest.mark.asyncio
-async def test_call_mcp_tool_success_returns_json():
-    """MCP 도구 성공 시 success=True와 output 필드를 포함한 JSON을 반환한다."""
-    mock_result = MagicMock()
-    mock_result.isError = False
-    mock_result.content = [_make_mcp_text_content("some result text")]
-
-    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
-
-    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
-         patch("tools.mcp.ClientSession", return_value=mock_session):
-        result = await call_mcp_tool(
-            server_url="http://mcp-server/sse",
-            tool_name="some_tool",
-            arguments={"key": "value"},
-        )
-
-    parsed = json.loads(result)
-    assert parsed["success"] is True
-    assert "output" in parsed
-    assert parsed["output"] == "some result text"
-
-
-@pytest.mark.asyncio
-async def test_call_mcp_tool_success_json_output_not_double_serialized():
-    """MCP 결과가 JSON 문자열인 경우 이중 직렬화 없이 객체로 포함된다."""
-    mock_result = MagicMock()
-    mock_result.isError = False
-    mock_result.content = [_make_mcp_text_content('{"status": "ok", "count": 3}')]
-
-    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
-
-    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
-         patch("tools.mcp.ClientSession", return_value=mock_session):
-        result = await call_mcp_tool(
-            server_url="http://mcp-server/sse",
-            tool_name="some_tool",
-            arguments={},
-        )
-
-    parsed = json.loads(result)
-    # output이 문자열이 아닌 파싱된 객체여야 한다 (이중 직렬화 방지)
-    assert isinstance(parsed["output"], dict)
-    assert parsed["output"]["status"] == "ok"
-    assert parsed["output"]["count"] == 3
-
-
-@pytest.mark.asyncio
-async def test_call_mcp_tool_error_returns_json_error():
-    """MCP 도구 isError=True 시 error 키를 포함한 JSON을 반환한다."""
-    mock_result = MagicMock()
-    mock_result.isError = True
-    mock_result.content = [_make_mcp_text_content("tool execution failed")]
-
-    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
-
-    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
-         patch("tools.mcp.ClientSession", return_value=mock_session):
-        result = await call_mcp_tool(
-            server_url="http://mcp-server/sse",
-            tool_name="some_tool",
-            arguments={},
-        )
-
-    parsed = json.loads(result)
-    assert "error" in parsed
-    assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
-
-
-@pytest.mark.asyncio
-async def test_call_mcp_tool_exception_returns_json_error():
-    """MCP 연결 실패 등 예외 발생 시 error 키를 포함한 JSON을 반환한다."""
-    mock_sse_cm = MagicMock()
-    mock_sse_cm.__aenter__ = AsyncMock(side_effect=Exception("connection refused"))
-    mock_sse_cm.__aexit__ = AsyncMock(return_value=None)
-
-    with patch("tools.mcp.sse_client", return_value=mock_sse_cm):
-        result = await call_mcp_tool(
-            server_url="http://mcp-server/sse",
-            tool_name="some_tool",
-            arguments={},
-        )
-
-    parsed = json.loads(result)
-    assert "error" in parsed
-    assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
-
-
-@pytest.mark.asyncio
-async def test_call_mcp_tool_success_data_attribute_content():
-    """content에 data 속성이 있는 경우 json.dumps로 직렬화하여 output에 포함한다."""
-    mock_result = MagicMock()
-    mock_result.isError = False
-
-    # data 속성만 가진 content (text 없음)
-    mock_content = MagicMock(spec=["data"])
-    mock_content.data = {"key": "value", "count": 42}
-    mock_result.content = [mock_content]
-
-    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
-
-    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
-         patch("tools.mcp.ClientSession", return_value=mock_session):
-        result = await call_mcp_tool(
-            server_url="http://mcp-server/sse",
-            tool_name="some_tool",
-            arguments={},
-        )
-
-    parsed = json.loads(result)
-    assert parsed["success"] is True
-    # data 속성 content는 dict 형태로 output에 포함된다
-    assert parsed["output"] == {"key": "value", "count": 42}
-
-
-@pytest.mark.asyncio
-async def test_call_mcp_tool_success_no_attribute_content():
-    """content에 text도 data도 없는 경우 str()로 변환하여 output에 포함한다."""
-    mock_result = MagicMock()
-    mock_result.isError = False
-
-    # text도 data도 없는 content → str(content) fallback
-    mock_content = MagicMock(spec=[])
-    mock_result.content = [mock_content]
-
-    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
-
-    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
-         patch("tools.mcp.ClientSession", return_value=mock_session):
-        result = await call_mcp_tool(
-            server_url="http://mcp-server/sse",
-            tool_name="some_tool",
-            arguments={},
-        )
-
-    parsed = json.loads(result)
-    assert parsed["success"] is True
-    # str(MagicMock(spec=[])) 결과가 output으로 포함된다
-    assert isinstance(parsed["output"], str)
-
-
-@pytest.mark.asyncio
-async def test_call_mcp_tool_success_empty_content():
-    """result.content가 빈 목록일 때 output=None, 메시지에 '결과 없음'이 포함된다."""
-    mock_result = MagicMock()
-    mock_result.isError = False
-    mock_result.content = []  # 빈 목록
-
-    mock_sse_cm, mock_session = _make_mcp_session_context(mock_result)
-
-    with patch("tools.mcp.sse_client", return_value=mock_sse_cm), \
-         patch("tools.mcp.ClientSession", return_value=mock_session):
-        result = await call_mcp_tool(
-            server_url="http://mcp-server/sse",
-            tool_name="some_tool",
-            arguments={},
-        )
-
-    parsed = json.loads(result)
-    assert parsed["success"] is True
-    assert parsed["output"] is None
-    assert "결과 없음" in parsed["message"]
+def test_get_tools_for_request_mcp_stdio():
+    """get_tools_for_request가 Stdio 기반의 McpToolset을 올바르게 반환한다."""
+    result = get_tools_for_request([
+        {
+            "name": "mcp",
+            "config": {
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+            }
+        }
+    ])
+    assert len(result) == 1
+    toolset = result[0]
+    
+    from google.adk.tools import McpToolset
+    from mcp import StdioServerParameters
+    
+    assert isinstance(toolset, McpToolset)
+    assert isinstance(toolset._connection_params, StdioServerParameters)
+    assert toolset._connection_params.command == "npx"
+    assert toolset._connection_params.args == ["-y", "@modelcontextprotocol/server-filesystem"]
