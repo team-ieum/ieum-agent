@@ -1,6 +1,6 @@
 import contextlib
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
 
 _INSTRUCTION = (
     "GitHub MCP 서버를 통해 리포지토리·이슈·Pull Request·GitHub Actions를 관리한다. "
@@ -23,7 +23,7 @@ async def build_github_agent(
         ), []
 
     mcp = MCPToolset(
-        connection_params=SseServerParams(
+        connection_params=SseConnectionParams(
             url="https://api.githubcopilot.com/mcp/",
             headers={
                 "Authorization": f"Bearer {github_pat}",

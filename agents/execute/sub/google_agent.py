@@ -1,6 +1,6 @@
 import contextlib
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPConnectionParams
 
 _INSTRUCTION = (
     "Google Workspace MCP 서버를 통해 Gmail·Google Drive·Google Calendar를 관리한다. "
@@ -32,7 +32,7 @@ async def build_google_agent(
     mcps = []
     for url in _GOOGLE_MCP_URLS:
         mcp = MCPToolset(
-            connection_params=SseServerParams(
+            connection_params=StreamableHTTPConnectionParams(
                 url=url,
                 headers={"Authorization": f"Bearer {google_oauth_token}"},
             )

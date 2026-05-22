@@ -1,6 +1,6 @@
 import contextlib
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
 
 _INSTRUCTION = (
     "Notion MCP 서버를 통해 Notion 워크스페이스의 페이지·데이터베이스·댓글을 관리한다. "
@@ -23,7 +23,7 @@ async def build_notion_agent(
         ), []
 
     mcp = MCPToolset(
-        connection_params=SseServerParams(
+        connection_params=SseConnectionParams(
             url="https://mcp.notion.com/sse",
             headers={"Authorization": f"Bearer {notion_oauth_token}"},
         )

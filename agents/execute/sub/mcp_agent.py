@@ -1,6 +1,6 @@
 import contextlib
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
 
 _INSTRUCTION = (
     "사용자가 지정한 커스텀 MCP 서버의 도구를 활용해 요청된 작업을 수행한다. "
@@ -26,7 +26,7 @@ async def build_mcp_agent(
     mcps = []
     for cfg in mcp_server_configs:
         mcp = MCPToolset(
-            connection_params=SseServerParams(
+            connection_params=SseConnectionParams(
                 url=cfg["server_url"],
                 headers=cfg.get("headers", {}),
             )
