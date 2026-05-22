@@ -13,7 +13,7 @@ from agents.execute.sub.google_agent import build_google_agent
 from agents.execute.sub.github_agent import build_github_agent
 from agents.execute.sub.communication_agent import build_communication_agent
 from agents.execute.sub.mcp_agent import build_mcp_agent
-from agents.base import _bind_workflow_context
+from agents.base import _bind_workflow_context, _bind_google_token, _bind_notion_token
 from tools import get_tools_for_request
 from api.schemas.request import AgentNodeRequest
 
@@ -114,8 +114,12 @@ async def run_react_agent(
             ]
             mcp_agent, _ = await build_mcp_agent(model, mcp_server_configs, stack)
 
-            # builtin 도구 (workflow_context 등) 바인딩
+            # builtin 도구 바인딩 (google → notion → workflow_context 순서)
             builtin_tools = get_tools_for_request(request.tools or [])
+            if google_access_token:
+                builtin_tools = _bind_google_token(builtin_tools, google_access_token)
+            if notion_token:
+                builtin_tools = _bind_notion_token(builtin_tools, notion_token)
             builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
 
             # Main Agent 구성
