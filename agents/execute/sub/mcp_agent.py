@@ -12,7 +12,11 @@ async def build_mcp_agent(
     mcp_server_configs: list[dict],
     stack: contextlib.AsyncExitStack,
 ) -> tuple[LlmAgent, list]:
-    """McpAgent 빌드. 사용자 정의 MCP 서버 목록으로 MCPToolset 다중 연결."""
+    """McpAgent 빌드. 사용자 정의 MCP 서버 목록으로 MCPToolset 다중 연결.
+
+        현재 SSE(SseConnectionParams) 방식만 지원한다. (MVP 범위)
+        Stdio 방식이 필요한 경우 StdioServerParameters 분기를 추가한다.
+        """
     if not mcp_server_configs:
         instruction = _INSTRUCTION + " 현재 연결된 커스텀 MCP 서버가 없다."
         return LlmAgent(
@@ -25,6 +29,7 @@ async def build_mcp_agent(
     all_tools = []
     mcps = []
     for cfg in mcp_server_configs:
+        # MVP: SSE 방식만 지원. Stdio 지원이 필요하면 command 키 유무로 분기 추가.
         mcp = MCPToolset(
             connection_params=SseConnectionParams(
                 url=cfg["server_url"],
