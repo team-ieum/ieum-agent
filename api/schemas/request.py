@@ -7,6 +7,12 @@ class ModelParameters(BaseModel):
     max_tokens: Optional[int] = None
 
 
+class McpServerConfig(BaseModel):
+    """커스텀 MCP 서버 설정. McpAgent에서 사용한다."""
+    server_url: str
+    headers: Optional[Dict[str, str]] = {}
+
+
 class AgentNodeRequest(BaseModel):
     nodeId: str
     workflowExecutionId: Optional[str] = None   # Spring Boot workflow_executions 연결용
@@ -18,3 +24,4 @@ class AgentNodeRequest(BaseModel):
     parameters: Optional[ModelParameters] = None
     tools: Optional[List[Dict[str, Any]]] = None
     workflowContext: Optional[Dict[str, Any]] = None
+    mcp_servers: Optional[List[McpServerConfig]] = None  # 커스텀 MCP 서버 목록 (신규)
