@@ -48,7 +48,7 @@ async def run_agent(
     user_id: str,
     google_access_token: str | None = None,
     notion_token: str | None = None,
-    github_pat: str | None = None,
+    github_token: str | None = None,
 ) -> AgentExecutionResult:
     start = time.monotonic()
     result = AgentExecutionResult(success=False)
@@ -69,7 +69,7 @@ async def run_agent(
                     user_id=user_id,
                     google_access_token=google_access_token,
                     notion_token=notion_token,
-                    github_pat=github_pat,
+                    github_token=github_token,
                 )
             else:
                 return await run_simple_agent(
