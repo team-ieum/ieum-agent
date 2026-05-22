@@ -103,16 +103,32 @@ async def run_react_agent(
             os.environ[env_key] = api_key
 
         async with contextlib.AsyncExitStack() as stack:
-            # Sub-agent 빌드 (MCPToolset 라이프사이클을 stack으로 관리)
+            # 항상 빌드: 외부 자격증명 불필요
             web_agent, _ = await build_web_agent(model)
-            notion_agent, _ = await build_notion_agent(model, notion_token, stack)
-            google_agent, _ = await build_google_agent(model, google_access_token, stack)
-            github_agent, _ = await build_github_agent(model, github_token, stack)
             comm_agent, _ = await build_communication_agent(model)
-            mcp_server_configs = [
-                s.model_dump() for s in (request.mcp_servers or [])
+
+            sub_agent_tools = [
+                AgentTool(agent=web_agent),
+                AgentTool(agent=comm_agent),
             ]
-            mcp_agent, _ = await build_mcp_agent(model, mcp_server_configs, stack)
+
+            # 조건부 빌드: 자격증명/설정이 있을 때만 빌드
+            if notion_token:
+                notion_agent, _ = await build_notion_agent(model, notion_token, stack)
+                sub_agent_tools.append(AgentTool(agent=notion_agent))
+
+            if google_access_token:
+                google_agent, _ = await build_google_agent(model, google_access_token, stack)
+                sub_agent_tools.append(AgentTool(agent=google_agent))
+
+            if github_token:
+                github_agent, _ = await build_github_agent(model, github_token, stack)
+                sub_agent_tools.append(AgentTool(agent=github_agent))
+
+            mcp_server_configs = [s.model_dump() for s in (request.mcp_servers or [])]
+            if mcp_server_configs:
+                mcp_agent, _ = await build_mcp_agent(model, mcp_server_configs, stack)
+                sub_agent_tools.append(AgentTool(agent=mcp_agent))
 
             # builtin 도구 바인딩 (google → notion → workflow_context 순서)
             builtin_tools = get_tools_for_request(request.tools or [])
@@ -130,12 +146,7 @@ async def run_react_agent(
                     f"\n\n## 사용자 지시\n{request.systemMessage}" if request.systemMessage else ""
                 ),
                 tools=[
-                    AgentTool(agent=web_agent),
-                    AgentTool(agent=notion_agent),
-                    AgentTool(agent=google_agent),
-                    AgentTool(agent=github_agent),
-                    AgentTool(agent=comm_agent),
-                    AgentTool(agent=mcp_agent),
+                    *sub_agent_tools,
                     *builtin_tools,
                 ],
             )
