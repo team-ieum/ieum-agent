@@ -124,8 +124,8 @@ async def test_run_react_agent_returns_output():
 
 
 @pytest.mark.asyncio
-async def test_run_react_agent_builds_all_six_sub_agents():
-    """run_react_agent는 6개 sub-agent 빌드 함수를 모두 호출한다."""
+async def test_run_react_agent_always_builds_web_and_comm():
+    """토큰 없이도 web_agent, comm_agent는 항상 빌드된다."""
     from agents.execute.factory import run_react_agent
 
     async def _fake_run_async(**kwargs):
@@ -161,13 +161,70 @@ async def test_run_react_agent_builds_all_six_sub_agents():
             api_key="test-key",
             env_key=None,
             user_id="user-1",
+            # 토큰 없음
         )
 
     web_mock.assert_called_once()
+    comm_mock.assert_called_once()
+    notion_mock.assert_not_called()
+    google_mock.assert_not_called()
+    github_mock.assert_not_called()
+    mcp_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_builds_conditional_agents_with_tokens():
+    """토큰/설정이 모두 있을 때 6개 sub-agent가 모두 빌드된다."""
+    from agents.execute.factory import run_react_agent
+    from api.schemas.request import McpServerConfig
+
+    async def _fake_run_async(**kwargs):
+        yield _make_final_event("ok")
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock()
+    mock_session.id = "s3b"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+
+    web_mock = AsyncMock(return_value=(MagicMock(), []))
+    notion_mock = AsyncMock(return_value=(MagicMock(), []))
+    google_mock = AsyncMock(return_value=(MagicMock(), []))
+    github_mock = AsyncMock(return_value=(MagicMock(), []))
+    comm_mock = AsyncMock(return_value=(MagicMock(), []))
+    mcp_mock = AsyncMock(return_value=(MagicMock(), []))
+
+    request_with_mcp = _make_request(
+        mcp_servers=[McpServerConfig(server_url="https://mcp.example.com")]
+    )
+
+    with patch("agents.execute.factory.build_web_agent", new=web_mock), \
+         patch("agents.execute.factory.build_notion_agent", new=notion_mock), \
+         patch("agents.execute.factory.build_google_agent", new=google_mock), \
+         patch("agents.execute.factory.build_github_agent", new=github_mock), \
+         patch("agents.execute.factory.build_communication_agent", new=comm_mock), \
+         patch("agents.execute.factory.build_mcp_agent", new=mcp_mock), \
+         patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner), \
+         patch("agents.execute.factory.InMemorySessionService", return_value=mock_ss):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            request=request_with_mcp,
+            api_key="test-key",
+            env_key=None,
+            user_id="user-1",
+            notion_token="notion-token",
+            google_access_token="google-token",
+            github_token="github-token",
+        )
+
+    web_mock.assert_called_once()
+    comm_mock.assert_called_once()
     notion_mock.assert_called_once()
     google_mock.assert_called_once()
     github_mock.assert_called_once()
-    comm_mock.assert_called_once()
     mcp_mock.assert_called_once()
 
 
