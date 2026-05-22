@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
 
@@ -10,7 +10,7 @@ class ModelParameters(BaseModel):
 class McpServerConfig(BaseModel):
     """커스텀 MCP 서버 설정. McpAgent에서 사용한다."""
     server_url: str
-    headers: Optional[Dict[str, str]] = {}
+    headers: dict[str, str] = Field(default_factory=dict)
 
 
 class AgentNodeRequest(BaseModel):
