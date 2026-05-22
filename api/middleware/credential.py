@@ -9,6 +9,7 @@ async def get_llm_credentials(
     x_user_id: str = Header(..., alias="X-User-Id"),
     x_google_access_token: str | None = Header(None, alias="X-Google-Access-Token"),
     x_notion_token: str | None = Header(None, alias="X-Notion-Token"),
+    x_github_token: str | None = Header(None, alias="X-GitHub-Token"),
 ):
     if not x_llm_provider or not x_llm_api_key:
         raise HTTPException(status_code=ErrorCode.MISSING_CREDENTIAL.status_code, detail=ErrorCode.MISSING_CREDENTIAL.message)
@@ -18,4 +19,5 @@ async def get_llm_credentials(
         "user_id": x_user_id,
         "google_access_token": x_google_access_token,
         "notion_token": x_notion_token,
+        "github_token": x_github_token,
     }
