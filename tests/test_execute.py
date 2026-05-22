@@ -137,8 +137,8 @@ async def _run_with_events(events, agent_type="simple"):
 
 
 @pytest.mark.asyncio
-async def test_usage_simple_mode_last_value_wins():
-    """Simple 모드: 이벤트가 2개여도 마지막 값으로 덮어쓴다 (누적 아님)."""
+async def test_usage_simple_mode_accumulates():
+    """Simple 모드: 이벤트가 2개이면 토큰이 누적된다."""
     usage = _make_usage_mock(prompt=100, candidates=50, total=150)
 
     event1 = _make_event(is_final=False, usage_metadata=usage)
@@ -147,9 +147,9 @@ async def test_usage_simple_mode_last_value_wins():
     result = await _run_with_events([event1, event2], agent_type="simple")
 
     assert result.usage is not None
-    assert result.usage.promptTokens == 100  # 200이 아님
-    assert result.usage.completionTokens == 50
-    assert result.usage.totalTokens == 150
+    assert result.usage.promptTokens == 200   # 100 + 100 (누적)
+    assert result.usage.completionTokens == 100  # 50 + 50 (누적)
+    assert result.usage.totalTokens == 300    # 150 + 150 (누적)
 
 
 @pytest.mark.asyncio

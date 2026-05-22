@@ -31,11 +31,14 @@ async def run_simple_agent(
         if env_key:
             os.environ[env_key] = api_key
 
+        builtin_tools = get_tools_for_request(request.tools or [])
+        builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
+
         agent = LlmAgent(
             name="ieum_agent",
             model=model,
             instruction=request.systemMessage or "You are a helpful assistant.",
-            tools=[],
+            tools=builtin_tools,
         )
 
         session_service = InMemorySessionService()
@@ -69,9 +72,9 @@ async def run_simple_agent(
                     if hasattr(part, "text") and part.text:
                         output_parts.append(part.text)
             if hasattr(event, "usage_metadata") and event.usage_metadata:
-                total_input = event.usage_metadata.prompt_token_count or 0
-                total_output = event.usage_metadata.candidates_token_count or 0
-                total_count = event.usage_metadata.total_token_count or 0
+                total_input += event.usage_metadata.prompt_token_count or 0
+                total_output += event.usage_metadata.candidates_token_count or 0
+                total_count += event.usage_metadata.total_token_count or 0
 
         return "\n".join(output_parts), total_input, total_output, total_count
 
