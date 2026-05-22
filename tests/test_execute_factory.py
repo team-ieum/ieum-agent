@@ -173,7 +173,7 @@ async def test_run_react_agent_builds_all_six_sub_agents():
 
 @pytest.mark.asyncio
 async def test_run_react_agent_passes_tokens_to_sub_agents():
-    """run_react_agent는 notion_token과 github_pat을 각 sub-agent 빌드 함수에 전달한다."""
+    """run_react_agent는 notion_token과 github_token을 각 sub-agent 빌드 함수에 전달한다."""
     from agents.execute.factory import run_react_agent
 
     async def _fake_run_async(**kwargs):
@@ -206,13 +206,13 @@ async def test_run_react_agent_passes_tokens_to_sub_agents():
             env_key=None,
             user_id="user-1",
             notion_token="notion-token-value",
-            github_pat="github-pat-value",
+            github_token="github-token-value",
         )
 
     # notion_agent 빌드 호출 시 notion_token이 전달되었는지 검증
     call_args = notion_mock.call_args
     assert "notion-token-value" in call_args.args or call_args.kwargs.get("notion_oauth_token") == "notion-token-value"
 
-    # github_agent 빌드 호출 시 github_pat이 전달되었는지 검증
+    # github_agent 빌드 호출 시 github_token이 전달되었는지 검증
     call_args = github_mock.call_args
-    assert "github-pat-value" in call_args.args or call_args.kwargs.get("github_pat") == "github-pat-value"
+    assert "github-token-value" in call_args.args or call_args.kwargs.get("github_token") == "github-token-value"

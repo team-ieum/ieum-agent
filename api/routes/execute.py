@@ -18,5 +18,5 @@ async def execute(
         credentials["user_id"],
         google_access_token=credentials.get("google_access_token"),
         notion_token=credentials.get("notion_token"),
-        github_pat=credentials.get("github_pat"),
+        github_token=credentials.get("github_token"),
     )

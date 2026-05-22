@@ -91,7 +91,7 @@ async def run_react_agent(
     user_id: str,
     google_access_token: str | None = None,
     notion_token: str | None = None,
-    github_pat: str | None = None,
+    github_token: str | None = None,
 ) -> tuple[str, int, int, int]:
     """react 타입: Main Agent + Sub-Agent 멀티 에이전트 실행. AsyncExitStack으로 MCPToolset 관리."""
     prev_value = os.environ.get(env_key) if env_key else None
@@ -104,7 +104,7 @@ async def run_react_agent(
             web_agent, _ = await build_web_agent(model)
             notion_agent, _ = await build_notion_agent(model, notion_token, stack)
             google_agent, _ = await build_google_agent(model, google_access_token, stack)
-            github_agent, _ = await build_github_agent(model, github_pat, stack)
+            github_agent, _ = await build_github_agent(model, github_token, stack)
             comm_agent, _ = await build_communication_agent(model)
             mcp_server_configs = [
                 s.model_dump() for s in (request.mcp_servers or [])

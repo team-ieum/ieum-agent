@@ -9,12 +9,12 @@ _INSTRUCTION = (
 
 async def build_github_agent(
     model: str,
-    github_pat: str | None,
+    github_token: str | None,
     stack: contextlib.AsyncExitStack,
 ) -> tuple[LlmAgent, list]:
-    """GitHubAgent 빌드. PAT가 없으면 도구 없는 에이전트 반환."""
-    if not github_pat:
-        instruction = _INSTRUCTION + " 현재 GitHub PAT가 없으므로 GitHub 도구를 사용할 수 없다."
+    """GitHubAgent 빌드. 토큰이 없으면 도구 없는 에이전트 반환."""
+    if not github_token:
+        instruction = _INSTRUCTION + " 현재 GitHub 토큰이 없으므로 GitHub 도구를 사용할 수 없다."
         return LlmAgent(
             name="github_agent",
             model=model,
@@ -26,7 +26,7 @@ async def build_github_agent(
         connection_params=SseConnectionParams(
             url="https://api.githubcopilot.com/mcp/",
             headers={
-                "Authorization": f"Bearer {github_pat}",
+                "Authorization": f"Bearer {github_token}",
                 "X-MCP-Toolsets": "repos,issues,pull_requests,actions",
             },
         )

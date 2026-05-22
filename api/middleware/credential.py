@@ -19,5 +19,5 @@ async def get_llm_credentials(
         "user_id": x_user_id,
         "google_access_token": x_google_access_token,
         "notion_token": x_notion_token,
-        "github_pat": x_github_token,
+        "github_token": x_github_token,
     }
