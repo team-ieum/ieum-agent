@@ -1,5 +1,6 @@
 import os
-from google.adk.agents import LlmAgent, AgentTool
+from google.adk.agents import LlmAgent
+from google.adk.tools.agent_tool import AgentTool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types

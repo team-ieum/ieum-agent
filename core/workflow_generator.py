@@ -3,7 +3,6 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from agents.generate.factory import run_generate_agent
 from api.schemas.generate_workflow import GenerateWorkflowResponse, WorkflowNode, WorkflowEdge
 from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
@@ -176,6 +175,7 @@ async def generate_workflow(
     lock = get_env_lock(env_key) if env_key else None
 
     async def _execute() -> str:
+        from agents.generate.factory import run_generate_agent
         return await run_generate_agent(
             prompt=prompt,
             model=model,
