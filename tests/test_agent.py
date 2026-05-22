@@ -18,7 +18,7 @@ from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
 from common.error_code import ErrorCode
 from core.agent import run_agent
-from core.agent import _bind_notion_token
+from agents.base import _bind_notion_token
 from core.provider_config import resolve_model
 from core.env_lock import _env_locks
 from core.config import settings
@@ -153,10 +153,10 @@ async def test_run_agent_success_returns_output():
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=mock_runner),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=mock_runner),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
     ):
         result = await run_agent(request, provider="GEMINI", api_key="test-key", user_id="test-user")
@@ -193,10 +193,10 @@ async def test_run_agent_success_multiple_parts_joined():
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=mock_runner),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=mock_runner),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
     ):
         result = await run_agent(request, provider="GEMINI", api_key="test-key", user_id="test-user")
@@ -224,10 +224,10 @@ async def test_run_agent_success_non_final_events_ignored():
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=mock_runner),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=mock_runner),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
     ):
         result = await run_agent(request, provider="GEMINI", api_key="test-key", user_id="test-user")
@@ -266,10 +266,10 @@ async def test_run_agent_env_key_set_and_restored():
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=mock_runner),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=mock_runner),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
     ):
         result = await run_agent(request, provider="CLAUDE", api_key="sk-test", user_id="test-user")
@@ -292,10 +292,10 @@ async def test_run_agent_env_key_restored_on_exception():
     mock_session_service.create_session = AsyncMock(side_effect=RuntimeError("adk error"))
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=MagicMock()),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=MagicMock()),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
     ):
         result = await run_agent(request, provider="CLAUDE", api_key="sk-test", user_id="test-user")
@@ -326,10 +326,10 @@ async def test_run_agent_env_key_previous_value_restored():
 
     try:
         with (
-            patch("core.agent.LlmAgent", return_value=MagicMock()),
-            patch("core.agent.Runner", return_value=mock_runner),
-            patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-            patch("core.agent.get_tools_for_request", return_value=[]),
+            patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+            patch("agents.execute.factory.Runner", return_value=mock_runner),
+            patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+            patch("agents.execute.factory.get_tools_for_request", return_value=[]),
             patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
         ):
             await run_agent(request, provider="OPENAI", api_key="new-key", user_id="test-user")
@@ -355,10 +355,10 @@ async def test_run_agent_exception_returns_failure_result():
     mock_session_service.create_session = AsyncMock(side_effect=RuntimeError("adk crashed"))
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=MagicMock()),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=MagicMock()),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
     ):
         result = await run_agent(request, provider="GEMINI", api_key="test-key", user_id="test-user")
@@ -378,10 +378,10 @@ async def test_run_agent_exception_metadata_not_exposed():
     )
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=MagicMock()),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=MagicMock()),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
     ):
         result = await run_agent(request, provider="GEMINI", api_key="test-key", user_id="test-user")
@@ -424,10 +424,10 @@ async def test_run_agent_known_provider_uses_env_lock():
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=mock_runner),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=mock_runner),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
         patch.dict("core.env_lock._env_locks", {env_key: spy_lock}),
     ):
@@ -454,10 +454,10 @@ async def test_run_agent_unknown_provider_no_lock():
 
     # UNKNOWN provider는 _ENV_KEY_MAP에 없으므로 env_key=None → lock=None
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=mock_runner),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=mock_runner),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
     ):
         result = await run_agent(request, provider="UNKNOWN", api_key="", user_id="test-user")
@@ -485,10 +485,10 @@ async def test_run_agent_mongodb_failure_still_returns_result():
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=mock_runner),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=mock_runner),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch(
             "core.agent.execution_logs.insert_one",
             new=AsyncMock(side_effect=Exception("MongoDB connection refused")),
@@ -509,10 +509,10 @@ async def test_run_agent_mongodb_failure_on_error_result_still_returns():
     mock_session_service.create_session = AsyncMock(side_effect=RuntimeError("adk error"))
 
     with (
-        patch("core.agent.LlmAgent", return_value=MagicMock()),
-        patch("core.agent.Runner", return_value=MagicMock()),
-        patch("core.agent.InMemorySessionService", return_value=mock_session_service),
-        patch("core.agent.get_tools_for_request", return_value=[]),
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=MagicMock()),
+        patch("agents.execute.factory.InMemorySessionService", return_value=mock_session_service),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
         patch(
             "core.agent.execution_logs.insert_one",
             new=AsyncMock(side_effect=Exception("MongoDB down")),

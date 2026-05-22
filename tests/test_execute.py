@@ -121,9 +121,9 @@ async def _run_with_events(events, agent_type="simple"):
 
     with patch("core.agent.resolve_env_key", return_value=None), \
          patch("core.agent.resolve_model", return_value="gemini-2.5-flash"), \
-         patch("core.agent.LlmAgent"), \
-         patch("core.agent.InMemorySessionService", return_value=mock_ss), \
-         patch("core.agent.Runner", return_value=mock_runner), \
+         patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.InMemorySessionService", return_value=mock_ss), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner), \
          patch("core.agent.execution_logs") as mock_logs:
 
         mock_logs.insert_one = AsyncMock()
