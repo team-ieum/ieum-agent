@@ -9,6 +9,8 @@ from agents.generate.orchestrator import ORCHESTRATOR_INSTRUCTION
 from agents.generate.sub.planner_agent import build_planner_agent
 from agents.generate.sub.builder_agent import build_builder_agent
 
+_GENERATE_USER_ID = "generate_user"
+
 
 async def run_generate_agent(
     prompt: str,
@@ -48,7 +50,7 @@ async def run_generate_agent(
         )
         session = await session_service.create_session(
             app_name="ieum-agent",
-            user_id="user"
+            user_id=_GENERATE_USER_ID
         )
         message = types.Content(
             role="user",
@@ -61,7 +63,7 @@ async def run_generate_agent(
 
         output_parts = []
         async for event in runner.run_async(
-                user_id="user",
+                user_id=_GENERATE_USER_ID,
                 session_id=session.id,
                 new_message=message
         ):
