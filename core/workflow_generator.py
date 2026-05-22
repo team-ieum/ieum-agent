@@ -1,15 +1,9 @@
-import asyncio
 import json
 import logging
-import os
 import time
 from datetime import datetime, timezone
 
-from google.adk.agents import LlmAgent
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai import types
-
+from agents.generate.factory import run_generate_agent
 from api.schemas.generate_workflow import GenerateWorkflowResponse, WorkflowNode, WorkflowEdge
 from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
@@ -182,53 +176,13 @@ async def generate_workflow(
     lock = get_env_lock(env_key) if env_key else None
 
     async def _execute() -> str:
-        prev_value = os.environ.get(env_key) if env_key else None
-        try:
-            if env_key:
-                os.environ[env_key] = api_key
-
-            agent = LlmAgent(
-                name="workflow_generator",
-                model=model,
-                instruction=_SYSTEM_PROMPT + f"\n\n## Current Request Context\n- provider: {provider.upper()}\n  (모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정한다)",
-            )
-
-            session_service = InMemorySessionService()
-            runner = Runner(
-                agent=agent,
-                app_name="ieum-agent",
-                session_service=session_service,
-            )
-
-            session = await session_service.create_session(
-                app_name="ieum-agent",
-                user_id="user",
-            )
-
-            message = types.Content(
-                role="user",
-                parts=[types.Part(text=prompt)],
-            )
-
-            output_parts = []
-            async for event in runner.run_async(
-                user_id="user",
-                session_id=session.id,
-                new_message=message,
-            ):
-                if event.is_final_response() and event.content:
-                    for part in event.content.parts:
-                        if hasattr(part, "text") and part.text:
-                            output_parts.append(part.text)
-
-            return "\n".join(output_parts) if output_parts else ""
-
-        finally:
-            if env_key:
-                if prev_value is None:
-                    os.environ.pop(env_key, None)
-                else:
-                    os.environ[env_key] = prev_value
+        return await run_generate_agent(
+            prompt=prompt,
+            model=model,
+            provider=provider,
+            api_key=api_key,
+            env_key=env_key,
+        )
 
     if lock:
         async with lock:
