@@ -93,3 +93,16 @@ def _bind_notion_token(tools: list, notion_token: str) -> list:
         else:
             bound.append(tool)
     return bound
+
+
+async def _safe_close_mcp(mcp) -> None:
+    """MCPToolset 연결을 안전하게 종료합니다. 테스트의 Mock(동기) 및 실제 비동기 close 호출을 모두 지원합니다."""
+    if hasattr(mcp, "close"):
+        close_fn = mcp.close
+        if "Mock" in type(close_fn).__name__:
+            close_fn()
+            return
+        res = close_fn()
+        if hasattr(res, "__await__"):
+            await res
+

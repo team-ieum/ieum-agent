@@ -34,8 +34,10 @@ async def build_github_agent(
             },
         )
     )
-    tools = await mcp.get_tools()
-    stack.push_async_callback(mcp.close)
+    res = mcp.get_tools()
+    tools = await res if hasattr(res, "__await__") else res
+    from agents.base import _safe_close_mcp
+    stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
     agent = LlmAgent(
         name="github_agent",
         model=model,
