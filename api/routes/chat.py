@@ -27,6 +27,9 @@ async def chat_endpoint(
             unavailable_integrations=[u.model_dump() for u in request.unavailableIntegrations],
             current_nodes=[n.model_dump() for n in request.currentNodes] if request.currentNodes else None,
             current_edges=[e.model_dump() for e in request.currentEdges] if request.currentEdges else None,
+            notion_token=credentials.get("notion_token"),
+            github_token=credentials.get("github_token"),
+            google_access_token=credentials.get("google_access_token"),
         )
     except ValueError:
         raise HTTPException(

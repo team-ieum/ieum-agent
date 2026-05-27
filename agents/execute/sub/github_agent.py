@@ -1,6 +1,9 @@
 import contextlib
+import logging
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
+
+logger = logging.getLogger(__name__)
 
 _INSTRUCTION = (
     "GitHub MCP 서버를 통해 리포지토리·이슈·Pull Request·GitHub Actions를 관리한다. "
@@ -31,7 +34,8 @@ async def build_github_agent(
             },
         )
     )
-    tools = await stack.enter_async_context(mcp)
+    tools = await mcp.get_tools()
+    stack.callback(lambda m=mcp: __import__('asyncio').ensure_future(m.close()))
     agent = LlmAgent(
         name="github_agent",
         model=model,
