@@ -2,6 +2,7 @@ from enum import Enum
 from typing import Optional, List
 from pydantic import BaseModel
 from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge
+from api.schemas.request import McpServerConfig
 
 
 class ChatResponseType(str, Enum):
@@ -15,6 +16,8 @@ class IntegrationProvider(str, Enum):
     NOTION  = "NOTION"
     SLACK   = "SLACK"
     DISCORD = "DISCORD"
+    GITHUB  = "GITHUB"
+    TRENDRADAR = "TRENDRADAR"
 
 class IntegrationType(str, Enum):
     OAUTH   = "OAUTH"
@@ -41,6 +44,7 @@ class ChatRequest(BaseModel):
     currentEdges: Optional[List[WorkflowEdge]] = None
     availableIntegrations: List[AvailableIntegration] = []
     unavailableIntegrations: List[UnavailableIntegration] = []
+    mcpServers: Optional[List[McpServerConfig]] = None
 
 class ChatAction(BaseModel):
     type: ActionType
