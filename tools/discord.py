@@ -3,6 +3,7 @@ import json
 import httpx
 
 from common.error_code import ToolErrorCode
+from tools.http_client import get_http_client
 
 
 async def send_discord_webhook(webhook_url: str, content: str, username: str = "IEUM Bot") -> str:
@@ -20,10 +21,10 @@ async def send_discord_webhook(webhook_url: str, content: str, username: str = "
     try:
         payload = {"content": content, "username": username}
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(webhook_url, json=payload, timeout=10.0)
-            response.raise_for_status()
-            return json.dumps({"success": True, "message": "Discord 메시지 발송 성공"}, ensure_ascii=False)
+        client = get_http_client()
+        response = await client.post(webhook_url, json=payload, timeout=10.0)
+        response.raise_for_status()
+        return json.dumps({"success": True, "message": "Discord 메시지 발송 성공"}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (Discord: HTTP {e.response.status_code})"}, ensure_ascii=False)
     except Exception as e:
