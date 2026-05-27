@@ -1,6 +1,7 @@
 import json
 import httpx
 from common.error_code import ToolErrorCode
+from tools.http_client import get_http_client
 
 _NOTION_API_BASE = "https://api.notion.com/v1"
 _NOTION_VERSION = "2022-06-28"
@@ -16,7 +17,63 @@ def _headers(token: str) -> dict:
 
 
 def _split_content(text: str, chunk_size: int = 2000) -> list[str]:
-    return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+    """텍스트를 지정한 크기 이하의 청크로 분할하되, 단어(공백/줄바꿈) 경계를 보존하여 한글 깨짐을 방지합니다."""
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks = []
+    current_chunk = []
+    current_length = 0
+
+    # 줄바꿈 기준으로 먼저 스플릿하여 문장/단락 맥락 보존
+    lines = text.splitlines(keepends=True)
+    
+    for line in lines:
+        # 단일 라인이 chunk_size보다 큰 특이 케이스 (공백 없는 초장문 등)
+        if len(line) > chunk_size:
+            # 누적된 청크 발행
+            if current_chunk:
+                chunks.append("".join(current_chunk))
+                current_chunk = []
+                current_length = 0
+            
+            # 공백 단위 분할 시도
+            words = line.split(" ")
+            temp_word_chunk = []
+            temp_word_len = 0
+            for word in words:
+                word_with_space = word + " "
+                if len(word_with_space) > chunk_size:
+                    # 단어 자체가 2,000자 제한 초과 시 글자 단위 분할
+                    if temp_word_chunk:
+                        chunks.append("".join(temp_word_chunk))
+                        temp_word_chunk = []
+                        temp_word_len = 0
+                    for i in range(0, len(word), chunk_size):
+                        chunks.append(word[i:i + chunk_size])
+                elif temp_word_len + len(word_with_space) > chunk_size:
+                    chunks.append("".join(temp_word_chunk))
+                    temp_word_chunk = [word_with_space]
+                    temp_word_len = len(word_with_space)
+                else:
+                    temp_word_chunk.append(word_with_space)
+                    temp_word_len += len(word_with_space)
+            if temp_word_chunk:
+                chunks.append("".join(temp_word_chunk))
+            continue
+
+        if current_length + len(line) > chunk_size:
+            chunks.append("".join(current_chunk))
+            current_chunk = [line]
+            current_length = len(line)
+        else:
+            current_chunk.append(line)
+            current_length += len(line)
+
+    if current_chunk:
+        chunks.append("".join(current_chunk))
+
+    return chunks
 
 
 def _blocks_from_text(content: str) -> list[dict]:
@@ -58,6 +115,7 @@ async def _fetch_all_blocks(client: httpx.AsyncClient, page_id: str, token: str)
             f"{_NOTION_API_BASE}/blocks/{page_id}/children",
             headers=_headers(token),
             params=params,
+            timeout=_TIMEOUT,
         )
         data = response.json()
         all_blocks.extend(data.get("results", []))
@@ -96,12 +154,13 @@ async def notion_create_page(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                f"{_NOTION_API_BASE}/pages",
-                headers=_headers(token),
-                json=payload,
-            )
+        client = get_http_client()
+        response = await client.post(
+            f"{_NOTION_API_BASE}/pages",
+            headers=_headers(token),
+            json=payload,
+            timeout=_TIMEOUT,
+        )
         data = response.json()
         if response.status_code != 200:
             return json.dumps({
@@ -133,32 +192,33 @@ async def notion_read_page(
         페이지 제목, 본문 텍스트, 마지막 수정일을 포함한 JSON 문자열
     """
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            # 페이지 메타데이터 조회
-            page_response = await client.get(
-                f"{_NOTION_API_BASE}/pages/{page_id}",
-                headers=_headers(token),
-            )
-            if page_response.status_code != 200:
-                data = page_response.json()
-                return json.dumps({
-                    "error": f"Notion API 오류 ({page_response.status_code}): {data.get('message', '알 수 없는 오류')}"
-                }, ensure_ascii=False)
+        client = get_http_client()
+        # 페이지 메타데이터 조회
+        page_response = await client.get(
+            f"{_NOTION_API_BASE}/pages/{page_id}",
+            headers=_headers(token),
+            timeout=_TIMEOUT,
+        )
+        if page_response.status_code != 200:
+            data = page_response.json()
+            return json.dumps({
+                "error": f"Notion API 오류 ({page_response.status_code}): {data.get('message', '알 수 없는 오류')}"
+            }, ensure_ascii=False)
 
-            page_data = page_response.json()
+        page_data = page_response.json()
 
-            # 제목 추출
-            title = ""
-            title_property = page_data.get("properties", {}).get("title", {})
-            title_list = title_property.get("title", [])
-            if title_list:
-                title = title_list[0].get("plain_text", "")
+        # 제목 추출
+        title = ""
+        title_property = page_data.get("properties", {}).get("title", {})
+        title_list = title_property.get("title", [])
+        if title_list:
+            title = title_list[0].get("plain_text", "")
 
-            last_edited = page_data.get("last_edited_time", "")
+        last_edited = page_data.get("last_edited_time", "")
 
-            # 블록(본문) 전체 조회 (페이지네이션 처리)
-            blocks = await _fetch_all_blocks(client, page_id, token)
-            body_text = _extract_plain_text(blocks)
+        # 블록(본문) 전체 조회 (페이지네이션 처리)
+        blocks = await _fetch_all_blocks(client, page_id, token)
+        body_text = _extract_plain_text(blocks)
 
         return json.dumps({
             "success": True,
@@ -197,12 +257,13 @@ async def notion_search(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                f"{_NOTION_API_BASE}/search",
-                headers=_headers(token),
-                json=payload,
-            )
+        client = get_http_client()
+        response = await client.post(
+            f"{_NOTION_API_BASE}/search",
+            headers=_headers(token),
+            json=payload,
+            timeout=_TIMEOUT,
+        )
         data = response.json()
         if response.status_code != 200:
             return json.dumps({
@@ -261,58 +322,60 @@ async def notion_update_page(
         수정된 페이지 ID, URL을 포함한 JSON 문자열
     """
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            # 제목 수정
-            if title is not None:
-                properties_payload = {
-                    "properties": {
-                        "title": {"title": [{"type": "text", "text": {"content": title}}]}
-                    }
+        client = get_http_client()
+        # 제목 수정
+        if title is not None:
+            properties_payload = {
+                "properties": {
+                    "title": {"title": [{"type": "text", "text": {"content": title}}]}
                 }
-                title_response = await client.patch(
-                    f"{_NOTION_API_BASE}/pages/{page_id}",
-                    headers=_headers(token),
-                    json=properties_payload,
-                )
-                if title_response.status_code != 200:
-                    data = title_response.json()
-                    return json.dumps({
-                        "error": f"Notion API 오류 ({title_response.status_code}): {data.get('message', '알 수 없는 오류')}"
-                    }, ensure_ascii=False)
-
-            # 본문 수정 — 새 블록 먼저 추가 후 기존 블록 삭제 (데이터 손실 최소화)
-            # NOTE: Notion API는 트랜잭션을 지원하지 않으므로 완전한 원자성 보장 불가.
-            #       새 블록 추가 성공 후 기존 블록 삭제 순서로 데이터 손실 위험을 최소화한다.
-            if content is not None:
-                # 1단계: 기존 블록 목록 조회 (페이지네이션 처리)
-                existing_blocks = await _fetch_all_blocks(client, page_id, token)
-
-                # 2단계: 새 블록 먼저 추가
-                append_payload = {"children": _blocks_from_text(content)}
-                append_response = await client.patch(
-                    f"{_NOTION_API_BASE}/blocks/{page_id}/children",
-                    headers=_headers(token),
-                    json=append_payload,
-                )
-                if append_response.status_code != 200:
-                    data = append_response.json()
-                    return json.dumps({
-                        "error": f"새 블록 추가 실패 ({append_response.status_code}): {data.get('message', '알 수 없는 오류')}"
-                    }, ensure_ascii=False)
-
-                # 3단계: 새 블록 추가 성공 후 기존 블록 삭제
-                for block in existing_blocks:
-                    await client.delete(
-                        f"{_NOTION_API_BASE}/blocks/{block['id']}",
-                        headers=_headers(token),
-                    )
-
-            # 최종 페이지 정보 조회
-            page_response = await client.get(
+            }
+            title_response = await client.patch(
                 f"{_NOTION_API_BASE}/pages/{page_id}",
                 headers=_headers(token),
+                json=properties_payload,
+                timeout=_TIMEOUT,
             )
-            page_data = page_response.json()
+            if title_response.status_code != 200:
+                data = title_response.json()
+                return json.dumps({
+                    "error": f"Notion API 오류 ({title_response.status_code}): {data.get('message', '알 수 없는 오류')}"
+                }, ensure_ascii=False)
+
+        # 본문 수정 — 새 블록 먼저 추가 후 기존 블록 삭제 (데이터 손실 최소화)
+        if content is not None:
+            # 1단계: 기존 블록 목록 조회 (페이지네이션 처리)
+            existing_blocks = await _fetch_all_blocks(client, page_id, token)
+
+            # 2단계: 새 블록 먼저 추가
+            append_payload = {"children": _blocks_from_text(content)}
+            append_response = await client.patch(
+                f"{_NOTION_API_BASE}/blocks/{page_id}/children",
+                headers=_headers(token),
+                json=append_payload,
+                timeout=_TIMEOUT,
+            )
+            if append_response.status_code != 200:
+                data = append_response.json()
+                return json.dumps({
+                    "error": f"새 블록 추가 실패 ({append_response.status_code}): {data.get('message', '알 수 없는 오류')}"
+                }, ensure_ascii=False)
+
+            # 3단계: 새 블록 추가 성공 후 기존 블록 삭제
+            for block in existing_blocks:
+                await client.delete(
+                    f"{_NOTION_API_BASE}/blocks/{block['id']}",
+                    headers=_headers(token),
+                    timeout=_TIMEOUT,
+                )
+
+        # 최종 페이지 정보 조회
+        page_response = await client.get(
+            f"{_NOTION_API_BASE}/pages/{page_id}",
+            headers=_headers(token),
+            timeout=_TIMEOUT,
+        )
+        page_data = page_response.json()
 
         return json.dumps({
             "success": True,
@@ -345,12 +408,13 @@ async def notion_append_block(
     payload = {"children": _blocks_from_text(content)}
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.patch(
-                f"{_NOTION_API_BASE}/blocks/{page_id}/children",
-                headers=_headers(token),
-                json=payload,
-            )
+        client = get_http_client()
+        response = await client.patch(
+            f"{_NOTION_API_BASE}/blocks/{page_id}/children",
+            headers=_headers(token),
+            json=payload,
+            timeout=_TIMEOUT,
+        )
         data = response.json()
         if response.status_code != 200:
             return json.dumps({
