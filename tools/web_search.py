@@ -1,107 +1,13 @@
-import html
 import json
-from html.parser import HTMLParser
-from urllib.parse import parse_qs, unquote, urlencode, urlparse
-
+import os
 import httpx
 
 from common.error_code import ToolErrorCode
 from tools.http_client import get_http_client
 
-_SEARCH_URL = "https://html.duckduckgo.com/html/"
+_TAVILY_URL = "https://api.tavily.com/search"
 _TIMEOUT = 15.0
 _MAX_RESULTS = 10
-
-
-# NOTE: DuckDuckGo HTML 내부 CSS 클래스(result__a, result__snippet)에 의존한다.
-# DuckDuckGo가 HTML 구조를 변경하면 예고 없이 무결과를 반환할 수 있다.
-# 프로덕션 전 공식 API(Brave Search API, SerpAPI 등)로 교체를 권장한다.
-class _DuckDuckGoResultParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.results = []
-        self._current = None
-        self._capture_title = False
-        self._capture_snippet = False
-
-    def handle_starttag(self, tag, attrs):
-        attrs_dict = dict(attrs)
-        class_names = attrs_dict.get("class", "")
-
-        if tag == "a" and "result__a" in class_names:
-            self._current = {
-                "title": "",
-                "url": _normalize_result_url(attrs_dict.get("href", "")),
-                "snippet": "",
-            }
-            self._capture_title = True
-            return
-
-        if self._current is not None and "result__snippet" in class_names:
-            self._capture_snippet = True
-
-    def handle_data(self, data):
-        if self._current is None:
-            return
-
-        text = data.strip()
-        if not text:
-            return
-
-        if self._capture_title:
-            self._current["title"] += text + " "
-        elif self._capture_snippet:
-            self._current["snippet"] += text + " "
-
-    def handle_endtag(self, tag):
-        if tag == "a" and self._capture_title:
-            self._capture_title = False
-            return
-
-        if self._capture_snippet and tag in {"a", "div"}:
-            self._capture_snippet = False
-            self._append_current()
-            return
-
-        if self._current is not None and tag == "div" and self._current["snippet"]:
-            self._append_current()
-
-    def _append_current(self):
-        if self._current is None:
-            return
-
-        title = " ".join(self._current["title"].split())
-        url = self._current["url"]
-        snippet = " ".join(self._current["snippet"].split())
-
-        if title and url and not any(result["url"] == url for result in self.results):
-            self.results.append({
-                "title": html.unescape(title),
-                "url": url,
-                "snippet": html.unescape(snippet),
-            })
-
-        self._current = None
-        self._capture_title = False
-        self._capture_snippet = False
-
-
-def _normalize_result_url(url: str) -> str:
-    if not url:
-        return ""
-
-    parsed = urlparse(url)
-    query = parse_qs(parsed.query)
-    if "uddg" in query and query["uddg"]:
-        return unquote(query["uddg"][0])
-
-    return url
-
-
-def _parse_results(html_text: str, max_results: int) -> list[dict[str, str]]:
-    parser = _DuckDuckGoResultParser()
-    parser.feed(html_text)
-    return parser.results[:max_results]
 
 
 async def web_search(
@@ -121,27 +27,49 @@ async def web_search(
     if not query or not query.strip():
         return json.dumps({"error": "검색어는 필수입니다."}, ensure_ascii=False)
 
+    api_key = os.environ.get("TAVILY_API_KEY")
+    if not api_key:
+        return json.dumps({
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (web_search: TAVILY_API_KEY 환경변수가 설정되지 않았습니다.)"
+        }, ensure_ascii=False)
+
     max_results = max(1, min(max_results, _MAX_RESULTS))
-    params = urlencode({"q": query.strip()})
+
+    payload = {
+        "query": query.strip(),
+        "max_results": max_results,
+        "search_depth": "basic",
+        "include_answer": False
+    }
 
     try:
         client = get_http_client()
-        response = await client.get(
-            f"{_SEARCH_URL}?{params}",
+        response = await client.post(
+            _TAVILY_URL,
             headers={
-                "User-Agent": "Mozilla/5.0 (compatible; IEUM-Agent/1.0)",
-                "Accept": "text/html",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
             },
-            follow_redirects=True,
+            json=payload,
             timeout=_TIMEOUT,
         )
         response.raise_for_status()
+        data = response.json()
 
-        results = _parse_results(response.text, max_results)
+        # Tavily의 결과를 기존 format (title, url, snippet)에 매핑
+        tavily_results = data.get("results", [])
+        mapped_results = []
+        for r in tavily_results:
+            mapped_results.append({
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "snippet": r.get("content", "")
+            })
+
         return json.dumps({
             "success": True,
             "query": query,
-            "results": results,
+            "results": mapped_results,
         }, ensure_ascii=False)
 
     except httpx.HTTPStatusError as e:
