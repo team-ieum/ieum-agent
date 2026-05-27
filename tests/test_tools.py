@@ -56,7 +56,7 @@ async def test_http_fetch_headers_json_success():
     mock_client = _make_async_request_client(request_mock)
 
     with patch("tools.http_fetch._is_private_host", return_value=False), \
-         patch("httpx.AsyncClient", return_value=mock_client):
+         patch("tools.http_fetch.get_http_client", return_value=mock_client):
         result = await http_fetch(
             url="https://example.com",
             method="GET",
@@ -104,7 +104,7 @@ async def test_web_search_success_returns_structured_results():
     get_mock = AsyncMock(return_value=mock_response)
     mock_client = _make_async_get_client(get_mock)
 
-    with patch("httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.web_search.get_http_client", return_value=mock_client):
         result = await web_search("world economy news", max_results=2)
 
     parsed = json.loads(result)
@@ -143,7 +143,7 @@ async def test_send_slack_message_success():
     mock_response.raise_for_status = MagicMock()
     mock_client = _make_async_http_client(AsyncMock(return_value=mock_response))
 
-    with patch("httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.slack.get_http_client", return_value=mock_client):
         result = await send_slack_message(
             webhook_url="https://hooks.slack.com/test",
             message="hello",
@@ -162,7 +162,7 @@ async def test_send_slack_message_failure():
     error = httpx.HTTPStatusError("bad request", request=mock_request, response=mock_response)
     mock_client = _make_async_http_client(AsyncMock(side_effect=error))
 
-    with patch("httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.slack.get_http_client", return_value=mock_client):
         result = await send_slack_message(
             webhook_url="https://hooks.slack.com/test",
             message="hello",
@@ -183,7 +183,7 @@ async def test_send_discord_webhook_success():
     mock_response.raise_for_status = MagicMock()
     mock_client = _make_async_http_client(AsyncMock(return_value=mock_response))
 
-    with patch("httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.discord.get_http_client", return_value=mock_client):
         result = await send_discord_webhook(
             webhook_url="https://discord.com/api/webhooks/test",
             content="hello",
@@ -202,7 +202,7 @@ async def test_send_discord_webhook_failure():
     error = httpx.HTTPStatusError("forbidden", request=mock_request, response=mock_response)
     mock_client = _make_async_http_client(AsyncMock(side_effect=error))
 
-    with patch("httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.discord.get_http_client", return_value=mock_client):
         result = await send_discord_webhook(
             webhook_url="https://discord.com/api/webhooks/test",
             content="hello",
