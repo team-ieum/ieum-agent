@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse
 import httpx
 
 from common.error_code import ToolErrorCode
+from tools.http_client import get_http_client
 
 _SEARCH_URL = "https://html.duckduckgo.com/html/"
 _TIMEOUT = 15.0
@@ -124,15 +125,17 @@ async def web_search(
     params = urlencode({"q": query.strip()})
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            response = await client.get(
-                f"{_SEARCH_URL}?{params}",
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; IEUM-Agent/1.0)",
-                    "Accept": "text/html",
-                },
-            )
-            response.raise_for_status()
+        client = get_http_client()
+        response = await client.get(
+            f"{_SEARCH_URL}?{params}",
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; IEUM-Agent/1.0)",
+                "Accept": "text/html",
+            },
+            follow_redirects=True,
+            timeout=_TIMEOUT,
+        )
+        response.raise_for_status()
 
         results = _parse_results(response.text, max_results)
         return json.dumps({
