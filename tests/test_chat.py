@@ -294,3 +294,28 @@ async def test_chat_workflow_generated_nodes_없으면_에러():
     with p1, p2, p3, p4:
         with pytest.raises(ValueError):
             await _call()
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_with_mcp_servers_success():
+    """mcp_servers 전달 시, MCPToolset이 생성되고 get_tools()가 호출되어 browse_tools에 주입된다."""
+    p1, p2, p3, p4 = _make_patches(WORKFLOW_GENERATED_JSON)
+    
+    mock_mcp_instance = MagicMock()
+    mock_mcp_instance.get_tools = MagicMock(return_value=[])
+    
+    with p1, p2, p3, p4, \
+         patch("core.workflow_chat.MCPToolset", return_value=mock_mcp_instance), \
+         patch("core.workflow_chat._safe_close_mcp") as mock_close:
+        result = await chat_workflow(
+            prompt="테스트",
+            provider="CLAUDE",
+            api_key="test-key",
+            user_id="test-user",
+            available_integrations=[],
+            unavailable_integrations=[],
+            mcp_servers=[{"server_url": "http://test-mcp-server/sse", "headers": {}}]
+        )
+        
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    mock_mcp_instance.get_tools.assert_called_once()

@@ -30,6 +30,7 @@ async def chat_endpoint(
             notion_token=credentials.get("notion_token"),
             github_token=credentials.get("github_token"),
             google_access_token=credentials.get("google_access_token"),
+            mcp_servers=[s.model_dump() for s in request.mcpServers] if request.mcpServers else None,
         )
     except ValueError:
         raise HTTPException(

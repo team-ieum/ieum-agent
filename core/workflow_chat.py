@@ -1,3 +1,4 @@
+import contextlib
 import functools
 import inspect
 import json
@@ -12,6 +13,7 @@ from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools.function_tool import FunctionTool
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
 from google.genai import types
 
 from api.schemas.chat import ChatResponse, ChatResponseType, ChatAction
@@ -24,6 +26,7 @@ from db.mongodb import chat_logs
 from tools.notion import notion_search
 from tools.github import github_list_orgs, github_list_repos, github_list_issues
 from tools.google_list import google_list_calendars, google_list_sheets
+from agents.base import _safe_close_mcp
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,7 @@ _SYSTEM_PROMPT_BASE = """\
    - 예: 뉴스 조회(http_fetch)와 Notion 저장(notion_create_page)은 서로 다른 노드여야 합니다.
 3. 이전 결과 참조: 이전 노드 결과는 `{{nodes.<node-id>.output.<field>}}` 문법으로만 참조해야 합니다.
 4. AI 노드 구성: 외부 API 호출이나 Notion 연동이 포함된 AI 노드는 agentType을 "react"로 설정하십시오.
+5. 커스텀 MCP 도구 구성: 사용자가 연동한 외부 커스텀 MCP 서버의 도구들(예: trendradar_*)이 주입된 경우, 사용자의 해당 기능(실시간 트렌드 수집 등) 요청에 맞춰 AI 노드 내의 tools에 이 도구명들을 바인딩하여 워크플로우를 생성하십시오.
 </workflow_design_rules>
 
 <resource_rules>
@@ -87,7 +91,6 @@ _SYSTEM_PROMPT_BASE = """\
 6. 정상 수정 -> type: WORKFLOW_MODIFIED
 </flow_selection_rules>
 """
-
 
 _NODE_META_KEYS = {"id", "type", "nodeType", "label", "config"}
 
@@ -221,6 +224,7 @@ async def chat_workflow(
     notion_token: str | None = None,
     github_token: str | None = None,
     google_access_token: str | None = None,
+    mcp_servers: list[dict] | None = None,
 ) -> ChatResponse:
     start = time.monotonic()
     model = resolve_model(provider)
@@ -283,48 +287,62 @@ async def chat_workflow(
                 browse_tools.append(FunctionTool(_bind_token(google_list_calendars, access_token=google_access_token)))
                 browse_tools.append(FunctionTool(_bind_token(google_list_sheets, access_token=google_access_token)))
 
-            model_param = CustomGemini(model=model, api_key=api_key) if is_gemini else model
+            async with contextlib.AsyncExitStack() as stack:
+                if mcp_servers:
+                    for mcp_cfg in mcp_servers:
+                        params = SseConnectionParams(
+                            url=mcp_cfg["server_url"],
+                            headers=mcp_cfg.get("headers", {}),
+                        )
+                        mcp = MCPToolset(connection_params=params)
+                        res = mcp.get_tools()
+                        mcp_tools = await res if hasattr(res, "__await__") else res
+                        
+                        stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
+                        browse_tools.extend(mcp_tools)
 
-            agent = LlmAgent(
-                name="workflow_chat",
-                model=model_param,
-                instruction=instruction,
-                tools=browse_tools,
-                output_schema=ChatResponseOutputSchema,
-                generate_content_config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
+                model_param = CustomGemini(model=model, api_key=api_key) if is_gemini else model
+
+                agent = LlmAgent(
+                    name="workflow_chat",
+                    model=model_param,
+                    instruction=instruction,
+                    tools=browse_tools,
+                    output_schema=ChatResponseOutputSchema,
+                    generate_content_config=types.GenerateContentConfig(
+                        response_mime_type="application/json"
+                    )
                 )
-            )
 
-            session_service = InMemorySessionService()
-            runner = Runner(
-                agent=agent,
-                app_name="ieum-agent",
-                session_service=session_service,
-            )
+                session_service = InMemorySessionService()
+                runner = Runner(
+                    agent=agent,
+                    app_name="ieum-agent",
+                    session_service=session_service,
+                )
 
-            session = await session_service.create_session(
-                app_name="ieum-agent",
-                user_id="user",
-            )
+                session = await session_service.create_session(
+                    app_name="ieum-agent",
+                    user_id="user",
+                )
 
-            message = types.Content(
-                role="user",
-                parts=[types.Part(text=prompt)],
-            )
+                message = types.Content(
+                    role="user",
+                    parts=[types.Part(text=prompt)],
+                )
 
-            output_parts = []
-            async for event in runner.run_async(
-                user_id="user",
-                session_id=session.id,
-                new_message=message,
-            ):
-                if event.is_final_response() and event.content:
-                    for part in event.content.parts:
-                        if hasattr(part, "text") and part.text:
-                            output_parts.append(part.text)
+                output_parts = []
+                async for event in runner.run_async(
+                    user_id="user",
+                    session_id=session.id,
+                    new_message=message,
+                ):
+                    if event.is_final_response() and event.content:
+                        for part in event.content.parts:
+                            if hasattr(part, "text") and part.text:
+                                output_parts.append(part.text)
 
-            return "\n".join(output_parts) if output_parts else ""
+                return "\n".join(output_parts) if output_parts else ""
 
         finally:
             if env_key and not is_gemini:
