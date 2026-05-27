@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import httpx
 
 from common.error_code import ToolErrorCode
+from tools.http_client import get_http_client
 
 _MAX_RESPONSE_BYTES = 1 * 1024 * 1024
 _TIMEOUT = 30.0
@@ -79,33 +80,31 @@ async def http_fetch(
         return json.dumps({"error": header_error}, ensure_ascii=False)
 
     try:
-        async with httpx.AsyncClient(
+        client = get_http_client()
+        response = await client.request(
+            method=method.upper(),
+            url=url,
+            headers=headers,
+            content=body.encode() if body else None,
             follow_redirects=True,
-            max_redirects=_MAX_REDIRECTS,
             timeout=_TIMEOUT,
-        ) as client:
-            response = await client.request(
-                method=method.upper(),
-                url=url,
-                headers=headers,
-                content=body.encode() if body else None,
-            )
+        )
 
-            raw = response.content
-            truncated = False
-            if len(raw) > _MAX_RESPONSE_BYTES:
-                raw = raw[:_MAX_RESPONSE_BYTES]
-                truncated = True
+        raw = response.content
+        truncated = False
+        if len(raw) > _MAX_RESPONSE_BYTES:
+            raw = raw[:_MAX_RESPONSE_BYTES]
+            truncated = True
 
-            result = {
-                "statusCode": response.status_code,
-                "headers": dict(response.headers),
-                "body": raw.decode("utf-8", errors="replace"),
-            }
-            if truncated:
-                result["truncated"] = True
+        result = {
+            "statusCode": response.status_code,
+            "headers": dict(response.headers),
+            "body": raw.decode("utf-8", errors="replace"),
+        }
+        if truncated:
+            result["truncated"] = True
 
-            return json.dumps(result, ensure_ascii=False)
+        return json.dumps(result, ensure_ascii=False)
 
     except httpx.TimeoutException:
         return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (http_fetch: 요청 타임아웃)"}, ensure_ascii=False)
