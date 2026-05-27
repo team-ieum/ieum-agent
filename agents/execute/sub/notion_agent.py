@@ -1,11 +1,18 @@
 import contextlib
+import json
+import logging
+import os
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionParams
+from mcp import StdioServerParameters
+
+logger = logging.getLogger(__name__)
 
 _INSTRUCTION = (
     "Notion MCP 서버를 통해 Notion 워크스페이스의 페이지·데이터베이스·댓글을 관리한다. "
     "페이지 생성·수정·이동, 데이터베이스 조회, 댓글 관리 등을 담당한다."
 )
+
 
 async def build_notion_agent(
     model: str,
@@ -22,13 +29,24 @@ async def build_notion_agent(
             tools=[]
         ), []
 
+    token_prefix = notion_oauth_token[:10] + "..." if len(notion_oauth_token) > 10 else "(short)"
+    logger.info("[notion_agent] @notionhq/notion-mcp-server 연결 시도 — token_prefix=%s", token_prefix)
+
+    mcp_headers = json.dumps({
+        "Authorization": f"Bearer {notion_oauth_token}",
+        "Notion-Version": "2022-06-28",
+    })
     mcp = MCPToolset(
-        connection_params=SseConnectionParams(
-            url="https://mcp.notion.com/sse",
-            headers={"Authorization": f"Bearer {notion_oauth_token}"},
+        connection_params=StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command="npx",
+                args=["-y", "@notionhq/notion-mcp-server"],
+                env={**os.environ, "OPENAPI_MCP_HEADERS": mcp_headers},
+            ),
         )
     )
-    tools = await stack.enter_async_context(mcp)
+    tools = await mcp.get_tools()
+    stack.callback(lambda m=mcp: __import__('asyncio').ensure_future(m.close()))
     agent = LlmAgent(
         name="notion_agent",
         model=model,

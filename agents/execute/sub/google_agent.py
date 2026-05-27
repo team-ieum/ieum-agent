@@ -1,6 +1,9 @@
 import contextlib
+import logging
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPConnectionParams
+
+logger = logging.getLogger(__name__)
 
 _INSTRUCTION = (
     "Google Workspace MCP 서버를 통해 Gmail·Google Drive·Google Calendar를 관리한다. "
@@ -37,7 +40,8 @@ async def build_google_agent(
                 headers={"Authorization": f"Bearer {google_oauth_token}"},
             )
         )
-        tools = await stack.enter_async_context(mcp)
+        tools = await mcp.get_tools()
+        stack.callback(lambda m=mcp: __import__("asyncio").ensure_future(m.close()))
         all_tools.extend(tools)
         mcps.append(mcp)
 

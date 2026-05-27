@@ -36,7 +36,8 @@ async def build_mcp_agent(
                 headers=cfg.get("headers", {}),
             )
         )
-        tools = await stack.enter_async_context(mcp)
+        tools = await mcp.get_tools()
+        stack.callback(lambda m=mcp: __import__("asyncio").ensure_future(m.close()))
         all_tools.extend(tools)
         mcps.append(mcp)
 

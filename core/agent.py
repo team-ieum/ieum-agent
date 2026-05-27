@@ -54,7 +54,8 @@ async def run_agent(
     result = AgentExecutionResult(success=False)
 
     env_key = resolve_env_key(provider)
-    lock = get_env_lock(env_key) if env_key else None
+    # Gemini인 경우 os.environ을 통한 임시 주입 대신 CustomGemini를 통해 API Key를 직접 주입하므로 Lock을 잡지 않습니다.
+    lock = get_env_lock(env_key) if (env_key and provider.upper() != "GEMINI") else None
 
     model = resolve_model(provider, request.model)
 
@@ -104,7 +105,7 @@ async def run_agent(
         result = AgentExecutionResult(
             success=False,
             status="ERROR",
-            errorMessage=ErrorCode.AGENT_EXECUTION_FAILED.message,
+            errorMessage=str(e) or ErrorCode.AGENT_EXECUTION_FAILED.message,
         )
 
     duration_ms = int((time.monotonic() - start) * 1000)
