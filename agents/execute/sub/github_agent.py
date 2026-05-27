@@ -35,7 +35,7 @@ async def build_github_agent(
         )
     )
     tools = await mcp.get_tools()
-    stack.callback(lambda m=mcp: __import__('asyncio').ensure_future(m.close()))
+    stack.push_async_callback(mcp.close)
     agent = LlmAgent(
         name="github_agent",
         model=model,

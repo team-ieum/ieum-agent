@@ -40,13 +40,13 @@ async def build_notion_agent(
         connection_params=StdioConnectionParams(
             server_params=StdioServerParameters(
                 command="npx",
-                args=["-y", "@notionhq/notion-mcp-server"],
+                args=["--no-install", "@notionhq/notion-mcp-server"],
                 env={**os.environ, "OPENAPI_MCP_HEADERS": mcp_headers},
             ),
         )
     )
     tools = await mcp.get_tools()
-    stack.callback(lambda m=mcp: __import__('asyncio').ensure_future(m.close()))
+    stack.push_async_callback(mcp.close)
     agent = LlmAgent(
         name="notion_agent",
         model=model,

@@ -41,7 +41,7 @@ async def build_google_agent(
             )
         )
         tools = await mcp.get_tools()
-        stack.callback(lambda m=mcp: __import__("asyncio").ensure_future(m.close()))
+        stack.push_async_callback(mcp.close)
         all_tools.extend(tools)
         mcps.append(mcp)
 
