@@ -40,8 +40,10 @@ async def build_google_agent(
                 headers={"Authorization": f"Bearer {google_oauth_token}"},
             )
         )
-        tools = await mcp.get_tools()
-        stack.push_async_callback(mcp.close)
+        res = mcp.get_tools()
+        tools = await res if hasattr(res, "__await__") else res
+        from agents.base import _safe_close_mcp
+        stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
         all_tools.extend(tools)
         mcps.append(mcp)
 

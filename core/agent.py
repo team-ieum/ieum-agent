@@ -105,7 +105,7 @@ async def run_agent(
         result = AgentExecutionResult(
             success=False,
             status="ERROR",
-            errorMessage=str(e) or ErrorCode.AGENT_EXECUTION_FAILED.message,
+            errorMessage=ErrorCode.AGENT_EXECUTION_FAILED.message,
         )
 
     duration_ms = int((time.monotonic() - start) * 1000)
