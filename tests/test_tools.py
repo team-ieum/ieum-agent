@@ -90,21 +90,29 @@ async def test_http_fetch_invalid_headers_json_returns_error():
 
 @pytest.mark.asyncio
 async def test_web_search_success_returns_structured_results():
-    html_body = """
-    <html><body>
-      <a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fnews">Example News</a>
-      <a class="result__snippet">Global economy update</a>
-      <a class="result__a" href="https://example.org/report">Example Report</a>
-      <a class="result__snippet">Markets and finance report</a>
-    </body></html>
-    """
+    tavily_response = {
+        "query": "world economy news",
+        "results": [
+            {
+                "title": "Example News",
+                "url": "https://example.com/news",
+                "content": "Global economy update",
+            },
+            {
+                "title": "Example Report",
+                "url": "https://example.org/report",
+                "content": "Markets and finance report",
+            },
+        ]
+    }
     mock_response = MagicMock()
-    mock_response.text = html_body
+    mock_response.json = MagicMock(return_value=tavily_response)
     mock_response.raise_for_status = MagicMock()
-    get_mock = AsyncMock(return_value=mock_response)
-    mock_client = _make_async_get_client(get_mock)
+    post_mock = AsyncMock(return_value=mock_response)
+    mock_client = _make_async_http_client(post_mock)
 
-    with patch("tools.web_search.get_http_client", return_value=mock_client):
+    with patch.dict("os.environ", {"TAVILY_API_KEY": "test_tavily_key"}), \
+         patch("tools.web_search.get_http_client", return_value=mock_client):
         result = await web_search("world economy news", max_results=2)
 
     parsed = json.loads(result)
@@ -125,12 +133,23 @@ async def test_web_search_success_returns_structured_results():
 
 
 @pytest.mark.asyncio
+async def test_web_search_missing_api_key_returns_error():
+    with patch.dict("os.environ", {}, clear=True):
+        result = await web_search("world economy news")
+
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "TAVILY_API_KEY" in parsed["error"]
+
+
+@pytest.mark.asyncio
 async def test_web_search_empty_query_returns_error():
     result = await web_search(" ")
 
     parsed = json.loads(result)
     assert "error" in parsed
     assert "검색어" in parsed["error"]
+
 
 
 # ---------------------------------------------------------------------------
