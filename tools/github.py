@@ -1,5 +1,6 @@
 import json
 import httpx
+from tools.http_client import get_http_client
 
 _GITHUB_API_BASE = "https://api.github.com"
 _TIMEOUT = 30.0
@@ -24,20 +25,21 @@ async def github_list_orgs(token: str) -> str:
         조직 목록 (login, description)을 포함한 JSON 문자열
     """
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.get(
-                f"{_GITHUB_API_BASE}/user/orgs",
-                headers=_headers(token),
-                params={"per_page": 30},
+        client = get_http_client()
+        response = await client.get(
+            f"{_GITHUB_API_BASE}/user/orgs",
+            headers=_headers(token),
+            params={"per_page": 30},
+            timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return json.dumps(
+                {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
+                ensure_ascii=False,
             )
-            if response.status_code != 200:
-                return json.dumps(
-                    {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
-                    ensure_ascii=False,
-                )
-            orgs = response.json()
-            results = [{"login": o["login"], "description": o.get("description") or ""} for o in orgs]
-            return json.dumps({"success": True, "orgs": results, "total": len(results)}, ensure_ascii=False)
+        orgs = response.json()
+        results = [{"login": o["login"], "description": o.get("description") or ""} for o in orgs]
+        return json.dumps({"success": True, "orgs": results, "total": len(results)}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
@@ -56,31 +58,32 @@ async def github_list_issues(token: str, owner: str, repo: str, state: str = "op
         이슈 목록 (number, title, state, labels, created_at)을 포함한 JSON 문자열
     """
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.get(
-                f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/issues",
-                headers=_headers(token),
-                params={"per_page": 20, "state": state, "sort": "updated"},
+        client = get_http_client()
+        response = await client.get(
+            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/issues",
+            headers=_headers(token),
+            params={"per_page": 20, "state": state, "sort": "updated"},
+            timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return json.dumps(
+                {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
+                ensure_ascii=False,
             )
-            if response.status_code != 200:
-                return json.dumps(
-                    {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
-                    ensure_ascii=False,
-                )
-            issues = response.json()
-            # GitHub API는 이슈와 PR을 함께 반환 — PR 제외
-            results = [
-                {
-                    "number": i["number"],
-                    "title": i["title"],
-                    "state": i["state"],
-                    "labels": [label["name"] for label in i.get("labels", [])],
-                    "created_at": i["created_at"],
-                }
-                for i in issues
-                if "pull_request" not in i
-            ]
-            return json.dumps({"success": True, "issues": results, "total": len(results)}, ensure_ascii=False)
+        issues = response.json()
+        # GitHub API는 이슈와 PR을 함께 반환 — PR 제외
+        results = [
+            {
+                "number": i["number"],
+                "title": i["title"],
+                "state": i["state"],
+                "labels": [label["name"] for label in i.get("labels", [])],
+                "created_at": i["created_at"],
+            }
+            for i in issues
+            if "pull_request" not in i
+        ]
+        return json.dumps({"success": True, "issues": results, "total": len(results)}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
@@ -97,42 +100,45 @@ async def github_list_repos(token: str, owner: str = None) -> str:
         레포지토리 목록 (name, full_name, owner, description, private)을 포함한 JSON 문자열
     """
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            if owner:
+        client = get_http_client()
+        if owner:
+            response = await client.get(
+                f"{_GITHUB_API_BASE}/orgs/{owner}/repos",
+                headers=_headers(token),
+                params={"per_page": 30, "sort": "updated"},
+                timeout=_TIMEOUT,
+            )
+            if response.status_code == 404:
                 response = await client.get(
-                    f"{_GITHUB_API_BASE}/orgs/{owner}/repos",
+                    f"{_GITHUB_API_BASE}/users/{owner}/repos",
                     headers=_headers(token),
                     params={"per_page": 30, "sort": "updated"},
+                    timeout=_TIMEOUT,
                 )
-                if response.status_code == 404:
-                    response = await client.get(
-                        f"{_GITHUB_API_BASE}/users/{owner}/repos",
-                        headers=_headers(token),
-                        params={"per_page": 30, "sort": "updated"},
-                    )
-            else:
-                response = await client.get(
-                    f"{_GITHUB_API_BASE}/user/repos",
-                    headers=_headers(token),
-                    params={"per_page": 30, "sort": "updated", "affiliation": "owner,organization_member"},
-                )
+        else:
+            response = await client.get(
+                f"{_GITHUB_API_BASE}/user/repos",
+                headers=_headers(token),
+                params={"per_page": 30, "sort": "updated", "affiliation": "owner,organization_member"},
+                timeout=_TIMEOUT,
+            )
 
-            if response.status_code != 200:
-                return json.dumps(
-                    {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
-                    ensure_ascii=False,
-                )
-            repos = response.json()
-            results = [
-                {
-                    "name": r["name"],
-                    "full_name": r["full_name"],
-                    "owner": r["owner"]["login"],
-                    "description": r.get("description") or "",
-                    "private": r["private"],
-                }
-                for r in repos
-            ]
-            return json.dumps({"success": True, "repos": results, "total": len(results)}, ensure_ascii=False)
+        if response.status_code != 200:
+            return json.dumps(
+                {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
+                ensure_ascii=False,
+            )
+        repos = response.json()
+        results = [
+            {
+                "name": r["name"],
+                "full_name": r["full_name"],
+                "owner": r["owner"]["login"],
+                "description": r.get("description") or "",
+                "private": r["private"],
+            }
+            for r in repos
+        ]
+        return json.dumps({"success": True, "repos": results, "total": len(results)}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
