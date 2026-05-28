@@ -1,12 +1,13 @@
 import contextlib
+import inspect
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
-from agents.base import _safe_close_mcp
 
 _INSTRUCTION = (
     "사용자가 지정한 커스텀 MCP 서버의 도구를 활용해 요청된 작업을 수행한다. "
     "연결된 MCP 서버의 도구 목록을 확인하고 적절한 도구를 선택한다."
 )
+
 
 async def build_mcp_agent(
     model: str,
@@ -37,9 +38,11 @@ async def build_mcp_agent(
                 headers=cfg.get("headers", {}),
             )
         )
+        await stack.enter_async_context(mcp)
+
         res = mcp.get_tools()
-        tools = await res if hasattr(res, "__await__") else res
-        stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
+        tools = await res if inspect.isawaitable(res) else res
+
         all_tools.extend(tools)
         mcps.append(mcp)
 
