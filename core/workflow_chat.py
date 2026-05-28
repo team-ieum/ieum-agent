@@ -311,9 +311,6 @@ async def chat_workflow(
                     instruction=instruction,
                     tools=browse_tools,
                     output_schema=ChatResponseOutputSchema,
-                    generate_content_config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
-                    )
                 )
 
                 session_service = InMemorySessionService()
