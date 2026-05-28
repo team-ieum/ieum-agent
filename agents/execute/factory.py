@@ -108,6 +108,7 @@ async def run_react_agent(
     notion_token: str | None = None,
     github_token: str | None = None,
     session_service: BaseSessionService | None = None,
+    use_single_agent: bool = True,
 ) -> tuple[str, int, int, int]:
     """react 타입: Main Agent + Sub-Agent 멀티 에이전트 실행. AsyncExitStack으로 MCPToolset 관리."""
     prev_value = None
@@ -129,9 +130,8 @@ async def run_react_agent(
 
         # [최적화] 외부 연동 크레덴셜이 1개 이하이고 커스텀 MCP가 정의되지 않은 경우
         # 메인-서브 멀티에이전트 오케스트레이션을 우회하고 단일 ReAct Agent로 다이렉트 실행하여 Latency 감소
-        # 단, 테스트 환경(InMemorySessionService가 주입된 경우)인 경우 테스트의 mock 기대를 위해 기존 멀티에이전트 흐름을 유지합니다.
-        is_test = isinstance(session_service, InMemorySessionService)
-        if len(active_tokens) <= 1 and not has_custom_mcp and not is_test:
+        # 단, 테스트 환경(use_single_agent가 False인 경우)에는 기존 멀티에이전트 흐름을 유지합니다.
+        if len(active_tokens) <= 1 and not has_custom_mcp and use_single_agent:
             async with contextlib.AsyncExitStack() as stack:
                 builtin_tools = get_tools_for_request(request.tools or [])
                 if google_access_token:
