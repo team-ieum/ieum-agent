@@ -388,3 +388,91 @@ async def test_chat_workflow_session_persistence():
     assert sess2 is not None
     assert sess2.id == test_user_id
     assert sess1.id == sess2.id
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_self_correction_loop():
+    """검증 레이어가 결함을 발견했을 때 피드백을 수용하여 자가 교정(Retry)을 거쳐 최종 결과를 반환하는지 검증한다."""
+    # 1. 초안: 결함이 있는 디자인
+    faulty_nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "HTTP", "label": "디스코드 전송", "config": {"url": "https://discord..."}}
+    ]
+    faulty_draft_json = json.dumps({
+        "message": "초안 생성",
+        "type": "WORKFLOW_GENERATED",
+        "nodes": faulty_nodes,
+        "edges": []
+    })
+
+    # 2. 리뷰어 피드백: isValid = False
+    reviewer_feedback_json = json.dumps({
+        "isValid": False,
+        "feedback": "외부 연동은 절대로 HTTP 노드를 직접 쓰지 마시고, send_discord_webhook 도구가 주입된 AI 노드를 사용하십시오."
+    })
+
+    # 3. 최종 교정본: 올바른 디자인
+    corrected_nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "디스코드 전송", "config": {"llmProvider": "CLAUDE", "agentType": "react", "tools": ["discord"], "credentialId": ""}}
+    ]
+    corrected_workflow_json = json.dumps({
+        "message": "교정 완료",
+        "type": "WORKFLOW_GENERATED",
+        "nodes": corrected_nodes,
+        "edges": []
+    })
+
+    # 순차적으로 응답을 던져줄 list 생성
+    outputs = [faulty_draft_json, reviewer_feedback_json, corrected_workflow_json]
+    call_index = 0
+
+    def mock_run_async_seq(**kwargs):
+        nonlocal call_index
+        text_output = outputs[call_index]
+        call_index += 1
+
+        mock_event = MagicMock()
+        mock_event.is_final_response.return_value = True
+        mock_event.content.parts = [type("Part", (), {"text": text_output})()]
+
+        async def generator():
+            yield mock_event
+        return generator()
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = mock_run_async_seq
+
+    # 패치 적용
+    mock_session = AsyncMock()
+    mock_session_service = MagicMock()
+    mock_session_service.get_session = AsyncMock(return_value=None)
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    patches = [
+        patch("core.workflow_chat.Runner", return_value=mock_runner),
+        patch("core.workflow_chat.InMemorySessionService", return_value=mock_session_service),
+        patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
+        patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
+    ]
+
+    with patches[0], patches[1], patches[2], patches[3]:
+        result = await chat_workflow(
+            prompt="디스코드 전송 워크플로우 만들어줘",
+            provider="CLAUDE",
+            api_key="test-key",
+            user_id="test-user",
+            available_integrations=[],
+            unavailable_integrations=[],
+        )
+
+    # 3번의 호출이 정상 수행되었고, 최종적으로 자가 교정본(corrected_nodes)이 반환되었는지 확인
+    assert call_index == 3
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    assert result.nodes[1].type == "AI"
+    assert "discord" in result.nodes[1].config["tools"]
+

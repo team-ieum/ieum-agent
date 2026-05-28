@@ -72,6 +72,39 @@ class ChatResponseOutputSchema(BaseModel):
     )
 
 
+class WorkflowReviewResult(BaseModel):
+    """지능형 검증 레이어의 리뷰 결과 규격"""
+    isValid: bool = Field(
+        description="설계된 워크플로우가 설계 규칙(Data Link, HTTP 노드 지양, 리소스 ID 포함 등) 및 사용자 요구사항에 무결한지 여부"
+    )
+    feedback: Optional[str] = Field(
+        default=None,
+        description="오류나 개선이 필요한 사항에 대한 상세한 피드백 설명 (isValid가 false일 때 필수 기입, 통과 시 null)"
+    )
+
+
+_REVIEWER_SYSTEM_PROMPT = """\
+당신은 IEUM 워크플로우 설계를 평가하고 검증하는 전문 AI 리뷰어(검증 레이어)입니다.
+사용자 요청(User Request)과 에이전트가 설계한 워크플로우 초안(Draft Workflow)을 대조하여, 결함이 있는지 엄격하게 평가하십시오.
+
+<verification_checklist>
+1. 외부 연동은 AI 노드 전용 도구 사용 여부:
+   - Notion, Gmail, Slack, Discord, GitHub 등 외부 서비스 연동에 **절대로 HTTP 노드가 사용되어서는 안 됩니다.** 반드시 도구를 바인딩한 AI 노드로 작성되었는지 확인하십시오. (예: Discord 전송은 HTTP API가 아닌 send_discord_webhook 도구가 주입된 AI 노드여야 함)
+2. 노드 간 데이터 참조 정합성:
+   - 이전 노드 참조(예: nodes.node-1.output.data를 이중 중괄호로 감싼 형태)가 올바른 선행 노드 ID를 가리키고 있는지 대조하십시오.
+   - 정의되지 않은 임의의 시스템 변수(예: today, current_date 등)를 날조해서 사용하고 있지 않은지 감시하십시오.
+3. 데이터 훼손 방지 및 흐름 적절성:
+   - 깃허브나 노션 조회 노드의 prompt에서 데이터 형태를 자연어로 마음대로 훼손/요약해 버리지 않고, JSON 원본을 그대로 output으로 넘기도록 가이드되었는지 확인하십시오.
+   - 원시 데이터를 정제하거나 마크다운 형식으로 작성할 때, `transform_agent` (혹은 `json_parse` 등의 도구)를 활용하도록 노드가 올바르게 거쳐가게 설계되었는지 확인하십시오.
+4. 리소스 ID 주입:
+   - Notion parent_page_id 등 워크플로우 작동에 필요한 리소스 ID들이 빈 값("")이 아닌 유효한 조회 ID로 매핑되어 있는지 확인하십시오.
+</verification_checklist>
+
+설계 초안에 결함이나 규칙 위반이 존재한다면 isValid를 false로 하고, 피드백(feedback) 필드에 구체적으로 어떤 부분을 어떻게 수정해야 하는지 피드백 메시지를 상세히 작성하여 반환하십시오.
+모든 체크리스트가 완벽히 통과되고 설계상 오류가 전혀 없다면 isValid를 true, feedback을 null로 반환하십시오.
+"""
+
+
 _SYSTEM_PROMPT_BASE = """\
 당신은 IEUM 워크플로우를 설계 및 관리하는 AI 어시스턴트입니다.
 사용자 요청에 따라 TRIGGER, AI, HTTP, CONDITION, TRANSFORM 노드로 구성된 최적의 워크플로우를 설계하십시오.
@@ -330,8 +363,9 @@ async def chat_workflow(
 
                 model_param = CustomGemini(model=model, api_key=api_key) if is_gemini else model
 
-                agent = LlmAgent(
-                    name="workflow_chat",
+                # 1. Designer Agent (Generator) 선언
+                designer_agent = LlmAgent(
+                    name="workflow_designer",
                     model=model_param,
                     instruction=instruction + get_current_time_info(),
                     tools=browse_tools,
@@ -339,8 +373,25 @@ async def chat_workflow(
                 )
 
                 session_service = _get_session_service()
-                runner = Runner(
-                    agent=agent,
+                
+                # 2. Reviewer Agent 선언
+                reviewer_agent = LlmAgent(
+                    name="workflow_reviewer",
+                    model=model_param,
+                    instruction=_REVIEWER_SYSTEM_PROMPT,
+                    output_schema=WorkflowReviewResult,
+                )
+
+                # designer 실행을 위한 runner
+                designer_runner = Runner(
+                    agent=designer_agent,
+                    app_name="ieum-agent",
+                    session_service=session_service,
+                )
+
+                # reviewer 실행을 위한 runner
+                reviewer_runner = Runner(
+                    agent=reviewer_agent,
                     app_name="ieum-agent",
                     session_service=session_service,
                 )
@@ -357,13 +408,14 @@ async def chat_workflow(
                         session_id=user_id,
                     )
 
+                # Step 1: 워크플로우 설계 초안 생성 (Designer)
                 message = types.Content(
                     role="user",
                     parts=[types.Part(text=prompt)],
                 )
 
                 output_parts = []
-                async for event in runner.run_async(
+                async for event in designer_runner.run_async(
                     user_id=user_id,
                     session_id=session.id,
                     new_message=message,
@@ -373,7 +425,92 @@ async def chat_workflow(
                             if hasattr(part, "text") and part.text:
                                 output_parts.append(part.text)
 
-                return "\n".join(output_parts) if output_parts else ""
+                draft_output = "\n".join(output_parts) if output_parts else ""
+
+                # 초안이 JSON 인지 체크 및 응답 타입 파악
+                try:
+                    cleaned_draft = draft_output.strip()
+                    if cleaned_draft.startswith("```"):
+                        cleaned_draft = "\n".join(cleaned_draft.split("\n")[1:])
+                    if cleaned_draft.rstrip().endswith("```"):
+                        cleaned_draft = "\n".join(cleaned_draft.rstrip().split("\n")[:-1])
+                    cleaned_draft = cleaned_draft.strip()
+                    
+                    draft_data = json.loads(cleaned_draft)
+                    response_type = draft_data.get("type")
+                except Exception:
+                    response_type = None
+
+                # 신규 생성 또는 수정인 경우에만 지능형 검증(Reviewer) 가동
+                if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
+                    # Step 2: 설계 초안 검증 (Reviewer)
+                    review_prompt = (
+                        f"Original User Request: {prompt}\n\n"
+                        f"Drafted Workflow Configs:\n{cleaned_draft}"
+                    )
+                    review_message = types.Content(
+                        role="user",
+                        parts=[types.Part(text=review_prompt)],
+                    )
+                    
+                    review_parts = []
+                    async for event in reviewer_runner.run_async(
+                        user_id=user_id,
+                        session_id=session.id,
+                        new_message=review_message,
+                    ):
+                        if event.is_final_response() and event.content:
+                            for part in event.content.parts:
+                                if hasattr(part, "text") and part.text:
+                                    review_parts.append(part.text)
+                    
+                    review_output = "\n".join(review_parts) if review_parts else ""
+                    
+                    try:
+                        cleaned_review = review_output.strip()
+                        if cleaned_review.startswith("```"):
+                            cleaned_review = "\n".join(cleaned_review.split("\n")[1:])
+                        if cleaned_review.rstrip().endswith("```"):
+                            cleaned_review = "\n".join(cleaned_review.rstrip().split("\n")[:-1])
+                        cleaned_review = cleaned_review.strip()
+                        
+                        review_data = json.loads(cleaned_review)
+                        is_valid = review_data.get("isValid", True)
+                        feedback = review_data.get("feedback")
+                    except Exception as e:
+                        logger.warning("검증 레이어 응답 파싱 실패, 기본값으로 통과 처리합니다. 에러: %s", e)
+                        is_valid = True
+                        feedback = None
+                    
+                    # Step 3: 결함 발견 시 피드백 기반 1회 자가 교정 (Self-Correction Loop)
+                    if not is_valid and feedback:
+                        logger.info("검증 레이어 결함 발견! 자가 교정을 시도합니다. 피드백: %s", feedback)
+                        correction_prompt = (
+                            f"당신이 이전에 작성한 워크플로우 설계 초안에 결함이 발견되었습니다.\n"
+                            f"아래 피드백 내용을 엄격하게 수용하여, 오류를 수정하고 완성된 새로운 워크플로우를 재생성하십시오.\n\n"
+                            f"## 검증 피드백:\n{feedback}\n\n"
+                            f"## 이전 설계 초안:\n{cleaned_draft}"
+                        )
+                        correction_message = types.Content(
+                            role="user",
+                            parts=[types.Part(text=correction_prompt)],
+                        )
+                        
+                        corrected_parts = []
+                        async for event in designer_runner.run_async(
+                            user_id=user_id,
+                            session_id=session.id,
+                            new_message=correction_message,
+                        ):
+                            if event.is_final_response() and event.content:
+                                for part in event.content.parts:
+                                    if hasattr(part, "text") and part.text:
+                                        corrected_parts.append(part.text)
+                        
+                        final_output = "\n".join(corrected_parts) if corrected_parts else draft_output
+                        return final_output
+
+                return draft_output
 
         finally:
             if env_key and not is_gemini:
