@@ -142,3 +142,48 @@ async def github_list_repos(token: str, owner: str = None) -> str:
         return json.dumps({"success": True, "repos": results, "total": len(results)}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+async def github_list_pull_requests(token: str, owner: str, repo: str, state: str = "closed", per_page: int = 30) -> str:
+    """
+    GitHub 레포지토리의 Pull Request(PR) 목록을 조회합니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        state: PR 상태 (open | closed | all, 기본값: closed)
+        per_page: 페이지당 가져올 개수 (기본값: 30)
+
+    Returns:
+        PR 목록 (number, title, state, html_url, merged_at, created_at)을 포함한 JSON 문자열
+    """
+    try:
+        client = get_http_client()
+        response = await client.get(
+            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls",
+            headers=_headers(token),
+            params={"per_page": per_page, "state": state, "sort": "updated"},
+            timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return json.dumps(
+                {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
+                ensure_ascii=False,
+            )
+        pulls = response.json()
+        results = [
+            {
+                "number": p["number"],
+                "title": p["title"],
+                "state": p["state"],
+                "html_url": p["html_url"],
+                "created_at": p["created_at"],
+                "merged_at": p.get("merged_at"),
+            }
+            for p in pulls
+        ]
+        return json.dumps({"success": True, "pulls": results, "total": len(results)}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
