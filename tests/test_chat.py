@@ -79,6 +79,7 @@ def _make_patches(text_output: str):
     mock_session = AsyncMock()
     mock_session.id = "test-session"
     mock_session_service = MagicMock()
+    mock_session_service.get_session = AsyncMock(return_value=None)
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
     mock_lock = MagicMock()
@@ -199,12 +200,13 @@ async def test_chat_workflow_빈_응답_에러():
 
 
 @pytest.mark.asyncio
-async def test_chat_workflow_잘못된_json_에러():
-    """LLM이 잘못된 JSON을 반환하면 ValueError가 발생한다."""
+async def test_chat_workflow_잘못된_json_폴백():
+    """LLM이 잘못된 JSON을 반환하면 CLARIFICATION_NEEDED 타입으로 폴백된다."""
     p1, p2, p3, p4 = _make_patches("이건 JSON이 아닙니다")
     with p1, p2, p3, p4:
-        with pytest.raises(ValueError):
-            await _call()
+        result = await _call()
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
+    assert result.message == "이건 JSON이 아닙니다"
 
 
 @pytest.mark.asyncio
@@ -354,3 +356,32 @@ async def test_chat_workflow_id_translation():
     
     # 템플릿 참조 변수 변경 검증
     assert result.nodes[1].config["prompt"] == "이전 데이터: {{nodes.node-1.output.data}}"
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_session_persistence():
+    """_get_session_service가 싱글톤으로 동일 user_id에 대해 동일 세션 객체를 반환하고 유지하는지 검증한다."""
+    import core.workflow_chat
+    core.workflow_chat._SESSION_SERVICE = None
+    
+    session_service = core.workflow_chat._get_session_service()
+    test_user_id = "test-user-persistence-123"
+    
+    # 1. 첫 번째로 세션 생성
+    sess1 = await session_service.create_session(
+        app_name="ieum-agent",
+        user_id=test_user_id,
+        session_id=test_user_id,
+    )
+    assert sess1 is not None
+    assert sess1.id == test_user_id
+    
+    # 2. 두 번째로 get_session을 호출하여 동일 세션 조회
+    sess2 = await session_service.get_session(
+        app_name="ieum-agent",
+        user_id=test_user_id,
+        session_id=test_user_id,
+    )
+    assert sess2 is not None
+    assert sess2.id == test_user_id
+    assert sess1.id == sess2.id
