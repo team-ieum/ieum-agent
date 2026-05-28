@@ -18,13 +18,7 @@ from core.custom_gemini import CustomGemini
 from db.session_service import MongoSessionService
 from tools import get_tools_for_request
 from api.schemas.request import AgentNodeRequest
-from google.adk.sessions import InMemorySessionService
-
-# 테스트 호환성 유지: 테스트에서 InMemorySessionService가 Mock 등으로 패치된 경우 이를 우선적으로 사용합니다.
-def _get_session_service():
-    if hasattr(InMemorySessionService, "_mock_return_value") or "Mock" in type(InMemorySessionService).__name__:
-        return InMemorySessionService()
-    return MongoSessionService()
+from google.adk.sessions import BaseSessionService, InMemorySessionService
 
 
 async def run_simple_agent(
@@ -33,10 +27,11 @@ async def run_simple_agent(
     api_key: str,
     env_key: str | None,
     user_id: str,
+    session_service: BaseSessionService | None = None,
 ) -> tuple[str, int, int, int]:
     """simple 타입: 단일 LlmAgent로 실행. 도구 없이 빠른 LLM 호출."""
     prev_value = None
-    is_gemini = env_key == "GOOGLE_API_KEY" or not env_key
+    is_gemini = (env_key == "GOOGLE_API_KEY") or (not env_key and "gemini" in model.lower())
 
     # Gemini가 아닌 경우에만 os.environ 조작 (Lock 대상)
     if env_key and not is_gemini:
@@ -57,7 +52,8 @@ async def run_simple_agent(
             tools=builtin_tools,
         )
 
-        session_service = _get_session_service()
+        if session_service is None:
+            session_service = MongoSessionService()
         runner = Runner(
             agent=agent,
             app_name="ieum-agent",
@@ -111,10 +107,14 @@ async def run_react_agent(
     google_access_token: str | None = None,
     notion_token: str | None = None,
     github_token: str | None = None,
+    session_service: BaseSessionService | None = None,
 ) -> tuple[str, int, int, int]:
     """react 타입: Main Agent + Sub-Agent 멀티 에이전트 실행. AsyncExitStack으로 MCPToolset 관리."""
     prev_value = None
-    is_gemini = env_key == "GOOGLE_API_KEY" or not env_key
+    is_gemini = (env_key == "GOOGLE_API_KEY") or (not env_key and "gemini" in model.lower())
+
+    if session_service is None:
+        session_service = MongoSessionService()
 
     # Gemini가 아닌 경우에만 os.environ 조작
     if env_key and not is_gemini:
@@ -129,8 +129,8 @@ async def run_react_agent(
 
         # [최적화] 외부 연동 크레덴셜이 1개 이하이고 커스텀 MCP가 정의되지 않은 경우
         # 메인-서브 멀티에이전트 오케스트레이션을 우회하고 단일 ReAct Agent로 다이렉트 실행하여 Latency 감소
-        # 단, 테스트 환경(InMemorySessionService가 모킹된 경우)인 경우 테스트의 mock 기대를 위해 기존 멀티에이전트 흐름을 유지합니다.
-        is_test = hasattr(InMemorySessionService, "_mock_return_value") or "Mock" in type(InMemorySessionService).__name__
+        # 단, 테스트 환경(InMemorySessionService가 주입된 경우)인 경우 테스트의 mock 기대를 위해 기존 멀티에이전트 흐름을 유지합니다.
+        is_test = isinstance(session_service, InMemorySessionService)
         if len(active_tokens) <= 1 and not has_custom_mcp and not is_test:
             async with contextlib.AsyncExitStack() as stack:
                 builtin_tools = get_tools_for_request(request.tools or [])
@@ -151,18 +151,14 @@ async def run_react_agent(
                     github_agent, _ = await build_github_agent(model_param, github_token, stack)
                     mcp_tools.extend(github_agent.tools)
 
-                from tools.web_search import web_search
-                from tools.http_fetch import http_fetch
-                from tools.slack import send_slack_message
-                from tools.discord import send_discord_webhook
+                web_agent, _ = await build_web_agent(model_param)
+                comm_agent, _ = await build_communication_agent(model_param)
 
                 direct_tools = [
                     *builtin_tools,
                     *mcp_tools,
-                    FunctionTool(web_search),
-                    FunctionTool(http_fetch),
-                    FunctionTool(send_slack_message),
-                    FunctionTool(send_discord_webhook)
+                    *(web_agent.tools or []),
+                    *(comm_agent.tools or []),
                 ]
 
                 single_agent = LlmAgent(
@@ -175,7 +171,6 @@ async def run_react_agent(
                     tools=direct_tools,
                 )
 
-                session_service = _get_session_service()
                 runner = Runner(
                     agent=single_agent,
                     app_name="ieum-agent",
@@ -262,7 +257,6 @@ async def run_react_agent(
                 ],
             )
 
-            session_service = _get_session_service()
             runner = Runner(
                 agent=main_agent,
                 app_name="ieum-agent",

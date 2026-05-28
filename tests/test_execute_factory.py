@@ -43,14 +43,14 @@ async def test_run_simple_agent_returns_output():
     mock_ss.create_session = AsyncMock(return_value=mock_session)
 
     with patch("agents.execute.factory.LlmAgent"), \
-         patch("agents.execute.factory.Runner", return_value=mock_runner), \
-         patch("agents.execute.factory.InMemorySessionService", return_value=mock_ss):
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
         output, _, _, _ = await run_simple_agent(
             model="gemini-2.5-flash",
             request=_make_request(agent_type="simple"),
             api_key="test-key",
             env_key=None,
             user_id="user-1",
+            session_service=mock_ss,
         )
 
     assert output == "simple response"
@@ -72,14 +72,14 @@ async def test_run_simple_agent_creates_agent_with_no_tools():
     mock_ss.create_session = AsyncMock(return_value=mock_session)
 
     with patch("agents.execute.factory.LlmAgent") as mock_llm_cls, \
-         patch("agents.execute.factory.Runner", return_value=mock_runner), \
-         patch("agents.execute.factory.InMemorySessionService", return_value=mock_ss):
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_simple_agent(
             model="gemini-2.5-flash",
             request=_make_request(agent_type="simple"),
             api_key="test-key",
             env_key=None,
             user_id="user-1",
+            session_service=mock_ss,
         )
         _, kwargs = mock_llm_cls.call_args
         assert kwargs.get("tools", []) == []
@@ -110,14 +110,14 @@ async def test_run_react_agent_returns_output():
          patch("agents.execute.factory.build_mcp_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.LlmAgent"), \
          patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
-         patch("agents.execute.factory.Runner", return_value=mock_runner), \
-         patch("agents.execute.factory.InMemorySessionService", return_value=mock_ss):
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
         output, _, _, _ = await run_react_agent(
             model="gemini-2.5-flash",
             request=_make_request(),
             api_key="test-key",
             env_key=None,
             user_id="user-1",
+            session_service=mock_ss,
         )
 
     assert output == "react response"
@@ -153,15 +153,14 @@ async def test_run_react_agent_always_builds_web_and_comm():
          patch("agents.execute.factory.build_mcp_agent", new=mcp_mock), \
          patch("agents.execute.factory.LlmAgent"), \
          patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
-         patch("agents.execute.factory.Runner", return_value=mock_runner), \
-         patch("agents.execute.factory.InMemorySessionService", return_value=mock_ss):
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
             request=_make_request(),
             api_key="test-key",
             env_key=None,
             user_id="user-1",
-            # 토큰 없음
+            session_service=mock_ss,
         )
 
     web_mock.assert_called_once()
@@ -207,8 +206,7 @@ async def test_run_react_agent_builds_conditional_agents_with_tokens():
          patch("agents.execute.factory.build_mcp_agent", new=mcp_mock), \
          patch("agents.execute.factory.LlmAgent"), \
          patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
-         patch("agents.execute.factory.Runner", return_value=mock_runner), \
-         patch("agents.execute.factory.InMemorySessionService", return_value=mock_ss):
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
             request=request_with_mcp,
@@ -218,6 +216,7 @@ async def test_run_react_agent_builds_conditional_agents_with_tokens():
             notion_token="notion-token",
             google_access_token="google-token",
             github_token="github-token",
+            session_service=mock_ss,
         )
 
     web_mock.assert_called_once()
@@ -254,8 +253,7 @@ async def test_run_react_agent_passes_tokens_to_sub_agents():
          patch("agents.execute.factory.build_mcp_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.LlmAgent"), \
          patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
-         patch("agents.execute.factory.Runner", return_value=mock_runner), \
-         patch("agents.execute.factory.InMemorySessionService", return_value=mock_ss):
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
             request=_make_request(),
@@ -264,6 +262,7 @@ async def test_run_react_agent_passes_tokens_to_sub_agents():
             user_id="user-1",
             notion_token="notion-token-value",
             github_token="github-token-value",
+            session_service=mock_ss,
         )
 
     # notion_agent 빌드 호출 시 notion_token이 전달되었는지 검증
