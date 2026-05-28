@@ -1,8 +1,8 @@
 import contextlib
+import inspect
 import logging
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
-from agents.base import _safe_close_mcp
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +10,7 @@ _INSTRUCTION = (
     "GitHub MCP 서버를 통해 리포지토리·이슈·Pull Request·GitHub Actions를 관리한다. "
     "코드 검색, 파일 조회, PR 생성·리뷰, 이슈 트래킹, 워크플로우 실행 등을 담당한다."
 )
+
 
 async def build_github_agent(
     model: str,
@@ -35,9 +36,11 @@ async def build_github_agent(
             },
         )
     )
+    await stack.enter_async_context(mcp)
+
     res = mcp.get_tools()
-    tools = await res if hasattr(res, "__await__") else res
-    stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
+    tools = await res if inspect.isawaitable(res) else res
+
     agent = LlmAgent(
         name="github_agent",
         model=model,
