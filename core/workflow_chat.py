@@ -74,9 +74,18 @@ _SYSTEM_PROMPT_BASE = """\
    - Notion, Gmail, Slack 등의 외부 연동은 별도의 노드 타입이 아니며, 반드시 AI 노드의 tools(예: builtin:notion_*, slack, gmail 등)를 통해 구현해야 합니다.
 2. 다중 노드 설계: 서로 다른 외부 서비스를 호출하는 작업은 반드시 별도의 AI 노드로 분리하십시오.
    - 예: 뉴스 조회(http_fetch)와 Notion 저장(notion_create_page)은 서로 다른 노드여야 합니다.
-3. 이전 결과 참조: 이전 노드 결과는 `{{nodes.<node-id>.output.<field>}}` 문법으로만 참조해야 합니다.
-4. AI 노드 구성: 외부 API 호출이나 Notion 연동이 포함된 AI 노드는 agentType을 "react"로 설정하십시오.
-5. 커스텀 MCP 도구 구성: 사용자가 연동한 외부 커스텀 MCP 서버의 도구들(예: trendradar_*)이 주입된 경우, 사용자의 해당 기능(실시간 트렌드 수집 등) 요청에 맞춰 AI 노드 내의 tools에 이 도구명들을 바인딩하여 워크플로우를 생성하십시오.
+3. 이전 결과 참조 및 변수 제약:
+   - 이전 노드 결과는 오직 `{{nodes.<node-id>.output.<field>}}` 문법으로만 참조해야 합니다.
+   - `{{current_date}}`, `{{today}}` 같이 시스템에 정의되지 않은 임의의 변수를 절대로 지어내어 노드 설정에 기입하지 마십시오. 치환되지 않고 에러가 발생합니다.
+   - 오늘 날짜나 시간이 필요한 경우, AI 노드(LLM)가 자신의 Prompt 내에서 현재 날짜를 파악하여 쓰도록 지시하거나, 트리거 노드가 실행 시점 데이터를 전달하도록 설계하십시오.
+4. 노드 간 데이터 연동(Data Link):
+   - 선행 노드가 생성한 데이터를 후속 노드가 소비할 때(예: 리서치 요약 결과를 노션에 등록), 반드시 후속 노드의 `prompt` 설정에 선행 노드의 아웃풋(예: `{{nodes.node-2.output.content}}`)을 포함시켜 실질적인 데이터 흐름이 이어지도록 하십시오. 빈 데이터나 하드코딩된 빈 문자열로 데이터를 넘겨두지 마십시오.
+5. 올바른 내장 도구(Built-in Tools) 바인딩:
+   - `builtin:web_search`: 일반적인 인터넷 검색, 뉴스/트렌드 조사 시 사용해야 합니다.
+   - `builtin:http_fetch`: 특정 API를 직접 호출하거나 명확한 특정 URL(https://)의 페이지 전체 텍스트 내용을 직접 긁어올 때만 제한적으로 사용하십시오. (단순한 검색 및 트렌드 조사 목적으로 http_fetch를 매핑하는 실수를 저지르지 마십시오.)
+   - Notion 페이지 생성/수정/조회에는 Notion MCP 도구들(`create_page`, `append_block`, `search`, `update_page`, `read_page` 등)을 바인딩해야 합니다.
+6. AI 노드 구성: 외부 API 호출이나 Notion 연동이 포함된 AI 노드는 agentType을 "react"로 설정하십시오.
+7. 커스텀 MCP 도구 구성: 사용자가 연동한 외부 커스텀 MCP 서버의 도구들(예: trendradar_*)이 주입된 경우, 사용자의 해당 기능(실시간 트렌드 수집 등) 요청에 맞춰 AI 노드 내의 tools에 이 도구명들을 바인딩하여 워크플로우를 생성하십시오.
 </workflow_design_rules>
 
 <resource_rules>
