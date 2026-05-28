@@ -161,6 +161,7 @@ async def test_run_react_agent_always_builds_web_and_comm():
             env_key=None,
             user_id="user-1",
             session_service=mock_ss,
+            use_single_agent=False,
         )
 
     web_mock.assert_called_once()
@@ -217,6 +218,7 @@ async def test_run_react_agent_builds_conditional_agents_with_tokens():
             google_access_token="google-token",
             github_token="github-token",
             session_service=mock_ss,
+            use_single_agent=False,
         )
 
     web_mock.assert_called_once()
@@ -263,6 +265,7 @@ async def test_run_react_agent_passes_tokens_to_sub_agents():
             notion_token="notion-token-value",
             github_token="github-token-value",
             session_service=mock_ss,
+            use_single_agent=False,
         )
 
     # notion_agent 빌드 호출 시 notion_token이 전달되었는지 검증
