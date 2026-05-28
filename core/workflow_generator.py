@@ -8,6 +8,7 @@ from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from db.mongodb import generate_workflow_logs
+from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,42 @@ async def _save_generate_workflow_log(
         logger.warning("Failed to save generate_workflow log", exc_info=True)
 
 
+def _parse_and_validate(raw_output: str, original_prompt: str) -> GenerateWorkflowResponse:
+    cleaned = raw_output.strip()
+
+    if not cleaned:
+        raise ValueError("LLM이 빈 응답을 반환했습니다.")
+
+    if cleaned.startswith("```"):
+        cleaned = "\n".join(cleaned.split("\n")[1:])
+    if cleaned.rstrip().endswith("```"):
+        cleaned = "\n".join(cleaned.rstrip().split("\n")[:-1])
+    cleaned = cleaned.strip()
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON 문법 오류가 있습니다: {str(e)}")
+
+    # 1. Pydantic 스키마 형태 로드 (여기서 Pydantic ValidationError 발생 가능)
+    try:
+        nodes = [WorkflowNode(**n) for n in data.get("nodes", [])]
+        edges = [WorkflowEdge(**e) for e in data.get("edges", [])]
+    except Exception as e:
+        raise ValueError(f"스키마 검증(Pydantic) 실패: {str(e)}")
+
+    # 2. 코드 레벨 의미론적 상세 검증
+    raw_nodes = data.get("nodes", [])
+    raw_edges = data.get("edges", [])
+    WorkflowValidator.validate(raw_nodes, raw_edges)
+
+    return GenerateWorkflowResponse(
+        nodes=nodes,
+        edges=edges,
+        rawPrompt=original_prompt,
+    )
+
+
 async def generate_workflow(
     prompt: str,
     provider: str,
@@ -174,73 +211,68 @@ async def generate_workflow(
     env_key = resolve_env_key(provider)
     lock = get_env_lock(env_key) if env_key else None
 
-    async def _execute() -> str:
+    async def _execute(target_prompt: str) -> str:
         from agents.generate.factory import run_generate_agent
         return await run_generate_agent(
-            prompt=prompt,
+            prompt=target_prompt,
             model=model,
             provider=provider,
             api_key=api_key,
             env_key=env_key,
         )
 
+    # 1차 시도
     if lock:
         async with lock:
-            raw_output = await _execute()
+            raw_output = await _execute(prompt)
     else:
-        raw_output = await _execute()
+        raw_output = await _execute(prompt)
 
-    # JSON 파싱
     try:
-        # 마크다운 코드 펜스 제거 (LLM이 실수로 감쌀 경우 대비)
-        cleaned = raw_output.strip()
+        response = _parse_and_validate(raw_output, prompt)
+    except Exception as first_error:
+        # 1회 자가 교정 시도
+        logger.warning("1차 워크플로우 생성 검증 실패: %s. 자가 교정을 1회 시도합니다.", str(first_error))
 
-        if not cleaned:
-            logger.error("LLM이 빈 응답을 반환했습니다. provider: %s", provider)
-            raise ValueError("LLM이 빈 응답을 반환했습니다.")
-
-        if cleaned.startswith("```"):
-            cleaned = "\n".join(cleaned.split("\n")[1:])
-        if cleaned.rstrip().endswith("```"):
-            cleaned = "\n".join(cleaned.rstrip().split("\n")[:-1])
-        cleaned = cleaned.strip()
-
-        data = json.loads(cleaned)
-
-        nodes = [WorkflowNode(**n) for n in data.get("nodes", [])]
-        edges = [WorkflowEdge(**e) for e in data.get("edges", [])]
-
-        response = GenerateWorkflowResponse(
-            nodes=nodes,
-            edges=edges,
-            rawPrompt=prompt,
+        feedback_prompt = (
+            f"당신이 이전에 작성한 워크플로우 설계에 결함이 발견되어 파싱/검증에 실패했습니다.\n"
+            f"아래 피드백 내용을 수용하여 오류를 수정하고, 사용자 요청에 맞는 워크플로우 JSON을 다시 생성하십시오.\n\n"
+            f"## 검증 피드백:\n{str(first_error)}\n\n"
+            f"## 사용자 원래 요청:\n{prompt}\n\n"
+            f"## 규칙에 맞춰 완성된 JSON만 다시 뱉으십시오."
         )
 
-        # 성공 로그 저장
-        duration_ms = int((time.monotonic() - start) * 1000)
-        await _save_generate_workflow_log(
-            prompt=prompt,
-            provider=provider,
-            model=model,
-            success=True,
-            duration_ms=duration_ms,
-            node_count=len(nodes),
-            edge_count=len(edges),
-        )
+        try:
+            if lock:
+                async with lock:
+                    raw_output = await _execute(feedback_prompt)
+            else:
+                raw_output = await _execute(feedback_prompt)
 
-        return response
+            response = _parse_and_validate(raw_output, prompt)
+        except Exception as second_error:
+            # 실패 로그 저장
+            duration_ms = int((time.monotonic() - start) * 1000)
+            await _save_generate_workflow_log(
+                prompt=prompt,
+                provider=provider,
+                model=model,
+                success=False,
+                duration_ms=duration_ms,
+                error_message=f"자가교정 최종 실패. 1차에러: {str(first_error)}, 2차에러: {str(second_error)}",
+            )
+            logger.error("자가교정 최종 실패. 1차에러: %s, 2차에러: %s\nraw_output: %s", str(first_error), str(second_error), raw_output)
+            raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(second_error)})")
 
-    except Exception as e:
-        # 실패 로그 저장
-        duration_ms = int((time.monotonic() - start) * 1000)
-        await _save_generate_workflow_log(
-            prompt=prompt,
-            provider=provider,
-            model=model,
-            success=False,
-            duration_ms=duration_ms,
-            error_message=str(e),
-        )
-
-        logger.error("워크플로우 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
-        raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(e)})")
+    # 성공 로그 저장
+    duration_ms = int((time.monotonic() - start) * 1000)
+    await _save_generate_workflow_log(
+        prompt=prompt,
+        provider=provider,
+        model=model,
+        success=True,
+        duration_ms=duration_ms,
+        node_count=len(response.nodes),
+        edge_count=len(response.edges),
+    )
+    return response

@@ -1,5 +1,6 @@
 from google.adk.agents import LlmAgent
 from core.workflow_generator import _SYSTEM_PROMPT
+from core.skill_loader import load_design_rules
 
 _BUILDER_INSTRUCTION = _SYSTEM_PROMPT + """
 
@@ -11,10 +12,17 @@ _BUILDER_INSTRUCTION = _SYSTEM_PROMPT + """
 """
 
 
-def build_builder_agent(model: str) -> LlmAgent:
-    """BuilderAgent 빌드. _SYSTEM_PROMPT를 상속하여 JSON 생성 담당."""
+def build_builder_agent(model: str, prompt: str, provider: str) -> LlmAgent:
+    """BuilderAgent 빌드. 사용자 프롬프트 기반 동적 레퍼런스 및 provider 규칙 주입."""
+    design_rules = load_design_rules(prompt)
+    instruction = (
+        f"{_BUILDER_INSTRUCTION}\n\n"
+        f"## 요청 프로바이더 규칙\n"
+        f"- 모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정한다.\n\n"
+        f"## 참고 설계 규칙 (스킬 레퍼런)\n{design_rules}"
+    )
     return LlmAgent(
         name="builder_agent",
         model=model,
-        instruction=_BUILDER_INSTRUCTION,
+        instruction=instruction,
     )
