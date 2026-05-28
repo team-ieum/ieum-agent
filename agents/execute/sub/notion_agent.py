@@ -5,6 +5,7 @@ import os
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionParams
 from mcp import StdioServerParameters
+from agents.base import _safe_close_mcp
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,6 @@ async def build_notion_agent(
 
     await stack.enter_async_context(mcp)
 
-    from agents.base import _safe_close_mcp
     stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
     agent = LlmAgent(
         name="notion_agent",
