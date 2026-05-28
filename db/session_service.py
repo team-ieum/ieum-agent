@@ -5,6 +5,17 @@ from google.adk.sessions.base_session_service import ListSessionsResponse
 from google.adk.events import Event
 from db.mongodb import db
 
+def _make_bson_safe(val: Any) -> Any:
+    if isinstance(val, set):
+        return list(val)
+    if isinstance(val, dict):
+        return {k: _make_bson_safe(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_make_bson_safe(v) for v in val]
+    if hasattr(val, "model_dump"):
+        return _make_bson_safe(val.model_dump(mode="json"))
+    return val
+
 class MongoSessionService(BaseSessionService):
     """MongoDB를 백엔드로 사용하는 Google ADK SessionService 구현체"""
 
@@ -43,7 +54,7 @@ class MongoSessionService(BaseSessionService):
             state=state or {},
             events=[]
         )
-        await self.collection.insert_one(session.model_dump())
+        await self.collection.insert_one(session.model_dump(mode="json"))
         return session
 
     async def get_session(
@@ -74,7 +85,8 @@ class MongoSessionService(BaseSessionService):
         # 상위 클래스의 이벤트 처리 (상태 델타 병합 및 임시 상태 정리)
         event = await super().append_event(session, event)
 
-        events_dump = [e.model_dump() for e in session.events]
+        events_dump = [e.model_dump(mode="json") for e in session.events]
+        state_dump = _make_bson_safe(session.state)
         # MongoDB에 최종 상태 업데이트
         await self.collection.update_one(
             {
@@ -84,7 +96,7 @@ class MongoSessionService(BaseSessionService):
             },
             {
                 "$set": {
-                    "state": session.state,
+                    "state": state_dump,
                     "events": events_dump
                 }
             }
