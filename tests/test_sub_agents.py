@@ -59,8 +59,8 @@ async def test_notion_agent_with_token_enters_mcp_toolset():
 
 
 @pytest.mark.asyncio
-async def test_notion_agent_uses_correct_mcp_url():
-    """Notion MCP 서버 URL이 mcp.notion.com/sse 이다."""
+async def test_notion_agent_uses_correct_stdio_params():
+    """Notion MCP 서버는 npx와 @notionhq/notion-mcp-server 명령 인자를 사용한다."""
     from agents.execute.sub.notion_agent import build_notion_agent
 
     captured = {}
@@ -74,7 +74,8 @@ async def test_notion_agent_uses_correct_mcp_url():
             with patch.object(stack, "enter_async_context", new=AsyncMock(return_value=[])):
                 await build_notion_agent("gemini-2.5-flash", "oauth-token", stack)
 
-    assert "mcp.notion.com/sse" in captured["params"].url
+    assert captured["params"].server_params.command == "npx"
+    assert "@notionhq/notion-mcp-server" in captured["params"].server_params.args
 
 
 # ---------- GitHubAgent ----------
