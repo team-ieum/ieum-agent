@@ -15,6 +15,7 @@ from agents.execute.sub.communication_agent import build_communication_agent
 from agents.execute.sub.mcp_agent import build_mcp_agent
 from agents.base import _bind_workflow_context, _bind_google_token, _bind_notion_token
 from core.custom_gemini import CustomGemini
+from core.config import get_current_time_info
 from db.session_service import MongoSessionService
 from tools import get_tools_for_request
 from api.schemas.request import AgentNodeRequest
@@ -48,7 +49,7 @@ async def run_simple_agent(
         agent = LlmAgent(
             name="ieum_agent",
             model=model_param,
-            instruction=request.systemMessage or "You are a helpful assistant.",
+            instruction=(request.systemMessage or "You are a helpful assistant.") + get_current_time_info(),
             tools=builtin_tools,
         )
 
@@ -173,6 +174,7 @@ async def run_react_agent(
                     instruction=(
                         "당신은 IEUM 워크플로우 실행 에이전트입니다. 주어진 도구들을 사용하여 사용자의 요청을 직접 처리하세요.\n"
                         f"\n## 사용자 지시\n{request.systemMessage or ''}"
+                        + get_current_time_info()
                     ),
                     tools=direct_tools,
                 )
@@ -256,7 +258,7 @@ async def run_react_agent(
                 model=model_param,
                 instruction=MAIN_INSTRUCTION + (
                     f"\n\n## 사용자 지시\n{request.systemMessage}" if request.systemMessage else ""
-                ),
+                ) + get_current_time_info(),
                 tools=[
                     *sub_agent_tools,
                     *builtin_tools,
