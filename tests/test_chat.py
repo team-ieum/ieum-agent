@@ -21,6 +21,7 @@ WORKFLOW_GENERATED_JSON = json.dumps({
     "changeDescription": None,
     "nodes": VALID_NODES,
     "edges": VALID_EDGES,
+    "workflowName": "IT 트렌드 자동 노션 요약",
 })
 
 WORKFLOW_MODIFIED_JSON = json.dumps({
@@ -120,6 +121,7 @@ async def test_chat_workflow_신규생성_정상():
     assert result.nodes[0].type == "TRIGGER"
     assert len(result.edges) == 1
     assert result.rawPrompt == "워크플로우 만들어줘"
+    assert result.workflowName == "IT 트렌드 자동 노션 요약"
 
 
 @pytest.mark.asyncio
@@ -135,6 +137,7 @@ async def test_chat_workflow_수정_정상():
     assert result.type == ChatResponseType.WORKFLOW_MODIFIED
     assert result.changeDescription is not None
     assert len(result.nodes) == 2
+    assert result.workflowName is None
 
 
 @pytest.mark.asyncio

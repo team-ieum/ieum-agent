@@ -58,3 +58,4 @@ class ChatResponse(BaseModel):
     nodes: Optional[List[WorkflowNode]] = None
     edges: Optional[List[WorkflowEdge]] = None
     rawPrompt: str
+    workflowName: Optional[str] = None
