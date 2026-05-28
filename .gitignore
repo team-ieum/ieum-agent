@@ -224,3 +224,4 @@ CLAUDE.md
 /docs/*
 
 openapi.json
+**/.adk/session.db
