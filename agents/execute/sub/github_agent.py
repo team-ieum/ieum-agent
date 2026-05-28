@@ -43,7 +43,27 @@ async def build_github_agent(
     stack.push_async_callback(_safe_close)
 
     res = mcp.get_tools()
-    tools = await res if inspect.isawaitable(res) else res
+    import asyncio
+    try:
+        tools = await asyncio.wait_for(res if inspect.isawaitable(res) else res, timeout=5.0)
+        mcps = [mcp]
+        logger.info("GitHub Copilot MCP 도구 연결 성공")
+    except Exception as e:
+        logger.warning(
+            "GitHub Copilot MCP 연결 실패 (권한 부족 또는 타임아웃). 로컬 Python GitHub API 도구로 폴백합니다. 에러: %s",
+            str(e)
+        )
+        from core.workflow_chat import _bind_token
+        from tools.github import github_list_orgs, github_list_repos, github_list_issues, github_list_pull_requests
+        from google.adk.tools.function_tool import FunctionTool
+        
+        tools = [
+            FunctionTool(_bind_token(github_list_orgs, token=github_token)),
+            FunctionTool(_bind_token(github_list_repos, token=github_token)),
+            FunctionTool(_bind_token(github_list_issues, token=github_token)),
+            FunctionTool(_bind_token(github_list_pull_requests, token=github_token)),
+        ]
+        mcps = []
 
     agent = LlmAgent(
         name="github_agent",
@@ -51,4 +71,4 @@ async def build_github_agent(
         instruction=_INSTRUCTION,
         tools=tools
     )
-    return agent, [mcp]
+    return agent, mcps
