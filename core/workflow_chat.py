@@ -30,6 +30,14 @@ from agents.base import _safe_close_mcp
 
 logger = logging.getLogger(__name__)
 
+_SESSION_SERVICE = None
+
+def _get_session_service():
+    global _SESSION_SERVICE
+    if _SESSION_SERVICE is None:
+        _SESSION_SERVICE = InMemorySessionService()
+    return _SESSION_SERVICE
+
 
 class ChatResponseOutputSchema(BaseModel):
     """LLM이 구조적으로 출력해야 하는 데이터 규격"""
@@ -313,17 +321,24 @@ async def chat_workflow(
                     output_schema=ChatResponseOutputSchema,
                 )
 
-                session_service = InMemorySessionService()
+                session_service = _get_session_service()
                 runner = Runner(
                     agent=agent,
                     app_name="ieum-agent",
                     session_service=session_service,
                 )
 
-                session = await session_service.create_session(
+                session = await session_service.get_session(
                     app_name="ieum-agent",
-                    user_id="user",
+                    user_id=user_id,
+                    session_id=user_id,
                 )
+                if not session:
+                    session = await session_service.create_session(
+                        app_name="ieum-agent",
+                        user_id=user_id,
+                        session_id=user_id,
+                    )
 
                 message = types.Content(
                     role="user",
@@ -332,7 +347,7 @@ async def chat_workflow(
 
                 output_parts = []
                 async for event in runner.run_async(
-                    user_id="user",
+                    user_id=user_id,
                     session_id=session.id,
                     new_message=message,
                 ):
@@ -370,7 +385,30 @@ async def chat_workflow(
             cleaned = "\n".join(cleaned.rstrip().split("\n")[:-1])
         cleaned = cleaned.strip()
 
-        data = json.loads(cleaned)
+        try:
+            data = json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            logger.info("LLM이 일반 텍스트 응답을 반환하여 CLARIFICATION_NEEDED로 처리합니다.")
+            response = ChatResponse(
+                message=cleaned,
+                type=ChatResponseType.CLARIFICATION_NEEDED,
+                actions=[],
+                nodes=None,
+                edges=None,
+                rawPrompt=prompt,
+            )
+            duration_ms = int((time.monotonic() - start) * 1000)
+            await _save_chat_log(
+                prompt=prompt,
+                provider=provider,
+                model=model,
+                user_id=user_id,
+                success=True,
+                duration_ms=duration_ms,
+                raw_output=raw_output,
+                data={"type": "CLARIFICATION_NEEDED", "message": cleaned},
+            )
+            return response
 
         response_type = data.get("type")
         raw_nodes = data.get("nodes")
