@@ -122,7 +122,6 @@ async def _run_with_events(events, agent_type="simple"):
     with patch("core.agent.resolve_env_key", return_value=None), \
          patch("core.agent.resolve_model", return_value="gemini-2.5-flash"), \
          patch("agents.execute.factory.LlmAgent"), \
-         patch("agents.execute.factory.InMemorySessionService", return_value=mock_ss), \
          patch("agents.execute.factory.Runner", return_value=mock_runner), \
          patch("core.agent.execution_logs") as mock_logs:
 
@@ -133,6 +132,7 @@ async def _run_with_events(events, agent_type="simple"):
             provider="gemini",
             api_key="test-key",
             user_id="user-1",
+            session_service=mock_ss,
         )
 
 
