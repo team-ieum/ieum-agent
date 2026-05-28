@@ -154,12 +154,18 @@ async def run_react_agent(
                 web_agent, _ = await build_web_agent(model_param)
                 comm_agent, _ = await build_communication_agent(model_param)
 
-                direct_tools = [
+                raw_direct_tools = [
                     *builtin_tools,
                     *mcp_tools,
                     *(web_agent.tools or []),
                     *(comm_agent.tools or []),
                 ]
+                seen_names = set()
+                direct_tools = []
+                for t in raw_direct_tools:
+                    if t.name not in seen_names:
+                        seen_names.add(t.name)
+                        direct_tools.append(t)
 
                 single_agent = LlmAgent(
                     name="ieum_single_agent",
