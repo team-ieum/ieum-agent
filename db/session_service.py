@@ -1,4 +1,5 @@
-from typing import Optional, Any
+from typing import Any
+from uuid import uuid4
 from google.adk.sessions import BaseSessionService, Session
 from google.adk.sessions.base_session_service import ListSessionsResponse
 from google.adk.events import Event
@@ -16,17 +17,17 @@ class MongoSessionService(BaseSessionService):
         *,
         app_name: str,
         user_id: str,
-        state: Optional[dict[str, Any]] = None,
-        session_id: Optional[str] = None,
+        state: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> Session:
-        sid = session_id or "default_session"
+        sid = session_id or str(uuid4())
         doc = await self.collection.find_one({
             "id": sid,
             "app_name": app_name,
             "user_id": user_id
         })
         if doc:
-            events = [Event(**e) for e in doc.get("events", [])]
+            events = [Event(**e) for e in (doc.get("events") or [])]
             return Session(
                 id=sid,
                 app_name=app_name,
@@ -51,15 +52,15 @@ class MongoSessionService(BaseSessionService):
         app_name: str,
         user_id: str,
         session_id: str,
-        config: Optional[Any] = None,
-    ) -> Optional[Session]:
+        config: Any | None = None,
+    ) -> Session | None:
         doc = await self.collection.find_one({
             "id": session_id,
             "app_name": app_name,
             "user_id": user_id
         })
         if doc:
-            events = [Event(**e) for e in doc.get("events", [])]
+            events = [Event(**e) for e in (doc.get("events") or [])]
             return Session(
                 id=session_id,
                 app_name=app_name,
@@ -91,7 +92,7 @@ class MongoSessionService(BaseSessionService):
         return event
 
     async def list_sessions(
-        self, *, app_name: str, user_id: Optional[str] = None
+        self, *, app_name: str, user_id: str | None = None
     ) -> ListSessionsResponse:
         query = {"app_name": app_name}
         if user_id:
@@ -100,7 +101,7 @@ class MongoSessionService(BaseSessionService):
         cursor = self.collection.find(query)
         sessions = []
         async for doc in cursor:
-            events = [Event(**e) for e in doc.get("events", [])]
+            events = [Event(**e) for e in (doc.get("events") or [])]
             sessions.append(Session(
                 id=doc["id"],
                 app_name=doc["app_name"],
