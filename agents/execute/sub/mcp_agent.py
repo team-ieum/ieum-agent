@@ -1,6 +1,7 @@
 import contextlib
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
+from agents.base import _safe_close_mcp
 
 _INSTRUCTION = (
     "사용자가 지정한 커스텀 MCP 서버의 도구를 활용해 요청된 작업을 수행한다. "
@@ -38,7 +39,6 @@ async def build_mcp_agent(
         )
         res = mcp.get_tools()
         tools = await res if hasattr(res, "__await__") else res
-        from agents.base import _safe_close_mcp
         stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
         all_tools.extend(tools)
         mcps.append(mcp)
