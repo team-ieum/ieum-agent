@@ -76,15 +76,16 @@ _SYSTEM_PROMPT_BASE = """\
 
 <workflow_design_rules>
 1. 노드 구성: 지원 노드 타입은 TRIGGER, AI, HTTP, CONDITION, TRANSFORM 뿐입니다. 
-   - Notion, Gmail, Slack 등의 외부 연동은 별도의 노드 타입이 아니며, 반드시 AI 노드의 tools(예: builtin:notion_*, slack, gmail 등)를 통해 구현해야 합니다.
+   - Notion, Gmail, Slack, Discord, GitHub 등의 외부 연동은 별도의 노드 타입이 아니며, **절대로 HTTP 노드로 직접 구현해서는 안 됩니다.** 반드시 AI 노드의 tools(예: builtin:notion_*, slack, gmail, discord, github 등)를 통해 구현해야 합니다. 외부 알림 발송(Slack, Discord 웹훅 등)이나 외부 데이터 조회(GitHub PR/이슈 목록 등)는 HTTP 노드 대신 도구를 바인딩한 AI 노드로 작성하십시오.
 2. 다중 노드 설계: 서로 다른 외부 서비스를 호출하는 작업은 반드시 별도의 AI 노드로 분리하십시오.
    - 예: 뉴스 조회(http_fetch)와 Notion 저장(notion_create_page)은 서로 다른 노드여야 합니다.
 3. 이전 결과 참조 및 변수 제약:
    - 이전 노드 결과는 오직 이중 중괄호(즉, 2개의 열기 중괄호 문자와 2개의 닫기 중괄호 문자)로 감싸서 'nodes.노드ID.output.필드명' 형식으로만 참조해야 합니다. (예: nodes.node-1.output.data 를 이중 중괄호로 감싸서 표현)
    - 'current_date' 이나 'today' 같이 시스템에 정의되지 않은 임의의 변수를 이중 중괄호로 감싸서 절대로 지어내어 노드 설정에 기입하지 마십시오. 치환되지 않고 에러가 발생합니다.
    - 오늘 날짜나 시간이 필요한 경우, AI 노드(LLM)가 자신의 Prompt 내에서 현재 날짜를 파악하여 쓰도록 지시하거나, 트리거 노드가 실행 시점 데이터를 전달하도록 설계하십시오.
-4. 노드 간 데이터 연동(Data Link):
+4. 노드 간 데이터 연동 및 원시 데이터 보존(Data Link & Data Integrity):
    - 선행 노드가 생성한 데이터를 후속 노드가 소비할 때(예: 리서치 요약 결과를 노션에 등록), 반드시 후속 노드의 `prompt` 설정에 선행 노드의 아웃풋 참조(예: nodes.node-2.output.content 를 이중 중괄호로 감싼 형태)를 포함시켜 실질적인 데이터 흐름이 이어지도록 하십시오. 빈 데이터나 하드코딩된 빈 문자열로 데이터를 넘겨두지 마십시오.
+   - **[중요 - 원시 데이터 훼손 금지]** API나 도구를 사용하여 외부 데이터를 수집하는 조회 노드(예: GitHub PR 목록 조회 등)는, 수집한 원시 JSON 데이터(예: PR 목록의 raw JSON 등)를 텍스트로 요약하거나 임의로 단순화하여 다음 노드로 전달하면 안 됩니다. 선행 조회 노드의 prompt는 '도구를 호출해 가져온 데이터를 가공하지 말고 JSON 데이터 원본 그대로 `output` 필드에 넘겨주라'고 구체적으로 지시해야 하며, 그래야 후속 AI 요약 노드가 이 데이터를 온전히 수집하여 작동할 수 있습니다.
 5. 올바른 내장 도구(Built-in Tools) 바인딩:
    - `builtin:web_search`: 일반적인 인터넷 검색, 뉴스/트렌드 조사 시 사용해야 합니다.
    - `builtin:http_fetch`: 특정 API를 직접 호출하거나 명확한 특정 URL(https://)의 페이지 전체 텍스트 내용을 직접 긁어올 때만 제한적으로 사용하십시오. (단순한 검색 및 트렌드 조사 목적으로 http_fetch를 매핑하는 실수를 저지르지 마십시오.)
@@ -98,7 +99,8 @@ _SYSTEM_PROMPT_BASE = """\
 - 워크플로우를 완성하기 전, 실행에 필요한 실제 리소스 ID(Notion parent_page_id, Sheets spreadsheet_id, Calendar calendar_id 등)의 누락 여부를 반드시 확인하십시오.
 - 사용자가 리소스 ID를 프롬프트에 제공하지 않았다면, 절대로 임의의 빈 값(예: "", "YOUR_PAGE_ID")을 노드 config에 채워 완성형 워크플로우를 생성해서는 안 됩니다.
 - 반드시 먼저 주입된 목록 조회 도구(notion_search, google_list_calendars 등)를 실행하여 사용자의 실제 리소스 목록을 조회하십시오.
-- 조회된 목록을 제시하며 어느 리소스를 사용할 것인지 사용자에게 선택을 요청하되, 이때 응답 type은 CLARIFICATION_NEEDED로 지정하고 nodes와 edges는 null로 반환해야 합니다. 사용자가 특정 리소스를 선택하면, 그제서야 해당 ID를 노드 config에 주입한 완벽한 WORKFLOW_GENERATED 워크플로우를 반환하십시오.
+- **[중요 - 리소스 자동 매핑]** 조회된 목록 중, 사용자가 요청한 워크플로우의 목적이나 이름에 부합하는 명확한 타겟 리소스(예: 워크플로우명이 '주간 요약 보고서'일 때, 조회된 노션 페이지 목록 중 '요약 보고서', 'IEUM', '업무 보고' 등의 이름을 가진 최적의 상위 페이지)가 존재하는 경우, 사용자에게 되묻지 않고 해당 리소스 ID를 노드 config(예: parent_page_id)에 자동으로 즉시 주입하여 완성형 워크플로우(type: WORKFLOW_GENERATED)를 제공하십시오.
+- 만약 매칭되는 명확한 리소스가 없거나 애매한 경우에만, 조회된 목록을 제시하며 어느 리소스를 사용할 것인지 사용자에게 선택을 요청하되, 이때 응답 type은 CLARIFICATION_NEEDED로 지정하고 nodes와 edges는 null로 반환해야 합니다. 사용자가 특정 리소스를 선택하면, 그제서야 해당 ID를 노드 config에 주입한 완벽한 WORKFLOW_GENERATED 워크플로우를 반환하십시오.
 </resource_rules>
 
 <integration_rules>
