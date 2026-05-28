@@ -25,7 +25,7 @@ from core.provider_config import resolve_model, resolve_env_key
 from core.custom_gemini import CustomGemini
 from db.mongodb import chat_logs
 from tools.notion import notion_search
-from tools.github import github_list_orgs, github_list_repos, github_list_issues
+from tools.github import github_list_orgs, github_list_repos, github_list_issues, github_list_pull_requests
 from tools.google_list import google_list_calendars, google_list_sheets
 from agents.base import _safe_close_mcp
 
@@ -310,6 +310,7 @@ async def chat_workflow(
                 browse_tools.append(FunctionTool(_bind_token(github_list_orgs, token=github_token)))
                 browse_tools.append(FunctionTool(_bind_token(github_list_repos, token=github_token)))
                 browse_tools.append(FunctionTool(_bind_token(github_list_issues, token=github_token)))
+                browse_tools.append(FunctionTool(_bind_token(github_list_pull_requests, token=github_token)))
             if google_access_token:
                 browse_tools.append(FunctionTool(_bind_token(google_list_calendars, access_token=google_access_token)))
                 browse_tools.append(FunctionTool(_bind_token(google_list_sheets, access_token=google_access_token)))
