@@ -19,6 +19,7 @@ from google.genai import types
 from api.schemas.chat import ChatResponse, ChatResponseType, ChatAction
 from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge
 from common.error_code import ErrorCode
+from core.config import get_current_time_info
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from core.custom_gemini import CustomGemini
@@ -332,7 +333,7 @@ async def chat_workflow(
                 agent = LlmAgent(
                     name="workflow_chat",
                     model=model_param,
-                    instruction=instruction,
+                    instruction=instruction + get_current_time_info(),
                     tools=browse_tools,
                     output_schema=ChatResponseOutputSchema,
                 )
