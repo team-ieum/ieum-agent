@@ -320,3 +320,37 @@ async def test_chat_workflow_with_mcp_servers_success():
         
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
     mock_mcp_instance.get_tools.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_id_translation():
+    """preserve_id=False인 신규 생성 시 노드 ID가 node-1, node-2 등으로 바뀌고, 엣지와 변수 참조도 함께 바뀐다."""
+    input_json = json.dumps({
+        "message": "워크플로우를 생성했습니다.",
+        "type": "WORKFLOW_GENERATED",
+        "actions": [],
+        "changeDescription": None,
+        "nodes": [
+            {"id": "trigger_node", "type": "TRIGGER", "label": "트리거", "config": {"interval": "daily"}},
+            {"id": "ai_node", "type": "AI", "label": "AI 처리", "config": {"prompt": "이전 데이터: {{nodes.trigger_node.output.data}}", "agentType": "react", "llmProvider": "GEMINI"}}
+        ],
+        "edges": [
+            {"source": "trigger_node", "target": "ai_node", "conditionType": "success"}
+        ],
+    })
+    
+    p1, p2, p3, p4 = _make_patches(input_json)
+    with p1, p2, p3, p4:
+        result = await _call("만들어줘", preserve_id=False)
+        
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    # 노드 ID 검증 (순서대로 정규화)
+    assert result.nodes[0].id == "node-1"
+    assert result.nodes[1].id == "node-2"
+    
+    # 엣지 ID 매핑 검증
+    assert result.edges[0].source == "node-1"
+    assert result.edges[0].target == "node-2"
+    
+    # 템플릿 참조 변수 변경 검증
+    assert result.nodes[1].config["prompt"] == "이전 데이터: {{nodes.node-1.output.data}}"

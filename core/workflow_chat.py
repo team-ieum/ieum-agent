@@ -378,7 +378,45 @@ async def chat_workflow(
 
         if raw_nodes:
             pid = preserve_id if preserve_id is not None else bool(current_nodes)
-            raw_nodes = [_normalize_node(n, idx + 1, preserve_id=pid) for idx, n in enumerate(raw_nodes)]
+            
+            # Build node ID conversion mapping
+            id_mapping = {}
+            normalized_nodes = []
+            for idx, n in enumerate(raw_nodes):
+                old_id = n.get("id")
+                norm_node = _normalize_node(n, idx + 1, preserve_id=pid)
+                new_id = norm_node.get("id")
+                if old_id and old_id != new_id:
+                    id_mapping[old_id] = new_id
+                normalized_nodes.append(norm_node)
+            raw_nodes = normalized_nodes
+
+            # 1. Update edges' source/target node IDs
+            if raw_edges and id_mapping:
+                for e in raw_edges:
+                    source = e.get("source")
+                    target = e.get("target")
+                    if source in id_mapping:
+                        e["source"] = id_mapping[source]
+                    if target in id_mapping:
+                        e["target"] = id_mapping[target]
+
+            # 2. Update variable reference syntax ({{nodes.old_id.output.field}})
+            if id_mapping:
+                import re
+                def _replace_refs(val):
+                    if isinstance(val, dict):
+                        return {k: _replace_refs(v) for k, v in val.items()}
+                    elif isinstance(val, list):
+                        return [_replace_refs(v) for v in val]
+                    elif isinstance(val, str):
+                        for old, new in id_mapping.items():
+                            pattern = r'\{\{\s*nodes\.' + re.escape(old) + r'\.output\.'
+                            replacement = '{{nodes.' + new + '.output.'
+                            val = re.sub(pattern, replacement, val)
+                        return val
+                    return val
+                raw_nodes = _replace_refs(raw_nodes)
 
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             if not raw_nodes:
