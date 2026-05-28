@@ -63,6 +63,10 @@ class ChatResponseOutputSchema(BaseModel):
         default=None, 
         description="생성/수정된 엣지 목록. 그 외에는 null"
     )
+    workflowName: Optional[str] = Field(
+        default=None,
+        description="생성된 워크플로우에 잘 어울리는 간결하고 직관적인 한국어 이름 (예: 'IT 트렌드 자동 노션 요약'). 신규 생성(WORKFLOW_GENERATED) 시에만 생성하며, 수정 시에는 null로 설정합니다."
+    )
 
 
 _SYSTEM_PROMPT_BASE = """\
@@ -86,6 +90,7 @@ _SYSTEM_PROMPT_BASE = """\
    - Notion 페이지 생성/수정/조회에는 Notion MCP 도구들(`create_page`, `append_block`, `search`, `update_page`, `read_page` 등)을 바인딩해야 합니다.
 6. AI 노드 구성: 외부 API 호출이나 Notion 연동이 포함된 AI 노드는 agentType을 "react"로 설정하십시오.
 7. 커스텀 MCP 도구 구성: 사용자가 연동한 외부 커스텀 MCP 서버의 도구들(예: trendradar_*)이 주입된 경우, 사용자의 해당 기능(실시간 트렌드 수집 등) 요청에 맞춰 AI 노드 내의 tools에 이 도구명들을 바인딩하여 워크플로우를 생성하십시오.
+8. 워크플로우 이름 자동 생성: 워크플로우가 신규 생성(type: WORKFLOW_GENERATED)될 때, 해당 워크플로우의 목적과 기능을 가장 잘 설명하는 한국어 이름(예: 'IT 트렌드 자동 노션 요약')을 지어 'workflowName' 필드에 담아 보내십시오. 워크플로우가 수정(type: WORKFLOW_MODIFIED)될 때는 이 필드를 null로 비워두어야 합니다.
 </workflow_design_rules>
 
 <resource_rules>
@@ -482,6 +487,7 @@ async def chat_workflow(
             nodes=nodes,
             edges=edges,
             rawPrompt=prompt,
+            workflowName=data.get("workflowName"),
         )
 
         duration_ms = int((time.monotonic() - start) * 1000)
