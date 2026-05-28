@@ -94,8 +94,10 @@ _SYSTEM_PROMPT_BASE = """\
 </workflow_design_rules>
 
 <resource_rules>
-- 워크플로우를 완성하기 전, 실행에 필요한 실제 리소스 ID(Notion parent_page_id, Sheets spreadsheet_id 등)의 누락 여부를 확인하십시오.
-- 목록 조회 도구(notion_search 등)가 주입되었다면 이를 실행하여 실제 리소스 ID를 조회한 후, 사용자에게 선택을 요청하십시오.
+- 워크플로우를 완성하기 전, 실행에 필요한 실제 리소스 ID(Notion parent_page_id, Sheets spreadsheet_id, Calendar calendar_id 등)의 누락 여부를 반드시 확인하십시오.
+- 사용자가 리소스 ID를 프롬프트에 제공하지 않았다면, 절대로 임의의 빈 값(예: "", "YOUR_PAGE_ID")을 노드 config에 채워 완성형 워크플로우를 생성해서는 안 됩니다.
+- 반드시 먼저 주입된 목록 조회 도구(notion_search, google_list_calendars 등)를 실행하여 사용자의 실제 리소스 목록을 조회하십시오.
+- 조회된 목록을 제시하며 어느 리소스를 사용할 것인지 사용자에게 선택을 요청하되, 이때 응답 type은 CLARIFICATION_NEEDED로 지정하고 nodes와 edges는 null로 반환해야 합니다. 사용자가 특정 리소스를 선택하면, 그제서야 해당 ID를 노드 config에 주입한 완벽한 WORKFLOW_GENERATED 워크플로우를 반환하십시오.
 </resource_rules>
 
 <integration_rules>
