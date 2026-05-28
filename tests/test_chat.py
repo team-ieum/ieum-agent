@@ -94,7 +94,7 @@ def _make_patches(text_output: str):
 
 
 async def _call(prompt="테스트", current_nodes=None, current_edges=None,
-                available=None, unavailable=None):
+                available=None, unavailable=None, preserve_id=None):
     return await chat_workflow(
         prompt=prompt,
         provider="CLAUDE",
@@ -104,6 +104,7 @@ async def _call(prompt="테스트", current_nodes=None, current_edges=None,
         unavailable_integrations=unavailable or [],
         current_nodes=current_nodes,
         current_edges=current_edges,
+        preserve_id=preserve_id,
     )
 
 
@@ -235,7 +236,7 @@ async def test_chat_workflow_invalid_node_type():
     p1, p2, p3, p4 = _make_patches(invalid_json)
     with p1, p2, p3, p4:
         with pytest.raises(ValueError):
-            await _call()
+            await _call(preserve_id=True)
 
 
 @pytest.mark.asyncio
@@ -255,7 +256,7 @@ async def test_chat_workflow_duplicate_node_id():
     p1, p2, p3, p4 = _make_patches(invalid_json)
     with p1, p2, p3, p4:
         with pytest.raises(ValueError):
-            await _call()
+            await _call(preserve_id=True)
 
 
 @pytest.mark.asyncio
@@ -276,7 +277,7 @@ async def test_chat_workflow_invalid_edge_reference():
     p1, p2, p3, p4 = _make_patches(invalid_json)
     with p1, p2, p3, p4:
         with pytest.raises(ValueError):
-            await _call()
+            await _call(preserve_id=True)
 
 
 @pytest.mark.asyncio

@@ -226,6 +226,7 @@ async def chat_workflow(
     github_token: str | None = None,
     google_access_token: str | None = None,
     mcp_servers: list[dict] | None = None,
+    preserve_id: bool | None = None,
 ) -> ChatResponse:
     start = time.monotonic()
     model = resolve_model(provider)
@@ -379,8 +380,8 @@ async def chat_workflow(
         raw_edges = data.get("edges")
 
         if raw_nodes:
-            preserve_id = bool(current_nodes)
-            raw_nodes = [_normalize_node(n, idx + 1, preserve_id=preserve_id) for idx, n in enumerate(raw_nodes)]
+            pid = preserve_id if preserve_id is not None else bool(current_nodes)
+            raw_nodes = [_normalize_node(n, idx + 1, preserve_id=pid) for idx, n in enumerate(raw_nodes)]
 
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             if not raw_nodes:
