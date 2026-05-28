@@ -27,6 +27,8 @@ from db.mongodb import chat_logs
 from tools.notion import notion_search
 from tools.github import github_list_orgs, github_list_repos, github_list_issues, github_list_pull_requests
 from tools.google_list import google_list_calendars, google_list_sheets
+from tools.discord import send_discord_webhook
+from tools.slack import send_slack_message
 from agents.base import _safe_close_mcp
 
 logger = logging.getLogger(__name__)
@@ -305,7 +307,10 @@ async def chat_workflow(
             os.environ[env_key] = api_key
 
         try:
-            browse_tools = []
+            browse_tools = [
+                FunctionTool(send_discord_webhook),
+                FunctionTool(send_slack_message),
+            ]
             if notion_token:
                 browse_tools.append(FunctionTool(_bind_token(notion_search, token=notion_token)))
             if github_token:
