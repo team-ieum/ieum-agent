@@ -2,7 +2,7 @@ import contextlib
 import inspect
 import logging
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPConnectionParams
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ async def build_github_agent(
         ), []
 
     mcp = MCPToolset(
-        connection_params=SseConnectionParams(
+        connection_params=StreamableHTTPConnectionParams(
             url="https://api.githubcopilot.com/mcp/",
             headers={
                 "Authorization": f"Bearer {github_token}",
