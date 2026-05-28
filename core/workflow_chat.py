@@ -98,6 +98,8 @@ _REVIEWER_SYSTEM_PROMPT = """\
    - 원시 데이터를 정제하거나 마크다운 형식으로 작성할 때, `transform_agent` (혹은 `json_parse` 등의 도구)를 활용하도록 노드가 올바르게 거쳐가게 설계되었는지 확인하십시오.
 4. 리소스 ID 주입:
    - Notion parent_page_id 등 워크플로우 작동에 필요한 리소스 ID들이 빈 값("")이 아닌 유효한 조회 ID로 매핑되어 있는지 확인하십시오.
+5. SCHEDULE 트리거의 cron 필드 검증:
+   - 만약 TRIGGER 노드의 `config.triggerType`이 "SCHEDULE"인 경우, `config.cron` 필드가 반드시 존재하고 비어있지 않아야 하며, 5필드 표준 크론 표현식(예: "0 17 * * 5") 형식인지 확인하십시오. 누락되었거나 형식이 잘못되었다면 isValid를 false로 하고 피드백을 반환하십시오.
 </verification_checklist>
 
 설계 초안에 결함이나 규칙 위반이 존재한다면 isValid를 false로 하고, 피드백(feedback) 필드에 구체적으로 어떤 부분을 어떻게 수정해야 하는지 피드백 메시지를 상세히 작성하여 반환하십시오.
@@ -122,6 +124,10 @@ _SYSTEM_PROMPT_BASE = """\
    - 단일 노드가 다른 성격의 외부 서비스를 중복 호출하게 설계하지 말고, 서로 다른 외부 서비스 호출(예: 뉴스 수집과 노션 등록)은 항상 별도의 AI 노드로 명확히 분리하십시오.
 5. 워크플로우 자동 이름 부여:
    - 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 명확히 대변하는 한국어 이름(예: 'IT 트렌드 자동 노션 요약')을 지어 'workflowName' 필드에 기입하고, 수정 시에는 null로 비워두십시오.
+6. TRIGGER 노드 스케줄링 규칙:
+   - 모든 워크플로우는 1개의 TRIGGER 노드(type: "TRIGGER")로 시작해야 합니다.
+   - TRIGGER 노드의 `config.triggerType`은 "MANUAL", "SCHEDULE", "WEBHOOK" 중 하나여야 합니다.
+   - `config.triggerType`이 "SCHEDULE"인 경우, config 내에 반드시 "cron" 필드를 생성해야 하며, 5필드 표준 크론 표현식 문자열을 값으로 설정해야 합니다. (예: "매주 금요일 오후 5시" -> "0 17 * * 5", "매일 오전 9시" -> "0 9 * * *", "매월 1일 새벽 3시" -> "0 3 1 * *")
 </workflow_design_rules>
 
 <resource_rules>
