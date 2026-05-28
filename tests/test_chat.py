@@ -253,8 +253,8 @@ async def test_chat_workflow_duplicate_node_id():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {}},
-            {"id": "node-1", "type": "AI", "label": "중복", "config": {}},
+            {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+            {"id": "node-1", "type": "AI", "label": "중복", "config": {"llmProvider": "CLAUDE"}},
         ],
         "edges": [],
     })
@@ -273,7 +273,7 @@ async def test_chat_workflow_invalid_edge_reference():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {}},
+            {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
         ],
         "edges": [
             {"source": "node-1", "target": "node-999", "conditionType": None},
@@ -336,7 +336,7 @@ async def test_chat_workflow_id_translation():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "trigger_node", "type": "TRIGGER", "label": "트리거", "config": {"interval": "daily"}},
+            {"id": "trigger_node", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL", "interval": "daily"}},
             {"id": "ai_node", "type": "AI", "label": "AI 처리", "config": {"prompt": "이전 데이터: {{nodes.trigger_node.output.data}}", "agentType": "react", "llmProvider": "GEMINI"}}
         ],
         "edges": [
@@ -402,7 +402,7 @@ async def test_chat_workflow_self_correction_loop():
         "message": "초안 생성",
         "type": "WORKFLOW_GENERATED",
         "nodes": faulty_nodes,
-        "edges": []
+        "edges": [{"source": "node-1", "target": "node-2"}]
     })
 
     # 2. 리뷰어 피드백: isValid = False
@@ -420,7 +420,7 @@ async def test_chat_workflow_self_correction_loop():
         "message": "교정 완료",
         "type": "WORKFLOW_GENERATED",
         "nodes": corrected_nodes,
-        "edges": []
+        "edges": [{"source": "node-1", "target": "node-2"}]
     })
 
     # 순차적으로 응답을 던져줄 list 생성

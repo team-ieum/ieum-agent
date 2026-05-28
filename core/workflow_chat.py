@@ -30,6 +30,7 @@ from tools.google_list import google_list_calendars, google_list_sheets
 from tools.discord import send_discord_webhook
 from tools.slack import send_slack_message
 from agents.base import _safe_close_mcp
+from core.validators.workflow_validator import WorkflowValidator
 
 logger = logging.getLogger(__name__)
 
@@ -199,31 +200,7 @@ def _normalize_node(node: dict, index: int, preserve_id: bool = False) -> dict:
     return node
 
 
-def _validate_workflow(nodes: list, edges: list) -> None:
-    valid_types = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM"}
-    required_fields = {"id", "type", "label", "config"}
-
-    ids = [n.get("id") for n in nodes]
-    if len(ids) != len(set(ids)):
-        raise ValueError(ErrorCode.WORKFLOW_PARSE_FAILED.message)
-
-    for n in nodes:
-        if n.get("type") not in valid_types:
-            logger.error("유효하지 않은 노드 타입 발견: %s", n.get('type'))
-            raise ValueError(ErrorCode.WORKFLOW_PARSE_FAILED.message)
-
-    for n in nodes:
-        if not required_fields.issubset(n.keys()):
-            raise ValueError(ErrorCode.WORKFLOW_PARSE_FAILED.message)
-
-    trigger_count = sum(1 for n in nodes if n.get("type") == "TRIGGER")
-    if trigger_count != 1:
-        raise ValueError(ErrorCode.WORKFLOW_PARSE_FAILED.message)
-
-    node_ids = set(ids)
-    for e in edges:
-        if e.get("source") not in node_ids or e.get("target") not in node_ids:
-            raise ValueError(ErrorCode.WORKFLOW_PARSE_FAILED.message)
+# 공통 WorkflowValidator 사용으로 대체됨
 
 
 async def _save_chat_log(
@@ -324,8 +301,12 @@ async def chat_workflow(
 3. type은 반드시 WORKFLOW_MODIFIED
 """
 
+    from core.skill_loader import load_design_rules
+    design_rules = load_design_rules(prompt)
+
     instruction = (
         _SYSTEM_PROMPT_BASE
+        + f"\n\n## 참고 설계 규칙 (스킬 레퍼런스)\n{design_rules}"
         + integration_section
         + workflow_section
         + f"\n\n## Current Request Context\n- provider: {provider.upper()}\n  (모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정한다)"
@@ -619,7 +600,7 @@ async def chat_workflow(
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             if not raw_nodes:
                 raise ValueError("WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다.")
-            _validate_workflow(raw_nodes, raw_edges or [])
+            WorkflowValidator.validate(raw_nodes, raw_edges or [])
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
         edges = [WorkflowEdge(**e) for e in raw_edges] if raw_edges else None

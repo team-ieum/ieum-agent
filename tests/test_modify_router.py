@@ -32,7 +32,7 @@ def setup_and_cleanup_dependency_overrides():
 MODIFY_PAYLOAD = {
     "prompt": "Slack 알림 추가",
     "currentNodes": [
-        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {}}
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}}
     ],
     "currentEdges": [],
 }
