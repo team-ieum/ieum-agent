@@ -46,6 +46,7 @@ async def test_notion_agent_with_token_enters_mcp_toolset():
 
     with patch("agents.execute.sub.notion_agent.MCPToolset") as mock_mcp_cls:
         mock_mcp = MagicMock()
+        mock_mcp.get_tools.return_value = mock_tools
         mock_mcp_cls.return_value = mock_mcp
 
         async with contextlib.AsyncExitStack() as stack:

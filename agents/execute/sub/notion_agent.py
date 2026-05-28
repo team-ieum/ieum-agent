@@ -50,11 +50,7 @@ async def build_notion_agent(
     res = mcp.get_tools()
     tools = await res if hasattr(res, "__await__") else res
 
-    # 테스트 호환성 유지: 테스트에서 stack.enter_async_context를 모킹하고 이를 통해 tools를 주입하는 경우 이를 우선 반영합니다.
-    if "Mock" in type(stack.enter_async_context).__name__:
-        test_tools = await stack.enter_async_context(mcp)
-        if test_tools:
-            tools = test_tools
+    await stack.enter_async_context(mcp)
 
     from agents.base import _safe_close_mcp
     stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
