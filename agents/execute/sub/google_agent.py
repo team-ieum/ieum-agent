@@ -1,8 +1,8 @@
 import contextlib
+import inspect
 import logging
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPConnectionParams
-from agents.base import _safe_close_mcp
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,7 @@ _GOOGLE_MCP_URLS = [
     "https://drivemcp.googleapis.com/mcp/v1",
     "https://calendarmcp.googleapis.com/mcp/v1",
 ]
+
 
 async def build_google_agent(
     model: str,
@@ -41,9 +42,11 @@ async def build_google_agent(
                 headers={"Authorization": f"Bearer {google_oauth_token}"},
             )
         )
+        await stack.enter_async_context(mcp)
+
         res = mcp.get_tools()
-        tools = await res if hasattr(res, "__await__") else res
-        stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
+        tools = await res if inspect.isawaitable(res) else res
+
         all_tools.extend(tools)
         mcps.append(mcp)
 
