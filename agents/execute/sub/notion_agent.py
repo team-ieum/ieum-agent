@@ -43,8 +43,6 @@ async def build_notion_agent(
             env={**os.environ, "OPENAPI_MCP_HEADERS": mcp_headers},
         ),
     )
-    # 테스트 호환성 유지: 테스트에서 StdioConnectionParams의 url 필드를 체크하므로 동적으로 정의해 줍니다.
-    object.__setattr__(params, "url", "https://mcp.notion.com/sse")
 
     mcp = MCPToolset(connection_params=params)
     res = mcp.get_tools()
