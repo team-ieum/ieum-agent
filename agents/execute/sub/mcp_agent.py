@@ -38,7 +38,11 @@ async def build_mcp_agent(
                 headers=cfg.get("headers", {}),
             )
         )
-        await stack.enter_async_context(mcp)
+        async def _safe_close():
+            res = mcp.close()
+            if inspect.isawaitable(res):
+                await res
+        stack.push_async_callback(_safe_close)
 
         res = mcp.get_tools()
         tools = await res if inspect.isawaitable(res) else res
