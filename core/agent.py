@@ -8,6 +8,7 @@ from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from db.mongodb import execution_logs
+from google.adk.sessions import BaseSessionService
 from agents.execute.factory import run_simple_agent, run_react_agent
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ async def run_agent(
     google_access_token: str | None = None,
     notion_token: str | None = None,
     github_token: str | None = None,
+    session_service: BaseSessionService | None = None,
 ) -> AgentExecutionResult:
     start = time.monotonic()
     result = AgentExecutionResult(success=False)
@@ -71,6 +73,7 @@ async def run_agent(
                     google_access_token=google_access_token,
                     notion_token=notion_token,
                     github_token=github_token,
+                    session_service=session_service,
                 )
             else:
                 return await run_simple_agent(
@@ -79,6 +82,7 @@ async def run_agent(
                     api_key=api_key,
                     env_key=env_key,
                     user_id=user_id,
+                    session_service=session_service,
                 )
 
         if lock:
