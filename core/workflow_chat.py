@@ -95,7 +95,7 @@ _SYSTEM_PROMPT_BASE = """\
 _NODE_META_KEYS = {"id", "type", "nodeType", "label", "config"}
 
 
-def _normalize_node(node: dict, index: int) -> dict:
+def _normalize_node(node: dict, index: int, preserve_id: bool = False) -> dict:
     """LLM이 생성한 노드를 정규화한다.
 
     - nodeType → type 변환
@@ -105,11 +105,11 @@ def _normalize_node(node: dict, index: int) -> dict:
     """
     node = dict(node)
     
-    # 1. 노드 ID 규칙 자동 정렬 (테스트 환경에서는 검증을 위해 기존 ID를 보존하고, 없는 경우에만 부여)
-    is_test = hasattr(InMemorySessionService, "_mock_return_value") or "Mock" in type(InMemorySessionService).__name__
-    if not is_test:
-        node["id"] = f"node-{index}"
-    elif "id" not in node or not node["id"]:
+    # 1. 노드 ID 규칙 자동 정렬
+    if preserve_id:
+        if "id" not in node or not node["id"]:
+            node["id"] = f"node-{index}"
+    else:
         node["id"] = f"node-{index}"
 
     # 2. nodeType → type
@@ -149,7 +149,8 @@ def _validate_workflow(nodes: list, edges: list) -> None:
 
     for n in nodes:
         if n.get("type") not in valid_types:
-            raise ValueError(f"유효하지 않은 노드 타입: {n.get('type')}")
+            logger.error("유효하지 않은 노드 타입 발견: %s", n.get('type'))
+            raise ValueError(ErrorCode.WORKFLOW_PARSE_FAILED.message)
 
     for n in nodes:
         if not required_fields.issubset(n.keys()):
@@ -378,7 +379,8 @@ async def chat_workflow(
         raw_edges = data.get("edges")
 
         if raw_nodes:
-            raw_nodes = [_normalize_node(n, idx + 1) for idx, n in enumerate(raw_nodes)]
+            preserve_id = bool(current_nodes)
+            raw_nodes = [_normalize_node(n, idx + 1, preserve_id=preserve_id) for idx, n in enumerate(raw_nodes)]
 
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             if not raw_nodes:
