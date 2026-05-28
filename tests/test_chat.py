@@ -476,3 +476,122 @@ async def test_chat_workflow_self_correction_loop():
     assert result.nodes[1].type == "AI"
     assert "discord" in result.nodes[1].config["tools"]
 
+
+@pytest.mark.asyncio
+async def test_chat_workflow_schedule_trigger_success():
+    """SCHEDULE 트리거가 올바른 cron 필드를 포함하고 있을 때 정상 파싱된다."""
+    schedule_json = json.dumps({
+        "message": "스케줄 워크플로우를 생성했습니다.",
+        "type": "WORKFLOW_GENERATED",
+        "actions": [],
+        "changeDescription": None,
+        "nodes": [
+            {"id": "node-1", "type": "TRIGGER", "label": "트리거",
+             "config": {"triggerType": "SCHEDULE", "cron": "0 17 * * 5"}},
+            {"id": "node-2", "type": "AI", "label": "AI 처리",
+             "config": {"llmProvider": "CLAUDE", "credentialId": "",
+                        "prompt": "처리해줘", "agentType": "simple", "tools": []}},
+        ],
+        "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
+        "workflowName": "IT 트렌드 자동 노션 요약",
+    })
+    p1, p2, p3, p4 = _make_patches(schedule_json)
+    with p1, p2, p3, p4:
+        result = await _call("매주 금요일 17시 실행 스케줄 워크플로우 만들어줘")
+    
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    assert result.nodes[0].config["triggerType"] == "SCHEDULE"
+    assert result.nodes[0].config["cron"] == "0 17 * * 5"
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_schedule_trigger_correction():
+    """SCHEDULE 트리거에 cron 필드가 없어서 검증 레이어에서 반려되고, 자가 교정을 통해 정상적인 cron을 주입받아 성공하는지 확인한다."""
+    # 1. 초안: SCHEDULE 트리거이지만 cron 필드가 없음
+    faulty_nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "SCHEDULE"}},
+        {"id": "node-2", "type": "AI", "label": "AI 처리",
+         "config": {"llmProvider": "CLAUDE", "credentialId": "",
+                    "prompt": "처리해줘", "agentType": "simple", "tools": []}},
+    ]
+    faulty_draft_json = json.dumps({
+        "message": "초안 생성",
+        "type": "WORKFLOW_GENERATED",
+        "nodes": faulty_nodes,
+        "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}]
+    })
+
+    # 2. 리뷰어 피드백: isValid = False
+    reviewer_feedback_json = json.dumps({
+        "isValid": False,
+        "feedback": "SCHEDULE 트리거 노드(node-1)의 config에 'cron' 필드가 누락되었습니다. 5필드 크론 표현식을 넣어주세요."
+    })
+
+    # 3. 최종 교정본: cron: "0 17 * * 5" 가 추가된 올바른 스케줄
+    corrected_nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "SCHEDULE", "cron": "0 17 * * 5"}},
+        {"id": "node-2", "type": "AI", "label": "AI 처리",
+         "config": {"llmProvider": "CLAUDE", "credentialId": "",
+                    "prompt": "처리해줘", "agentType": "simple", "tools": []}},
+    ]
+    corrected_workflow_json = json.dumps({
+        "message": "교정 완료",
+        "type": "WORKFLOW_GENERATED",
+        "nodes": corrected_nodes,
+        "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}]
+    })
+
+    # 순차적으로 응답을 던져줄 list 생성
+    outputs = [faulty_draft_json, reviewer_feedback_json, corrected_workflow_json]
+    call_index = 0
+
+    def mock_run_async_seq(**kwargs):
+        nonlocal call_index
+        text_output = outputs[call_index]
+        call_index += 1
+
+        mock_event = MagicMock()
+        mock_event.is_final_response.return_value = True
+        mock_event.content.parts = [type("Part", (), {"text": text_output})()]
+
+        async def generator():
+            yield mock_event
+        return generator()
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = mock_run_async_seq
+
+    # 패치 적용
+    mock_session = MagicMock()
+    mock_session_service = MagicMock()
+    mock_session_service.get_session = AsyncMock(return_value=None)
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    patches = [
+        patch("core.workflow_chat.Runner", return_value=mock_runner),
+        patch("core.workflow_chat.InMemorySessionService", return_value=mock_session_service),
+        patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
+        patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
+    ]
+
+    with patches[0], patches[1], patches[2], patches[3]:
+        result = await chat_workflow(
+            prompt="매주 금요일 17시 스케줄 워크플로우 만들어줘",
+            provider="CLAUDE",
+            api_key="test-key",
+            user_id="test-user",
+            available_integrations=[],
+            unavailable_integrations=[],
+        )
+
+    # 3번의 호출이 정상 수행되었고, 최종적으로 자가 교정본(corrected_nodes)이 반환되었는지 확인
+    assert call_index == 3
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    assert result.nodes[0].config["triggerType"] == "SCHEDULE"
+    assert result.nodes[0].config["cron"] == "0 17 * * 5"
+
+
