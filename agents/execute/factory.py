@@ -12,6 +12,7 @@ from agents.execute.sub.notion_agent import build_notion_agent
 from agents.execute.sub.google_agent import build_google_agent
 from agents.execute.sub.github_agent import build_github_agent
 from agents.execute.sub.communication_agent import build_communication_agent
+from agents.execute.sub.transform_agent import build_transform_agent
 from agents.execute.sub.mcp_agent import build_mcp_agent
 from agents.base import _bind_workflow_context, _bind_google_token, _bind_notion_token
 from core.custom_gemini import CustomGemini
@@ -154,12 +155,14 @@ async def run_react_agent(
 
                 web_agent, _ = await build_web_agent(model_param)
                 comm_agent, _ = await build_communication_agent(model_param)
+                transform_agent, _ = await build_transform_agent(model_param)
 
                 raw_direct_tools = [
                     *builtin_tools,
                     *mcp_tools,
                     *(web_agent.tools or []),
                     *(comm_agent.tools or []),
+                    *(transform_agent.tools or []),
                 ]
                 seen_names = set()
                 direct_tools = []
@@ -221,10 +224,12 @@ async def run_react_agent(
         async with contextlib.AsyncExitStack() as stack:
             web_agent, _ = await build_web_agent(model_param)
             comm_agent, _ = await build_communication_agent(model_param)
+            transform_agent, _ = await build_transform_agent(model_param)
 
             sub_agent_tools = [
                 AgentTool(agent=web_agent),
                 AgentTool(agent=comm_agent),
+                AgentTool(agent=transform_agent),
             ]
 
             if notion_token:

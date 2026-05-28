@@ -217,3 +217,22 @@ async def test_mcp_agent_creates_toolset_per_server():
 
     assert call_count["n"] == 2
     assert len(mcps) == 2
+
+
+# ---------- TransformAgent ----------
+
+@pytest.mark.asyncio
+async def test_transform_agent_has_correct_tools():
+    """TransformAgent가 데이터 변환/포맷팅 헬퍼 도구 3종을 정상적으로 보유하는지 검증한다."""
+    from agents.execute.sub.transform_agent import build_transform_agent
+    
+    agent, mcps = await build_transform_agent("gemini-2.5-flash")
+    
+    assert agent.name == "transform_agent"
+    assert len(agent.tools) == 3
+    tool_names = {t.name for t in agent.tools}
+    assert "json_parse" in tool_names
+    assert "text_extract" in tool_names
+    assert "date_format" in tool_names
+    assert mcps == []
+
