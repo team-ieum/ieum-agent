@@ -15,6 +15,11 @@ _PLANNER_INSTRUCTION = """
    반드시 도구를 지닌 AI 노드를 배치하도록 구조를 짠다.
 4. 분기가 필요한 경우 CONDITION 노드를 적절히 설계한다.
 5. 출력 규격(WorkflowPlanSchema)에 부합하는 JSON Plan만 올바르게 작성해야 한다.
+6. 각 AI 노드에는 `tools` 필드에 해당 노드가 사용할 도구 키를 명시한다.
+   - 도구 키는 아래 '참고 설계 규칙'의 도구 목록에 있는 정확한 문자열을 그대로 사용한다.
+     (Notion·Google 등 빌트인 도구는 `builtin:` 프리픽스 포함, Slack/Discord/Gmail은 프리픽스 없는 키)
+   - AI 노드가 아니거나(TRIGGER/HTTP/CONDITION/TRANSFORM) 도구가 필요 없으면 `tools`는 빈 리스트([])로 둔다.
+   - 한 AI 노드에는 동일 목적의 도구만 넣는다. 서로 다른 서비스 도구를 한 노드에 섞지 않는다.
 """
 
 
