@@ -82,6 +82,7 @@ class WorkflowValidator:
                 system_msg = config.get("systemMessage") or ""
                 cls._validate_variable_references(prompt, nid)
                 cls._validate_variable_references(system_msg, nid)
+                cls._validate_tool_names(config.get("tools"), nid)
 
         if trigger_count == 0:
             raise WorkflowValidationError("워크플로우는 반드시 1개의 TRIGGER 노드로 시작해야 합니다. TRIGGER 노드가 발견되지 않았습니다.")
@@ -122,6 +123,41 @@ class WorkflowValidator:
             if not re.match(cron_part_pattern, part):
                 raise WorkflowValidationError(
                     f"트리거 노드 '{node_id}'의 cron 표현식 중 '{part}' 부분은 올바른 cron 구문이 아닙니다."
+                )
+
+    @classmethod
+    def _allowed_tool_names(cls) -> set:
+        """실행기에 등록된 도구 이름 집합을 반환한다. _TOOL_MAP을 SSOT로 사용하며,
+        커스텀 MCP 도구('mcp')는 server_url 등 동적 설정으로 처리되므로 추가로 허용한다."""
+        # tools 패키지는 google.adk를 최상위에서 import하므로 lazy import로 검증 비용/순환을 회피한다.
+        from tools import _TOOL_MAP
+        return set(_TOOL_MAP.keys()) | {"mcp"}
+
+    @classmethod
+    def _validate_tool_names(cls, tools, node_id: str) -> None:
+        """AI 노드의 tools 항목 이름이 실제 실행기 레지스트리에 존재하는지 검증한다.
+        프리픽스 누락('notion_create_page' 등)이나 오타를 생성 단계에서 차단한다."""
+        if not tools:
+            return
+        if not isinstance(tools, list):
+            raise WorkflowValidationError(
+                f"AI 노드 '{node_id}'의 tools는 리스트 형식이어야 합니다."
+            )
+
+        allowed = cls._allowed_tool_names()
+        for tool in tools:
+            name = tool.get("name") if isinstance(tool, dict) else tool
+            if not name:
+                raise WorkflowValidationError(
+                    f"AI 노드 '{node_id}'의 tools 항목에 name이 누락되었습니다."
+                )
+            if name not in allowed:
+                hint = ""
+                if f"builtin:{name}" in allowed:
+                    hint = f" '{name}'은(는) 'builtin:{name}' 형식이어야 합니다."
+                raise WorkflowValidationError(
+                    f"AI 노드 '{node_id}'의 도구 이름 '{name}'이(가) 유효하지 않습니다."
+                    f"{hint} 사용 가능한 도구 이름만 지정하십시오."
                 )
 
     @classmethod

@@ -264,3 +264,50 @@ def test_invalid_reference_format_raises():
     with pytest.raises(WorkflowValidationError) as excinfo:
         WorkflowValidator.validate(nodes, edges)
     assert "형식이 올바르지 않습니다" in str(excinfo.value)
+
+
+# --- 9. AI 노드 도구 이름 유효성 테스트 (T5) ---
+def _wf_with_ai_tools(tools):
+    return (
+        [
+            {
+                "id": "node-1",
+                "type": "TRIGGER",
+                "label": "트리거",
+                "config": {"triggerType": "MANUAL"}
+            },
+            {
+                "id": "node-2",
+                "type": "AI",
+                "label": "AI 노드",
+                "config": {"llmProvider": "CLAUDE", "agentType": "react", "tools": tools}
+            }
+        ],
+        [{"source": "node-1", "target": "node-2"}]
+    )
+
+
+def test_valid_tool_names_pass():
+    # builtin 프리픽스 도구, 프리픽스 없는 키, mcp 모두 통과해야 함
+    nodes, edges = _wf_with_ai_tools([
+        {"name": "builtin:notion_create_page"},
+        {"name": "slack"},
+        {"name": "mcp"},
+    ])
+    WorkflowValidator.validate(nodes, edges)
+
+
+def test_missing_prefix_tool_name_raises():
+    # 'builtin:' 프리픽스 누락 시 차단 + 교정 힌트 제공
+    nodes, edges = _wf_with_ai_tools([{"name": "notion_create_page"}])
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowValidator.validate(nodes, edges)
+    assert "builtin:notion_create_page" in str(excinfo.value)
+
+
+def test_unknown_tool_name_raises():
+    # 레지스트리에 없는 오타 도구 차단
+    nodes, edges = _wf_with_ai_tools([{"name": "builtin:notion_make_page"}])
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowValidator.validate(nodes, edges)
+    assert "유효하지 않습니다" in str(excinfo.value)
