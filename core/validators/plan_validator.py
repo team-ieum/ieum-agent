@@ -14,22 +14,56 @@ class PlanValidator:
     # AI 전용 도구가 지원되는 서비스 이름 모음 (HTTP 노드로 계획 수립 금지)
     PROHIBITED_SERVICES = {"NOTION", "SLACK", "DISCORD", "GITHUB", "GOOGLE", "GMAIL", "SHEETS", "CALENDAR", "DRIVE"}
 
+    # 서비스→도구 결정론 매핑(별칭 사전). LLM이 흔히 쓰는 변형/별칭을 정확한 _TOOL_MAP 키로 환원한다.
+    # 프리픽스 누락(맨이름)은 코드에서 'builtin:{name}'으로 자동 보정하므로 여기 명시하지 않고,
+    # 프리픽스 보정만으로 환원되지 않는 명백한 별칭만 등록한다. (값은 반드시 _TOOL_MAP의 실제 키여야 함)
+    _TOOL_ALIASES = {
+        "search": "builtin:web_search",
+        "websearch": "builtin:web_search",
+        "web": "builtin:web_search",
+        "google_search": "builtin:web_search",
+        "http": "builtin:http_fetch",
+        "fetch": "builtin:http_fetch",
+        "httprequest": "builtin:http_fetch",
+    }
+
     @classmethod
-    def _validate_plan_tool_names(cls, tools, node_id: str) -> None:
-        """계획 AI 노드의 tools 이름이 실행기 레지스트리(_TOOL_MAP)에 존재하는지 검증한다.
-        프리픽스 누락('notion_create_page' 등)이나 오타를 계획 단계에서 차단한다."""
-        if not tools:
+    def _canonicalize_tool_name(cls, name: str, allowed: set) -> str | None:
+        """도구 이름을 실행기 레지스트리의 정확한 키로 환원한다.
+        환원 불가능하면 None을 반환한다. (이름 환각 차단을 위한 결정론 매핑)"""
+        if name in allowed:
+            return name
+        # 1) 프리픽스 누락 자동 보정: 'notion_create_page' → 'builtin:notion_create_page'
+        prefixed = f"builtin:{name}"
+        if prefixed in allowed:
+            return prefixed
+        # 2) 별칭 사전 환원
+        alias = cls._TOOL_ALIASES.get(name.strip().lower())
+        if alias and alias in allowed:
+            return alias
+        return None
+
+    @classmethod
+    def _validate_plan_tool_names(cls, node, node_id: str) -> None:
+        """계획 AI 노드의 tools를 정확한 _TOOL_MAP 키로 결정론적으로 환원(in-place)하고 검증한다.
+        프리픽스 누락·별칭은 코드가 정확 키로 교정하며, 환원 불가능한 이름만 차단한다.
+        교정된 tools는 Builder로 그대로 전달되어 노드 config의 도구 이름 환각을 원천 차단한다."""
+        if not node.tools:
             return
         # tools 패키지는 google.adk를 최상위에서 import하므로 lazy import로 검증 비용/순환을 회피한다.
         from tools import _TOOL_MAP
         allowed = set(_TOOL_MAP.keys()) | {"mcp"}
-        for name in tools:
-            if name not in allowed:
-                hint = f" '{name}'은(는) 'builtin:{name}' 형식이어야 합니다." if f"builtin:{name}" in allowed else ""
+
+        canonical = []
+        for name in node.tools:
+            resolved = cls._canonicalize_tool_name(name, allowed)
+            if resolved is None:
                 raise PlanValidationError(
-                    f"AI 계획 노드 '{node_id}'의 도구 이름 '{name}'이(가) 유효하지 않습니다."
-                    f"{hint} 사용 가능한 도구 이름만 지정하십시오."
+                    f"AI 계획 노드 '{node_id}'의 도구 이름 '{name}'이(가) 유효하지 않습니다. "
+                    f"사용 가능한 도구 이름만 지정하십시오."
                 )
+            canonical.append(resolved)
+        node.tools = canonical
 
     @classmethod
     def validate(cls, plan: WorkflowPlanSchema) -> None:
@@ -55,9 +89,9 @@ class PlanValidator:
             if ntype == "TRIGGER":
                 trigger_count += 1
 
-            # AI 노드가 계획한 도구 이름이 실제 실행기 레지스트리에 존재하는지 검증
+            # AI 노드가 계획한 도구 이름을 정확 키로 환원(in-place)하고 검증
             elif ntype == "AI":
-                cls._validate_plan_tool_names(node.tools, nid)
+                cls._validate_plan_tool_names(node, nid)
 
             # HTTP 노드에 도구 전용 서비스를 매핑하려고 했는지 체크
             elif ntype == "HTTP":
