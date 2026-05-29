@@ -14,6 +14,7 @@ _REFERENCE_FILES = [
     "node-types.md",          # 노드 타입/스키마 (공통 기본 지식)
     "tool-selection.md",      # 도구 카탈로그 (정확한 도구 키 — 상시 주입)
     "workflow-patterns.md",   # 대표 워크플로우 패턴
+    "good-examples.md",       # 검증 통과 골든 예시 (few-shot 모방용)
     "bad-examples.md",        # 안티패턴 (실수 방지)
     "validation-checklist.md",  # 출력 전 자가 점검 항목
 ]
