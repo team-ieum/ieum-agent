@@ -81,7 +81,7 @@ async def run_simple_agent(
                 user_id=user_id,
                 session_id=session.id,
                 new_message=message):
-            if event.is_final_response() and event.content:
+            if event.is_final_response() and event.content and event.content.parts:
                 for part in event.content.parts:
                     if hasattr(part, "text") and part.text:
                         output_parts.append(part.text)
@@ -208,7 +208,7 @@ async def run_react_agent(
                         session_id=session.id,
                         new_message=message
                 ):
-                    if event.is_final_response() and event.content:
+                    if event.is_final_response() and event.content and event.content.parts:
                         for part in event.content.parts:
                             if hasattr(part, "text") and part.text:
                                 output_parts.append(part.text)
@@ -295,7 +295,7 @@ async def run_react_agent(
                     session_id=session.id,
                     new_message=message
             ):
-                if event.is_final_response() and event.content:
+                if event.is_final_response() and event.content and event.content.parts:
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
                             output_parts.append(part.text)

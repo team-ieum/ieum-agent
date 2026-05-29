@@ -135,6 +135,11 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
     좋은 예: node-2(tools: [builtin:http_fetch]) → node-3(tools: [builtin:notion_create_page])
 12. Google 빌트인 도구(builtin:google_sheets_*, builtin:google_calendar_*, builtin:google_drive_*)의
     access_token 파라미터는 빈 문자열("")로 설정한다. Spring Boot에서 실행 시 주입한다.
+13. 데이터 무결성 보존 및 가공 위임:
+    - 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회, 노션 페이지 조회 등)는 원시 JSON 형태 데이터를 마음대로 요약/축소하지 말고 그대로 output으로 출력하도록 prompt 및 systemMessage를 설계해야 합니다. (예: "결과 데이터를 절대 요약하지 말고 JSON 원본 그대로 반환하시오")
+    - 데이터 요약, 날짜 포맷팅, JSON 파싱 등 데이터 변환 작업이 필요할 때는, 조회 노드에서 직접 가공하지 말고 `transform_agent` (혹은 `json_parse` 등의 도구)를 주입한 별도의 AI 노드에 가공 업무를 명시적으로 위임합니다.
+14. 생성 노드 프롬프트 경량화:
+    - 각 노드를 설계할 때 노드의 systemMessage나 prompt에 불필요한 사설이나 배경 설명을 과하게 채우지 말고, 핵심 지시사항(동작, 입력 참조값, 출력 형식 등) 위주로 최대 2~3문장 이내로만 간결하게 작성합니다.
 """
 
 
