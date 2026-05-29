@@ -120,6 +120,69 @@ async def test_generate_workflow_코드펜스_제거():
 
 
 @pytest.mark.asyncio
+async def test_generate_workflow_서론_후행_텍스트_제거():
+    """LLM이 JSON 앞뒤로 설명문을 덧붙여도 JSON 객체만 추출해 파싱된다 (A1)."""
+    noisy_output = f"요청하신 워크플로우입니다:\n{VALID_WORKFLOW_JSON}\n이대로 사용하시면 됩니다."
+    outputs = [VALID_PLAN_JSON, noisy_output]
+
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
+         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
+         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
+
+        result = await generate_workflow("테스트", "CLAUDE", "test-key")
+        assert len(result.nodes) == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_프롬프트_내_중괄호_보존():
+    """노드 프롬프트의 변수참조({{...}})로 중괄호가 섞여도 JSON 추출이 깨지지 않는다 (A1)."""
+    workflow_with_braces = json.dumps({
+        "nodes": [
+            {"id": "node-1", "type": "TRIGGER", "label": "수동", "config": {"triggerType": "MANUAL"}},
+            {
+                "id": "node-2",
+                "type": "AI",
+                "label": "요약",
+                "config": {
+                    "llmProvider": "CLAUDE",
+                    "credentialId": "",
+                    "prompt": "이전 결과 {{nodes.node-1.output.triggeredAt}}를 요약",
+                    "agentType": "simple",
+                },
+            },
+        ],
+        "edges": [{"source": "node-1", "target": "node-2"}],
+    })
+    outputs = [VALID_PLAN_JSON, f"```json\n{workflow_with_braces}\n```"]
+
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
+         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
+         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
+
+        result = await generate_workflow("테스트", "CLAUDE", "test-key")
+        assert len(result.nodes) == 2
+        assert "{{nodes.node-1.output.triggeredAt}}" in result.nodes[1].config["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_generate_workflow_빈_응답_에러():
     """LLM이 빈 응답을 반환하면 ValueError가 발생한다."""
     mock_session = AsyncMock()

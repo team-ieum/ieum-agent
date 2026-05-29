@@ -170,17 +170,47 @@ async def _save_generate_workflow_log(
         logger.warning("Failed to save generate_workflow log", exc_info=True)
 
 
-def _parse_and_validate(raw_output: str, original_prompt: str) -> GenerateWorkflowResponse:
-    cleaned = raw_output.strip()
+def _extract_json_object(raw: str) -> str:
+    """LLM 출력에서 최상위 JSON 객체 문자열을 견고하게 추출한다.
 
-    if not cleaned:
+    코드 펜스(```), 서론/설명문, 후행 텍스트가 섞여 있어도 첫 번째 '{' 부터
+    중괄호 짝이 맞는 지점까지를 추출한다. 문자열 리터럴 내부의 중괄호와
+    이스케이프(\\")는 깊이 계산에서 제외한다.
+    """
+    start = raw.find("{")
+    if start == -1:
+        raise ValueError("응답에서 JSON 객체를 찾을 수 없습니다.")
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(raw)):
+        ch = raw[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start:i + 1]
+
+    raise ValueError("JSON 객체의 중괄호 짝이 맞지 않습니다.")
+
+
+def _parse_and_validate(raw_output: str, original_prompt: str) -> GenerateWorkflowResponse:
+    if not raw_output or not raw_output.strip():
         raise ValueError("LLM이 빈 응답을 반환했습니다.")
 
-    if cleaned.startswith("```"):
-        cleaned = "\n".join(cleaned.split("\n")[1:])
-    if cleaned.rstrip().endswith("```"):
-        cleaned = "\n".join(cleaned.rstrip().split("\n")[:-1])
-    cleaned = cleaned.strip()
+    cleaned = _extract_json_object(raw_output)
 
     try:
         data = json.loads(cleaned)
