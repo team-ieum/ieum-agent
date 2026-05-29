@@ -81,6 +81,7 @@ class PlanNode(BaseModel):
     type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM
     role: str                          # 노드가 수행할 구체적 역할 설명
     description: str                   # 상세 동작 설명
+    tools: List[str] = []              # AI 노드가 사용할 도구 키 목록 (예: ["builtin:web_search"]). AI 노드가 아니면 빈 리스트.
 
 
 class PlanEdge(BaseModel):

@@ -15,6 +15,23 @@ class PlanValidator:
     PROHIBITED_SERVICES = {"NOTION", "SLACK", "DISCORD", "GITHUB", "GOOGLE", "GMAIL", "SHEETS", "CALENDAR", "DRIVE"}
 
     @classmethod
+    def _validate_plan_tool_names(cls, tools, node_id: str) -> None:
+        """계획 AI 노드의 tools 이름이 실행기 레지스트리(_TOOL_MAP)에 존재하는지 검증한다.
+        프리픽스 누락('notion_create_page' 등)이나 오타를 계획 단계에서 차단한다."""
+        if not tools:
+            return
+        # tools 패키지는 google.adk를 최상위에서 import하므로 lazy import로 검증 비용/순환을 회피한다.
+        from tools import _TOOL_MAP
+        allowed = set(_TOOL_MAP.keys()) | {"mcp"}
+        for name in tools:
+            if name not in allowed:
+                hint = f" '{name}'은(는) 'builtin:{name}' 형식이어야 합니다." if f"builtin:{name}" in allowed else ""
+                raise PlanValidationError(
+                    f"AI 계획 노드 '{node_id}'의 도구 이름 '{name}'이(가) 유효하지 않습니다."
+                    f"{hint} 사용 가능한 도구 이름만 지정하십시오."
+                )
+
+    @classmethod
     def validate(cls, plan: WorkflowPlanSchema) -> None:
         """기획된 구조(Nodes, Edges)의 설계 규칙을 검증한다."""
         if not plan.nodes:
@@ -37,7 +54,11 @@ class PlanValidator:
 
             if ntype == "TRIGGER":
                 trigger_count += 1
-            
+
+            # AI 노드가 계획한 도구 이름이 실제 실행기 레지스트리에 존재하는지 검증
+            elif ntype == "AI":
+                cls._validate_plan_tool_names(node.tools, nid)
+
             # HTTP 노드에 도구 전용 서비스를 매핑하려고 했는지 체크
             elif ntype == "HTTP":
                 role_upper = node.role.upper()
