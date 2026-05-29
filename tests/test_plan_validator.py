@@ -60,14 +60,22 @@ def test_plan_valid_tool_names_pass():
     PlanValidator.validate(plan)
 
 
-def test_plan_missing_prefix_tool_raises_with_hint():
-    plan = _plan(
-        [TRIGGER, {"id": "node-2", "type": "AI", "role": "노션", "description": "d", "tools": ["notion_create_page"]}],
-        [{"source": "node-1", "target": "node-2"}],
-    )
-    with pytest.raises(PlanValidationError) as excinfo:
-        PlanValidator.validate(plan)
-    assert "builtin:notion_create_page" in str(excinfo.value)
+# --- T3(b): 서비스→도구 결정론 매핑 (이름 환각 차단) ---
+def test_plan_missing_prefix_tool_is_canonicalized():
+    """프리픽스 누락 맨이름은 차단이 아니라 정확한 builtin: 키로 자동 교정된다 (in-place)."""
+    node = {"id": "node-2", "type": "AI", "role": "노션", "description": "d", "tools": ["notion_create_page"]}
+    plan = _plan([TRIGGER, node], [{"source": "node-1", "target": "node-2"}])
+    PlanValidator.validate(plan)
+    # plan.nodes[1].tools가 정확 키로 교정되어야 함
+    assert plan.nodes[1].tools == ["builtin:notion_create_page"]
+
+
+def test_plan_alias_tool_is_canonicalized():
+    """흔한 별칭('search')도 정확한 도구 키로 환원된다."""
+    node = {"id": "node-2", "type": "AI", "role": "검색", "description": "d", "tools": ["search", "fetch"]}
+    plan = _plan([TRIGGER, node], [{"source": "node-1", "target": "node-2"}])
+    PlanValidator.validate(plan)
+    assert plan.nodes[1].tools == ["builtin:web_search", "builtin:http_fetch"]
 
 
 def test_plan_unknown_tool_raises():
