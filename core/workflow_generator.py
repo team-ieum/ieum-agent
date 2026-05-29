@@ -216,58 +216,43 @@ async def generate_workflow(
     env_key = resolve_env_key(provider)
     lock = get_env_lock(env_key) if env_key else None
 
-    async def _execute(target_prompt: str) -> str:
+    def _validate(raw_output: str) -> GenerateWorkflowResponse:
+        # Builder Reflexion 루프(factory)가 호출하는 검증 콜백. 실패 시 예외를 던진다.
+        return _parse_and_validate(raw_output, prompt)
+
+    async def _execute() -> str:
         from agents.generate.factory import run_generate_agent
         return await run_generate_agent(
-            prompt=target_prompt,
+            prompt=prompt,
             model=model,
             provider=provider,
             api_key=api_key,
             env_key=env_key,
+            validate_fn=_validate,
         )
-
-    # 1차 시도
-    if lock:
-        async with lock:
-            raw_output = await _execute(prompt)
-    else:
-        raw_output = await _execute(prompt)
 
     try:
+        # Plan 검증·Builder Reflexion 루프는 run_generate_agent 내부에서 수행된다.
+        # 반환된 raw_output은 이미 _validate를 통과한 상태이므로 여기서 객체화만 한다.
+        if lock:
+            async with lock:
+                raw_output = await _execute()
+        else:
+            raw_output = await _execute()
+
         response = _parse_and_validate(raw_output, prompt)
-    except Exception as first_error:
-        # 1회 자가 교정 시도
-        logger.warning("1차 워크플로우 생성 검증 실패: %s. 자가 교정을 1회 시도합니다.", str(first_error))
-
-        feedback_prompt = (
-            f"당신이 이전에 작성한 워크플로우 설계에 결함이 발견되어 파싱/검증에 실패했습니다.\n"
-            f"아래 피드백 내용을 수용하여 오류를 수정하고, 사용자 요청에 맞는 워크플로우 JSON을 다시 생성하십시오.\n\n"
-            f"## 검증 피드백:\n{str(first_error)}\n\n"
-            f"## 사용자 원래 요청:\n{prompt}\n\n"
-            f"## 규칙에 맞춰 완성된 JSON만 다시 뱉으십시오."
+    except Exception as err:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        await _save_generate_workflow_log(
+            prompt=prompt,
+            provider=provider,
+            model=model,
+            success=False,
+            duration_ms=duration_ms,
+            error_message=f"워크플로우 생성/검증 최종 실패: {str(err)}",
         )
-
-        try:
-            if lock:
-                async with lock:
-                    raw_output = await _execute(feedback_prompt)
-            else:
-                raw_output = await _execute(feedback_prompt)
-
-            response = _parse_and_validate(raw_output, prompt)
-        except Exception as second_error:
-            # 실패 로그 저장
-            duration_ms = int((time.monotonic() - start) * 1000)
-            await _save_generate_workflow_log(
-                prompt=prompt,
-                provider=provider,
-                model=model,
-                success=False,
-                duration_ms=duration_ms,
-                error_message=f"자가교정 최종 실패. 1차에러: {str(first_error)}, 2차에러: {str(second_error)}",
-            )
-            logger.error("자가교정 최종 실패. 1차에러: %s, 2차에러: %s\nraw_output: %s", str(first_error), str(second_error), raw_output)
-            raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(second_error)})")
+        logger.error("워크플로우 생성/검증 최종 실패: %s", str(err), exc_info=True)
+        raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(err)})")
 
     # 성공 로그 저장
     duration_ms = int((time.monotonic() - start) * 1000)

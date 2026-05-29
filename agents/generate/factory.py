@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+from typing import Callable
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -14,6 +15,31 @@ from core.validators.plan_validator import PlanValidator
 logger = logging.getLogger(__name__)
 
 _GENERATE_USER_ID = "generate_user"
+
+# Builder가 생성한 워크플로우 JSON을 검증하는 콜백. 검증 실패 시 예외를 던진다.
+# (factory가 WorkflowValidator/스키마를 직접 import하면 순환 의존이 생기므로 호출부에서 주입한다.)
+ValidateFn = Callable[[str], object]
+
+_MAX_BUILDER_RETRIES = 2
+
+
+def _build_reflexion_prompt(
+    prompt: str, provider: str, plan: WorkflowPlanSchema, broken_json: str, error: str
+) -> str:
+    """직전에 Builder가 생성한 결함 JSON 원문과 구체적 검증 오류를 함께 제시하여
+    Builder가 '재생성'이 아니라 '오류 수정'을 하도록 유도하는 피드백 프롬프트를 만든다."""
+    return (
+        "당신이 직전에 생성한 워크플로우 JSON이 검증에 실패했습니다.\n"
+        "아래 검증 오류를 정확히 수정하여 올바른 워크플로우 JSON을 다시 출력하십시오.\n"
+        "전체를 새로 짜지 말고, 결함 부분만 고치는 것을 원칙으로 합니다.\n\n"
+        f"## 검증 오류 (반드시 해소할 것):\n{error}\n\n"
+        f"## 직전에 당신이 생성한 결함 JSON:\n{broken_json}\n\n"
+        f"## 반드시 준수할 워크플로우 계획:\n{plan.model_dump_json(indent=2)}\n\n"
+        f"## 요청 컨텍스트:\n- provider: {provider.upper()} "
+        f"(모든 AI 노드의 llmProvider는 \"{provider.upper()}\")\n\n"
+        f"## 사용자 원래 요청:\n{prompt}\n\n"
+        "JSON 외 어떤 텍스트도 출력하지 말고, 마크다운 코드 펜스(```)도 사용하지 마십시오."
+    )
 
 
 async def _run_single_agent(agent: LlmAgent, prompt_text: str, user_id: str) -> str:
@@ -71,8 +97,15 @@ async def run_generate_agent(
     provider: str,
     api_key: str,
     env_key: str | None,
+    validate_fn: ValidateFn | None = None,
+    max_builder_retries: int = _MAX_BUILDER_RETRIES,
 ) -> str:
-    """Orchestrator 없이 파이썬 코드로 Planner(Plan생성/검증) ➡️ Builder를 직접 순차 실행한다."""
+    """Orchestrator 없이 파이썬 코드로 Planner(Plan생성/검증) ➡️ Builder를 직접 순차 실행한다.
+
+    validate_fn이 주어지면 Builder 단계에서 검증을 수행하고, 실패 시 동일 Plan을 유지한 채
+    Builder에게만 결함 JSON과 검증 오류를 재투입하는 Reflexion 루프를 수행한다.
+    (Planner는 재실행하지 않는다 — config·도구이름 등 Builder 책임 오류를 재기획으로 고칠 수 없기 때문)
+    """
     prev_value = os.environ.get(env_key) if env_key else None
     try:
         if env_key:
@@ -98,7 +131,7 @@ async def run_generate_agent(
 
         logger.info("성공적으로 워크플로우 계획(Plan)이 검증 통과했습니다. Justification: %s", plan.justification)
 
-        # 2. 최종 워크플로우 빌드
+        # 2. 최종 워크플로우 빌드 (+ Builder 대상 Reflexion 루프)
         builder_agent = build_builder_agent(model, prompt, provider)
         builder_prompt = (
             f"사용자 원래 요청: {prompt}\n\n"
@@ -109,7 +142,35 @@ async def run_generate_agent(
         )
 
         workflow_raw = await _run_single_agent(builder_agent, builder_prompt, _GENERATE_USER_ID)
-        return workflow_raw
+
+        # validate_fn 미주입 시 기존 동작(검증 없이 raw 반환)을 유지한다.
+        if validate_fn is None:
+            return workflow_raw
+
+        last_err: Exception | None = None
+        for attempt in range(max_builder_retries + 1):
+            try:
+                validate_fn(workflow_raw)
+                if attempt > 0:
+                    logger.info("Builder Reflexion 루프 %d회 만에 검증 통과", attempt)
+                return workflow_raw
+            except Exception as e:
+                last_err = e
+                if attempt >= max_builder_retries:
+                    break
+                logger.warning(
+                    "Builder 산출물 검증 실패(시도 %d/%d): %s. Builder에 결함 JSON과 오류를 재투입합니다.",
+                    attempt + 1, max_builder_retries, str(e),
+                )
+                reflexion_prompt = _build_reflexion_prompt(
+                    prompt, provider, plan, workflow_raw, str(e)
+                )
+                workflow_raw = await _run_single_agent(
+                    builder_agent, reflexion_prompt, _GENERATE_USER_ID
+                )
+
+        # 모든 재시도 소진 — 마지막 오류를 전파한다.
+        raise last_err
 
     finally:
         if env_key:

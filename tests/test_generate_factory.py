@@ -136,6 +136,75 @@ async def test_run_generate_agent_with_plan_retry():
 
 
 @pytest.mark.asyncio
+async def test_run_generate_agent_builder_reflexion_recovers():
+    """Builder 산출물이 1차 검증 실패하면, 동일 Plan 유지한 채 Builder에 재투입하여 2차에 성공한다."""
+    from agents.generate.factory import run_generate_agent
+
+    broken_workflow = '{"nodes": [{"id": "node-1", "type": "AI"}], "edges": [], "rawPrompt": "x"}'
+    captured_prompts = []
+
+    # plan ➡️ broken workflow ➡️ reflexion으로 고친 workflow
+    mock_runner = _make_runner_mock([VALID_PLAN_JSON, broken_workflow, VALID_WORKFLOW_JSON])
+
+    def validate_fn(raw):
+        captured_prompts.append(raw)
+        if raw == broken_workflow:
+            raise ValueError("TRIGGER 노드로 시작해야 합니다")
+        return object()
+
+    with patch("agents.generate.factory.Runner", return_value=mock_runner), \
+         patch("agents.generate.factory.InMemorySessionService", return_value=_make_session_service()), \
+         patch("agents.generate.factory.build_planner_agent", return_value=MagicMock()), \
+         patch("agents.generate.factory.build_builder_agent", return_value=MagicMock()):
+        result = await run_generate_agent(
+            prompt="매일 9시에 경제뉴스 정리해줘",
+            model="gemini-2.5-flash",
+            provider="CLAUDE",
+            api_key="test-key",
+            env_key=None,
+            validate_fn=validate_fn,
+        )
+
+    assert result == VALID_WORKFLOW_JSON
+    # 1차 broken, 2차 fixed 두 번 검증되어야 함
+    assert captured_prompts == [broken_workflow, VALID_WORKFLOW_JSON]
+
+
+@pytest.mark.asyncio
+async def test_run_generate_agent_builder_reflexion_exhausts_and_raises():
+    """재시도를 모두 소진해도 검증 통과 못 하면 마지막 오류를 전파한다."""
+    from agents.generate.factory import run_generate_agent
+
+    broken_workflow = '{"nodes": [], "edges": [], "rawPrompt": "x"}'
+    validate_calls = {"n": 0}
+
+    # plan ➡️ broken ➡️ broken ➡️ broken (max_builder_retries=2 → 검증 3회)
+    mock_runner = _make_runner_mock([VALID_PLAN_JSON, broken_workflow, broken_workflow, broken_workflow])
+
+    def validate_fn(raw):
+        validate_calls["n"] += 1
+        raise ValueError("계속 실패")
+
+    with patch("agents.generate.factory.Runner", return_value=mock_runner), \
+         patch("agents.generate.factory.InMemorySessionService", return_value=_make_session_service()), \
+         patch("agents.generate.factory.build_planner_agent", return_value=MagicMock()), \
+         patch("agents.generate.factory.build_builder_agent", return_value=MagicMock()):
+        with pytest.raises(ValueError, match="계속 실패"):
+            await run_generate_agent(
+                prompt="매일 9시에 경제뉴스 정리해줘",
+                model="gemini-2.5-flash",
+                provider="CLAUDE",
+                api_key="test-key",
+                env_key=None,
+                validate_fn=validate_fn,
+                max_builder_retries=2,
+            )
+
+    # 1차 + 재시도 2회 = 검증 3회
+    assert validate_calls["n"] == 3
+
+
+@pytest.mark.asyncio
 async def test_run_generate_agent_restores_env_on_exception():
     """Runner 예외 발생 시 env_key가 os.environ에서 제거된다."""
     from agents.generate.factory import run_generate_agent
