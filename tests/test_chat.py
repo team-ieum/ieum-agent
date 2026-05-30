@@ -96,7 +96,8 @@ def _make_patches(text_output: str):
 
 
 async def _call(prompt="테스트", current_nodes=None, current_edges=None,
-                available=None, unavailable=None, preserve_id=None):
+                available=None, unavailable=None, preserve_id=None,
+                available_mcp_servers=None, available_webhooks=None):
     return await chat_workflow(
         prompt=prompt,
         provider="CLAUDE",
@@ -107,6 +108,8 @@ async def _call(prompt="테스트", current_nodes=None, current_edges=None,
         current_nodes=current_nodes,
         current_edges=current_edges,
         preserve_id=preserve_id,
+        available_mcp_servers=available_mcp_servers,
+        available_webhooks=available_webhooks,
     )
 
 
@@ -474,7 +477,8 @@ async def test_chat_workflow_self_correction_loop():
     assert call_index == 3
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
     assert result.nodes[1].type == "AI"
-    assert "discord" in result.nodes[1].config["tools"]
+    # canonicalize가 맨문자열 "discord"를 실행 주입 정식 형식 {"name":"discord"}로 정규화한다
+    assert {"name": "discord"} in result.nodes[1].config["tools"]
 
 
 @pytest.mark.asyncio
@@ -595,3 +599,178 @@ async def test_chat_workflow_schedule_trigger_correction():
     assert result.nodes[0].config["cron"] == "0 17 * * 5"
 
 
+
+# ── 도구 이름 canonicalize 안전망 (생성 파이프라인 이식) ──────────────────
+
+def test_canonicalize_node_tools_prefix_and_alias():
+    """프리픽스 누락·별칭이 정확한 _TOOL_MAP 키로 in-place 교정된다."""
+    from core.workflow_chat import _canonicalize_node_tools
+    nodes = [
+        {"id": "node-1", "type": "TRIGGER", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "config": {
+            "tools": ["notion_create_page", {"name": "search"}, {"name": "slack"}]
+        }},
+    ]
+    _canonicalize_node_tools(nodes, set())
+    assert nodes[1]["config"]["tools"] == [
+        {"name": "builtin:notion_create_page"},
+        {"name": "builtin:web_search"},
+        {"name": "slack"},
+    ]
+
+
+def test_canonicalize_node_tools_mcp_valid_and_invalid():
+    """보유 카탈로그의 mcp만 실행 주입 형식으로 정규화되고, 미보유 mcp는 제거된다."""
+    from core.workflow_chat import _canonicalize_node_tools
+    nodes = [
+        {"id": "node-2", "type": "AI", "config": {
+            "tools": ["mcp:cat-123", "mcp:hallucinated", {"name": "mcp", "config": {"catalogId": "cat-123"}}]
+        }},
+    ]
+    _canonicalize_node_tools(nodes, {"cat-123"})
+    assert nodes[0]["config"]["tools"] == [
+        {"name": "mcp", "config": {"catalogId": "cat-123"}},
+        {"name": "mcp", "config": {"catalogId": "cat-123"}},
+    ]
+
+
+def test_canonicalize_node_tools_unrecoverable_kept_and_non_ai_untouched():
+    """환원 불가 빌트인 이름은 원본 유지(검증기가 차단), AI 아닌 노드는 손대지 않는다."""
+    from core.workflow_chat import _canonicalize_node_tools
+    nodes = [
+        {"id": "node-2", "type": "AI", "config": {"tools": ["totally_unknown_tool"]}},
+        {"id": "node-3", "type": "TRANSFORM", "config": {"mappings": {"x": "1"}}},
+    ]
+    _canonicalize_node_tools(nodes, set())
+    assert nodes[0]["config"]["tools"] == [{"name": "totally_unknown_tool"}]
+    assert nodes[1]["config"] == {"mappings": {"x": "1"}}
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_tool_prefix_auto_corrected():
+    """Designer가 프리픽스 없는 도구 이름을 내도 검증 전 교정되어 정상 생성된다."""
+    nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "노션 저장", "config": {
+            "llmProvider": "CLAUDE", "credentialId": "", "prompt": "저장",
+            "agentType": "react", "tools": ["notion_create_page"]}},
+    ]
+    payload = json.dumps({
+        "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
+        "nodes": nodes, "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
+    })
+    p1, p2, p3, p4 = _make_patches(payload)
+    with p1, p2, p3, p4:
+        result = await _call(prompt="노션 저장 워크플로우")
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    assert {"name": "builtin:notion_create_page"} in result.nodes[1].config["tools"]
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_mcp_assigned_when_catalog_available():
+    """보유 MCP 카탈로그가 주입되면 mcp 도구가 실행 주입 형식으로 배정되고 검증을 통과한다."""
+    nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "MCP 처리", "config": {
+            "llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리",
+            "agentType": "react", "tools": ["mcp:cat-abc"]}},
+    ]
+    payload = json.dumps({
+        "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
+        "nodes": nodes, "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
+    })
+    p1, p2, p3, p4 = _make_patches(payload)
+    with p1, p2, p3, p4:
+        result = await _call(
+            prompt="MCP 워크플로우",
+            available_mcp_servers=[{"catalogId": "cat-abc", "name": "내 MCP", "description": "테스트"}],
+        )
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    assert {"name": "mcp", "config": {"catalogId": "cat-abc"}} in result.nodes[1].config["tools"]
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_mcp_dropped_when_no_catalog():
+    """카탈로그 미보유 시 환각 mcp 도구는 제거되어 하드 실패 없이 생성된다."""
+    nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "처리", "config": {
+            "llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리",
+            "agentType": "react", "tools": ["mcp:nonexistent"]}},
+    ]
+    payload = json.dumps({
+        "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
+        "nodes": nodes, "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
+    })
+    p1, p2, p3, p4 = _make_patches(payload)
+    with p1, p2, p3, p4:
+        result = await _call(prompt="MCP 워크플로우")
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    assert result.nodes[1].config["tools"] == []
+
+# ── Slack/Discord 웹훅 자격증명 바인딩 ────────────────────────────────────
+
+def test_canonicalize_node_tools_webhook_valid_and_invalid():
+    """보유 webhookCredentialId만 보존되고, 환각 id는 제거되며 도구 자체는 유지된다."""
+    from core.workflow_chat import _canonicalize_node_tools
+    nodes = [
+        {"id": "node-2", "type": "AI", "config": {
+            "tools": [
+                {"name": "discord", "config": {"webhookCredentialId": "wh-1"}},
+                {"name": "slack", "config": {"webhookCredentialId": "hallucinated"}},
+            ]
+        }},
+    ]
+    _canonicalize_node_tools(nodes, set(), {"wh-1"})
+    assert nodes[0]["config"]["tools"] == [
+        {"name": "discord", "config": {"webhookCredentialId": "wh-1"}},
+        {"name": "slack"},
+    ]
+
+
+def test_canonicalize_node_tools_preserves_non_mcp_config():
+    """비-MCP 도구의 기존 config가 canonicalize 후에도 보존된다."""
+    from core.workflow_chat import _canonicalize_node_tools
+    nodes = [
+        {"id": "node-2", "type": "AI", "config": {
+            "tools": [{"name": "notion_create_page", "config": {"parent_page_id": "p1"}}]
+        }},
+    ]
+    _canonicalize_node_tools(nodes, set(), set())
+    assert nodes[0]["config"]["tools"] == [
+        {"name": "builtin:notion_create_page", "config": {"parent_page_id": "p1"}},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_webhook_assigned_when_credential_available():
+    """보유 웹훅 자격증명이 주입되면 discord 노드에 webhookCredentialId가 배정되고 검증을 통과한다."""
+    nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "디스코드 발송", "config": {
+            "llmProvider": "CLAUDE", "credentialId": "", "prompt": "발송",
+            "agentType": "react", "tools": [{"name": "discord", "config": {"webhookCredentialId": "wh-1"}}]}},
+    ]
+    payload = json.dumps({
+        "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
+        "nodes": nodes, "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
+    })
+    p1, p2, p3, p4 = _make_patches(payload)
+    with p1, p2, p3, p4:
+        result = await _call(
+            prompt="디스코드 발송 워크플로우",
+            available_webhooks=[{"webhookCredentialId": "wh-1", "provider": "DISCORD", "displayName": "내 채널"}],
+        )
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    assert {"name": "discord", "config": {"webhookCredentialId": "wh-1"}} in result.nodes[1].config["tools"]
+
+
+def test_format_webhook_catalog():
+    """format_webhook_catalog가 보유 목록을 instruction 텍스트로 포맷한다(없으면 빈 문자열)."""
+    from core.skill_loader import format_webhook_catalog
+    assert format_webhook_catalog(None) == ""
+    assert format_webhook_catalog([]) == ""
+    text = format_webhook_catalog([
+        {"webhookCredentialId": "wh-1", "provider": "SLACK", "displayName": "팀채널"},
+    ])
+    assert "wh-1" in text and "SLACK" in text and "webhookCredentialId" in text

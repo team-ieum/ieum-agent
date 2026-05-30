@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional, List
 from pydantic import BaseModel
-from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge
+from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge, McpServerMeta, WebhookMeta
 from api.schemas.request import McpServerConfig
 
 
@@ -45,6 +45,12 @@ class ChatRequest(BaseModel):
     availableIntegrations: List[AvailableIntegration] = []
     unavailableIntegrations: List[UnavailableIntegration] = []
     mcpServers: Optional[List[McpServerConfig]] = None
+    # 사용자가 보유한 MCP 서버 카탈로그 메타(catalogId/name/description). backend가 채워 보낸다.
+    # 생성/수정 단계에서 Designer가 적절한 AI 노드에 mcp 도구를 배정하는 데 사용한다(환각 방지).
+    availableMcpServers: Optional[List[McpServerMeta]] = None
+    # 사용자가 보유한 Slack/Discord 웹훅 자격증명 메타. backend가 채워 보낸다.
+    # Designer가 slack/discord 노드에 webhookCredentialId를 배정하는 데 사용한다(환각 방지).
+    availableWebhooks: Optional[List[WebhookMeta]] = None
 
 class ChatAction(BaseModel):
     type: ActionType

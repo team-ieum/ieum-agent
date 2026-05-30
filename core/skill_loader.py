@@ -73,3 +73,39 @@ def format_mcp_catalog(available_mcp_servers: list | None) -> str:
         "- 요청과 무관하면 MCP를 배정하지 않는다.\n"
         f"{catalog}\n"
     )
+
+
+def format_webhook_catalog(available_webhooks: list | None) -> str:
+    """사용자 보유 Slack/Discord 웹훅 자격증명 목록을 생성 에이전트 instruction 텍스트로 포맷한다.
+
+    각 항목은 dict 또는 webhookCredentialId/provider/displayName 속성을 가진 객체.
+    비어 있으면 빈 문자열을 반환한다(=webhook 배정 안내 없음)."""
+    if not available_webhooks:
+        return ""
+
+    def _get(item, key):
+        return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+
+    lines = []
+    for w in available_webhooks:
+        cred_id = _get(w, "webhookCredentialId")
+        provider = _get(w, "provider") or "(provider 미상)"
+        name = _get(w, "displayName") or "(이름 없음)"
+        if not cred_id:
+            continue
+        lines.append(f"- webhookCredentialId={cred_id} · {provider} · 이름: {name}")
+
+    if not lines:
+        return ""
+
+    catalog = "\n".join(lines)
+    return (
+        "## 사용 가능한 Slack/Discord 웹훅\n"
+        "사용자가 등록한 Slack/Discord 송신 웹훅 자격증명 목록이다. Slack/Discord 발송 노드를 만들 때 "
+        "아래에서 요청에 가장 잘 맞는 항목을 골라 해당 AI 노드의 `tools` 항목을 "
+        '`{"name":"slack","config":{"webhookCredentialId":"<id>"}}` (Discord면 `\"discord\"`) 형식으로 작성한다.\n'
+        "- 반드시 아래 목록에 있는 정확한 webhookCredentialId만 사용한다(임의의 URL이나 id 날조 금지).\n"
+        "- 실제 webhook URL은 실행 시 backend가 주입하므로 prompt나 config에 URL을 직접 넣지 않는다.\n"
+        "- 해당 provider의 자격증명이 여러 개면 어느 것을 쓸지 CLARIFICATION_NEEDED로 되묻는다.\n"
+        f"{catalog}\n"
+    )
