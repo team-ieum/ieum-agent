@@ -2,8 +2,19 @@ from pydantic import BaseModel, model_validator
 from typing import Optional, List, Dict, Any
 
 
+class McpServerMeta(BaseModel):
+    """생성 단계에서 Planner에 노출하는 사용자 보유 MCP 서버 메타데이터.
+    serverUrl/헤더 등 민감 정보는 제외하고, 매칭·식별에 필요한 정보만 담는다."""
+    catalogId: str
+    name: str
+    description: Optional[str] = None
+
+
 class GenerateWorkflowRequest(BaseModel):
     prompt: str
+    # 사용자가 보유한 MCP 서버 카탈로그 메타(이름/설명/catalogId). backend가 채워 보낸다.
+    # 비어 있으면 생성 단계에서 MCP를 배정하지 않는다(환각 방지).
+    available_mcp_servers: Optional[List[McpServerMeta]] = None
 
 
 class WorkflowNode(BaseModel):

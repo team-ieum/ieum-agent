@@ -44,18 +44,31 @@ class PlanValidator:
         return None
 
     @classmethod
-    def _validate_plan_tool_names(cls, node, node_id: str) -> None:
+    def _validate_plan_tool_names(cls, node, node_id: str, allowed_mcp_catalog_ids: set) -> None:
         """계획 AI 노드의 tools를 정확한 _TOOL_MAP 키로 결정론적으로 환원(in-place)하고 검증한다.
         프리픽스 누락·별칭은 코드가 정확 키로 교정하며, 환원 불가능한 이름만 차단한다.
-        교정된 tools는 Builder로 그대로 전달되어 노드 config의 도구 이름 환각을 원천 차단한다."""
+        교정된 tools는 Builder로 그대로 전달되어 노드 config의 도구 이름 환각을 원천 차단한다.
+
+        MCP 도구는 'mcp:<catalogId>' 형식으로 표현하며, catalogId가 allowed_mcp_catalog_ids에
+        포함된 경우에만 허용한다. (생성 요청에 카탈로그가 없으면 allowed가 비어 모든 MCP가 차단됨)"""
         if not node.tools:
             return
         # tools 패키지는 google.adk를 최상위에서 import하므로 lazy import로 검증 비용/순환을 회피한다.
         from tools import _TOOL_MAP
-        allowed = set(_TOOL_MAP.keys()) | {"mcp"}
+        allowed = set(_TOOL_MAP.keys())
 
         canonical = []
         for name in node.tools:
+            # MCP 도구: 'mcp' 또는 'mcp:<catalogId>'
+            if name == "mcp" or name.startswith("mcp:"):
+                catalog_id = name[len("mcp:"):] if name.startswith("mcp:") else ""
+                if catalog_id and catalog_id in allowed_mcp_catalog_ids:
+                    canonical.append(f"mcp:{catalog_id}")
+                    continue
+                raise PlanValidationError(
+                    f"AI 계획 노드 '{node_id}'의 MCP 도구 '{name}'을(를) 사용할 수 없습니다. "
+                    f"사용 가능한 MCP 서버(catalogId)만 'mcp:<catalogId>' 형식으로 지정하십시오."
+                )
             resolved = cls._canonicalize_tool_name(name, allowed)
             if resolved is None:
                 raise PlanValidationError(
@@ -66,8 +79,10 @@ class PlanValidator:
         node.tools = canonical
 
     @classmethod
-    def validate(cls, plan: WorkflowPlanSchema) -> None:
-        """기획된 구조(Nodes, Edges)의 설계 규칙을 검증한다."""
+    def validate(cls, plan: WorkflowPlanSchema, allowed_mcp_catalog_ids: set | None = None) -> None:
+        """기획된 구조(Nodes, Edges)의 설계 규칙을 검증한다.
+        allowed_mcp_catalog_ids: 생성 단계에서 허용되는 MCP 카탈로그 ID 집합(없으면 MCP 전면 차단)."""
+        allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
         if not plan.nodes:
             raise PlanValidationError("기획된 플랜에 노드가 존재하지 않습니다.")
 
@@ -91,7 +106,7 @@ class PlanValidator:
 
             # AI 노드가 계획한 도구 이름을 정확 키로 환원(in-place)하고 검증
             elif ntype == "AI":
-                cls._validate_plan_tool_names(node, nid)
+                cls._validate_plan_tool_names(node, nid, allowed_mcp_catalog_ids)
 
             # HTTP 노드에 도구 전용 서비스를 매핑하려고 했는지 체크
             elif ntype == "HTTP":

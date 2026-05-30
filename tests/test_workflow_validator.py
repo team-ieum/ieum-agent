@@ -288,13 +288,40 @@ def _wf_with_ai_tools(tools):
 
 
 def test_valid_tool_names_pass():
-    # builtin 프리픽스 도구, 프리픽스 없는 키, mcp 모두 통과해야 함
+    # builtin 프리픽스 도구, 프리픽스 없는 키 모두 통과해야 함
     nodes, edges = _wf_with_ai_tools([
         {"name": "builtin:notion_create_page"},
         {"name": "slack"},
-        {"name": "mcp"},
     ])
     WorkflowValidator.validate(nodes, edges)
+
+
+def test_mcp_tool_rejected_at_generation():
+    # T4: 카탈로그가 없으면 'mcp' 도구 배정은 차단되어야 한다 (환각 방지)
+    nodes, edges = _wf_with_ai_tools([{"name": "mcp"}])
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowValidator.validate(nodes, edges)
+    assert "mcp" in str(excinfo.value).lower() or "MCP" in str(excinfo.value)
+
+
+def test_mcp_tool_with_valid_catalog_id_passes():
+    # 생성 주입: catalogId가 허용 집합에 있으면 mcp 도구가 통과해야 한다
+    nodes, edges = _wf_with_ai_tools([{"name": "mcp", "config": {"catalogId": "cat-1"}}])
+    WorkflowValidator.validate(nodes, edges, allowed_mcp_catalog_ids={"cat-1"})
+
+
+def test_mcp_tool_with_unknown_catalog_id_rejected():
+    # catalogId가 허용 집합에 없으면 차단(환각 catalogId 방지)
+    nodes, edges = _wf_with_ai_tools([{"name": "mcp", "config": {"catalogId": "cat-x"}}])
+    with pytest.raises(WorkflowValidationError):
+        WorkflowValidator.validate(nodes, edges, allowed_mcp_catalog_ids={"cat-1"})
+
+
+def test_mcp_tool_without_catalog_id_rejected_even_with_allowed():
+    # catalogId가 없는 mcp는 허용 집합이 있어도 차단
+    nodes, edges = _wf_with_ai_tools([{"name": "mcp"}])
+    with pytest.raises(WorkflowValidationError):
+        WorkflowValidator.validate(nodes, edges, allowed_mcp_catalog_ids={"cat-1"})
 
 
 def test_missing_prefix_tool_name_raises():

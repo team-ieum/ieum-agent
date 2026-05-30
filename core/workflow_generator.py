@@ -103,7 +103,9 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 - slack                     : Slack 메시지 발송
 - discord                   : Discord 웹훅 메시지 발송
 - gmail                     : Gmail 발송
-- mcp                       : 외부 MCP 서버 Tool 호출 (server_url, tool_name, arguments 필요)
+
+주의: 'mcp'(외부 MCP 서버) 도구는 생성 단계에서 배정하지 않는다. 사용자 MCP 서버 정보가 주어지지
+않으므로 임의로 mcp 도구를 추가하면 안 되며, MCP 연동은 워크플로우 생성 후 노드 편집 단계에서 추가한다.
 
 ## Variable Reference Syntax
 이전 노드의 결과를 참조할 때는 반드시 아래 형식을 사용한다.
@@ -206,7 +208,8 @@ def _extract_json_object(raw: str) -> str:
     raise ValueError("JSON 객체의 중괄호 짝이 맞지 않습니다.")
 
 
-def _parse_and_validate(raw_output: str, original_prompt: str) -> GenerateWorkflowResponse:
+def _parse_and_validate(raw_output: str, original_prompt: str,
+                        allowed_mcp_catalog_ids: set | None = None) -> GenerateWorkflowResponse:
     if not raw_output or not raw_output.strip():
         raise ValueError("LLM이 빈 응답을 반환했습니다.")
 
@@ -227,7 +230,7 @@ def _parse_and_validate(raw_output: str, original_prompt: str) -> GenerateWorkfl
     # 2. 코드 레벨 의미론적 상세 검증
     raw_nodes = data.get("nodes", [])
     raw_edges = data.get("edges", [])
-    WorkflowValidator.validate(raw_nodes, raw_edges)
+    WorkflowValidator.validate(raw_nodes, raw_edges, allowed_mcp_catalog_ids)
 
     return GenerateWorkflowResponse(
         nodes=nodes,
@@ -240,15 +243,23 @@ async def generate_workflow(
     prompt: str,
     provider: str,
     api_key: str,
+    available_mcp_servers: list | None = None,
 ) -> GenerateWorkflowResponse:
     start = time.monotonic()
     model = resolve_model(provider)
     env_key = resolve_env_key(provider)
     lock = get_env_lock(env_key) if env_key else None
 
+    # 생성 단계에서 허용되는 MCP 카탈로그 ID 집합. 카탈로그가 없으면 MCP는 전면 차단된다.
+    allowed_mcp_catalog_ids = {
+        (m.get("catalogId") if isinstance(m, dict) else getattr(m, "catalogId", None))
+        for m in (available_mcp_servers or [])
+    }
+    allowed_mcp_catalog_ids.discard(None)
+
     def _validate(raw_output: str) -> GenerateWorkflowResponse:
         # Builder Reflexion 루프(factory)가 호출하는 검증 콜백. 실패 시 예외를 던진다.
-        return _parse_and_validate(raw_output, prompt)
+        return _parse_and_validate(raw_output, prompt, allowed_mcp_catalog_ids)
 
     async def _execute() -> str:
         from agents.generate.factory import run_generate_agent
@@ -259,6 +270,8 @@ async def generate_workflow(
             api_key=api_key,
             env_key=env_key,
             validate_fn=_validate,
+            available_mcp_servers=available_mcp_servers,
+            allowed_mcp_catalog_ids=allowed_mcp_catalog_ids,
         )
 
     try:
@@ -270,7 +283,7 @@ async def generate_workflow(
         else:
             raw_output = await _execute()
 
-        response = _parse_and_validate(raw_output, prompt)
+        response = _parse_and_validate(raw_output, prompt, allowed_mcp_catalog_ids)
     except Exception as err:
         duration_ms = int((time.monotonic() - start) * 1000)
         await _save_generate_workflow_log(

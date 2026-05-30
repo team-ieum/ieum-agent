@@ -77,7 +77,7 @@ async def _run_single_agent(agent: LlmAgent, prompt_text: str, user_id: str) -> 
     return "\n".join(output_parts) if output_parts else ""
 
 
-def _parse_and_validate_plan(raw_plan: str) -> WorkflowPlanSchema:
+def _parse_and_validate_plan(raw_plan: str, allowed_mcp_catalog_ids: set | None = None) -> WorkflowPlanSchema:
     cleaned = raw_plan.strip()
     if cleaned.startswith("```"):
         cleaned = "\n".join(cleaned.split("\n")[1:])
@@ -87,7 +87,7 @@ def _parse_and_validate_plan(raw_plan: str) -> WorkflowPlanSchema:
 
     data = json.loads(cleaned)
     plan = WorkflowPlanSchema(**data)
-    PlanValidator.validate(plan)
+    PlanValidator.validate(plan, allowed_mcp_catalog_ids)
     return plan
 
 
@@ -99,6 +99,8 @@ async def run_generate_agent(
     env_key: str | None,
     validate_fn: ValidateFn | None = None,
     max_builder_retries: int = _MAX_BUILDER_RETRIES,
+    available_mcp_servers: list | None = None,
+    allowed_mcp_catalog_ids: set | None = None,
 ) -> str:
     """Orchestrator 없이 파이썬 코드로 Planner(Plan생성/검증) ➡️ Builder를 직접 순차 실행한다.
 
@@ -111,13 +113,13 @@ async def run_generate_agent(
         if env_key:
             os.environ[env_key] = api_key
 
-        planner_agent = build_planner_agent(model, prompt, provider)
+        planner_agent = build_planner_agent(model, prompt, provider, available_mcp_servers)
 
         # 1. 계획(Plan) 생성 1차 시도
         plan_raw = await _run_single_agent(planner_agent, prompt, _GENERATE_USER_ID)
 
         try:
-            plan = _parse_and_validate_plan(plan_raw)
+            plan = _parse_and_validate_plan(plan_raw, allowed_mcp_catalog_ids)
         except Exception as first_err:
             logger.warning("1차 계획(Plan) 검증 실패: %s. 1회 자가 교정을 시도합니다.", str(first_err))
             feedback = (
@@ -127,12 +129,12 @@ async def run_generate_agent(
                 f"## 사용자 원래 요청:\n{prompt}"
             )
             plan_raw = await _run_single_agent(planner_agent, feedback, _GENERATE_USER_ID)
-            plan = _parse_and_validate_plan(plan_raw)
+            plan = _parse_and_validate_plan(plan_raw, allowed_mcp_catalog_ids)
 
         logger.info("성공적으로 워크플로우 계획(Plan)이 검증 통과했습니다. Justification: %s", plan.justification)
 
         # 2. 최종 워크플로우 빌드 (+ Builder 대상 Reflexion 루프)
-        builder_agent = build_builder_agent(model, prompt, provider)
+        builder_agent = build_builder_agent(model, prompt, provider, available_mcp_servers)
         builder_prompt = (
             f"사용자 원래 요청: {prompt}\n\n"
             f"현재 요청 컨텍스트:\n- provider: {provider.upper()}\n"

@@ -49,15 +49,38 @@ def test_plan_valid_tool_names_pass():
             TRIGGER,
             {"id": "node-2", "type": "AI", "role": "검색", "description": "d", "tools": ["builtin:web_search"]},
             {"id": "node-3", "type": "AI", "role": "알림", "description": "d", "tools": ["slack"]},
-            {"id": "node-4", "type": "AI", "role": "커스텀", "description": "d", "tools": ["mcp"]},
         ],
         [
             {"source": "node-1", "target": "node-2"},
             {"source": "node-2", "target": "node-3"},
-            {"source": "node-3", "target": "node-4"},
         ],
     )
     PlanValidator.validate(plan)
+
+
+def test_plan_mcp_tool_rejected_at_generation():
+    # T4: 카탈로그가 없으면 Plan에서 'mcp' 도구 배정은 차단되어야 한다 (환각 방지)
+    node = {"id": "node-2", "type": "AI", "role": "커스텀", "description": "d", "tools": ["mcp"]}
+    plan = _plan([TRIGGER, node], [{"source": "node-1", "target": "node-2"}])
+    with pytest.raises(PlanValidationError) as excinfo:
+        PlanValidator.validate(plan)
+    assert "mcp" in str(excinfo.value).lower() or "MCP" in str(excinfo.value)
+
+
+def test_plan_mcp_tool_with_valid_catalog_id_passes():
+    # 생성 주입: 'mcp:<catalogId>'의 catalogId가 허용 집합에 있으면 통과 + 형식 유지
+    node = {"id": "node-2", "type": "AI", "role": "커스텀", "description": "d", "tools": ["mcp:cat-1"]}
+    plan = _plan([TRIGGER, node], [{"source": "node-1", "target": "node-2"}])
+    PlanValidator.validate(plan, allowed_mcp_catalog_ids={"cat-1"})
+    assert plan.nodes[1].tools == ["mcp:cat-1"]
+
+
+def test_plan_mcp_tool_with_unknown_catalog_id_rejected():
+    # 허용 집합에 없는 catalogId는 차단(환각 catalogId 방지)
+    node = {"id": "node-2", "type": "AI", "role": "커스텀", "description": "d", "tools": ["mcp:cat-x"]}
+    plan = _plan([TRIGGER, node], [{"source": "node-1", "target": "node-2"}])
+    with pytest.raises(PlanValidationError):
+        PlanValidator.validate(plan, allowed_mcp_catalog_ids={"cat-1"})
 
 
 # --- T3(b): 서비스→도구 결정론 매핑 (이름 환각 차단) ---
