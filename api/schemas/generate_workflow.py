@@ -10,6 +10,14 @@ class McpServerMeta(BaseModel):
     description: Optional[str] = None
 
 
+class WebhookMeta(BaseModel):
+    """생성 단계에서 Designer에 노출하는 사용자 보유 Slack/Discord 웹훅 자격증명 메타데이터.
+    webhook URL 등 민감 정보는 제외하고, 매칭·식별에 필요한 정보만 담는다."""
+    webhookCredentialId: str
+    provider: str
+    displayName: Optional[str] = None
+
+
 class GenerateWorkflowRequest(BaseModel):
     prompt: str
     # 사용자가 보유한 MCP 서버 카탈로그 메타(이름/설명/catalogId). backend가 채워 보낸다.

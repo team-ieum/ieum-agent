@@ -31,6 +31,8 @@ async def chat_endpoint(
             github_token=credentials.get("github_token"),
             google_access_token=credentials.get("google_access_token"),
             mcp_servers=[s.model_dump() for s in request.mcpServers] if request.mcpServers else None,
+            available_mcp_servers=[m.model_dump() for m in request.availableMcpServers] if request.availableMcpServers else None,
+            available_webhooks=[w.model_dump() for w in request.availableWebhooks] if request.availableWebhooks else None,
         )
     except ValueError:
         raise HTTPException(

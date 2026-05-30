@@ -156,6 +156,77 @@ _SYSTEM_PROMPT_BASE = """\
 _NODE_META_KEYS = {"id", "type", "nodeType", "label", "config"}
 
 
+_WEBHOOK_TOOL_NAMES = {"slack", "discord"}
+
+
+def _canonicalize_node_tools(nodes: list, allowed_mcp_catalog_ids: set,
+                             allowed_webhook_credential_ids: set | None = None) -> None:
+    """AI 노드 config.tools의 도구 이름을 실행기 레지스트리의 정확한 키로 in-place 교정한다.
+
+    - 프리픽스 누락('notion_create_page')·흔한 별칭('search')은 PlanValidator의 결정론 매핑으로 교정.
+    - MCP 도구('mcp' 또는 'mcp:<catalogId>')는 catalogId가 보유 카탈로그에 있을 때만
+      실행 주입 형식 {"name":"mcp","config":{"catalogId":...}}로 정규화하고, 없으면 환각이므로 제거.
+    - slack/discord 도구는 config.webhookCredentialId가 보유 자격증명에 있을 때만 보존하고,
+      없는 id는 환각이므로 제거(도구 자체는 유지 — webhook_url은 실행 시 backend가 주입).
+    - 그 외 도구는 기존 config를 보존한다. 환원 불가능한 빌트인 이름은 원본을 유지해 이후
+      WorkflowValidator가 차단하도록 둔다.
+
+    Designer 출력의 도구 이름 환각/프리픽스 누락을 검증 전에 메워, 정상 워크플로우가
+    'CHAT_PARSE_FAILED'로 하드 실패하는 것을 막는다(생성 파이프라인의 canonicalize 안전망 이식)."""
+    from tools import _TOOL_MAP
+    from core.validators.plan_validator import PlanValidator
+    allowed = set(_TOOL_MAP.keys())
+    allowed_webhook_credential_ids = allowed_webhook_credential_ids or set()
+
+    for node in nodes:
+        if str(node.get("type", "")).upper() != "AI":
+            continue
+        cfg = node.get("config")
+        if not isinstance(cfg, dict):
+            continue
+        tools = cfg.get("tools")
+        if not isinstance(tools, list):
+            continue
+
+        new_tools = []
+        for item in tools:
+            if isinstance(item, dict):
+                name = item.get("name")
+                item_cfg = item.get("config")
+            else:
+                name = item
+                item_cfg = None
+            if not name:
+                continue
+
+            # MCP 도구 정규화
+            if name == "mcp" or (isinstance(name, str) and name.startswith("mcp:")):
+                catalog_id = name[len("mcp:"):] if isinstance(name, str) and name.startswith("mcp:") else ""
+                if not catalog_id and isinstance(item_cfg, dict):
+                    catalog_id = item_cfg.get("catalogId") or ""
+                if catalog_id and catalog_id in allowed_mcp_catalog_ids:
+                    new_tools.append({"name": "mcp", "config": {"catalogId": catalog_id}})
+                # 보유 카탈로그에 없는 mcp는 환각이므로 조용히 제거
+                continue
+
+            resolved = PlanValidator._canonicalize_tool_name(name, allowed) or name
+            tool = {"name": resolved}
+
+            # slack/discord: webhookCredentialId 검증 + 보존 (webhook_url은 backend가 실행 시 주입)
+            if resolved in _WEBHOOK_TOOL_NAMES:
+                cred_id = item_cfg.get("webhookCredentialId") if isinstance(item_cfg, dict) else None
+                if cred_id and cred_id in allowed_webhook_credential_ids:
+                    tool["config"] = {"webhookCredentialId": cred_id}
+                # 보유 자격증명에 없는 webhookCredentialId는 환각이므로 제거(도구는 유지)
+            elif isinstance(item_cfg, dict):
+                # 그 외 도구는 기존 config 보존
+                tool["config"] = item_cfg
+
+            new_tools.append(tool)
+
+        cfg["tools"] = new_tools
+
+
 def _normalize_node(node: dict, index: int, preserve_id: bool = False) -> dict:
     """LLM이 생성한 노드를 정규화한다.
 
@@ -263,9 +334,25 @@ async def chat_workflow(
     github_token: str | None = None,
     google_access_token: str | None = None,
     mcp_servers: list[dict] | None = None,
+    available_mcp_servers: list | None = None,
+    available_webhooks: list | None = None,
     preserve_id: bool | None = None,
 ) -> ChatResponse:
     start = time.monotonic()
+
+    # 생성/수정 단계에서 허용되는 MCP 카탈로그 ID 집합. 카탈로그가 없으면 MCP는 전면 차단된다.
+    allowed_mcp_catalog_ids = {
+        (m.get("catalogId") if isinstance(m, dict) else getattr(m, "catalogId", None))
+        for m in (available_mcp_servers or [])
+    }
+    allowed_mcp_catalog_ids.discard(None)
+
+    # 생성/수정 단계에서 허용되는 webhook 자격증명 ID 집합. 없으면 webhookCredentialId 미배정.
+    allowed_webhook_credential_ids = {
+        (w.get("webhookCredentialId") if isinstance(w, dict) else getattr(w, "webhookCredentialId", None))
+        for w in (available_webhooks or [])
+    }
+    allowed_webhook_credential_ids.discard(None)
     model = resolve_model(provider)
     env_key = resolve_env_key(provider)
     is_gemini = env_key == "GOOGLE_API_KEY" or not env_key
@@ -301,12 +388,16 @@ async def chat_workflow(
 3. type은 반드시 WORKFLOW_MODIFIED
 """
 
-    from core.skill_loader import load_design_rules
+    from core.skill_loader import load_design_rules, format_mcp_catalog, format_webhook_catalog
     design_rules = load_design_rules(prompt)
+    mcp_catalog_section = format_mcp_catalog(available_mcp_servers)
+    webhook_catalog_section = format_webhook_catalog(available_webhooks)
 
     instruction = (
         _SYSTEM_PROMPT_BASE
         + f"\n\n## 참고 설계 규칙 (스킬 레퍼런스)\n{design_rules}"
+        + (f"\n\n{mcp_catalog_section}" if mcp_catalog_section else "")
+        + (f"\n\n{webhook_catalog_section}" if webhook_catalog_section else "")
         + integration_section
         + workflow_section
         + f"\n\n## Current Request Context\n- provider: {provider.upper()}\n  (모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정한다)"
@@ -600,7 +691,9 @@ async def chat_workflow(
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             if not raw_nodes:
                 raise ValueError("WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다.")
-            WorkflowValidator.validate(raw_nodes, raw_edges or [])
+            # 검증 전 도구 이름 결정론 교정(프리픽스 누락/별칭/MCP/webhook) — 환각으로 인한 하드 실패 방지
+            _canonicalize_node_tools(raw_nodes, allowed_mcp_catalog_ids, allowed_webhook_credential_ids)
+            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
         edges = [WorkflowEdge(**e) for e in raw_edges] if raw_edges else None
