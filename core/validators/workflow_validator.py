@@ -23,8 +23,11 @@ class WorkflowValidator:
     ]
 
     @classmethod
-    def validate(cls, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
-        """워크플로우의 무결성 및 설계 규칙을 검증한다."""
+    def validate(cls, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]],
+                 allowed_mcp_catalog_ids: set | None = None) -> None:
+        """워크플로우의 무결성 및 설계 규칙을 검증한다.
+        allowed_mcp_catalog_ids: 생성 단계에서 허용되는 MCP 카탈로그 ID 집합(없으면 MCP 전면 차단)."""
+        allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
         if not nodes:
             raise WorkflowValidationError("워크플로우에 노드가 존재하지 않습니다.")
 
@@ -82,7 +85,7 @@ class WorkflowValidator:
                 system_msg = config.get("systemMessage") or ""
                 cls._validate_variable_references(prompt, nid)
                 cls._validate_variable_references(system_msg, nid)
-                cls._validate_tool_names(config.get("tools"), nid)
+                cls._validate_tool_names(config.get("tools"), nid, allowed_mcp_catalog_ids)
 
         if trigger_count == 0:
             raise WorkflowValidationError("워크플로우는 반드시 1개의 TRIGGER 노드로 시작해야 합니다. TRIGGER 노드가 발견되지 않았습니다.")
@@ -127,16 +130,20 @@ class WorkflowValidator:
 
     @classmethod
     def _allowed_tool_names(cls) -> set:
-        """실행기에 등록된 도구 이름 집합을 반환한다. _TOOL_MAP을 SSOT로 사용하며,
-        커스텀 MCP 도구('mcp')는 server_url 등 동적 설정으로 처리되므로 추가로 허용한다."""
+        """생성 단계에서 AI 노드에 허용되는 도구 이름 집합을 반환한다. _TOOL_MAP을 SSOT로 사용한다.
+
+        주의: 커스텀 'mcp' 도구는 사용자별 MCP 서버 카탈로그(server_url 등)가 생성 시점에 주입되지
+        않으므로, 생성 단계에서 자동 배정하면 환각(존재하지 않는 서버)을 유발한다. 따라서 생성 검증에서는
+        'mcp'를 허용하지 않는다. MCP 연동은 생성 후 노드 편집(modify) 단계에서 추가한다."""
         # tools 패키지는 google.adk를 최상위에서 import하므로 lazy import로 검증 비용/순환을 회피한다.
         from tools import _TOOL_MAP
-        return set(_TOOL_MAP.keys()) | {"mcp"}
+        return set(_TOOL_MAP.keys())
 
     @classmethod
-    def _validate_tool_names(cls, tools, node_id: str) -> None:
+    def _validate_tool_names(cls, tools, node_id: str, allowed_mcp_catalog_ids: set | None = None) -> None:
         """AI 노드의 tools 항목 이름이 실제 실행기 레지스트리에 존재하는지 검증한다.
-        프리픽스 누락('notion_create_page' 등)이나 오타를 생성 단계에서 차단한다."""
+        프리픽스 누락('notion_create_page' 등)이나 오타를 차단한다.
+        MCP 도구는 config.catalogId가 allowed_mcp_catalog_ids에 있을 때만 허용한다."""
         if not tools:
             return
         if not isinstance(tools, list):
@@ -144,12 +151,23 @@ class WorkflowValidator:
                 f"AI 노드 '{node_id}'의 tools는 리스트 형식이어야 합니다."
             )
 
+        allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
         allowed = cls._allowed_tool_names()
         for tool in tools:
             name = tool.get("name") if isinstance(tool, dict) else tool
             if not name:
                 raise WorkflowValidationError(
                     f"AI 노드 '{node_id}'의 tools 항목에 name이 누락되었습니다."
+                )
+            if name == "mcp":
+                cfg = tool.get("config") if isinstance(tool, dict) else None
+                catalog_id = cfg.get("catalogId") if isinstance(cfg, dict) else None
+                if catalog_id and catalog_id in allowed_mcp_catalog_ids:
+                    continue
+                raise WorkflowValidationError(
+                    f"AI 노드 '{node_id}'의 MCP 도구를 사용할 수 없습니다. "
+                    f"config.catalogId가 사용 가능한 MCP 서버 목록에 없습니다. "
+                    f"(MCP 미보유 시 빌트인 도구만 사용)"
                 )
             if name not in allowed:
                 hint = ""

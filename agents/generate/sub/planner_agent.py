@@ -1,6 +1,6 @@
 from google.adk.agents import LlmAgent
 from api.schemas.generate_workflow import WorkflowPlanSchema
-from core.skill_loader import load_design_rules
+from core.skill_loader import load_design_rules, format_mcp_catalog
 
 _PLANNER_INSTRUCTION = """
 당신은 워크플로우 구조 계획 전문가다.
@@ -23,14 +23,17 @@ _PLANNER_INSTRUCTION = """
 """
 
 
-def build_planner_agent(model: str, prompt: str, provider: str) -> LlmAgent:
+def build_planner_agent(model: str, prompt: str, provider: str,
+                        available_mcp_servers: list | None = None) -> LlmAgent:
     """PlannerAgent 빌드. 사용자 프롬프트 기반 동적 레퍼런스 및 provider 규칙 주입."""
     design_rules = load_design_rules(prompt)
+    mcp_section = format_mcp_catalog(available_mcp_servers)
     instruction = (
         f"{_PLANNER_INSTRUCTION}\n\n"
         f"## 요청 프로바이더 규칙\n"
         f"- 모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정한다.\n\n"
-        f"## 참고 설계 규칙 (스킬 레퍼런스)\n{design_rules}"
+        + (f"{mcp_section}\n" if mcp_section else "")
+        + f"## 참고 설계 규칙 (스킬 레퍼런스)\n{design_rules}"
     )
     return LlmAgent(
         name="planner_agent",
