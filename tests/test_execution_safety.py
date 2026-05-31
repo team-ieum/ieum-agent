@@ -116,6 +116,21 @@ def test_output_validator_token_masking():
     assert "[MASKED_NOTION_TOKEN]" in masked_res
     assert "[MASKED_GITHUB_TOKEN]" in masked_res
 
+def test_output_validator_github_token_variants_masking():
+    # ghp_ 외 gho_/ghu_/ghs_/github_pat_ 포맷도 모두 마스킹되어야 함
+    raw_text = (
+        "tokens: ghp_classic111 gho_oauth222 ghu_user333 ghs_server444 "
+        "github_pat_fineGrained_555AAA"
+    )
+    masked = OutputValidator.mask_response_content(raw_text)
+    for tok in [
+        "ghp_classic111", "gho_oauth222", "ghu_user333",
+        "ghs_server444", "github_pat_fineGrained_555AAA",
+    ]:
+        assert tok not in masked
+    assert "[MASKED_GITHUB_TOKEN]" in masked
+
+
 def test_output_validator_bearer_masking():
     raw_text = "Authorization: Bearer mySecretTokenValue123!!"
     masked_res = OutputValidator.mask_response_content(raw_text)
