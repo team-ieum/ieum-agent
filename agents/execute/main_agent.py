@@ -9,6 +9,7 @@ MAIN_INSTRUCTION = """
 - google_agent: Gmail·Google Drive·Google Calendar 관리
 - github_agent: GitHub 리포지토리·이슈·PR·Actions 관리
 - comm_agent: Slack·Discord 메시지 발송
+- transform_agent: 데이터 가공(Transform), JSON 파싱, 정규식 추출, 날짜 포맷팅 및 마크다운 보고서 생성
 - mcp_agent: 사용자 정의 커스텀 MCP 서버 도구 활용
 
 ## 작업 원칙

@@ -8,7 +8,10 @@ from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from db.mongodb import execution_logs
+from google.adk.sessions import BaseSessionService
 from agents.execute.factory import run_simple_agent, run_react_agent
+from core.execution_guard import ExecutionGuard, ExecutionGuardError
+from core.output_validator import OutputValidator
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,13 @@ async def save_execution_log(
     result: AgentExecutionResult,
     duration_ms: int,
 ):
+    # 민감 정보가 포함되어 누출되는 것을 차단하기 위해 로그 저장 시 엄격한 마스킹 수행
+    masked_output = OutputValidator.mask_log_content(result.output)
+    masked_err = OutputValidator.mask_log_content(result.errorMessage)
+    masked_tools = OutputValidator.mask_log_content(
+        [tc.model_dump() for tc in result.toolCalls] if result.toolCalls else []
+    )
+
     await execution_logs.insert_one({
         "userId": user_id,
         "nodeId": node_id,
@@ -32,9 +42,9 @@ async def save_execution_log(
         "agentType": agent_type,
         "status": result.status,
         "success": result.success,
-        "output": result.output,
-        "errorMessage": result.errorMessage,
-        "toolCalls": [tc.model_dump() for tc in result.toolCalls] if result.toolCalls else [],
+        "output": masked_output,
+        "errorMessage": masked_err,
+        "toolCalls": masked_tools,
         "usage": result.usage.model_dump() if result.usage else None,
         "durationMs": duration_ms,
         "createdAt": datetime.now(timezone.utc),
@@ -49,12 +59,46 @@ async def run_agent(
     google_access_token: str | None = None,
     notion_token: str | None = None,
     github_token: str | None = None,
+    session_service: BaseSessionService | None = None,
 ) -> AgentExecutionResult:
     start = time.monotonic()
     result = AgentExecutionResult(success=False)
 
+    # 1. Execution Guard (사전 무결성/보안 필터)
+    try:
+        ExecutionGuard.validate_execution(
+            request,
+            google_access_token=google_access_token,
+            notion_token=notion_token,
+            github_token=github_token
+        )
+    except ExecutionGuardError as e:
+        logger.warning("Execution guard rejected request: %s", e)
+        duration_ms = int((time.monotonic() - start) * 1000)
+        result = AgentExecutionResult(
+            success=False,
+            status="ERROR",
+            errorMessage=str(e),
+        )
+        # 차단에 따른 히스토리 로그 저장
+        try:
+            await save_execution_log(
+                user_id=user_id,
+                node_id=request.nodeId,
+                workflow_execution_id=request.workflowExecutionId,
+                provider=provider,
+                model=resolve_model(provider, request.model),
+                agent_type=request.agentType,
+                result=result,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            pass
+        return result
+
     env_key = resolve_env_key(provider)
-    lock = get_env_lock(env_key) if env_key else None
+    # Gemini인 경우 os.environ을 통한 임시 주입 대신 CustomGemini를 통해 API Key를 직접 주입하므로 Lock을 잡지 않습니다.
+    lock = get_env_lock(env_key) if (env_key and provider.upper() != "GEMINI") else None
 
     model = resolve_model(provider, request.model)
 
@@ -70,6 +114,7 @@ async def run_agent(
                     google_access_token=google_access_token,
                     notion_token=notion_token,
                     github_token=github_token,
+                    session_service=session_service,
                 )
             else:
                 return await run_simple_agent(
@@ -78,6 +123,7 @@ async def run_agent(
                     api_key=api_key,
                     env_key=env_key,
                     user_id=user_id,
+                    session_service=session_service,
                 )
 
         if lock:
@@ -122,5 +168,15 @@ async def run_agent(
         )
     except Exception:
         logger.warning("Failed to save execution log for node %s", request.nodeId, exc_info=True)
+
+    # 2. 클라이언트 응답 반환을 위한 최종 마스킹 (토큰 유출 방지)
+    if result.output:
+        result.output = OutputValidator.mask_response_content(result.output)
+    if result.errorMessage:
+        result.errorMessage = OutputValidator.mask_response_content(result.errorMessage)
+    if result.toolCalls:
+        for tc in result.toolCalls:
+            if hasattr(tc, "arguments") and tc.arguments:
+                tc.arguments = OutputValidator.mask_response_content(tc.arguments)
 
     return result

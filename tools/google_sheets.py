@@ -3,6 +3,7 @@ import json
 import httpx
 
 from common.error_code import ToolErrorCode
+from tools.http_client import get_http_client
 
 _SHEETS_API_BASE = "https://sheets.googleapis.com/v4"
 _TIMEOUT = 30.0
@@ -32,11 +33,12 @@ async def google_sheets_read(
         범위, 값 목록을 포함한 JSON 문자열
     """
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.get(
-                f"{_SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
-                headers=_headers(access_token),
-            )
+        client = get_http_client()
+        response = await client.get(
+            f"{_SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
+            headers=_headers(access_token),
+            timeout=_TIMEOUT,
+        )
         data = response.json()
         if not response.is_success:
             return json.dumps({
@@ -87,13 +89,14 @@ async def google_sheets_write(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.put(
-                f"{_SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
-                headers=_headers(access_token),
-                params={"valueInputOption": "USER_ENTERED"},
-                json=payload,
-            )
+        client = get_http_client()
+        response = await client.put(
+            f"{_SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
+            headers=_headers(access_token),
+            params={"valueInputOption": "USER_ENTERED"},
+            json=payload,
+            timeout=_TIMEOUT,
+        )
         data = response.json()
         if not response.is_success:
             return json.dumps({
