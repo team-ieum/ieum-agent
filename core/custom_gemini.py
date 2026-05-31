@@ -54,8 +54,6 @@ class CustomGemini(Gemini):
 
     @cached_property
     def api_client(self) -> Client:
-        from google.genai import Client
-
         base_url = self.base_url
         kwargs: dict[str, Any] = {
             'http_options': types.HttpOptions(
@@ -73,23 +71,38 @@ class CustomGemini(Gemini):
 
         client = Client(**kwargs)
 
-        # Wrap models.generate_content and aio.models.generate_content
+        # Wrap generate_content + generate_content_stream (sync/async 모두).
+        # ADK가 스트리밍 경로(generate_content_stream)를 사용할 때도 _clean_tools가
+        # 적용되도록 하여 Gemini의 additionalProperties 스키마 거부 재발을 막는다.
         orig_generate_content = client.models.generate_content
         orig_generate_content_async = client.aio.models.generate_content
+        orig_generate_content_stream = client.models.generate_content_stream
+        orig_generate_content_stream_async = client.aio.models.generate_content_stream
 
-        def wrapped_generate_content(*args, **kwargs):
+        def _clean_config(args, kwargs):
             config = kwargs.get("config") or (args[2] if len(args) > 2 else None)
             if config and hasattr(config, "tools") and config.tools:
                 _clean_tools(config.tools)
+
+        def wrapped_generate_content(*args, **kwargs):
+            _clean_config(args, kwargs)
             return orig_generate_content(*args, **kwargs)
 
         async def wrapped_generate_content_async(*args, **kwargs):
-            config = kwargs.get("config") or (args[2] if len(args) > 2 else None)
-            if config and hasattr(config, "tools") and config.tools:
-                _clean_tools(config.tools)
+            _clean_config(args, kwargs)
             return await orig_generate_content_async(*args, **kwargs)
+
+        def wrapped_generate_content_stream(*args, **kwargs):
+            _clean_config(args, kwargs)
+            return orig_generate_content_stream(*args, **kwargs)
+
+        async def wrapped_generate_content_stream_async(*args, **kwargs):
+            _clean_config(args, kwargs)
+            return await orig_generate_content_stream_async(*args, **kwargs)
 
         client.models.generate_content = wrapped_generate_content
         client.aio.models.generate_content = wrapped_generate_content_async
+        client.models.generate_content_stream = wrapped_generate_content_stream
+        client.aio.models.generate_content_stream = wrapped_generate_content_stream_async
 
         return client
