@@ -41,6 +41,18 @@ def _extract_webhook_configs(tools: list | None) -> dict:
     return out
 
 
+async def _safe_delete_session(session_service: BaseSessionService, user_id: str, session_id: str) -> None:
+    """단발성 execute 세션을 실행 종료 후 폐기한다.
+    각 execute 호출은 고유 세션을 새로 생성하므로 재사용되지 않으며, 삭제하지 않으면
+    agent_sessions 도큐먼트가 무한 누적된다. 세션 정리 실패가 실행 결과를 막지 않도록 예외는 무시한다."""
+    try:
+        await session_service.delete_session(
+            app_name="ieum-agent", user_id=user_id, session_id=session_id
+        )
+    except Exception:
+        pass
+
+
 async def run_simple_agent(
     model: str,
     request: AgentNodeRequest,
@@ -51,6 +63,7 @@ async def run_simple_agent(
 ) -> tuple[str, int, int, int]:
     """simple 타입: 단일 LlmAgent로 실행. 도구 없이 빠른 LLM 호출."""
     prev_value = None
+    cleanup_session_id = None
     is_gemini = (env_key == "GOOGLE_API_KEY") or (not env_key and "gemini" in model.lower())
 
     # Gemini가 아닌 경우에만 os.environ 조작 (Lock 대상)
@@ -83,6 +96,7 @@ async def run_simple_agent(
             app_name="ieum-agent",
             user_id=user_id
         )
+        cleanup_session_id = session.id
         message = types.Content(
             role="user",
             parts=[
@@ -111,6 +125,8 @@ async def run_simple_agent(
         return "\n".join(output_parts), total_input, total_output, total_count
 
     finally:
+        if cleanup_session_id is not None:
+            await _safe_delete_session(session_service, user_id, cleanup_session_id)
         if env_key and not is_gemini:
             if prev_value is None:
                 os.environ.pop(env_key, None)
@@ -210,6 +226,7 @@ async def run_react_agent(
                     app_name="ieum-agent",
                     user_id=user_id
                 )
+                stack.push_async_callback(_safe_delete_session, session_service, user_id, session.id)
                 message = types.Content(
                     role="user",
                     parts=[
@@ -297,6 +314,7 @@ async def run_react_agent(
                 app_name="ieum-agent",
                 user_id=user_id
             )
+            stack.push_async_callback(_safe_delete_session, session_service, user_id, session.id)
             message = types.Content(
                 role="user",
                 parts=[

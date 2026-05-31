@@ -85,9 +85,10 @@ class MongoSessionService(BaseSessionService):
         # 상위 클래스의 이벤트 처리 (상태 델타 병합 및 임시 상태 정리)
         event = await super().append_event(session, event)
 
-        events_dump = [e.model_dump(mode="json") for e in session.events]
         state_dump = _make_bson_safe(session.state)
-        # MongoDB에 최종 상태 업데이트
+        event_dump = _make_bson_safe(event.model_dump(mode="json"))
+        # 신규 이벤트만 $push 증분 추가하고 state만 $set 갱신한다.
+        # (매번 events 배열 전체를 재덤프·재기록하면 긴 멀티턴에서 O(n²) 쓰기가 발생한다)
         await self.collection.update_one(
             {
                 "id": session.id,
@@ -95,10 +96,8 @@ class MongoSessionService(BaseSessionService):
                 "user_id": session.user_id
             },
             {
-                "$set": {
-                    "state": state_dump,
-                    "events": events_dump
-                }
+                "$set": {"state": state_dump},
+                "$push": {"events": event_dump}
             }
         )
         return event

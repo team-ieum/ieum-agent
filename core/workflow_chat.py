@@ -161,25 +161,6 @@ _NODE_META_KEYS = {"id", "type", "nodeType", "label", "config"}
 
 _WEBHOOK_TOOL_NAMES = {"slack", "discord"}
 
-# 실행 시 자동 부착되는 서브 에이전트(web/comm/transform/notion/google/github/mcp_agent)는
-# 노드 tools 키가 아니다. Designer가 'transform_agent', 'github_list_pull_requests' 등을
-# tools에 넣으면 _TOOL_MAP에 없어 검증에 걸리므로, canonicalize 단계에서 조용히 제거한다.
-# (AI 노드는 prompt + agentType:react만 있으면 실행 시 해당 서브 에이전트가 처리한다.)
-_GITHUB_TOOL_PREFIX = "github"
-
-
-def _is_runtime_subagent_tool(name: str) -> bool:
-    """실행 시 서브 에이전트가 처리하는 도구 이름인지 판별한다(노드 tools에서 제거 대상).
-    - '*_agent'(web_agent, transform_agent 등 서브 에이전트 이름)
-    - 'github*'(github_agent 및 github_list_* browse 도구)
-    'builtin:github_list_pull_requests'처럼 프리픽스가 붙어도 인식하도록 프리픽스를 떼고 판별한다."""
-    if not isinstance(name, str):
-        return False
-    lname = name.strip().lower()
-    if ":" in lname:
-        lname = lname.split(":", 1)[1]
-    return lname.endswith("_agent") or lname.startswith(_GITHUB_TOOL_PREFIX)
-
 
 def _canonicalize_node_tools(nodes: list, allowed_mcp_catalog_ids: set,
                              allowed_webhook_credential_ids: set | None = None) -> None:
@@ -222,7 +203,7 @@ def _canonicalize_node_tools(nodes: list, allowed_mcp_catalog_ids: set,
                 continue
 
             # 서브 에이전트(github/transform/web 등)는 실행 시 자동 처리되므로 tools에서 제거(환각 방지)
-            if _is_runtime_subagent_tool(name):
+            if PlanValidator._is_runtime_subagent_tool(name):
                 continue
 
             # MCP 도구 정규화
@@ -382,7 +363,7 @@ async def chat_workflow(
     allowed_webhook_credential_ids.discard(None)
     model = resolve_model(provider)
     env_key = resolve_env_key(provider)
-    is_gemini = env_key == "GOOGLE_API_KEY" or not env_key
+    is_gemini = (env_key == "GOOGLE_API_KEY") or (not env_key and "gemini" in model.lower())
     lock = get_env_lock(env_key) if (env_key and not is_gemini) else None
 
     # 동적 주입 — 연동 현황

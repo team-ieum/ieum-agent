@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 # 주요 토큰 패턴 매칭 정규식
 GOOGLE_TOKEN_PATTERN = r"ya29\.[a-zA-Z0-9_\-]+"
 NOTION_TOKEN_PATTERN = r"secret_[a-zA-Z0-9_\-]+"
-GITHUB_TOKEN_PATTERN = r"ghp_[a-zA-Z0-9_]+"
+GITHUB_TOKEN_PATTERN = r"gh[opsu]_[a-zA-Z0-9_]+|github_pat_[a-zA-Z0-9_]+"
 # 일반적인 API Key 및 Bearer 토큰 패턴
 API_KEY_PATTERN = r"(?i)(['\"]?(?:api[-_]?key|auth|token|credential)['\"]?)\s*[:=]\s*['\"]([a-zA-Z0-9_\-\.\=\+]{8,})['\"]"
 BEARER_TOKEN_PATTERN = r"(?i)bearer\s+([a-zA-Z0-9_\-\.\/\=\+]{10,})"
