@@ -23,6 +23,7 @@ async def chat_endpoint(
             provider=credentials["provider"],
             api_key=credentials["api_key"],
             user_id=credentials["user_id"],
+            workflow_id=request.workflowId,
             available_integrations=[a.model_dump() for a in request.availableIntegrations],
             unavailable_integrations=[u.model_dump() for u in request.unavailableIntegrations],
             current_nodes=[n.model_dump() for n in request.currentNodes] if request.currentNodes else None,

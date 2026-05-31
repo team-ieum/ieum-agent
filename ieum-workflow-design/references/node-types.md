@@ -11,7 +11,8 @@
 - 도구 사용이 필요한 경우 `config.agentType`은 "react"로 설정하고, 단순 추론인 경우 "simple"로 설정합니다.
 - `config.credentialId`는 반드시 빈 문자열("")로 설정합니다. (Spring Boot 백엔드에서 런타임 주입)
 - **데이터 보존**: 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회, 노션 페이지 조회 등)는 원시 JSON 형태 데이터를 요약/축소하지 말고 그대로 `output`으로 출력하도록 prompt 및 systemMessage를 설계해야 합니다. (예: "결과 데이터를 절대 요약하지 말고 JSON 원본 그대로 반환하시오")
-- **가공 위임**: 데이터 요약, 날짜 포맷팅, JSON 파싱 등 데이터 변환 작업이 필요할 때는, 조회 노드에서 직접 가공하지 말고 `transform_agent` (혹은 `json_parse` 등의 도구)를 주입한 별도의 AI 노드에 가공 업무를 명시적으로 위임합니다.
+- **가공 위임**: 데이터 요약, 날짜 포맷팅, JSON 파싱 등 데이터 변환 작업이 필요할 때는, 조회 노드에서 직접 가공하지 말고 별도 TRANSFORM 노드를 쓰거나 별도의 AI 노드(agentType: "react")에 prompt로 가공 업무를 명시적으로 위임합니다. (실행 시 가공용 서브 에이전트가 자동 처리됩니다.)
+- **tools 작성 규칙**: AI 노드의 `tools`에는 빌트인 도구 키(`slack`, `discord`, `gmail`, `builtin:...`)만 넣습니다. 서브 에이전트 이름(`transform_agent`, `web_agent`, `github_agent` 등)이나 GitHub 도구명(`github_list_pull_requests` 등)은 **절대 `tools`에 넣지 마십시오.** 이들은 실행 시 자동 부착되므로 prompt에 자연어로만 지시하고 `tools`는 비워 둡니다. (예: GitHub PR 조회 노드는 `tools: []`)
 
 ### HTTP
 - Notion, Google, Slack, Discord, GitHub 등 내장 도구가 지원되는 서비스 연동 시에는 **절대로 HTTP 노드를 사용해선 안 됩니다.**

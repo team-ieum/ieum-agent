@@ -101,6 +101,15 @@ def test_plan_alias_tool_is_canonicalized():
     assert plan.nodes[1].tools == ["builtin:web_search", "builtin:http_fetch"]
 
 
+def test_plan_subagent_tool_is_stripped():
+    """서브 에이전트(github/transform/web 등)는 실행 시 처리되므로 검증 단계에서 제거된다(차단 아님)."""
+    node = {"id": "node-2", "type": "AI", "role": "깃헙", "description": "d",
+            "tools": ["github_list_pull_requests", "builtin:github_list_pull_requests", "GitHub_List_Issues", "transform_agent", "web_agent", "slack"]}
+    plan = _plan([TRIGGER, node], [{"source": "node-1", "target": "node-2"}])
+    PlanValidator.validate(plan)
+    assert plan.nodes[1].tools == ["slack"]
+
+
 def test_plan_unknown_tool_raises():
     plan = _plan(
         [TRIGGER, {"id": "node-2", "type": "AI", "role": "오타", "description": "d", "tools": ["builtin:notion_make_page"]}],

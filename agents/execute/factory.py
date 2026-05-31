@@ -23,6 +23,24 @@ from api.schemas.request import AgentNodeRequest
 from google.adk.sessions import BaseSessionService, InMemorySessionService
 
 
+# 노드 request.tools의 webhook 도구(slack/discord) → 실제 함수명 매핑.
+# comm_agent의 webhook 도구에 webhook_url을 바인딩하기 위해 config를 추출한다.
+_WEBHOOK_FN_BY_TOOL = {"slack": "send_slack_message", "discord": "send_discord_webhook"}
+
+
+def _extract_webhook_configs(tools: list | None) -> dict:
+    """request.tools에서 slack/discord의 config(webhook_url 포함)를 함수명 키로 추출한다."""
+    out: dict = {}
+    for t in (tools or []):
+        if not isinstance(t, dict):
+            continue
+        fn = _WEBHOOK_FN_BY_TOOL.get(t.get("name"))
+        cfg = t.get("config")
+        if fn and isinstance(cfg, dict):
+            out[fn] = cfg
+    return out
+
+
 async def run_simple_agent(
     model: str,
     request: AgentNodeRequest,
@@ -127,6 +145,7 @@ async def run_react_agent(
     try:
         active_tokens = [t for t in [google_access_token, notion_token, github_token] if t]
         has_custom_mcp = bool(request.mcp_servers)
+        webhook_configs = _extract_webhook_configs(request.tools)
 
         model_param = CustomGemini(model=model, api_key=api_key) if is_gemini else model
 
@@ -154,7 +173,7 @@ async def run_react_agent(
                     mcp_tools.extend(github_agent.tools)
 
                 web_agent, _ = await build_web_agent(model_param)
-                comm_agent, _ = await build_communication_agent(model_param)
+                comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
                 transform_agent, _ = await build_transform_agent(model_param)
 
                 raw_direct_tools = [
@@ -223,7 +242,7 @@ async def run_react_agent(
         # [기본 흐름] 복수 크레덴셜 또는 커스텀 MCP가 있는 경우 오케스트레이터(Main) + 전문 서브에이전트 구조로 실행
         async with contextlib.AsyncExitStack() as stack:
             web_agent, _ = await build_web_agent(model_param)
-            comm_agent, _ = await build_communication_agent(model_param)
+            comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
             transform_agent, _ = await build_transform_agent(model_param)
 
             sub_agent_tools = [
