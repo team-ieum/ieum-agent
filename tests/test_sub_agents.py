@@ -161,6 +161,30 @@ async def test_google_agent_creates_three_mcp_toolsets():
     assert len(mcps) == 3
 
 
+@pytest.mark.asyncio
+async def test_google_agent_closes_each_mcp_once():
+    """stack 종료 시 생성된 3개 MCPToolset이 각각 1회씩 close된다.
+    (루프 내 late-binding closure 버그: 전부 마지막 mcp만 close되던 회귀 방지)"""
+    from agents.execute.sub.google_agent import build_google_agent
+
+    created = []
+
+    def _make(connection_params):
+        m = MagicMock()
+        created.append(m)
+        return m
+
+    with patch("agents.execute.sub.google_agent.MCPToolset", side_effect=_make), \
+         patch("agents.execute.sub.google_agent.StreamableHTTPConnectionParams", MagicMock):
+        async with contextlib.AsyncExitStack() as stack:
+            await build_google_agent("gemini-2.5-flash", "google-token", stack)
+        # stack 종료 → push_async_callback에 등록된 close 콜백 실행
+
+    assert len(created) == 3
+    for m in created:
+        m.close.assert_called_once()
+
+
 # ---------- CommAgent ----------
 
 @pytest.mark.asyncio
@@ -217,6 +241,31 @@ async def test_mcp_agent_creates_toolset_per_server():
 
     assert call_count["n"] == 2
     assert len(mcps) == 2
+
+
+@pytest.mark.asyncio
+async def test_mcp_agent_closes_each_mcp_once():
+    """stack 종료 시 서버별 MCPToolset이 각각 1회씩 close된다 (closure 버그 회귀 방지)."""
+    from agents.execute.sub.mcp_agent import build_mcp_agent
+
+    configs = [
+        {"server_url": "https://mcp.server1.com", "headers": {}},
+        {"server_url": "https://mcp.server2.com", "headers": {}},
+    ]
+    created = []
+
+    def _make(connection_params):
+        m = MagicMock()
+        created.append(m)
+        return m
+
+    with patch("agents.execute.sub.mcp_agent.MCPToolset", side_effect=_make):
+        async with contextlib.AsyncExitStack() as stack:
+            await build_mcp_agent("gemini-2.5-flash", configs, stack)
+
+    assert len(created) == 2
+    for m in created:
+        m.close.assert_called_once()
 
 
 # ---------- TransformAgent ----------

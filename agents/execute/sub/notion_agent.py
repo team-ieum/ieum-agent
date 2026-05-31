@@ -7,6 +7,8 @@ from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionParams
 from mcp import StdioServerParameters
 
+from agents.base import _safe_close_mcp
+
 logger = logging.getLogger(__name__)
 
 _INSTRUCTION = (
@@ -46,11 +48,7 @@ async def build_notion_agent(
     )
 
     mcp = MCPToolset(connection_params=params)
-    async def _safe_close():
-        res = mcp.close()
-        if inspect.isawaitable(res):
-            await res
-    stack.push_async_callback(_safe_close)
+    stack.push_async_callback(_safe_close_mcp, mcp)
 
     res = mcp.get_tools()
     tools = await res if inspect.isawaitable(res) else res
