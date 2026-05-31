@@ -236,3 +236,34 @@ async def test_transform_agent_has_correct_tools():
     assert "date_format" in tool_names
     assert mcps == []
 
+
+
+# ---------- CommAgent ----------
+
+@pytest.mark.asyncio
+async def test_comm_agent_binds_webhook_url_when_config_provided():
+    """webhook_configs 제공 시 comm_agent의 discord 도구에 webhook_url이 바인딩되어
+    LLM에게 노출되는 파라미터에서 제거된다(멀티 에이전트 위임 시 URL 되묻기 방지)."""
+    import inspect
+    from agents.execute.sub.communication_agent import build_communication_agent
+
+    configs = {"send_discord_webhook": {"webhook_url": "https://discord.test/wh"}}
+    agent, _ = await build_communication_agent("gemini-2.5-flash", configs)
+
+    discord_tool = next(t for t in agent.tools if t.name == "send_discord_webhook")
+    fn = getattr(discord_tool, "_func", getattr(discord_tool, "func", None))
+    params = inspect.signature(fn).parameters
+    assert "webhook_url" not in params  # 바인딩되어 시그니처에서 제거됨
+
+
+@pytest.mark.asyncio
+async def test_comm_agent_without_config_keeps_webhook_url_param():
+    """webhook_configs 미제공 시 기존 동작 유지(도구는 그대로, webhook_url 파라미터 노출)."""
+    import inspect
+    from agents.execute.sub.communication_agent import build_communication_agent
+
+    agent, _ = await build_communication_agent("gemini-2.5-flash")
+    discord_tool = next(t for t in agent.tools if t.name == "send_discord_webhook")
+    fn = getattr(discord_tool, "_func", getattr(discord_tool, "func", None))
+    params = inspect.signature(fn).parameters
+    assert "webhook_url" in params

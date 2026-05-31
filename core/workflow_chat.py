@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -96,7 +97,8 @@ _REVIEWER_SYSTEM_PROMPT = """\
    - 정의되지 않은 임의의 시스템 변수(예: today, current_date 등)를 날조해서 사용하고 있지 않은지 감시하십시오.
 3. 데이터 훼손 방지 및 흐름 적절성:
    - 깃허브나 노션 조회 노드의 prompt에서 데이터 형태를 자연어로 마음대로 훼손/요약해 버리지 않고, JSON 원본을 그대로 output으로 넘기도록 가이드되었는지 확인하십시오.
-   - 원시 데이터를 정제하거나 마크다운 형식으로 작성할 때, `transform_agent` (혹은 `json_parse` 등의 도구)를 활용하도록 노드가 올바르게 거쳐가게 설계되었는지 확인하십시오.
+   - 원시 데이터를 정제하거나 마크다운 형식으로 작성할 때, 별도 TRANSFORM 노드 또는 별도 AI 노드(prompt 위임)를 거치도록 설계되었는지 확인하십시오.
+   - [tools 작성 규칙] AI 노드의 `tools`에는 빌트인 도구 키(`slack`, `discord`, `gmail`, `builtin:...`)만 허용됩니다. GitHub 조회·데이터 가공 등은 실행 시 서브 에이전트가 자동 처리하므로 해당 노드의 `tools`는 비어 있는([]) 것이 **정상**입니다. `github_list_pull_requests`·`builtin:github_*`·`transform_agent` 같은 이름이 `tools`에 들어 있다면 오히려 결함이며, GitHub/가공 노드에 도구가 없다고 해서 "도구 누락"으로 지적하지 마십시오.
 4. 리소스 ID 주입:
    - Notion parent_page_id 등 워크플로우 작동에 필요한 리소스 ID들이 빈 값("")이 아닌 유효한 조회 ID로 매핑되어 있는지 확인하십시오.
 5. SCHEDULE 트리거의 cron 필드 검증:
@@ -118,7 +120,8 @@ _SYSTEM_PROMPT_BASE = """\
 2. 노드 간 데이터 참조 및 데이터 무결성 보존:
    - 선행 노드의 결과는 반드시 이중 중괄호로 감싼 'nodes.노드ID.output.필드명' 형식(예: nodes.node-1.output.data를 이중 중괄호로 포장)으로 참조하십시오. 임의의 정의되지 않은 변수(예: today 등)를 날조해서 지어내지 마십시오.
    - [데이터 보존] 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회 등)는 원시 JSON 형태(예: pulls 등)를 요약/축소하지 말고 그대로 `output`으로 출력하게 prompt를 설계하십시오.
-   - [가공 에이전트 위임] 데이터 요약, 날짜 포맷팅, JSON 파싱 등 데이터 변환 작업이 필요할 때는, 직접 가공하지 말고 `transform_agent` (혹은 `json_parse` 등의 도구)를 주입한 AI 노드에 가공 업무를 명시적으로 위임하십시오.
+   - [데이터 가공 위임] 데이터 요약, 날짜 포맷팅, JSON 파싱 등 변환 작업이 필요할 때는, 별도 TRANSFORM 노드를 사용하거나 AI 노드(agentType: "react")에 가공 업무를 prompt로 명시하여 위임하십시오. (실행 시 가공용 서브 에이전트가 자동 처리됩니다.)
+   - [tools 작성 규칙] AI 노드의 `tools`에는 빌트인 도구 키(`slack`, `discord`, `gmail`, `builtin:...`)만 넣습니다. **서브 에이전트 이름(`transform_agent`, `web_agent`, `github_agent` 등)이나 GitHub 도구명(`github_list_pull_requests` 등)은 절대 `tools`에 넣지 마십시오.** 이들은 실행 시 자동 부착되므로, 해당 작업은 prompt에 자연어로만 지시하고 `tools`는 비워 둡니다. (예: GitHub PR 조회 노드는 `tools: []`)
 3. 생성 노드 프롬프트 경량화 지침:
    - 각 노드를 설계할 때 노드의 `systemMessage` 나 `prompt` 에 불필요한 사설이나 배경 설명을 과하게 채우지 말고, **핵심 지시사항(동작, 입력 참조값, 출력 형식 등) 위주로 최대 2~3문장 이내로만 간결하게 작성**하십시오. (실행 시 Latency 최적화 목적)
 4. 다중 서비스 노드 분리:
@@ -157,6 +160,25 @@ _NODE_META_KEYS = {"id", "type", "nodeType", "label", "config"}
 
 
 _WEBHOOK_TOOL_NAMES = {"slack", "discord"}
+
+# 실행 시 자동 부착되는 서브 에이전트(web/comm/transform/notion/google/github/mcp_agent)는
+# 노드 tools 키가 아니다. Designer가 'transform_agent', 'github_list_pull_requests' 등을
+# tools에 넣으면 _TOOL_MAP에 없어 검증에 걸리므로, canonicalize 단계에서 조용히 제거한다.
+# (AI 노드는 prompt + agentType:react만 있으면 실행 시 해당 서브 에이전트가 처리한다.)
+_GITHUB_TOOL_PREFIX = "github"
+
+
+def _is_runtime_subagent_tool(name: str) -> bool:
+    """실행 시 서브 에이전트가 처리하는 도구 이름인지 판별한다(노드 tools에서 제거 대상).
+    - '*_agent'(web_agent, transform_agent 등 서브 에이전트 이름)
+    - 'github*'(github_agent 및 github_list_* browse 도구)
+    'builtin:github_list_pull_requests'처럼 프리픽스가 붙어도 인식하도록 프리픽스를 떼고 판별한다."""
+    if not isinstance(name, str):
+        return False
+    lname = name.strip().lower()
+    if ":" in lname:
+        lname = lname.split(":", 1)[1]
+    return lname.endswith("_agent") or lname.startswith(_GITHUB_TOOL_PREFIX)
 
 
 def _canonicalize_node_tools(nodes: list, allowed_mcp_catalog_ids: set,
@@ -197,6 +219,10 @@ def _canonicalize_node_tools(nodes: list, allowed_mcp_catalog_ids: set,
                 name = item
                 item_cfg = None
             if not name:
+                continue
+
+            # 서브 에이전트(github/transform/web 등)는 실행 시 자동 처리되므로 tools에서 제거(환각 방지)
+            if _is_runtime_subagent_tool(name):
                 continue
 
             # MCP 도구 정규화
@@ -328,6 +354,7 @@ async def chat_workflow(
     user_id: str,
     available_integrations: list[dict],
     unavailable_integrations: list[dict],
+    workflow_id: str | None = None,
     current_nodes: list | None = None,
     current_edges: list | None = None,
     notion_token: str | None = None,
@@ -474,16 +501,35 @@ async def chat_workflow(
                     session_service=session_service,
                 )
 
-                session = await session_service.get_session(
-                    app_name="ieum-agent",
-                    user_id=user_id,
-                    session_id=user_id,
-                )
-                if not session:
+                # 세션 격리: workflow_id가 있으면 워크플로우별 멀티턴 세션을 이어가고,
+                # 없으면(신규 생성) 매 요청 고유 세션을 만들어 종료 시 폐기한다.
+                # (과거 user_id 단일 세션은 서로 다른 워크플로우/요청 간 대화가 섞이는 원인이었다.)
+                ephemeral_session = workflow_id is None
+                if ephemeral_session:
+                    session_id = f"{user_id}-{uuid.uuid4().hex}"
                     session = await session_service.create_session(
                         app_name="ieum-agent",
                         user_id=user_id,
-                        session_id=user_id,
+                        session_id=session_id,
+                    )
+                else:
+                    session_id = f"{user_id}-{workflow_id}"
+                    session = await session_service.get_session(
+                        app_name="ieum-agent",
+                        user_id=user_id,
+                        session_id=session_id,
+                    )
+                    if not session:
+                        session = await session_service.create_session(
+                            app_name="ieum-agent",
+                            user_id=user_id,
+                            session_id=session_id,
+                        )
+                if ephemeral_session:
+                    stack.push_async_callback(
+                        lambda sid=session.id: session_service.delete_session(
+                            app_name="ieum-agent", user_id=user_id, session_id=sid
+                        )
                     )
 
                 # Step 1: 워크플로우 설계 초안 생성 (Designer)

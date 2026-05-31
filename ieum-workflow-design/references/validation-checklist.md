@@ -14,4 +14,6 @@
    - 이전 노드 출력을 참조할 때 `{{nodes.<노드ID>.output.<필드명>}}` 형태를 준수하고 괄호 쌍이 맞는가?
 5. **데이터 무결성 및 보존 검증**:
    - 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회, 노션 페이지 조회 등)가 데이터를 마음대로 가공하거나 요약해서 출력하도록 프롬프트가 작성되지 않고, "결과 데이터를 절대 요약하지 말고 JSON 원본 그대로 반환하시오"와 같은 데이터 보존 지침이 포함되어 있는가?
-   - 데이터의 필터링, 정제, 포맷팅, 요약 작업이 `transform_agent` (혹은 `json_parse` 등의 도구)를 탑재한 별도의 AI 노드에 위임되어 설계되었는가?
+   - 데이터의 필터링, 정제, 포맷팅, 요약 작업이 별도 TRANSFORM 노드 또는 별도 AI 노드(prompt 위임)로 분리되어 설계되었는가?
+6. **tools 작성 검증**:
+   - AI 노드의 `tools`에 빌트인 도구 키(`slack`, `discord`, `gmail`, `builtin:...`)만 들어있는가? 서브 에이전트 이름(`transform_agent`, `web_agent`, `github_agent` 등)이나 GitHub 도구명(`github_list_pull_requests` 등)이 `tools`에 들어가 있지 않은가? (GitHub/가공 작업은 prompt로만 지시하고 `tools`는 비움)

@@ -8,7 +8,16 @@ logger = logging.getLogger(__name__)
 
 _INSTRUCTION = (
     "GitHub MCP 서버를 통해 리포지토리·이슈·Pull Request·GitHub Actions를 관리한다. "
-    "코드 검색, 파일 조회, PR 생성·리뷰, 이슈 트래킹, 워크플로우 실행 등을 담당한다."
+    "코드 검색, 파일 조회, PR 생성·리뷰, 이슈 트래킹, 워크플로우 실행 등을 담당한다.\n"
+    "\n"
+    "## PR 목록 조회 규칙\n"
+    "- 특정 리포지토리의 PR 목록을 조회할 때는 검색(search) 도구 대신 PR 목록(list pull requests) "
+    "도구를 사용한다. (owner/repo 지정, state=closed, 최신순). 검색 도구는 인덱싱·날짜 경계로 "
+    "결과가 누락될 수 있어 신뢰하지 않는다.\n"
+    "- '머지된 PR'을 요구받으면, 목록을 받은 뒤 merged_at 필드가 null이 아닌 항목만 남기고, "
+    "기간 조건(예: 이번 주)이 있으면 merged_at 날짜로 직접 필터링한다.\n"
+    "- 최종 응답은 HTTP 헤더·상태코드 등 부가 메타를 제외하고, 각 PR의 number·title·merged_at·html_url만 "
+    "담은 간결한 JSON 목록으로 반환한다. (조회된 PR이 없으면 빈 목록을 반환한다.)"
 )
 
 

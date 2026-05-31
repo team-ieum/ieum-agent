@@ -14,6 +14,25 @@ class PlanValidator:
     # AI 전용 도구가 지원되는 서비스 이름 모음 (HTTP 노드로 계획 수립 금지)
     PROHIBITED_SERVICES = {"NOTION", "SLACK", "DISCORD", "GITHUB", "GOOGLE", "GMAIL", "SHEETS", "CALENDAR", "DRIVE"}
 
+    # 실행 시 자동 부착되는 서브 에이전트(web/comm/transform/notion/google/github/mcp_agent)는
+    # 노드 tools 키가 아니다. Planner가 'transform_agent', 'github_list_pull_requests' 등을
+    # tools에 넣으면 _TOOL_MAP에 없어 검증에 걸리므로, 검증 단계에서 조용히 제거한다.
+    # (AI 노드는 prompt + agentType:react만 있으면 실행 시 해당 서브 에이전트가 처리한다.)
+    _GITHUB_TOOL_PREFIX = "github"
+
+    @classmethod
+    def _is_runtime_subagent_tool(cls, name: str) -> bool:
+        """실행 시 서브 에이전트가 처리하는 도구 이름인지 판별한다(노드 tools에서 제거 대상).
+        - '*_agent'(web_agent, transform_agent 등 서브 에이전트 이름)
+        - 'github*'(github_agent 및 github_list_* browse 도구)
+        'builtin:github_list_pull_requests'처럼 프리픽스가 붙어도 인식하도록 프리픽스를 떼고 판별한다."""
+        if not isinstance(name, str):
+            return False
+        lname = name.strip().lower()
+        if ":" in lname:
+            lname = lname.split(":", 1)[1]
+        return lname.endswith("_agent") or lname.startswith(cls._GITHUB_TOOL_PREFIX)
+
     # 서비스→도구 결정론 매핑(별칭 사전). LLM이 흔히 쓰는 변형/별칭을 정확한 _TOOL_MAP 키로 환원한다.
     # 프리픽스 누락(맨이름)은 코드에서 'builtin:{name}'으로 자동 보정하므로 여기 명시하지 않고,
     # 프리픽스 보정만으로 환원되지 않는 명백한 별칭만 등록한다. (값은 반드시 _TOOL_MAP의 실제 키여야 함)
@@ -59,6 +78,9 @@ class PlanValidator:
 
         canonical = []
         for name in node.tools:
+            # 서브 에이전트(github/transform/web 등)는 실행 시 자동 처리되므로 tools에서 제거(환각 방지)
+            if cls._is_runtime_subagent_tool(name):
+                continue
             # MCP 도구: 'mcp' 또는 'mcp:<catalogId>'
             if name == "mcp" or name.startswith("mcp:"):
                 catalog_id = name[len("mcp:"):] if name.startswith("mcp:") else ""

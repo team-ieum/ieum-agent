@@ -40,6 +40,9 @@ class UnavailableIntegration(BaseModel):
 
 class ChatRequest(BaseModel):
     prompt: str
+    # 수정 대상 워크플로우 ID. backend가 채워 보낸다.
+    # 있으면 워크플로우별 멀티턴 세션을 이어가고, 없으면(신규 생성) 매 요청 격리된 세션을 사용한다.
+    workflowId: Optional[str] = None
     currentNodes: Optional[List[WorkflowNode]] = None
     currentEdges: Optional[List[WorkflowEdge]] = None
     availableIntegrations: List[AvailableIntegration] = []

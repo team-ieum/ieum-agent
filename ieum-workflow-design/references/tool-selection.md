@@ -31,3 +31,4 @@
 ### GitHub 연동
 - GitHub는 빌트인 도구 키가 아니라 GitHub 연동 토큰이 주입될 때 전용 서브 에이전트로 처리됩니다.
 - GitHub 작업이 필요한 AI 노드는 agentType을 "react"로 설정하고, prompt에 수행할 GitHub 작업(이슈/PR/리포 조회 등)을 명시합니다.
+- **이 노드의 `tools`는 반드시 빈 배열(`[]`)로 둡니다.** `github_list_pull_requests`, `github_agent` 같은 이름을 `tools`에 넣지 마십시오. (실행 시 서브 에이전트가 자동 부착)

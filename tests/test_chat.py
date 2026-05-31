@@ -82,6 +82,7 @@ def _make_patches(text_output: str):
     mock_session_service = MagicMock()
     mock_session_service.get_session = AsyncMock(return_value=None)
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
+    mock_session_service.delete_session = AsyncMock(return_value=None)
 
     mock_lock = MagicMock()
     mock_lock.__aenter__ = AsyncMock(return_value=None)
@@ -97,12 +98,14 @@ def _make_patches(text_output: str):
 
 async def _call(prompt="테스트", current_nodes=None, current_edges=None,
                 available=None, unavailable=None, preserve_id=None,
-                available_mcp_servers=None, available_webhooks=None):
+                available_mcp_servers=None, available_webhooks=None,
+                workflow_id=None):
     return await chat_workflow(
         prompt=prompt,
         provider="CLAUDE",
         api_key="test-key",
         user_id="test-user",
+        workflow_id=workflow_id,
         available_integrations=available or [],
         unavailable_integrations=unavailable or [],
         current_nodes=current_nodes,
@@ -393,6 +396,66 @@ async def test_chat_workflow_session_persistence():
     assert sess1.id == sess2.id
 
 
+def _make_patches_with_service(text_output: str):
+    """mock_session_service를 함께 반환하여 세션 호출을 검증할 수 있는 패치 셋."""
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.get_session = AsyncMock(return_value=None)
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+    mock_session_service.delete_session = AsyncMock(return_value=None)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    patches = (
+        patch("core.workflow_chat.Runner", return_value=_make_runner_mock(text_output)),
+        patch("core.workflow_chat.InMemorySessionService", return_value=mock_session_service),
+        patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
+        patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
+    )
+    return patches, mock_session_service
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_workflow_id_있으면_세션_재사용():
+    """workflow_id가 있으면 '{user_id}-{workflow_id}' 세션을 사용하고 삭제하지 않는다(멀티턴 유지)."""
+    import core.workflow_chat
+    core.workflow_chat._SESSION_SERVICE = None
+    (p1, p2, p3, p4), svc = _make_patches_with_service(WORKFLOW_MODIFIED_JSON)
+    with p1, p2, p3, p4:
+        await _call(
+            "프롬프트 수정해줘",
+            current_nodes=VALID_NODES,
+            current_edges=VALID_EDGES,
+            workflow_id="wf-123",
+        )
+    # 워크플로우별 결정론적 세션 ID로 조회
+    svc.get_session.assert_awaited_once()
+    assert svc.get_session.await_args.kwargs["session_id"] == "test-user-wf-123"
+    # 멀티턴 유지를 위해 삭제하지 않음
+    svc.delete_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_workflow_id_없으면_격리_세션_생성_후_삭제():
+    """workflow_id가 없으면(신규 생성) 매 요청 고유 세션을 만들고 종료 시 삭제한다."""
+    import core.workflow_chat
+    core.workflow_chat._SESSION_SERVICE = None
+    (p1, p2, p3, p4), svc = _make_patches_with_service(WORKFLOW_GENERATED_JSON)
+    with p1, p2, p3, p4:
+        await _call("워크플로우 만들어줘")
+    # 과거 대화 조회 없이 고유 세션을 새로 생성
+    svc.get_session.assert_not_awaited()
+    svc.create_session.assert_awaited_once()
+    created_sid = svc.create_session.await_args.kwargs["session_id"]
+    assert created_sid.startswith("test-user-")
+    assert created_sid != "test-user"  # uuid 접미사가 붙어 user_id와 다름
+    # 종료 시 격리 세션 폐기
+    svc.delete_session.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_chat_workflow_self_correction_loop():
     """검증 레이어가 결함을 발견했을 때 피드백을 수용하여 자가 교정(Retry)을 거쳐 최종 결과를 반환하는지 검증한다."""
@@ -451,6 +514,7 @@ async def test_chat_workflow_self_correction_loop():
     mock_session_service = MagicMock()
     mock_session_service.get_session = AsyncMock(return_value=None)
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
+    mock_session_service.delete_session = AsyncMock(return_value=None)
 
     mock_lock = MagicMock()
     mock_lock.__aenter__ = AsyncMock(return_value=None)
@@ -570,6 +634,7 @@ async def test_chat_workflow_schedule_trigger_correction():
     mock_session_service = MagicMock()
     mock_session_service.get_session = AsyncMock(return_value=None)
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
+    mock_session_service.delete_session = AsyncMock(return_value=None)
 
     mock_lock = MagicMock()
     mock_lock.__aenter__ = AsyncMock(return_value=None)
@@ -644,6 +709,24 @@ def test_canonicalize_node_tools_unrecoverable_kept_and_non_ai_untouched():
     _canonicalize_node_tools(nodes, set())
     assert nodes[0]["config"]["tools"] == [{"name": "totally_unknown_tool"}]
     assert nodes[1]["config"] == {"mappings": {"x": "1"}}
+
+
+def test_canonicalize_node_tools_subagent_stripped():
+    """서브 에이전트(github/transform/web 등)는 실행 시 처리되므로 노드 tools에서 제거된다."""
+    from core.workflow_chat import _canonicalize_node_tools
+    nodes = [
+        {"id": "node-2", "type": "AI", "config": {"tools": [
+            {"name": "github_list_pull_requests"},
+            {"name": "builtin:github_list_pull_requests"},
+            {"name": "GitHub_List_Issues"},
+            {"name": "transform_agent"},
+            {"name": "web_agent"},
+            {"name": "comm_agent"},
+            {"name": "slack"},
+        ]}},
+    ]
+    _canonicalize_node_tools(nodes, set())
+    assert nodes[0]["config"]["tools"] == [{"name": "slack"}]
 
 
 @pytest.mark.asyncio
