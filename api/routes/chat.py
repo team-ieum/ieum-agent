@@ -23,10 +23,17 @@ async def chat_endpoint(
             provider=credentials["provider"],
             api_key=credentials["api_key"],
             user_id=credentials["user_id"],
+            workflow_id=request.workflowId,
             available_integrations=[a.model_dump() for a in request.availableIntegrations],
             unavailable_integrations=[u.model_dump() for u in request.unavailableIntegrations],
             current_nodes=[n.model_dump() for n in request.currentNodes] if request.currentNodes else None,
             current_edges=[e.model_dump() for e in request.currentEdges] if request.currentEdges else None,
+            notion_token=credentials.get("notion_token"),
+            github_token=credentials.get("github_token"),
+            google_access_token=credentials.get("google_access_token"),
+            mcp_servers=[s.model_dump() for s in request.mcpServers] if request.mcpServers else None,
+            available_mcp_servers=[m.model_dump() for m in request.availableMcpServers] if request.availableMcpServers else None,
+            available_webhooks=[w.model_dump() for w in request.availableWebhooks] if request.availableWebhooks else None,
         )
     except ValueError:
         raise HTTPException(

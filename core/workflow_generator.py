@@ -8,6 +8,7 @@ from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from db.mongodb import generate_workflow_logs
+from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,9 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 - slack                     : Slack 메시지 발송
 - discord                   : Discord 웹훅 메시지 발송
 - gmail                     : Gmail 발송
-- mcp                       : 외부 MCP 서버 Tool 호출 (server_url, tool_name, arguments 필요)
+
+주의: 'mcp'(외부 MCP 서버) 도구는 생성 단계에서 배정하지 않는다. 사용자 MCP 서버 정보가 주어지지
+않으므로 임의로 mcp 도구를 추가하면 안 되며, MCP 연동은 워크플로우 생성 후 노드 편집 단계에서 추가한다.
 
 ## Variable Reference Syntax
 이전 노드의 결과를 참조할 때는 반드시 아래 형식을 사용한다.
@@ -134,6 +137,11 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
     좋은 예: node-2(tools: [builtin:http_fetch]) → node-3(tools: [builtin:notion_create_page])
 12. Google 빌트인 도구(builtin:google_sheets_*, builtin:google_calendar_*, builtin:google_drive_*)의
     access_token 파라미터는 빈 문자열("")로 설정한다. Spring Boot에서 실행 시 주입한다.
+13. 데이터 무결성 보존 및 가공 위임:
+    - 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회, 노션 페이지 조회 등)는 원시 JSON 형태 데이터를 마음대로 요약/축소하지 말고 그대로 output으로 출력하도록 prompt 및 systemMessage를 설계해야 합니다. (예: "결과 데이터를 절대 요약하지 말고 JSON 원본 그대로 반환하시오")
+    - 데이터 요약, 날짜 포맷팅, JSON 파싱 등 데이터 변환 작업이 필요할 때는, 조회 노드에서 직접 가공하지 말고 `transform_agent` (혹은 `json_parse` 등의 도구)를 주입한 별도의 AI 노드에 가공 업무를 명시적으로 위임합니다.
+14. 생성 노드 프롬프트 경량화:
+    - 각 노드를 설계할 때 노드의 systemMessage나 prompt에 불필요한 사설이나 배경 설명을 과하게 채우지 말고, 핵심 지시사항(동작, 입력 참조값, 출력 형식 등) 위주로 최대 2~3문장 이내로만 간결하게 작성합니다.
 """
 
 
@@ -164,15 +172,94 @@ async def _save_generate_workflow_log(
         logger.warning("Failed to save generate_workflow log", exc_info=True)
 
 
+def _extract_json_object(raw: str) -> str:
+    """LLM 출력에서 최상위 JSON 객체 문자열을 견고하게 추출한다.
+
+    코드 펜스(```), 서론/설명문, 후행 텍스트가 섞여 있어도 첫 번째 '{' 부터
+    중괄호 짝이 맞는 지점까지를 추출한다. 문자열 리터럴 내부의 중괄호와
+    이스케이프(\\")는 깊이 계산에서 제외한다.
+    """
+    start = raw.find("{")
+    if start == -1:
+        raise ValueError("응답에서 JSON 객체를 찾을 수 없습니다.")
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(raw)):
+        ch = raw[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start:i + 1]
+
+    raise ValueError("JSON 객체의 중괄호 짝이 맞지 않습니다.")
+
+
+def _parse_and_validate(raw_output: str, original_prompt: str,
+                        allowed_mcp_catalog_ids: set | None = None) -> GenerateWorkflowResponse:
+    if not raw_output or not raw_output.strip():
+        raise ValueError("LLM이 빈 응답을 반환했습니다.")
+
+    cleaned = _extract_json_object(raw_output)
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON 문법 오류가 있습니다: {str(e)}")
+
+    # 1. Pydantic 스키마 형태 로드 (여기서 Pydantic ValidationError 발생 가능)
+    try:
+        nodes = [WorkflowNode(**n) for n in data.get("nodes", [])]
+        edges = [WorkflowEdge(**e) for e in data.get("edges", [])]
+    except Exception as e:
+        raise ValueError(f"스키마 검증(Pydantic) 실패: {str(e)}")
+
+    # 2. 코드 레벨 의미론적 상세 검증
+    raw_nodes = data.get("nodes", [])
+    raw_edges = data.get("edges", [])
+    WorkflowValidator.validate(raw_nodes, raw_edges, allowed_mcp_catalog_ids)
+
+    return GenerateWorkflowResponse(
+        nodes=nodes,
+        edges=edges,
+        rawPrompt=original_prompt,
+    )
+
+
 async def generate_workflow(
     prompt: str,
     provider: str,
     api_key: str,
+    available_mcp_servers: list | None = None,
 ) -> GenerateWorkflowResponse:
     start = time.monotonic()
     model = resolve_model(provider)
     env_key = resolve_env_key(provider)
     lock = get_env_lock(env_key) if env_key else None
+
+    # 생성 단계에서 허용되는 MCP 카탈로그 ID 집합. 카탈로그가 없으면 MCP는 전면 차단된다.
+    allowed_mcp_catalog_ids = {
+        (m.get("catalogId") if isinstance(m, dict) else getattr(m, "catalogId", None))
+        for m in (available_mcp_servers or [])
+    }
+    allowed_mcp_catalog_ids.discard(None)
+
+    def _validate(raw_output: str) -> GenerateWorkflowResponse:
+        # Builder Reflexion 루프(factory)가 호출하는 검증 콜백. 실패 시 예외를 던진다.
+        return _parse_and_validate(raw_output, prompt, allowed_mcp_catalog_ids)
 
     async def _execute() -> str:
         from agents.generate.factory import run_generate_agent
@@ -182,56 +269,22 @@ async def generate_workflow(
             provider=provider,
             api_key=api_key,
             env_key=env_key,
+            validate_fn=_validate,
+            available_mcp_servers=available_mcp_servers,
+            allowed_mcp_catalog_ids=allowed_mcp_catalog_ids,
         )
 
-    if lock:
-        async with lock:
-            raw_output = await _execute()
-    else:
-        raw_output = await _execute()
-
-    # JSON 파싱
     try:
-        # 마크다운 코드 펜스 제거 (LLM이 실수로 감쌀 경우 대비)
-        cleaned = raw_output.strip()
+        # Plan 검증·Builder Reflexion 루프는 run_generate_agent 내부에서 수행된다.
+        # 반환된 raw_output은 이미 _validate를 통과한 상태이므로 여기서 객체화만 한다.
+        if lock:
+            async with lock:
+                raw_output = await _execute()
+        else:
+            raw_output = await _execute()
 
-        if not cleaned:
-            logger.error("LLM이 빈 응답을 반환했습니다. provider: %s", provider)
-            raise ValueError("LLM이 빈 응답을 반환했습니다.")
-
-        if cleaned.startswith("```"):
-            cleaned = "\n".join(cleaned.split("\n")[1:])
-        if cleaned.rstrip().endswith("```"):
-            cleaned = "\n".join(cleaned.rstrip().split("\n")[:-1])
-        cleaned = cleaned.strip()
-
-        data = json.loads(cleaned)
-
-        nodes = [WorkflowNode(**n) for n in data.get("nodes", [])]
-        edges = [WorkflowEdge(**e) for e in data.get("edges", [])]
-
-        response = GenerateWorkflowResponse(
-            nodes=nodes,
-            edges=edges,
-            rawPrompt=prompt,
-        )
-
-        # 성공 로그 저장
-        duration_ms = int((time.monotonic() - start) * 1000)
-        await _save_generate_workflow_log(
-            prompt=prompt,
-            provider=provider,
-            model=model,
-            success=True,
-            duration_ms=duration_ms,
-            node_count=len(nodes),
-            edge_count=len(edges),
-        )
-
-        return response
-
-    except Exception as e:
-        # 실패 로그 저장
+        response = _parse_and_validate(raw_output, prompt, allowed_mcp_catalog_ids)
+    except Exception as err:
         duration_ms = int((time.monotonic() - start) * 1000)
         await _save_generate_workflow_log(
             prompt=prompt,
@@ -239,8 +292,20 @@ async def generate_workflow(
             model=model,
             success=False,
             duration_ms=duration_ms,
-            error_message=str(e),
+            error_message=f"워크플로우 생성/검증 최종 실패: {str(err)}",
         )
+        logger.error("워크플로우 생성/검증 최종 실패: %s", str(err), exc_info=True)
+        raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(err)})")
 
-        logger.error("워크플로우 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
-        raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(e)})")
+    # 성공 로그 저장
+    duration_ms = int((time.monotonic() - start) * 1000)
+    await _save_generate_workflow_log(
+        prompt=prompt,
+        provider=provider,
+        model=model,
+        success=True,
+        duration_ms=duration_ms,
+        node_count=len(response.nodes),
+        edge_count=len(response.edges),
+    )
+    return response

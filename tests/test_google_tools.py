@@ -44,7 +44,7 @@ async def test_google_sheets_read_success():
     })
     client = _make_async_client(get_mock=AsyncMock(return_value=resp))
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_sheets.get_http_client", return_value=client):
         result = await google_sheets_read(
             access_token="token",
             spreadsheet_id="spread-1",
@@ -61,7 +61,7 @@ async def test_google_sheets_read_api_error():
     resp = _make_mock_response(401, {"error": {"message": "Unauthorized"}})
     client = _make_async_client(get_mock=AsyncMock(return_value=resp))
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_sheets.get_http_client", return_value=client):
         result = await google_sheets_read(
             access_token="bad-token",
             spreadsheet_id="spread-1",
@@ -84,7 +84,7 @@ async def test_google_sheets_write_success():
     })
     client = _make_async_client(put_mock=AsyncMock(return_value=resp))
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_sheets.get_http_client", return_value=client):
         result = await google_sheets_write(
             access_token="token",
             spreadsheet_id="spread-1",
@@ -123,7 +123,7 @@ async def test_google_calendar_create_success():
     })
     client = _make_async_client(post_mock=AsyncMock(return_value=resp))
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_calendar.get_http_client", return_value=client):
         result = await google_calendar_create(
             access_token="token",
             summary="회의",
@@ -144,7 +144,7 @@ async def test_google_calendar_create_201_success():
     })
     client = _make_async_client(post_mock=AsyncMock(return_value=resp))
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_calendar.get_http_client", return_value=client):
         result = await google_calendar_create(
             access_token="token",
             summary="세미나",
@@ -172,7 +172,7 @@ async def test_google_calendar_list_success():
     })
     client = _make_async_client(get_mock=AsyncMock(return_value=resp))
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_calendar.get_http_client", return_value=client):
         result = await google_calendar_list(
             access_token="token",
             time_min="2026-05-14T00:00:00+09:00",
@@ -191,7 +191,7 @@ async def test_google_calendar_list_exception():
         get_mock=AsyncMock(side_effect=httpx.TimeoutException("timeout")),
     )
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_calendar.get_http_client", return_value=client):
         result = await google_calendar_list(
             access_token="token",
             time_min="2026-05-14T00:00:00+09:00",
@@ -218,7 +218,7 @@ async def test_google_drive_read_plain_text_success():
     get_mock = AsyncMock(side_effect=[meta_resp, content_resp])
     client = _make_async_client(get_mock=get_mock)
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_drive.get_http_client", return_value=client):
         result = await google_drive_read(access_token="token", file_id="file-1")
 
     parsed = json.loads(result)
@@ -240,7 +240,7 @@ async def test_google_drive_read_google_doc_export():
     get_mock = AsyncMock(side_effect=[meta_resp, export_resp])
     client = _make_async_client(get_mock=get_mock)
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_drive.get_http_client", return_value=client):
         result = await google_drive_read(access_token="token", file_id="file-2")
 
     parsed = json.loads(result)
@@ -254,7 +254,7 @@ async def test_google_drive_read_binary_rejected():
     get_mock = AsyncMock(return_value=meta_resp)
     client = _make_async_client(get_mock=get_mock)
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_drive.get_http_client", return_value=client):
         result = await google_drive_read(access_token="token", file_id="file-3")
 
     parsed = json.loads(result)
@@ -275,7 +275,7 @@ async def test_google_drive_upload_success():
     })
     client = _make_async_client(post_mock=AsyncMock(return_value=resp))
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_drive.get_http_client", return_value=client):
         result = await google_drive_upload(
             access_token="token",
             name="test.txt",
@@ -293,7 +293,7 @@ async def test_google_drive_upload_exception():
         post_mock=AsyncMock(side_effect=httpx.TimeoutException("timeout")),
     )
 
-    with patch("httpx.AsyncClient", return_value=client):
+    with patch("tools.google_drive.get_http_client", return_value=client):
         result = await google_drive_upload(
             access_token="token",
             name="test.txt",

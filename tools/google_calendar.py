@@ -3,6 +3,7 @@ import json
 import httpx
 
 from common.error_code import ToolErrorCode
+from tools.http_client import get_http_client
 
 _CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
 _TIMEOUT = 30.0
@@ -45,12 +46,13 @@ async def google_calendar_create(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events",
-                headers=_headers(access_token),
-                json=payload,
-            )
+        client = get_http_client()
+        response = await client.post(
+            f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+            headers=_headers(access_token),
+            json=payload,
+            timeout=_TIMEOUT,
+        )
         data = response.json()
         if not response.is_success:
             return json.dumps({
@@ -98,12 +100,13 @@ async def google_calendar_list(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.get(
-                f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events",
-                headers=_headers(access_token),
-                params=params,
-            )
+        client = get_http_client()
+        response = await client.get(
+            f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+            headers=_headers(access_token),
+            params=params,
+            timeout=_TIMEOUT,
+        )
         data = response.json()
         if not response.is_success:
             return json.dumps({

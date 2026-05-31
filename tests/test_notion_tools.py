@@ -31,7 +31,7 @@ async def test_notion_create_page_성공(mock_client):
         "url": "https://notion.so/page-123",
     }))
 
-    with patch("tools.notion.httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_create_page
         result = json.loads(await notion_create_page(
             token="secret_test",
@@ -51,7 +51,7 @@ async def test_notion_create_page_api_오류(mock_client):
         "message": "API token is invalid."
     }))
 
-    with patch("tools.notion.httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_create_page
         result = json.loads(await notion_create_page(
             token="invalid_token",
@@ -95,7 +95,7 @@ async def test_notion_read_page_성공(mock_client):
         _make_response(200, blocks_data),
     ])
 
-    with patch("tools.notion.httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_read_page
         result = json.loads(await notion_read_page(
             token="secret_test",
@@ -126,7 +126,7 @@ async def test_notion_search_성공(mock_client):
         ]
     }))
 
-    with patch("tools.notion.httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_search
         result = json.loads(await notion_search(
             token="secret_test",
@@ -151,7 +151,7 @@ async def test_notion_append_block_성공(mock_client):
         ]
     }))
 
-    with patch("tools.notion.httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_append_block
         result = json.loads(await notion_append_block(
             token="secret_test",
@@ -176,7 +176,7 @@ async def test_notion_update_page_제목만_수정(mock_client):
     mock_client.patch = AsyncMock(return_value=_make_response(200, page_data))
     mock_client.get = AsyncMock(return_value=_make_response(200, {"id": "page-123", "url": "https://notion.so/page-123"}))
 
-    with patch("tools.notion.httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_update_page
         result = json.loads(await notion_update_page(
             token="secret_test",
@@ -224,7 +224,7 @@ async def test_notion_update_page_본문_수정_새블록_먼저_추가(mock_cli
     mock_client.patch = mock_patch
     mock_client.delete = mock_delete
 
-    with patch("tools.notion.httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_update_page
         result = json.loads(await notion_update_page(
             token="secret_test",
@@ -265,7 +265,7 @@ async def test_notion_update_page_새블록_추가_실패시_기존블록_유지
     mock_client.patch = mock_patch
     mock_client.delete = mock_delete
 
-    with patch("tools.notion.httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_update_page
         result = json.loads(await notion_update_page(
             token="secret_test",
@@ -285,7 +285,7 @@ async def test_notion_update_page_api_오류(mock_client):
         "message": "Insufficient permissions."
     }))
 
-    with patch("tools.notion.httpx.AsyncClient", return_value=mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_update_page
         result = json.loads(await notion_update_page(
             token="secret_test",

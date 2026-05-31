@@ -3,6 +3,7 @@ import json
 import httpx
 
 from common.error_code import ToolErrorCode
+from tools.http_client import get_http_client
 
 _DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
 _DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3"
@@ -36,60 +37,63 @@ async def google_drive_read(
         파일 이름, MIME 타입, 내용을 포함한 JSON 문자열
     """
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            # 메타데이터 조회
-            meta_response = await client.get(
+        client = get_http_client()
+        # 메타데이터 조회
+        meta_response = await client.get(
+            f"{_DRIVE_API_BASE}/files/{file_id}",
+            headers=_headers(access_token),
+            params={"fields": "name,mimeType"},
+            timeout=_TIMEOUT,
+        )
+        if not meta_response.is_success:
+            data = meta_response.json()
+            return json.dumps({
+                "error": f"Google Drive API 오류 ({meta_response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
+            }, ensure_ascii=False)
+
+        meta = meta_response.json()
+        name = meta.get("name", "")
+        mime_type = meta.get("mimeType", "")
+
+        # MIME 타입별 콘텐츠 가져오기
+        export_mime = _EXPORT_MIME_MAP.get(mime_type)
+        if export_mime:
+            content_response = await client.get(
+                f"{_DRIVE_API_BASE}/files/{file_id}/export",
+                headers=_headers(access_token),
+                params={"mimeType": export_mime},
+                timeout=_TIMEOUT,
+            )
+        else:
+            _TEXT_MIME_PREFIXES = ("text/", "application/json", "application/xml",
+                                   "application/javascript", "application/x-yaml")
+            if not any(mime_type.startswith(p) for p in _TEXT_MIME_PREFIXES):
+                return json.dumps({
+                    "error": f"지원하지 않는 파일 형식입니다: {mime_type}. 텍스트 파일만 읽을 수 있습니다."
+                }, ensure_ascii=False)
+
+            content_response = await client.get(
                 f"{_DRIVE_API_BASE}/files/{file_id}",
                 headers=_headers(access_token),
-                params={"fields": "name,mimeType"},
+                params={"alt": "media"},
+                timeout=_TIMEOUT,
             )
-            if not meta_response.is_success:
-                data = meta_response.json()
-                return json.dumps({
-                    "error": f"Google Drive API 오류 ({meta_response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
-                }, ensure_ascii=False)
 
-            meta = meta_response.json()
-            name = meta.get("name", "")
-            mime_type = meta.get("mimeType", "")
+        if not content_response.is_success:
+            return json.dumps({
+                "error": f"Google Drive 파일 읽기 실패 ({content_response.status_code})"
+            }, ensure_ascii=False)
 
-            # MIME 타입별 콘텐츠 가져오기
-            export_mime = _EXPORT_MIME_MAP.get(mime_type)
-            if export_mime:
-                content_response = await client.get(
-                    f"{_DRIVE_API_BASE}/files/{file_id}/export",
-                    headers=_headers(access_token),
-                    params={"mimeType": export_mime},
-                )
-            else:
-                _TEXT_MIME_PREFIXES = ("text/", "application/json", "application/xml",
-                                       "application/javascript", "application/x-yaml")
-                if not any(mime_type.startswith(p) for p in _TEXT_MIME_PREFIXES):
-                    return json.dumps({
-                        "error": f"지원하지 않는 파일 형식입니다: {mime_type}. 텍스트 파일만 읽을 수 있습니다."
-                    }, ensure_ascii=False)
+        raw = content_response.content
+        if len(raw) > _MAX_CONTENT_BYTES:
+            raw = raw[:_MAX_CONTENT_BYTES]
 
-                content_response = await client.get(
-                    f"{_DRIVE_API_BASE}/files/{file_id}",
-                    headers=_headers(access_token),
-                    params={"alt": "media"},
-                )
-
-            if not content_response.is_success:
-                return json.dumps({
-                    "error": f"Google Drive 파일 읽기 실패 ({content_response.status_code})"
-                }, ensure_ascii=False)
-
-            raw = content_response.content
-            if len(raw) > _MAX_CONTENT_BYTES:
-                raw = raw[:_MAX_CONTENT_BYTES]
-
-            try:
-                content = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                return json.dumps({
-                    "error": "파일 인코딩을 읽을 수 없습니다. UTF-8 인코딩 파일만 지원합니다."
-                }, ensure_ascii=False)
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return json.dumps({
+                "error": "파일 인코딩을 읽을 수 없습니다. UTF-8 인코딩 파일만 지원합니다."
+            }, ensure_ascii=False)
 
         return json.dumps({
             "success": True,
@@ -144,16 +148,17 @@ async def google_drive_upload(
     body = "\r\n".join(body_parts)
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                f"{_DRIVE_UPLOAD_BASE}/files",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": f"multipart/related; boundary={boundary}",
-                },
-                params={"uploadType": "multipart", "fields": "id,name,webViewLink"},
-                content=body.encode("utf-8"),
-            )
+        client = get_http_client()
+        response = await client.post(
+            f"{_DRIVE_UPLOAD_BASE}/files",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": f"multipart/related; boundary={boundary}",
+            },
+            params={"uploadType": "multipart", "fields": "id,name,webViewLink"},
+            content=body.encode("utf-8"),
+            timeout=_TIMEOUT,
+        )
         data = response.json()
         if not response.is_success:
             return json.dumps({

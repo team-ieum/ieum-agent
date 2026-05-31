@@ -46,6 +46,7 @@ async def test_notion_agent_with_token_enters_mcp_toolset():
 
     with patch("agents.execute.sub.notion_agent.MCPToolset") as mock_mcp_cls:
         mock_mcp = MagicMock()
+        mock_mcp.get_tools.return_value = mock_tools
         mock_mcp_cls.return_value = mock_mcp
 
         async with contextlib.AsyncExitStack() as stack:
@@ -58,8 +59,8 @@ async def test_notion_agent_with_token_enters_mcp_toolset():
 
 
 @pytest.mark.asyncio
-async def test_notion_agent_uses_correct_mcp_url():
-    """Notion MCP 서버 URL이 mcp.notion.com/sse 이다."""
+async def test_notion_agent_uses_correct_stdio_params():
+    """Notion MCP 서버는 npx와 @notionhq/notion-mcp-server 명령 인자를 사용한다."""
     from agents.execute.sub.notion_agent import build_notion_agent
 
     captured = {}
@@ -73,7 +74,8 @@ async def test_notion_agent_uses_correct_mcp_url():
             with patch.object(stack, "enter_async_context", new=AsyncMock(return_value=[])):
                 await build_notion_agent("gemini-2.5-flash", "oauth-token", stack)
 
-    assert "mcp.notion.com/sse" in captured["params"].url
+    assert captured["params"].server_params.command == "npx"
+    assert "@notionhq/notion-mcp-server" in captured["params"].server_params.args
 
 
 # ---------- GitHubAgent ----------
@@ -215,3 +217,53 @@ async def test_mcp_agent_creates_toolset_per_server():
 
     assert call_count["n"] == 2
     assert len(mcps) == 2
+
+
+# ---------- TransformAgent ----------
+
+@pytest.mark.asyncio
+async def test_transform_agent_has_correct_tools():
+    """TransformAgent가 데이터 변환/포맷팅 헬퍼 도구 3종을 정상적으로 보유하는지 검증한다."""
+    from agents.execute.sub.transform_agent import build_transform_agent
+    
+    agent, mcps = await build_transform_agent("gemini-2.5-flash")
+    
+    assert agent.name == "transform_agent"
+    assert len(agent.tools) == 3
+    tool_names = {t.name for t in agent.tools}
+    assert "json_parse" in tool_names
+    assert "text_extract" in tool_names
+    assert "date_format" in tool_names
+    assert mcps == []
+
+
+
+# ---------- CommAgent ----------
+
+@pytest.mark.asyncio
+async def test_comm_agent_binds_webhook_url_when_config_provided():
+    """webhook_configs 제공 시 comm_agent의 discord 도구에 webhook_url이 바인딩되어
+    LLM에게 노출되는 파라미터에서 제거된다(멀티 에이전트 위임 시 URL 되묻기 방지)."""
+    import inspect
+    from agents.execute.sub.communication_agent import build_communication_agent
+
+    configs = {"send_discord_webhook": {"webhook_url": "https://discord.test/wh"}}
+    agent, _ = await build_communication_agent("gemini-2.5-flash", configs)
+
+    discord_tool = next(t for t in agent.tools if t.name == "send_discord_webhook")
+    fn = getattr(discord_tool, "_func", getattr(discord_tool, "func", None))
+    params = inspect.signature(fn).parameters
+    assert "webhook_url" not in params  # 바인딩되어 시그니처에서 제거됨
+
+
+@pytest.mark.asyncio
+async def test_comm_agent_without_config_keeps_webhook_url_param():
+    """webhook_configs 미제공 시 기존 동작 유지(도구는 그대로, webhook_url 파라미터 노출)."""
+    import inspect
+    from agents.execute.sub.communication_agent import build_communication_agent
+
+    agent, _ = await build_communication_agent("gemini-2.5-flash")
+    discord_tool = next(t for t in agent.tools if t.name == "send_discord_webhook")
+    fn = getattr(discord_tool, "_func", getattr(discord_tool, "func", None))
+    params = inspect.signature(fn).parameters
+    assert "webhook_url" in params
