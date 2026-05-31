@@ -10,7 +10,6 @@ from tools.http_client import get_http_client
 
 _MAX_RESPONSE_BYTES = 1 * 1024 * 1024
 _TIMEOUT = 30.0
-_MAX_REDIRECTS = 5
 
 
 def _parse_headers(headers_json: str | dict | None) -> tuple[dict[str, str], str | None]:
