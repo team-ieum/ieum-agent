@@ -85,6 +85,38 @@ async def test_run_simple_agent_creates_agent_with_no_tools():
         assert kwargs.get("tools", []) == []
 
 
+@pytest.mark.asyncio
+async def test_run_simple_agent_deletes_session_after_run():
+    """단발성 simple 세션은 실행 종료 후 delete_session으로 폐기된다."""
+    from agents.execute.factory import run_simple_agent
+
+    async def _fake_run_async(**kwargs):
+        yield _make_final_event("ok")
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock()
+    mock_session.id = "s1"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    with patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_simple_agent(
+            model="gemini-2.5-flash",
+            request=_make_request(agent_type="simple"),
+            api_key="test-key",
+            env_key=None,
+            user_id="user-1",
+            session_service=mock_ss,
+        )
+
+    mock_ss.delete_session.assert_called_once_with(
+        app_name="ieum-agent", user_id="user-1", session_id="s1"
+    )
+
+
 # ---------- run_react_agent ----------
 
 @pytest.mark.asyncio
@@ -121,6 +153,82 @@ async def test_run_react_agent_returns_output():
         )
 
     assert output == "react response"
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_deletes_session_single_path():
+    """단일 ReAct 경로(토큰 ≤1, 커스텀 MCP 없음) 종료 후 세션을 폐기한다."""
+    from agents.execute.factory import run_react_agent
+
+    async def _fake_run_async(**kwargs):
+        yield _make_final_event("ok")
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock()
+    mock_session.id = "s-single"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            request=_make_request(),
+            api_key="test-key",
+            env_key=None,
+            user_id="user-1",
+            session_service=mock_ss,
+        )
+
+    mock_ss.delete_session.assert_called_once_with(
+        app_name="ieum-agent", user_id="user-1", session_id="s-single"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_deletes_session_multi_path():
+    """멀티 에이전트 경로(use_single_agent=False) 종료 후 세션을 폐기한다."""
+    from agents.execute.factory import run_react_agent
+
+    async def _fake_run_async(**kwargs):
+        yield _make_final_event("ok")
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock()
+    mock_session.id = "s-multi"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_google_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_github_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_mcp_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            request=_make_request(),
+            api_key="test-key",
+            env_key=None,
+            user_id="user-1",
+            session_service=mock_ss,
+            use_single_agent=False,
+        )
+
+    mock_ss.delete_session.assert_called_once_with(
+        app_name="ieum-agent", user_id="user-1", session_id="s-multi"
+    )
 
 
 @pytest.mark.asyncio
