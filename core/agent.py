@@ -1,3 +1,5 @@
+import asyncio
+import functools
 import logging
 import time
 from datetime import datetime, timezone
@@ -65,12 +67,18 @@ async def run_agent(
     result = AgentExecutionResult(success=False)
 
     # 1. Execution Guard (사전 무결성/보안 필터)
+    # SSRF 검사의 DNS 조회(socket.gethostbyname)가 동기 블로킹이므로
+    # 이벤트 루프를 막지 않도록 스레드 풀로 오프로드한다.
     try:
-        ExecutionGuard.validate_execution(
-            request,
-            google_access_token=google_access_token,
-            notion_token=notion_token,
-            github_token=github_token
+        await asyncio.get_running_loop().run_in_executor(
+            None,
+            functools.partial(
+                ExecutionGuard.validate_execution,
+                request,
+                google_access_token=google_access_token,
+                notion_token=notion_token,
+                github_token=github_token,
+            ),
         )
     except ExecutionGuardError as e:
         logger.warning("Execution guard rejected request: %s", e)
