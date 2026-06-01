@@ -56,3 +56,18 @@ def test_modify_workflow_서버_오류_시_500_반환():
         )
     assert response.status_code == 500
     assert ErrorCode.WORKFLOW_MODIFY_FAILED.message in response.json()["detail"]
+
+
+class _RateLimitError(Exception):
+    def __init__(self):
+        self.code = 429
+
+
+def test_modify_workflow_레이트리밋_429_반환():
+    with patch("api.routes.modify.modify_workflow", side_effect=_RateLimitError()):
+        response = client.post(
+            "/v1/modify-workflow",
+            json=MODIFY_PAYLOAD,
+        )
+    assert response.status_code == 429
+    assert ErrorCode.RATE_LIMITED.message in response.json()["detail"]
