@@ -431,3 +431,15 @@ def test_inline_formatting_inside_heading():
     rich_text = blocks[0]["heading_1"]["rich_text"]
     assert rich_text[0]["text"]["content"] == "중요"
     assert rich_text[0]["annotations"] == {"bold": True}
+
+
+def test_empty_list_items_match_their_block_type():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("-\n1.\n- [ ]")
+    assert [b["type"] for b in blocks] == [
+        "bulleted_list_item", "numbered_list_item", "to_do",
+    ]
+    assert blocks[0]["bulleted_list_item"]["rich_text"] == []
+    assert blocks[1]["numbered_list_item"]["rich_text"] == []
+    assert blocks[2]["to_do"]["rich_text"] == []
+    assert blocks[2]["to_do"]["checked"] is False
