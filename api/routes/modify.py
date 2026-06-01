@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.middleware.credential import get_llm_credentials
 from api.schemas.modify_workflow import ModifyWorkflowRequest, ModifyWorkflowResponse
 from common.error_code import ErrorCode
+from common.exception import llm_http_exception
 from core.workflow_modifier import modify_workflow
 
 logger = logging.getLogger(__name__)
@@ -30,5 +31,4 @@ async def modify_workflow_endpoint(
                             detail=ErrorCode.WORKFLOW_MODIFY_PARSE_FAILED.message)
     except Exception as e:
         logger.error("워크플로우 수정 중 예상치 못한 오류: %s", str(e), exc_info=True)
-        raise HTTPException(status_code=ErrorCode.WORKFLOW_MODIFY_FAILED.status_code,
-                            detail=ErrorCode.WORKFLOW_MODIFY_FAILED.message)
+        raise llm_http_exception(e, ErrorCode.WORKFLOW_MODIFY_FAILED)

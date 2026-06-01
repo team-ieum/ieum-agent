@@ -295,3 +295,151 @@ async def test_notion_update_page_api_오류(mock_client):
 
     assert "error" in result
     assert "403" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# 마크다운 → Notion 블록 변환 (_blocks_from_text / _parse_inline)
+# ---------------------------------------------------------------------------
+
+def _block_text(block: dict) -> str:
+    """블록 rich_text의 plain content를 합쳐 반환."""
+    rich_text = block[block["type"]].get("rich_text", [])
+    return "".join(rt["text"]["content"] for rt in rich_text)
+
+
+def test_headings_conversion():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("# 제목1\n## 제목2\n### 제목3")
+    assert [b["type"] for b in blocks] == ["heading_1", "heading_2", "heading_3"]
+    assert _block_text(blocks[0]) == "제목1"
+    assert _block_text(blocks[2]) == "제목3"
+
+
+def test_bulleted_and_numbered_list_conversion():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("- 항목A\n* 항목B\n1. 첫째\n2. 둘째")
+    assert [b["type"] for b in blocks] == [
+        "bulleted_list_item", "bulleted_list_item",
+        "numbered_list_item", "numbered_list_item",
+    ]
+    assert _block_text(blocks[0]) == "항목A"
+    assert _block_text(blocks[3]) == "둘째"
+
+
+def test_todo_checkbox_conversion():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("- [ ] 미완료\n- [x] 완료")
+    assert blocks[0]["type"] == "to_do"
+    assert blocks[0]["to_do"]["checked"] is False
+    assert blocks[1]["to_do"]["checked"] is True
+
+
+def test_code_block_conversion():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("```python\nprint('hi')\nx = 1\n```")
+    assert len(blocks) == 1
+    assert blocks[0]["type"] == "code"
+    assert blocks[0]["code"]["language"] == "python"
+    assert _block_text(blocks[0]) == "print('hi')\nx = 1"
+
+
+def test_code_block_unsupported_language_falls_back_to_plain_text():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("```없는언어\ncode\n```")
+    assert blocks[0]["code"]["language"] == "plain text"
+
+
+def test_code_block_language_alias_normalized():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("```js\nconst a = 1;\n```")
+    assert blocks[0]["code"]["language"] == "javascript"
+
+
+def test_quote_and_divider_conversion():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("> 인용문\n---")
+    assert blocks[0]["type"] == "quote"
+    assert _block_text(blocks[0]) == "인용문"
+    assert blocks[1]["type"] == "divider"
+
+
+def test_plain_paragraph_conversion():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("그냥 평범한 문장.")
+    assert len(blocks) == 1
+    assert blocks[0]["type"] == "paragraph"
+    assert _block_text(blocks[0]) == "그냥 평범한 문장."
+
+
+def test_blank_lines_produce_no_block():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("첫 줄\n\n\n둘째 줄")
+    assert [b["type"] for b in blocks] == ["paragraph", "paragraph"]
+
+
+def test_empty_input_produces_single_empty_paragraph():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("")
+    assert len(blocks) == 1
+    assert blocks[0]["type"] == "paragraph"
+    assert blocks[0]["paragraph"]["rich_text"] == []
+
+
+def test_inline_bold_and_italic():
+    from tools.notion import _parse_inline
+    segments = _parse_inline("이건 **굵게** 그리고 *기울임*")
+    # 평문 + 볼드 + 평문 + 이탤릭
+    assert segments[1]["text"]["content"] == "굵게"
+    assert segments[1]["annotations"] == {"bold": True}
+    assert segments[3]["text"]["content"] == "기울임"
+    assert segments[3]["annotations"] == {"italic": True}
+
+
+def test_inline_code():
+    from tools.notion import _parse_inline
+    segments = _parse_inline("값은 `x = 1` 이다")
+    assert segments[1]["text"]["content"] == "x = 1"
+    assert segments[1]["annotations"] == {"code": True}
+
+
+def test_inline_link():
+    from tools.notion import _parse_inline
+    segments = _parse_inline("자세히는 [여기](https://example.com) 참고")
+    assert segments[1]["text"]["content"] == "여기"
+    assert segments[1]["text"]["link"] == {"url": "https://example.com"}
+
+
+def test_inline_symbols_inside_code_span_are_protected():
+    from tools.notion import _parse_inline
+    # 코드 스팬 안의 ** 는 볼드로 해석되지 않아야 함
+    segments = _parse_inline("`**не bold**`")
+    assert len(segments) == 1
+    assert segments[0]["text"]["content"] == "**не bold**"
+    assert segments[0]["annotations"] == {"code": True}
+
+
+def test_segment_split_over_2000_chars():
+    from tools.notion import _text_segments
+    segments = _text_segments("가" * 4500)
+    assert len(segments) == 3  # 2000 + 2000 + 500
+    assert all(len(s["text"]["content"]) <= 2000 for s in segments)
+
+
+def test_inline_formatting_inside_heading():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("# **중요** 제목")
+    rich_text = blocks[0]["heading_1"]["rich_text"]
+    assert rich_text[0]["text"]["content"] == "중요"
+    assert rich_text[0]["annotations"] == {"bold": True}
+
+
+def test_empty_list_items_match_their_block_type():
+    from tools.notion import _blocks_from_text
+    blocks = _blocks_from_text("-\n1.\n- [ ]")
+    assert [b["type"] for b in blocks] == [
+        "bulleted_list_item", "numbered_list_item", "to_do",
+    ]
+    assert blocks[0]["bulleted_list_item"]["rich_text"] == []
+    assert blocks[1]["numbered_list_item"]["rich_text"] == []
+    assert blocks[2]["to_do"]["rich_text"] == []
+    assert blocks[2]["to_do"]["checked"] is False

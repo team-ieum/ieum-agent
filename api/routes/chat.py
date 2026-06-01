@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.middleware.credential import get_llm_credentials
 from api.schemas.chat import ChatRequest, ChatResponse
 from common.error_code import ErrorCode
+from common.exception import llm_http_exception
 from core.workflow_chat import chat_workflow
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,4 @@ async def chat_endpoint(
         )
     except Exception as e:
         logger.error("채팅 처리 중 예상치 못한 오류: %s", str(e), exc_info=True)
-        raise HTTPException(
-            status_code=ErrorCode.CHAT_EXECUTION_FAILED.status_code,
-            detail=ErrorCode.CHAT_EXECUTION_FAILED.message,
-        )
+        raise llm_http_exception(e, ErrorCode.CHAT_EXECUTION_FAILED)
