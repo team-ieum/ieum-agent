@@ -166,3 +166,134 @@
   ]
 }
 ```
+
+---
+
+### 예시 4: Notion 타겟 ID가 확정된 저장 (parent_page_id 주입)
+
+- 흐름: TRIGGER(SCHEDULE) ➡️ AI(web_search 수집) ➡️ AI(notion_create_page 저장)
+- 백엔드가 넘긴 Notion 타겟 힌트에서 이름이 일치해 parent_page_id를 실제 ID로 채운 형태다.
+- 타겟 ID를 모를 때만 빈 문자열("")로 두고, 알 수 있으면 이렇게 명시해 런타임 ID 누락을 막는다.
+
+```json
+{
+  "nodes": [
+    {
+      "id": "node-1",
+      "type": "TRIGGER",
+      "label": "매일 아침 8시 트리거",
+      "config": {"triggerType": "SCHEDULE", "cron": "0 8 * * *"}
+    },
+    {
+      "id": "node-2",
+      "type": "AI",
+      "label": "AI 트렌드 검색",
+      "config": {
+        "llmProvider": "GEMINI",
+        "credentialId": "",
+        "prompt": "오늘의 최신 AI 트렌드를 검색해줘. 결과를 요약하지 말고 원본 그대로 반환하시오.",
+        "agentType": "react",
+        "tools": [{"name": "builtin:web_search"}]
+      }
+    },
+    {
+      "id": "node-3",
+      "type": "AI",
+      "label": "Notion '트렌드 노트'에 저장",
+      "config": {
+        "llmProvider": "GEMINI",
+        "credentialId": "",
+        "prompt": "다음 내용을 마크다운으로 정리해 Notion 페이지로 저장해줘. parent_page_id: '1a2b3c4d5e6f7890'. 본문: {{nodes.node-2.output.output}}",
+        "agentType": "react",
+        "tools": [{"name": "builtin:notion_create_page"}]
+      }
+    }
+  ],
+  "edges": [
+    {"source": "node-1", "target": "node-2", "conditionType": null},
+    {"source": "node-2", "target": "node-3", "conditionType": null}
+  ]
+}
+```
+
+---
+
+### 예시 5: Google Sheets 로그 기록
+
+- 흐름: TRIGGER(SCHEDULE) ➡️ AI(google_sheets_write 기록)
+- access_token은 빈 값으로 두고(런타임 주입), spreadsheet_id·range는 prompt에 명시한다.
+
+```json
+{
+  "nodes": [
+    {
+      "id": "node-1",
+      "type": "TRIGGER",
+      "label": "매시간 정각 트리거",
+      "config": {"triggerType": "SCHEDULE", "cron": "0 * * * *"}
+    },
+    {
+      "id": "node-2",
+      "type": "AI",
+      "label": "Google Sheets에 상태 기록",
+      "config": {
+        "llmProvider": "GEMINI",
+        "credentialId": "",
+        "prompt": "현재 시각과 상태값을 스프레드시트에 한 행 추가해줘. spreadsheet_id: 'sheet-abc123', range: 'Sheet1!A:B', values: [[현재시각, 'OK']]",
+        "agentType": "react",
+        "tools": [{"name": "builtin:google_sheets_write"}]
+      }
+    }
+  ],
+  "edges": [
+    {"source": "node-1", "target": "node-2", "conditionType": null}
+  ]
+}
+```
+
+---
+
+### 예시 6: 외부 REST API 호출 (HTTP 노드)
+
+- 흐름: TRIGGER(SCHEDULE) ➡️ HTTP(외부 API) ➡️ AI(가공)
+- 내장 도구가 없는 임의의 외부 REST API만 HTTP 노드로 호출한다. (Notion/Slack/Google/GitHub 등은 절대 HTTP 노드 금지)
+
+```json
+{
+  "nodes": [
+    {
+      "id": "node-1",
+      "type": "TRIGGER",
+      "label": "매일 정오 트리거",
+      "config": {"triggerType": "SCHEDULE", "cron": "0 12 * * *"}
+    },
+    {
+      "id": "node-2",
+      "type": "HTTP",
+      "label": "환율 API 조회",
+      "config": {
+        "method": "GET",
+        "url": "https://open.er-api.com/v6/latest/USD",
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "id": "node-3",
+      "type": "AI",
+      "label": "환율 요약",
+      "config": {
+        "llmProvider": "GEMINI",
+        "credentialId": "",
+        "prompt": "다음 환율 데이터에서 원화(KRW) 환율을 뽑아 한 줄로 요약해줘: {{nodes.node-2.output.body}}",
+        "agentType": "simple",
+        "tools": []
+      }
+    }
+  ],
+  "edges": [
+    {"source": "node-1", "target": "node-2", "conditionType": null},
+    {"source": "node-2", "target": "node-3", "conditionType": null}
+  ]
+}
+```
