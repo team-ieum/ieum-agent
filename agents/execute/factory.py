@@ -64,7 +64,12 @@ def _extract_webhook_configs(tools: list | None) -> dict:
                 "[webhook-debug] agent webhook config 추출 — fn: %s, config keys: %s, webhook_url 존재: %s",
                 fn, list(cfg.keys()), bool(cfg.get("webhook_url")),
             )
-    if not out:
+    # webhook 도구가 실제로 명시됐는데 config 추출이 비었을 때만 경고한다.
+    # (webhook 없는 일반 노드에서 매번 경고 로그를 남겨 로그가 오염되는 것을 방지)
+    has_webhook_tool = any(
+        isinstance(t, dict) and t.get("name") in _WEBHOOK_FN_BY_TOOL for t in (tools or [])
+    )
+    if not out and has_webhook_tool:
         _log.warning("[webhook-debug] agent webhook config 없음 — tools: %s",
                      [t.get("name") if isinstance(t, dict) else t for t in (tools or [])])
     return out

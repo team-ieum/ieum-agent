@@ -56,12 +56,36 @@ def _extract_json(text: str) -> dict | None:
     except (json.JSONDecodeError, ValueError):
         pass
 
+    # LLM이 JSON 뒤에 설명 텍스트를 덧붙이는 경우가 있으므로, 첫 '{' 부터 중괄호 쌍이
+    # 맞는 지점까지만 잘라 파싱한다(문자열 내부 중괄호/이스케이프는 무시).
     start = cleaned.find("{")
-    if start != -1:
-        try:
-            return json.loads(cleaned[start:])
-        except (json.JSONDecodeError, ValueError):
-            pass
+    if start == -1:
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(cleaned)):
+        ch = cleaned[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(cleaned[start:i + 1])
+                except (json.JSONDecodeError, ValueError):
+                    break
 
     return None
 
@@ -834,7 +858,15 @@ async def chat_workflow(
         actions = [ChatAction(**a) for a in data.get("actions", [])]
         # 모델이 후보를 과도하게 많이 담아도(저장소 수십 개 등) UI 과부하를 막기 위해 하드 캡.
         # 목록에 없으면 사용자가 직접 입력할 수 있다(message 안내 + 일반 입력 경로).
-        options = [ClarificationOption(**o) for o in (data.get("options") or [])][:_MAX_CLARIFICATION_OPTIONS]
+        # 개별 옵션 파싱 실패가 전체 생성 실패로 번지지 않도록 방어적으로 필터링한다.
+        options = []
+        for o in (data.get("options") or []):
+            if isinstance(o, dict) and "value" in o and "label" in o:
+                try:
+                    options.append(ClarificationOption(**o))
+                except Exception:
+                    pass
+        options = options[:_MAX_CLARIFICATION_OPTIONS]
 
         response = ChatResponse(
             message=data.get("message", ""),
