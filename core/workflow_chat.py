@@ -156,6 +156,82 @@ _SYSTEM_PROMPT_BASE = """\
 </flow_selection_rules>
 """
 
+_RESOLVER_SYSTEM_PROMPT = """\
+당신은 IEUM 워크플로우 설계 전 단계의 '리소스 조회' 에이전트입니다.
+사용자 요청을 수행할 워크플로우가 필요로 할 외부 리소스 ID(Notion 페이지/DB, Google Sheets,
+Calendar, GitHub 저장소 등)를 바인딩된 조회 도구로 미리 찾아내는 것이 임무입니다.
+
+규칙:
+1. 사용자 요청에 특정 리소스(예: 노션의 특정 페이지/DB, 시트, 저장소)가 암시되면, 해당 조회
+   도구(notion_search 등)를 호출해 실제 목록을 조회하라.
+2. 조회 결과에서 요청에 가장 부합하는 항목의 (이름 → ID)만 간결히 보고하라.
+3. 메시지 발송(슬랙/디스코드 등)이나 데이터 변경 행위는 절대 하지 마라. 오직 조회만 한다.
+4. 조회가 필요 없거나(리소스 ID 불필요) 적합한 항목을 못 찾으면 정확히 "NONE" 한 단어만 출력하라.
+5. 출력은 사람이 읽을 수 있는 간단한 목록 텍스트로 한다(JSON 불필요).
+
+출력 예시:
+- Notion 페이지: "IT 트렌드 노트" → 1a2b3c4d5e6f...
+- GitHub 저장소: "ieum-agent" → owner/ieum-agent
+"""
+
+# Resolver가 사용하면 안 되는 발송/변경성 도구(조회 전용 보장).
+_RESOLVER_EXCLUDED_TOOLS = {"send_slack_message", "send_discord_webhook"}
+
+
+async def _resolve_resources(browse_tools: list, prompt: str, model_param,
+                             session_service, user_id: str) -> str:
+    """output_schema Designer가 도구를 못 쓰는 ADK 제약을 우회하기 위한 사전 리소스 조회 단계.
+
+    조회 전용 도구(notion_search, github_list_*, google_list_*, MCP 등)만 가진 별도 에이전트를
+    실행해 리소스 ID를 찾아 텍스트로 반환한다. 조회할 것이 없으면 빈 문자열을 반환한다.
+    어떤 오류가 나도 생성 흐름을 막지 않도록 실패 시 빈 문자열을 반환한다."""
+    resolver_tools = [
+        t for t in browse_tools
+        if getattr(t, "name", "") not in _RESOLVER_EXCLUDED_TOOLS
+    ]
+    if not resolver_tools:
+        return ""
+
+    try:
+        resolver_agent = LlmAgent(
+            name="workflow_resolver",
+            model=model_param,
+            instruction=_RESOLVER_SYSTEM_PROMPT + get_current_time_info(),
+            tools=resolver_tools,
+        )
+        resolver_runner = Runner(
+            agent=resolver_agent,
+            app_name="ieum-agent",
+            session_service=session_service,
+        )
+        session_id = f"{user_id}-resolver-{uuid.uuid4().hex}"
+        await session_service.create_session(
+            app_name="ieum-agent", user_id=user_id, session_id=session_id,
+        )
+        try:
+            message = types.Content(role="user", parts=[types.Part(text=prompt)])
+            parts = []
+            async for event in resolver_runner.run_async(
+                user_id=user_id, session_id=session_id, new_message=message,
+            ):
+                if event.is_final_response() and event.content:
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            parts.append(part.text)
+        finally:
+            await session_service.delete_session(
+                app_name="ieum-agent", user_id=user_id, session_id=session_id,
+            )
+
+        text = "\n".join(parts).strip()
+        if not text or text.strip().upper() == "NONE":
+            return ""
+        return text
+    except Exception:
+        logger.warning("리소스 사전 조회(Resolver) 실패 — 빈 컨텍스트로 진행합니다.", exc_info=True)
+        return ""
+
+
 _NODE_META_KEYS = {"id", "type", "nodeType", "label", "config"}
 
 
@@ -449,16 +525,33 @@ async def chat_workflow(
 
                 model_param = CustomGemini(model=model, api_key=api_key) if is_gemini else model
 
+                session_service = _get_session_service()
+
+                # Step 0: 리소스 ID 사전 해소 (Resolver)
+                # output_schema가 설정된 에이전트는 ADK 제약상 도구를 호출할 수 없다
+                # (google.adk LlmAgent.output_schema: "agent can ONLY reply and CANNOT use any tools").
+                # 따라서 도구 사용이 가능한 별도 에이전트로 먼저 리소스 ID(Notion page/DB 등)를 조회해
+                # Designer에게 컨텍스트로 전달한다. (notion_search 등 조회 도구가 실제로 동작하도록)
+                resolved_context = await _resolve_resources(
+                    browse_tools, prompt, model_param, session_service, user_id,
+                )
+
+                designer_instruction = instruction + get_current_time_info()
+                if resolved_context:
+                    designer_instruction += (
+                        f"\n\n## 사전 조회된 리소스 (ID 자동 매핑에 사용)\n{resolved_context}\n"
+                        "위 목록에서 요청에 부합하는 리소스가 있으면 해당 ID를 노드 config에 그대로 기입하라. "
+                        "적합한 항목이 없으면 parent_page_id 등은 빈 문자열(\"\")로 두라."
+                    )
+
                 # 1. Designer Agent (Generator) 선언
+                # output_schema 사용 시 도구 호출이 불가하므로 tools는 비운다(Resolver가 조회를 대행).
                 designer_agent = LlmAgent(
                     name="workflow_designer",
                     model=model_param,
-                    instruction=instruction + get_current_time_info(),
-                    tools=browse_tools,
+                    instruction=designer_instruction,
                     output_schema=ChatResponseOutputSchema,
                 )
-
-                session_service = _get_session_service()
                 
                 # 2. Reviewer Agent 선언
                 reviewer_agent = LlmAgent(
