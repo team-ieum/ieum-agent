@@ -6,6 +6,8 @@ class ErrorCode(Enum):
     MISSING_CREDENTIAL           = (400, "LLM 헤더가 누락되었습니다.")
     RATE_LIMITED                 = (429, "LLM 요청 한도(quota/rate limit)를 초과했습니다. 잠시 후 다시 시도해주세요.")
     AGENT_EXECUTION_FAILED       = (500, "에이전트 실행에 실패했습니다.")
+    AGENT_TIMEOUT                = (504, "에이전트 실행 시간이 초과되었습니다. 조회 범위를 줄이거나 프롬프트를 단순화해주세요.")
+    AGENT_TOOL_NOT_CALLED        = (500, "노드에 지정된 도구가 한 번도 호출되지 않았습니다. 도구 설정 또는 프롬프트를 확인해주세요.")
     MONGODB_ERROR                = (500, "데이터베이스 오류가 발생했습니다.")
     WORKFLOW_GENERATION_FAILED   = (500, "워크플로우 생성에 실패했습니다.")
     WORKFLOW_PARSE_FAILED        = (502, "워크플로우 JSON 파싱에 실패했습니다. 다시 시도해주세요.")

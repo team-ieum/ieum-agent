@@ -225,6 +225,8 @@ CLAUDE.md
 
 openapi.json
 **/.adk/session.db
+.mcp.json
+
 
 # 로컬 디버그용 스크래치 스크립트 (하드코딩된 로컬 자격증명·절대경로 포함)
 scratch/

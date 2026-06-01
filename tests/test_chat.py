@@ -90,7 +90,7 @@ def _make_patches(text_output: str):
 
     return (
         patch("core.workflow_chat.Runner", return_value=_make_runner_mock(text_output)),
-        patch("core.workflow_chat.InMemorySessionService", return_value=mock_session_service),
+        patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
         patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
         patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
     )
@@ -199,13 +199,51 @@ async def test_chat_workflow_불명확_요청():
     assert result.nodes is None
 
 
+CLARIFICATION_WITH_OPTIONS_JSON = json.dumps({
+    "message": "어느 GitHub 저장소로 할까요?",
+    "type": "CLARIFICATION_NEEDED",
+    "actions": [],
+    "options": [
+        {"value": "ieum/agent", "label": "agent", "description": None},
+        {"value": "ieum/backend", "label": "backend"},
+    ],
+    "changeDescription": None,
+    "nodes": None,
+    "edges": None,
+})
+
+
 @pytest.mark.asyncio
-async def test_chat_workflow_빈_응답_에러():
-    """LLM이 빈 응답을 반환하면 ValueError가 발생한다."""
+async def test_chat_workflow_options_파싱():
+    """CLARIFICATION_NEEDED 응답의 options(선택지)가 파싱된다."""
+    p1, p2, p3, p4 = _make_patches(CLARIFICATION_WITH_OPTIONS_JSON)
+    with p1, p2, p3, p4:
+        result = await _call("GitHub PR을 노션에 저장해줘")
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
+    assert len(result.options) == 2
+    assert result.options[0].value == "ieum/agent"
+    assert result.options[0].label == "agent"
+    assert result.options[1].value == "ieum/backend"
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_options_기본_빈배열():
+    """options가 없는 응답은 빈 배열로 처리된다."""
+    p1, p2, p3, p4 = _make_patches(CLARIFICATION_NEEDED_JSON)
+    with p1, p2, p3, p4:
+        result = await _call("뭔가 해줘")
+    assert result.options == []
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_빈_응답_CLARIFICATION_폴백():
+    """Designer가 (재시도 후에도) 빈 응답을 반환하면 502 대신 CLARIFICATION_NEEDED로 폴백한다."""
     p1, p2, p3, p4 = _make_patches("")
     with p1, p2, p3, p4:
-        with pytest.raises(ValueError):
-            await _call()
+        result = await _call()
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
+    assert result.nodes is None
+    assert "다시" in result.message
 
 
 @pytest.mark.asyncio
@@ -367,33 +405,16 @@ async def test_chat_workflow_id_translation():
     assert result.nodes[1].config["prompt"] == "이전 데이터: {{nodes.node-1.output.data}}"
 
 
-@pytest.mark.asyncio
-async def test_chat_workflow_session_persistence():
-    """_get_session_service가 싱글톤으로 동일 user_id에 대해 동일 세션 객체를 반환하고 유지하는지 검증한다."""
+def test_chat_workflow_session_service_싱글톤():
+    """_get_session_service가 MongoSessionService를 싱글톤으로 반환한다(매 호출 동일 인스턴스)."""
     import core.workflow_chat
     core.workflow_chat._SESSION_SERVICE = None
-    
-    session_service = core.workflow_chat._get_session_service()
-    test_user_id = "test-user-persistence-123"
-    
-    # 1. 첫 번째로 세션 생성
-    sess1 = await session_service.create_session(
-        app_name="ieum-agent",
-        user_id=test_user_id,
-        session_id=test_user_id,
-    )
-    assert sess1 is not None
-    assert sess1.id == test_user_id
-    
-    # 2. 두 번째로 get_session을 호출하여 동일 세션 조회
-    sess2 = await session_service.get_session(
-        app_name="ieum-agent",
-        user_id=test_user_id,
-        session_id=test_user_id,
-    )
-    assert sess2 is not None
-    assert sess2.id == test_user_id
-    assert sess1.id == sess2.id
+    with patch("core.workflow_chat.MongoSessionService", return_value=MagicMock()) as mock_cls:
+        svc1 = core.workflow_chat._get_session_service()
+        svc2 = core.workflow_chat._get_session_service()
+    assert svc1 is svc2                 # 싱글톤
+    assert mock_cls.call_count == 1     # 1회만 생성
+    core.workflow_chat._SESSION_SERVICE = None
 
 
 def _make_patches_with_service(text_output: str):
@@ -411,7 +432,7 @@ def _make_patches_with_service(text_output: str):
 
     patches = (
         patch("core.workflow_chat.Runner", return_value=_make_runner_mock(text_output)),
-        patch("core.workflow_chat.InMemorySessionService", return_value=mock_session_service),
+        patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
         patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
         patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
     )
@@ -522,7 +543,7 @@ async def test_chat_workflow_self_correction_loop():
 
     patches = [
         patch("core.workflow_chat.Runner", return_value=mock_runner),
-        patch("core.workflow_chat.InMemorySessionService", return_value=mock_session_service),
+        patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
         patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
         patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
     ]
@@ -642,7 +663,7 @@ async def test_chat_workflow_schedule_trigger_correction():
 
     patches = [
         patch("core.workflow_chat.Runner", return_value=mock_runner),
-        patch("core.workflow_chat.InMemorySessionService", return_value=mock_session_service),
+        patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
         patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
         patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
     ]

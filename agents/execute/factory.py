@@ -4,7 +4,10 @@ from google.adk.agents import LlmAgent
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.runners import Runner
+from google.adk.agents.run_config import RunConfig
 from google.genai import types
+
+from core.config import settings
 
 from agents.execute.main_agent import MAIN_INSTRUCTION
 from agents.execute.sub.web_agent import build_web_agent
@@ -28,8 +31,27 @@ from google.adk.sessions import BaseSessionService, InMemorySessionService
 _WEBHOOK_FN_BY_TOOL = {"slack": "send_slack_message", "discord": "send_discord_webhook"}
 
 
+class ToolNotCalledError(RuntimeError):
+    """노드가 도구를 명시했으나 실행 중 단 한 번도 도구를 호출하지 않았을 때 발생한다.
+    LLM이 도구를 쓰지 않고 자연어로 '못 했다'고 답해도 노드가 성공으로 집계되던
+    조용한 실패(silent failure)를 방지한다."""
+    pass
+
+
+def _assert_tool_called(tools: list | None, tool_call_count: int) -> None:
+    """request.tools에 실행 도구가 명시됐는데 호출이 전무하면 실패로 처리한다.
+    mcp_servers나 sub-agent 위임은 function_call로 잡히므로 count에 포함되며,
+    여기서는 '명시된 도구가 있는데 아무것도 호출되지 않은' 경우만 차단한다."""
+    if tools and tool_call_count == 0:
+        raise ToolNotCalledError(
+            f"노드에 도구가 {len(tools)}개 지정됐으나 실행 중 도구가 한 번도 호출되지 않았습니다."
+        )
+
+
 def _extract_webhook_configs(tools: list | None) -> dict:
     """request.tools에서 slack/discord의 config(webhook_url 포함)를 함수명 키로 추출한다."""
+    import logging
+    _log = logging.getLogger(__name__)
     out: dict = {}
     for t in (tools or []):
         if not isinstance(t, dict):
@@ -38,6 +60,18 @@ def _extract_webhook_configs(tools: list | None) -> dict:
         cfg = t.get("config")
         if fn and isinstance(cfg, dict):
             out[fn] = cfg
+            _log.warning(
+                "[webhook-debug] agent webhook config 추출 — fn: %s, config keys: %s, webhook_url 존재: %s",
+                fn, list(cfg.keys()), bool(cfg.get("webhook_url")),
+            )
+    # webhook 도구가 실제로 명시됐는데 config 추출이 비었을 때만 경고한다.
+    # (webhook 없는 일반 노드에서 매번 경고 로그를 남겨 로그가 오염되는 것을 방지)
+    has_webhook_tool = any(
+        isinstance(t, dict) and t.get("name") in _WEBHOOK_FN_BY_TOOL for t in (tools or [])
+    )
+    if not out and has_webhook_tool:
+        _log.warning("[webhook-debug] agent webhook config 없음 — tools: %s",
+                     [t.get("name") if isinstance(t, dict) else t for t in (tools or [])])
     return out
 
 
@@ -112,7 +146,8 @@ async def run_simple_agent(
         async for event in runner.run_async(
                 user_id=user_id,
                 session_id=session.id,
-                new_message=message):
+                new_message=message,
+                run_config=RunConfig(max_llm_calls=settings.AGENT_MAX_LLM_CALLS)):
             if event.is_final_response() and event.content and event.content.parts:
                 for part in event.content.parts:
                     if hasattr(part, "text") and part.text:
@@ -238,12 +273,15 @@ async def run_react_agent(
 
                 output_parts = []
                 total_input = total_output = total_count = 0
+                tool_call_count = 0
 
                 async for event in runner.run_async(
                         user_id=user_id,
                         session_id=session.id,
-                        new_message=message
+                        new_message=message,
+                        run_config=RunConfig(max_llm_calls=settings.AGENT_MAX_LLM_CALLS)
                 ):
+                    tool_call_count += len(event.get_function_calls() or [])
                     if event.is_final_response() and event.content and event.content.parts:
                         for part in event.content.parts:
                             if hasattr(part, "text") and part.text:
@@ -254,6 +292,7 @@ async def run_react_agent(
                         total_output += um.candidates_token_count or 0
                         total_count += um.total_token_count or 0
 
+                _assert_tool_called(request.tools, tool_call_count)
                 return "\n".join(output_parts), total_input, total_output, total_count
 
         # [기본 흐름] 복수 크레덴셜 또는 커스텀 MCP가 있는 경우 오케스트레이터(Main) + 전문 서브에이전트 구조로 실행
@@ -326,12 +365,15 @@ async def run_react_agent(
 
             output_parts = []
             total_input = total_output = total_count = 0
+            tool_call_count = 0
 
             async for event in runner.run_async(
                     user_id=user_id,
                     session_id=session.id,
-                    new_message=message
+                    new_message=message,
+                    run_config=RunConfig(max_llm_calls=settings.AGENT_MAX_LLM_CALLS)
             ):
+                tool_call_count += len(event.get_function_calls() or [])
                 if event.is_final_response() and event.content and event.content.parts:
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
@@ -342,6 +384,7 @@ async def run_react_agent(
                     total_output += um.candidates_token_count or 0
                     total_count += um.total_token_count or 0
 
+            _assert_tool_called(request.tools, tool_call_count)
             return "\n".join(output_parts), total_input, total_output, total_count
 
     finally:
