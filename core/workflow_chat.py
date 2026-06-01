@@ -13,11 +13,12 @@ from pydantic import BaseModel, Field
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from db.session_service import MongoSessionService
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
 from google.genai import types
 
-from api.schemas.chat import ChatResponse, ChatResponseType, ChatAction
+from api.schemas.chat import ChatResponse, ChatResponseType, ChatAction, ClarificationOption
 from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge
 from common.error_code import ErrorCode
 from core.config import get_current_time_info
@@ -37,10 +38,39 @@ logger = logging.getLogger(__name__)
 
 _SESSION_SERVICE = None
 
+
+def _extract_json(text: str) -> dict | None:
+    """LLM 출력 텍스트에서 JSON 객체를 추출한다.
+
+    코드펜스 제거 → 직접 파싱 → prefix 텍스트 건너뛰어 첫 '{' 부터 파싱 순으로 시도.
+    """
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = "\n".join(cleaned.split("\n")[1:])
+    if cleaned.rstrip().endswith("```"):
+        cleaned = "\n".join(cleaned.rstrip().split("\n")[:-1])
+    cleaned = cleaned.strip()
+
+    try:
+        return json.loads(cleaned)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    start = cleaned.find("{")
+    if start != -1:
+        try:
+            return json.loads(cleaned[start:])
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return None
+
 def _get_session_service():
+    # MongoDB 기반 영속 세션. workflow_id로 키된 멀티턴 대화가 프로세스 재시작/리로드에도 유지된다.
+    # (InMemorySessionService는 리로드 시 손실 + 다중 인스턴스 간 공유 불가)
     global _SESSION_SERVICE
     if _SESSION_SERVICE is None:
-        _SESSION_SERVICE = InMemorySessionService()
+        _SESSION_SERVICE = MongoSessionService()
     return _SESSION_SERVICE
 
 
@@ -700,7 +730,7 @@ async def chat_workflow(
                             session_id=session.id,
                             new_message=correction_message,
                         ):
-                            if event.is_final_response() and event.content:
+                            if event.is_final_response() and event.content and event.content.parts:
                                 for part in event.content.parts:
                                     if hasattr(part, "text") and part.text:
                                         corrected_parts.append(part.text)
@@ -731,16 +761,16 @@ async def chat_workflow(
             logger.error("LLM이 빈 응답을 반환했습니다. provider: %s", provider)
             raise ValueError("LLM이 빈 응답을 반환했습니다.")
 
-        if cleaned.startswith("```"):
-            cleaned = "\n".join(cleaned.split("\n")[1:])
-        if cleaned.rstrip().endswith("```"):
-            cleaned = "\n".join(cleaned.rstrip().split("\n")[:-1])
-        cleaned = cleaned.strip()
-
-        try:
-            data = json.loads(cleaned)
-        except (json.JSONDecodeError, ValueError):
+        data = _extract_json(cleaned)
+        if data is None:
             logger.info("LLM이 일반 텍스트 응답을 반환하여 CLARIFICATION_NEEDED로 처리합니다.")
+            # code fence 제거 후 사용자에게 보여줄 텍스트 정제
+            cleaned = cleaned.strip()
+            if cleaned.startswith("```"):
+                cleaned = "\n".join(cleaned.split("\n")[1:])
+            if cleaned.rstrip().endswith("```"):
+                cleaned = "\n".join(cleaned.rstrip().split("\n")[:-1])
+            cleaned = cleaned.strip()
             response = ChatResponse(
                 message=cleaned,
                 type=ChatResponseType.CLARIFICATION_NEEDED,
