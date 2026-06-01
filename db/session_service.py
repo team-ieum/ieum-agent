@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 from google.adk.sessions import BaseSessionService, Session
@@ -54,7 +55,10 @@ class MongoSessionService(BaseSessionService):
             state=state or {},
             events=[]
         )
-        await self.collection.insert_one(session.model_dump(mode="json"))
+        doc = session.model_dump(mode="json")
+        # TTL 인덱스용 갱신 시각(BSON Date). 마지막 활동 후 일정 기간이 지나면 자동 만료된다.
+        doc["updatedAt"] = datetime.now(timezone.utc)
+        await self.collection.insert_one(doc)
         return session
 
     async def get_session(
@@ -96,7 +100,7 @@ class MongoSessionService(BaseSessionService):
                 "user_id": session.user_id
             },
             {
-                "$set": {"state": state_dump},
+                "$set": {"state": state_dump, "updatedAt": datetime.now(timezone.utc)},
                 "$push": {"events": event_dump}
             }
         )
