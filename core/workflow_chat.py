@@ -130,7 +130,7 @@ _REVIEWER_SYSTEM_PROMPT = """\
    - 이전 노드 참조(예: nodes.node-1.output.data를 이중 중괄호로 감싼 형태)가 올바른 선행 노드 ID를 가리키고 있는지 대조하십시오.
    - 정의되지 않은 임의의 시스템 변수(예: today, current_date 등)를 날조해서 사용하고 있지 않은지 감시하십시오.
 3. 데이터 훼손 방지 및 흐름 적절성:
-   - 깃허브나 노션 조회 노드의 prompt에서 데이터 형태를 자연어로 마음대로 훼손/요약해 버리지 않고, JSON 원본을 그대로 output으로 넘기도록 가이드되었는지 확인하십시오.
+   - 깃허브나 노션 조회 노드의 prompt가 데이터 값을 자연어로 마음대로 훼손/왜곡하지 않으면서도, 후속 노드가 실제 사용하는 필드만 추출하도록 가이드되었는지 확인하십시오. 전체 원시 JSON을 통째로 덤프하게 설계되어 있다면 결함입니다(거대 출력은 실행 타임아웃 유발). 가능하면 조회 단계 server-side 필터(state/날짜 범위/개수 제한)와 후속 필터의 선반영이 포함되어 있는지 확인하십시오.
    - 원시 데이터를 정제하거나 마크다운 형식으로 작성할 때, 별도 TRANSFORM 노드 또는 별도 AI 노드(prompt 위임)를 거치도록 설계되었는지 확인하십시오.
    - [tools 작성 규칙] AI 노드의 `tools`에는 빌트인 도구 키(`slack`, `discord`, `gmail`, `builtin:...`)만 허용됩니다. GitHub 조회·데이터 가공 등은 실행 시 서브 에이전트가 자동 처리하므로 해당 노드의 `tools`는 비어 있는([]) 것이 **정상**입니다. `github_list_pull_requests`·`builtin:github_*`·`transform_agent` 같은 이름이 `tools`에 들어 있다면 오히려 결함이며, GitHub/가공 노드에 도구가 없다고 해서 "도구 누락"으로 지적하지 마십시오.
 4. 리소스 ID 주입:
@@ -153,7 +153,8 @@ _SYSTEM_PROMPT_BASE = """\
    - Notion, Gmail, Slack, Discord, GitHub 등 외부 연동은 **절대로 HTTP 노드로 직접 구현하지 말고**, 반드시 도구를 매핑한 AI 노드(agentType: "react")를 통해 처리하십시오. (외부 알림/웹훅 발송이나 목록 조회 등 포함)
 2. 노드 간 데이터 참조 및 데이터 무결성 보존:
    - 선행 노드의 결과는 반드시 이중 중괄호로 감싼 'nodes.노드ID.output.필드명' 형식(예: nodes.node-1.output.data를 이중 중괄호로 포장)으로 참조하십시오. 임의의 정의되지 않은 변수(예: today 등)를 날조해서 지어내지 마십시오.
-   - [데이터 보존] 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회 등)는 원시 JSON 형태(예: pulls 등)를 요약/축소하지 말고 그대로 `output`으로 출력하게 prompt를 설계하십시오.
+   - [데이터 보존·출력 최소화] 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회 등)는 값을 임의로 요약/왜곡하지 않으면서도, 후속 노드가 실제 사용하는 필드만 추출해 `output`으로 출력하게 prompt를 설계하십시오. 전체 원시 JSON 통째 덤프는 금지합니다(거대 출력은 LLM 토큰 생성 지연으로 실행 타임아웃 유발). 가능하면 조회 단계에서 server-side 필터(state/날짜 범위/개수 제한)를 적용하고, 후속 노드의 필터 조건(예: 최근 7일)이 명확하면 조회 노드 단계로 끌어와 추출 필드와 함께 명시하십시오. (예: "각 PR에서 number, title, html_url, created_at 필드만 JSON 배열로 반환")
+   - [목록 조회 페이지 상한 필수] 목록 조회 노드(깃허브 PR/이슈, 노션 검색 등)는 반드시 페이지/개수 상한을 명시하십시오. 날짜 기반 필터(예: "최근 7일")만으로는 API가 전체 목록을 페이지마다 순회하다 타임아웃되므로, "최신순 1페이지(per_page=30, page=1, sort 최신순)만 조회"처럼 단일 페이지·최대 건수를 prompt에 못박고, 날짜 필터는 그 1페이지 결과에 적용하게 하십시오.
    - [데이터 가공 위임] 데이터 요약, 날짜 포맷팅, JSON 파싱 등 변환 작업이 필요할 때는, 별도 TRANSFORM 노드를 사용하거나 AI 노드(agentType: "react")에 가공 업무를 prompt로 명시하여 위임하십시오. (실행 시 가공용 서브 에이전트가 자동 처리됩니다.)
    - [tools 작성 규칙] AI 노드의 `tools`에는 빌트인 도구 키(`slack`, `discord`, `gmail`, `builtin:...`)만 넣습니다. **서브 에이전트 이름(`transform_agent`, `web_agent`, `github_agent` 등)이나 GitHub 도구명(`github_list_pull_requests` 등)은 절대 `tools`에 넣지 마십시오.** 이들은 실행 시 자동 부착되므로, 해당 작업은 prompt에 자연어로만 지시하고 `tools`는 비워 둡니다. (예: GitHub PR 조회 노드는 `tools: []`)
 3. 생성 노드 프롬프트 경량화 지침:
@@ -169,10 +170,25 @@ _SYSTEM_PROMPT_BASE = """\
 </workflow_design_rules>
 
 <resource_rules>
-1. 리소스 ID 확인 및 자동 매핑:
-   - Notion `parent_page_id`, Sheets `spreadsheet_id` 등의 리소스 ID가 누락되었을 경우, 먼저 바인딩된 목록 조회 도구(notion_search 등)를 실행하여 실제 목록을 조회하십시오.
-   - 조회 목록 중 사용자가 기입하려 하거나 워크플로우 목적에 가장 잘 부합하는 최적의 상위 리소스(예: '요약 보고서', 'IEUM' 등의 노션 페이지)가 매칭되면, 되묻지 않고 해당 리소스 ID를 노드 config에 자동으로 기입하여 완성형 워크플로우(WORKFLOW_GENERATED)를 제공하십시오.
-   - 매칭이 애매하거나 없을 때만 선택지 목록을 제시하고 `CLARIFICATION_NEEDED` 유형으로 되물으십시오.
+1. 리소스 식별자 절대 가정 금지 (최우선):
+   - GitHub `owner/repo`, Notion 페이지/DB, Google Sheets ID, 채널 등 사용자가 명시하지 않은
+     리소스 식별자를 **임의로 추측하거나 가정해서 채우지 마십시오.** (예: 'IEUM/ieum-backend'처럼
+     존재 여부를 모르는 값을 가정하는 것은 금지)
+2. 리소스 ID 확인 및 자동 매핑:
+   - Notion `parent_page_id`, Sheets `spreadsheet_id`, GitHub `owner/repo` 등이 누락되었을 경우,
+     먼저 바인딩된 목록 조회 도구(notion_search, github_list_repos 등)를 실행하여 실제 목록을 조회하십시오.
+   - 조회 목록 중 워크플로우 목적에 가장 잘 부합하는 항목이 명확히 매칭되면, 되묻지 않고 해당
+     리소스 ID/이름을 노드 config·prompt에 자동으로 기입하여 완성형 워크플로우(WORKFLOW_GENERATED)를 제공하십시오.
+   - 미연동이라 조회 도구가 없는 경우(예: GitHub 토큰 없음)에는 가정하지 말고 `INTEGRATION_REQUIRED`
+     유형으로 해당 서비스 연동을 요청하십시오. (actions에 {type: OAUTH, provider: <서비스>} 추가)
+   - 연동은 되어 있으나 후보가 여러 개이거나 매칭이 애매하면, **가정하지 말고** `CLARIFICATION_NEEDED`
+     유형으로 되묻되, 조회한 후보를 `options` 배열에 채워 사용자가 고르게 하십시오.
+     (예: GitHub repo 선택 → options: [{"value":"owner/repo-a","label":"repo-a"}, ...])
+     message에는 무엇을 선택해야 하는지 안내하고, 구체 후보는 options로 제공합니다.
+   - **options는 최대 7개까지만** 담습니다. 후보가 많으면(예: 저장소 수십 개) 전부 나열하지 말고,
+     요청 맥락·최근 활동(github_list_repos는 최신 업데이트순) 기준으로 가장 관련성 높은 상위 후보만
+     추리십시오. 그리고 message에 "원하는 저장소가 없으면 'owner/repo' 형식으로 직접 입력해 주세요"처럼
+     직접 입력 안내를 덧붙입니다.
 </resource_rules>
 
 <integration_rules>
@@ -187,83 +203,45 @@ _SYSTEM_PROMPT_BASE = """\
 4. 요청이 불명확한 경우 -> type: CLARIFICATION_NEEDED, nodes/edges: null
 5. 정상 신규 생성 -> type: WORKFLOW_GENERATED
 6. 정상 수정 -> type: WORKFLOW_MODIFIED
+7. 직전 턴에서 CLARIFICATION_NEEDED로 되물었고(예: GitHub repo 선택) 사용자가 그 선택값(예: 'owner/repo')만
+   답한 경우 -> **다시 되묻지 말고**, 대화 기록의 원래 요청을 그 선택값으로 보완하여 워크플로우를 끝까지
+   완성하십시오(type: WORKFLOW_GENERATED). 원래 요청의 나머지 단계(예: Notion 저장, Discord 알림)를 빠뜨리지 마십시오.
 </flow_selection_rules>
 """
 
-_RESOLVER_SYSTEM_PROMPT = """\
-당신은 IEUM 워크플로우 설계 전 단계의 '리소스 조회' 에이전트입니다.
-사용자 요청을 수행할 워크플로우가 필요로 할 외부 리소스 ID(Notion 페이지/DB, Google Sheets,
-Calendar, GitHub 저장소 등)를 바인딩된 조회 도구로 미리 찾아내는 것이 임무입니다.
+# Designer는 output_schema 대신 instruction으로 출력 형식을 강제한다(도구 사용 + Gemini 호환 위함).
+# ChatResponseOutputSchema와 동일한 JSON 봉투를 자연어 스펙으로 명시한다.
+_OUTPUT_FORMAT_SPEC = """\
 
-규칙:
-1. 사용자 요청에 특정 리소스(예: 노션의 특정 페이지/DB, 시트, 저장소)가 암시되면, 해당 조회
-   도구(notion_search 등)를 호출해 실제 목록을 조회하라.
-2. 조회 결과에서 요청에 가장 부합하는 항목의 (이름 → ID)만 간결히 보고하라.
-3. 메시지 발송(슬랙/디스코드 등)이나 데이터 변경 행위는 절대 하지 마라. 오직 조회만 한다.
-4. 조회가 필요 없거나(리소스 ID 불필요) 적합한 항목을 못 찾으면 정확히 "NONE" 한 단어만 출력하라.
-5. 출력은 사람이 읽을 수 있는 간단한 목록 텍스트로 한다(JSON 불필요).
-
-출력 예시:
-- Notion 페이지: "IT 트렌드 노트" → 1a2b3c4d5e6f...
-- GitHub 저장소: "ieum-agent" → owner/ieum-agent
+<output_format>
+반드시 아래 JSON 객체 **하나만** 출력하십시오. 코드펜스(```)나 JSON 밖의 설명 문장을 절대 포함하지 마십시오.
+{
+  "message": "사용자에게 전달할 대화 메시지(사용자 요청 언어와 동일)",
+  "type": "WORKFLOW_GENERATED | WORKFLOW_MODIFIED | INTEGRATION_REQUIRED | CLARIFICATION_NEEDED",
+  "actions": [],
+  "options": [],
+  "changeDescription": null,
+  "nodes": [ /* 생성/수정된 노드 목록. 그 외에는 null */ ],
+  "edges": [ /* 생성/수정된 엣지 목록. 그 외에는 null */ ],
+  "workflowName": null
+}
+- actions: OAuth 연동이 추가로 필요할 때(INTEGRATION_REQUIRED)만 채우고, 그 외에는 빈 배열([]).
+- options: CLARIFICATION_NEEDED로 사용자에게 선택을 요청할 때만 채운다(예: GitHub repo 후보, 웹훅 후보).
+  각 항목은 {"value": "선택 시 사용할 값", "label": "사용자에게 보일 이름", "description": null} 형식이다.
+  그 외(생성/수정/연동요청)에는 빈 배열([]).
+- changeDescription: 워크플로우 수정(WORKFLOW_MODIFIED) 시 변경 요약 한 문장, 그 외 null.
+- nodes/edges: 생성/수정 시에만 채우고(위 노드 타입별 config 규칙 준수), INTEGRATION_REQUIRED/CLARIFICATION_NEEDED일 때는 null.
+- workflowName: 신규 생성(WORKFLOW_GENERATED) 시에만 간결한 한국어 이름, 그 외 null.
+- 리소스 ID(parent_page_id 등)가 필요하면 바인딩된 조회 도구(notion_search 등)를 호출해 실제 ID를 찾아 채운다. 못 찾으면 빈 문자열("")로 둔다.
+</output_format>
 """
 
-# Resolver가 사용하면 안 되는 발송/변경성 도구(조회 전용 보장).
-_RESOLVER_EXCLUDED_TOOLS = {"send_slack_message", "send_discord_webhook"}
 
+# 설계(Designer) 단계에서 모델이 호출하면 안 되는 발송/변경성 도구. 조회 도구만 허용한다.
+_DESIGNER_EXCLUDED_TOOLS = {"send_slack_message", "send_discord_webhook"}
 
-async def _resolve_resources(browse_tools: list, prompt: str, model_param,
-                             session_service, user_id: str) -> str:
-    """output_schema Designer가 도구를 못 쓰는 ADK 제약을 우회하기 위한 사전 리소스 조회 단계.
-
-    조회 전용 도구(notion_search, github_list_*, google_list_*, MCP 등)만 가진 별도 에이전트를
-    실행해 리소스 ID를 찾아 텍스트로 반환한다. 조회할 것이 없으면 빈 문자열을 반환한다.
-    어떤 오류가 나도 생성 흐름을 막지 않도록 실패 시 빈 문자열을 반환한다."""
-    resolver_tools = [
-        t for t in browse_tools
-        if getattr(t, "name", "") not in _RESOLVER_EXCLUDED_TOOLS
-    ]
-    if not resolver_tools:
-        return ""
-
-    try:
-        resolver_agent = LlmAgent(
-            name="workflow_resolver",
-            model=model_param,
-            instruction=_RESOLVER_SYSTEM_PROMPT + get_current_time_info(),
-            tools=resolver_tools,
-        )
-        resolver_runner = Runner(
-            agent=resolver_agent,
-            app_name="ieum-agent",
-            session_service=session_service,
-        )
-        session_id = f"{user_id}-resolver-{uuid.uuid4().hex}"
-        await session_service.create_session(
-            app_name="ieum-agent", user_id=user_id, session_id=session_id,
-        )
-        try:
-            message = types.Content(role="user", parts=[types.Part(text=prompt)])
-            parts = []
-            async for event in resolver_runner.run_async(
-                user_id=user_id, session_id=session_id, new_message=message,
-            ):
-                if event.is_final_response() and event.content:
-                    for part in event.content.parts:
-                        if hasattr(part, "text") and part.text:
-                            parts.append(part.text)
-        finally:
-            await session_service.delete_session(
-                app_name="ieum-agent", user_id=user_id, session_id=session_id,
-            )
-
-        text = "\n".join(parts).strip()
-        if not text or text.strip().upper() == "NONE":
-            return ""
-        return text
-    except Exception:
-        logger.warning("리소스 사전 조회(Resolver) 실패 — 빈 컨텍스트로 진행합니다.", exc_info=True)
-        return ""
+# CLARIFICATION_NEEDED options 최대 개수(UI 과부하 방지 하드 캡). 초과분은 잘리며 사용자는 직접 입력 가능.
+_MAX_CLARIFICATION_OPTIONS = 8
 
 
 _NODE_META_KEYS = {"id", "type", "nodeType", "label", "config"}
@@ -561,30 +539,26 @@ async def chat_workflow(
 
                 session_service = _get_session_service()
 
-                # Step 0: 리소스 ID 사전 해소 (Resolver)
-                # output_schema가 설정된 에이전트는 ADK 제약상 도구를 호출할 수 없다
-                # (google.adk LlmAgent.output_schema: "agent can ONLY reply and CANNOT use any tools").
-                # 따라서 도구 사용이 가능한 별도 에이전트로 먼저 리소스 ID(Notion page/DB 등)를 조회해
-                # Designer에게 컨텍스트로 전달한다. (notion_search 등 조회 도구가 실제로 동작하도록)
-                resolved_context = await _resolve_resources(
-                    browse_tools, prompt, model_param, session_service, user_id,
-                )
-
-                designer_instruction = instruction + get_current_time_info()
-                if resolved_context:
-                    designer_instruction += (
-                        f"\n\n## 사전 조회된 리소스 (ID 자동 매핑에 사용)\n{resolved_context}\n"
-                        "위 목록에서 요청에 부합하는 리소스가 있으면 해당 ID를 노드 config에 그대로 기입하라. "
-                        "적합한 항목이 없으면 parent_page_id 등은 빈 문자열(\"\")로 두라."
-                    )
-
                 # 1. Designer Agent (Generator) 선언
-                # output_schema 사용 시 도구 호출이 불가하므로 tools는 비운다(Resolver가 조회를 대행).
+                # output_schema는 사용하지 않는다. 이유:
+                #  (1) ADK 제약상 output_schema가 설정되면 도구를 전혀 호출할 수 없어
+                #      resource_rules의 notion_search 기반 리소스 ID 해소가 불가능해진다.
+                #  (2) Gemini API는 response_schema에서 additionalProperties(자유형 config dict)를
+                #      지원하지 않아 ChatResponseOutputSchema를 그대로 쓰면 요청 빌드가 실패한다.
+                # 따라서 도구를 활성화하고 출력은 instruction의 <output_format>으로 강제한 뒤,
+                # 아래에서 JSON을 직접 파싱한다(generate 경로와 동일 방식).
+                # 단, 설계 단계에서는 조회 도구만 허용한다. send_slack/discord 같은 발송 도구를
+                # 주면 모델이 워크플로우를 짜는 도중 실제 메시지를 보낼 수 있으므로 제외한다.
+                designer_tools = [
+                    t for t in browse_tools
+                    if getattr(t, "name", "") not in _DESIGNER_EXCLUDED_TOOLS
+                ]
+                designer_instruction = instruction + _OUTPUT_FORMAT_SPEC + get_current_time_info()
                 designer_agent = LlmAgent(
                     name="workflow_designer",
                     model=model_param,
                     instruction=designer_instruction,
-                    output_schema=ChatResponseOutputSchema,
+                    tools=designer_tools,
                 )
                 
                 # 2. Reviewer Agent 선언
@@ -641,37 +615,50 @@ async def chat_workflow(
                     )
 
                 # Step 1: 워크플로우 설계 초안 생성 (Designer)
-                message = types.Content(
-                    role="user",
-                    parts=[types.Part(text=prompt)],
-                )
+                async def _run_designer_once() -> str:
+                    """Designer를 1회 실행해 최종 텍스트를 반환한다. parts가 None인 이벤트는 건너뛴다."""
+                    message = types.Content(role="user", parts=[types.Part(text=prompt)])
+                    parts_out = []
+                    kinds = []
+                    async for event in designer_runner.run_async(
+                        user_id=user_id, session_id=session.id, new_message=message,
+                    ):
+                        if event.is_final_response() and event.content and event.content.parts:
+                            for part in event.content.parts:
+                                if hasattr(part, "text") and part.text:
+                                    parts_out.append(part.text)
+                                elif getattr(part, "function_call", None) is not None:
+                                    kinds.append(f"function_call:{getattr(part.function_call, 'name', '?')}")
+                                else:
+                                    kinds.append("non_text")
+                    text = "\n".join(parts_out) if parts_out else ""
+                    logger.warning(
+                        "[chat-debug] designer draft(len=%d) non_text_parts=%s preview=%r",
+                        len(text), kinds, text[:800],
+                    )
+                    return text
 
-                output_parts = []
-                async for event in designer_runner.run_async(
-                    user_id=user_id,
-                    session_id=session.id,
-                    new_message=message,
-                ):
-                    if event.is_final_response() and event.content:
-                        for part in event.content.parts:
-                            if hasattr(part, "text") and part.text:
-                                output_parts.append(part.text)
+                # Gemini가 함수 호출 후 빈 텍스트를 반환하는 경우가 있어, 빈 응답이면 1회 재시도한다.
+                draft_output = await _run_designer_once()
+                if not draft_output.strip():
+                    logger.warning("[chat-debug] designer 빈 응답 — 1회 재시도합니다.")
+                    draft_output = await _run_designer_once()
 
-                draft_output = "\n".join(output_parts) if output_parts else ""
+                # 재시도 후에도 비어 있으면 502 대신 CLARIFICATION_NEEDED로 우아하게 안내한다.
+                if not draft_output.strip():
+                    logger.warning("[chat-debug] designer 재시도 후에도 빈 응답 — CLARIFICATION 폴백.")
+                    draft_output = json.dumps({
+                        "message": "요청을 처리하지 못했습니다. 조금 더 구체적으로 다시 말씀해 주시겠어요?",
+                        "type": "CLARIFICATION_NEEDED",
+                        "actions": [], "options": [],
+                        "changeDescription": None, "nodes": None, "edges": None,
+                        "workflowName": None,
+                    }, ensure_ascii=False)
 
                 # 초안이 JSON 인지 체크 및 응답 타입 파악
-                try:
-                    cleaned_draft = draft_output.strip()
-                    if cleaned_draft.startswith("```"):
-                        cleaned_draft = "\n".join(cleaned_draft.split("\n")[1:])
-                    if cleaned_draft.rstrip().endswith("```"):
-                        cleaned_draft = "\n".join(cleaned_draft.rstrip().split("\n")[:-1])
-                    cleaned_draft = cleaned_draft.strip()
-                    
-                    draft_data = json.loads(cleaned_draft)
-                    response_type = draft_data.get("type")
-                except Exception:
-                    response_type = None
+                draft_data = _extract_json(draft_output)
+                response_type = draft_data.get("type") if draft_data else None
+                cleaned_draft = json.dumps(draft_data, ensure_ascii=False) if draft_data else draft_output
 
                 # 신규 생성 또는 수정인 경우에만 지능형 검증(Reviewer) 가동
                 if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
@@ -845,11 +832,15 @@ async def chat_workflow(
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
         edges = [WorkflowEdge(**e) for e in raw_edges] if raw_edges else None
         actions = [ChatAction(**a) for a in data.get("actions", [])]
+        # 모델이 후보를 과도하게 많이 담아도(저장소 수십 개 등) UI 과부하를 막기 위해 하드 캡.
+        # 목록에 없으면 사용자가 직접 입력할 수 있다(message 안내 + 일반 입력 경로).
+        options = [ClarificationOption(**o) for o in (data.get("options") or [])][:_MAX_CLARIFICATION_OPTIONS]
 
         response = ChatResponse(
             message=data.get("message", ""),
             type=response_type,
             actions=actions,
+            options=options,
             changeDescription=data.get("changeDescription"),
             nodes=nodes,
             edges=edges,
