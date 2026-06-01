@@ -380,6 +380,33 @@ async def test_run_agent_exception_returns_failure_result():
 
 
 @pytest.mark.asyncio
+async def test_run_agent_rate_limit_returns_rate_limited_message():
+    """429(rate limit) 예외 시 errorMessage가 RATE_LIMITED로 구분된다."""
+    request = _make_request()
+
+    class _RateLimitError(Exception):
+        def __init__(self):
+            self.code = 429
+
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(side_effect=_RateLimitError())
+
+    with (
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=MagicMock()),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
+        patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
+    ):
+        result = await run_agent(
+            request, provider="GEMINI", api_key="test-key", user_id="test-user",
+            session_service=mock_session_service
+        )
+
+    assert result.success is False
+    assert result.errorMessage == ErrorCode.RATE_LIMITED.message
+
+
+@pytest.mark.asyncio
 async def test_run_agent_exception_metadata_not_exposed():
     """실패 시 metadata에 내부 에러 detail이 노출되지 않는다."""
     request = _make_request()

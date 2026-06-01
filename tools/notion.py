@@ -1,4 +1,5 @@
 import json
+import re
 import httpx
 from common.error_code import ToolErrorCode
 from tools.http_client import get_http_client
@@ -6,6 +7,31 @@ from tools.http_client import get_http_client
 _NOTION_API_BASE = "https://api.notion.com/v1"
 _NOTION_VERSION = "2022-06-28"
 _TIMEOUT = 30.0
+
+# Notion rich_text 단일 텍스트 content 최대 길이
+_RICH_TEXT_LIMIT = 2000
+
+# Notion code 블록이 허용하는 언어 식별자(자주 쓰는 항목만). 미지원 시 "plain text"로 폴백
+_NOTION_LANGUAGES = {
+    "bash", "c", "c#", "c++", "css", "diff", "docker", "go", "graphql",
+    "html", "java", "javascript", "json", "kotlin", "markdown", "php",
+    "plain text", "python", "ruby", "rust", "shell", "sql", "swift",
+    "typescript", "xml", "yaml",
+}
+_LANGUAGE_ALIASES = {
+    "js": "javascript", "ts": "typescript", "py": "python", "sh": "shell",
+    "yml": "yaml", "md": "markdown", "dockerfile": "docker", "golang": "go",
+    "text": "plain text", "txt": "plain text", "": "plain text",
+}
+
+# 인라인 마크다운 토큰 (앞쪽 우선순위가 높음 — 코드 스팬이 먼저 매칭되어 내부 기호 보호)
+_INLINE_PATTERN = re.compile(
+    r"(?P<code>`[^`]+?`)"
+    r"|(?P<bold>\*\*.+?\*\*)"
+    r"|(?P<strike>~~.+?~~)"
+    r"|(?P<link>\[[^\]]+?\]\([^)]+?\))"
+    r"|(?P<italic>\*[^*]+?\*|_[^_]+?_)"
+)
 
 
 def _headers(token: str) -> dict:
@@ -16,75 +42,177 @@ def _headers(token: str) -> dict:
     }
 
 
-def _split_content(text: str, chunk_size: int = 2000) -> list[str]:
-    """텍스트를 지정한 크기 이하의 청크로 분할하되, 단어(공백/줄바꿈) 경계를 보존하여 한글 깨짐을 방지합니다."""
-    if len(text) <= chunk_size:
-        return [text]
+def _notion_language(lang: str) -> str:
+    """코드펜스 언어 식별자를 Notion이 허용하는 값으로 정규화한다. 미지원 시 'plain text'."""
+    normalized = lang.strip().lower()
+    normalized = _LANGUAGE_ALIASES.get(normalized, normalized)
+    return normalized if normalized in _NOTION_LANGUAGES else "plain text"
 
-    chunks = []
-    current_chunk = []
-    current_length = 0
 
-    # 줄바꿈 기준으로 먼저 스플릿하여 문장/단락 맥락 보존
-    lines = text.splitlines(keepends=True)
-    
-    for line in lines:
-        # 단일 라인이 chunk_size보다 큰 특이 케이스 (공백 없는 초장문 등)
-        if len(line) > chunk_size:
-            # 누적된 청크 발행
-            if current_chunk:
-                chunks.append("".join(current_chunk))
-                current_chunk = []
-                current_length = 0
-            
-            # 공백 단위 분할 시도
-            words = line.split(" ")
-            temp_word_chunk = []
-            temp_word_len = 0
-            for word in words:
-                word_with_space = word + " "
-                if len(word_with_space) > chunk_size:
-                    # 단어 자체가 2,000자 제한 초과 시 글자 단위 분할
-                    if temp_word_chunk:
-                        chunks.append("".join(temp_word_chunk))
-                        temp_word_chunk = []
-                        temp_word_len = 0
-                    for i in range(0, len(word), chunk_size):
-                        chunks.append(word[i:i + chunk_size])
-                elif temp_word_len + len(word_with_space) > chunk_size:
-                    chunks.append("".join(temp_word_chunk))
-                    temp_word_chunk = [word_with_space]
-                    temp_word_len = len(word_with_space)
-                else:
-                    temp_word_chunk.append(word_with_space)
-                    temp_word_len += len(word_with_space)
-            if temp_word_chunk:
-                chunks.append("".join(temp_word_chunk))
-            continue
+def _text_segments(content: str, *, link: str | None = None, **annotations) -> list[dict]:
+    """문자열을 Notion rich_text 세그먼트 목록으로 변환한다.
 
-        if current_length + len(line) > chunk_size:
-            chunks.append("".join(current_chunk))
-            current_chunk = [line]
-            current_length = len(line)
-        else:
-            current_chunk.append(line)
-            current_length += len(line)
+    - content가 2000자를 초과하면 여러 세그먼트로 분할 (Notion 제한)
+    - annotations 중 True인 항목만 부여 (bold/italic/code/strikethrough)
+    """
+    active = {k: v for k, v in annotations.items() if v}
+    segments = []
+    # 빈 문자열은 세그먼트 생성하지 않음 (호출부에서 빈 rich_text 허용)
+    for i in range(0, len(content), _RICH_TEXT_LIMIT):
+        chunk = content[i:i + _RICH_TEXT_LIMIT]
+        text_obj = {"content": chunk}
+        if link:
+            text_obj["link"] = {"url": link}
+        segment = {"type": "text", "text": text_obj}
+        if active:
+            segment["annotations"] = active
+        segments.append(segment)
+    return segments
 
-    if current_chunk:
-        chunks.append("".join(current_chunk))
 
-    return chunks
+def _parse_inline(text: str) -> list[dict]:
+    """인라인 마크다운(**bold**, *italic*, `code`, ~~strike~~, [text](url))을 rich_text 배열로 변환한다."""
+    segments = []
+    pos = 0
+    for m in _INLINE_PATTERN.finditer(text):
+        if m.start() > pos:
+            segments.extend(_text_segments(text[pos:m.start()]))
+        kind = m.lastgroup
+        raw = m.group()
+        if kind == "code":
+            segments.extend(_text_segments(raw[1:-1], code=True))
+        elif kind == "bold":
+            segments.extend(_text_segments(raw[2:-2], bold=True))
+        elif kind == "strike":
+            segments.extend(_text_segments(raw[2:-2], strikethrough=True))
+        elif kind == "italic":
+            segments.extend(_text_segments(raw[1:-1], italic=True))
+        elif kind == "link":
+            link_match = re.match(r"\[([^\]]+)\]\(([^)]+)\)", raw)
+            segments.extend(_text_segments(link_match.group(1), link=link_match.group(2)))
+        pos = m.end()
+    if pos < len(text):
+        segments.extend(_text_segments(text[pos:]))
+    return segments
 
 
 def _blocks_from_text(content: str) -> list[dict]:
+    """마크다운 텍스트를 Notion 블록 목록으로 변환한다.
+
+    지원: heading_1~3(#), bulleted_list_item(-/*/+), numbered_list_item(1.),
+    to_do(- [ ]/- [x]), quote(>), code(```), divider(---), paragraph(그 외).
+    인라인 서식(bold/italic/code/strike/link)은 _parse_inline이 처리.
+    """
     blocks = []
-    for chunk in _split_content(content):
+    lines = content.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # 코드펜스 ```lang ... ```
+        if stripped.startswith("```"):
+            language = _notion_language(stripped[3:])
+            code_lines = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                code_lines.append(lines[i])
+                i += 1
+            i += 1  # 닫는 펜스 스킵 (없으면 EOF에서 자연 종료)
+            blocks.append({
+                "object": "block",
+                "type": "code",
+                "code": {
+                    "rich_text": _text_segments("\n".join(code_lines)),
+                    "language": language,
+                },
+            })
+            continue
+
+        # 빈 줄은 블록 미생성
+        if not stripped:
+            i += 1
+            continue
+
+        # 구분선
+        if stripped in ("---", "***", "___"):
+            blocks.append({"object": "block", "type": "divider", "divider": {}})
+            i += 1
+            continue
+
+        # 헤딩 (#, ##, ###)
+        heading = re.match(r"^(#{1,3})\s+(.*)", stripped)
+        if heading:
+            htype = f"heading_{len(heading.group(1))}"
+            blocks.append({
+                "object": "block",
+                "type": htype,
+                htype: {"rich_text": _parse_inline(heading.group(2))},
+            })
+            i += 1
+            continue
+
+        # 인용
+        if stripped.startswith(">"):
+            quote_text = stripped[1:].lstrip()
+            blocks.append({
+                "object": "block",
+                "type": "quote",
+                "quote": {"rich_text": _parse_inline(quote_text)},
+            })
+            i += 1
+            continue
+
+        # 체크박스 (- [ ] / - [x]) — 텍스트 없는 빈 항목도 매칭
+        todo = re.match(r"^[-*+]\s+\[([ xX])\](?:\s+(.*))?$", stripped)
+        if todo:
+            blocks.append({
+                "object": "block",
+                "type": "to_do",
+                "to_do": {
+                    "rich_text": _parse_inline(todo.group(2) or ""),
+                    "checked": todo.group(1).lower() == "x",
+                },
+            })
+            i += 1
+            continue
+
+        # 불릿 리스트 — 텍스트 없는 빈 항목도 매칭
+        bullet = re.match(r"^[-*+](?:\s+(.*))?$", stripped)
+        if bullet:
+            blocks.append({
+                "object": "block",
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {"rich_text": _parse_inline(bullet.group(1) or "")},
+            })
+            i += 1
+            continue
+
+        # 넘버드 리스트 — 텍스트 없는 빈 항목도 매칭
+        numbered = re.match(r"^\d+\.(?:\s+(.*))?$", stripped)
+        if numbered:
+            blocks.append({
+                "object": "block",
+                "type": "numbered_list_item",
+                "numbered_list_item": {"rich_text": _parse_inline(numbered.group(1) or "")},
+            })
+            i += 1
+            continue
+
+        # 일반 문단
         blocks.append({
             "object": "block",
             "type": "paragraph",
-            "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": chunk}}]
-            }
+            "paragraph": {"rich_text": _parse_inline(stripped)},
+        })
+        i += 1
+
+    # 빈 입력이면 빈 문단 1개 (Notion children 빈 배열 회피)
+    if not blocks:
+        blocks.append({
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {"rich_text": []},
         })
     return blocks
 
