@@ -1,5 +1,6 @@
 import functools
 import inspect
+import re
 
 from google.adk.tools.function_tool import FunctionTool
 
@@ -27,7 +28,14 @@ def _make_partial(fn, **bound_args):
     sig = inspect.signature(fn)
     p = functools.partial(fn, **bound_args)
     p.__name__ = fn.__name__
-    p.__doc__ = fn.__doc__
+    # docstring의 Args 설명에서 바인딩된 파라미터 라인을 제거한다.
+    # 제거하지 않으면 LLM이 docstring을 읽고 (이미 주입된) 인자를 직접 채워야 한다고
+    # 오판하여 도구 호출 자체를 포기한다. (예: webhook_url 바인딩됐는데 LLM이 "URL 없음" 거부)
+    _doc = fn.__doc__
+    if _doc:
+        for _k in bound_args:
+            _doc = re.sub(rf"^[ \t]*{re.escape(_k)}\s*[:(].*\n?", "", _doc, flags=re.MULTILINE)
+    p.__doc__ = _doc
     p.__signature__ = sig.replace(
         parameters=[v for k, v in sig.parameters.items() if k not in bound_args]
     )
