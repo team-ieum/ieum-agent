@@ -26,7 +26,7 @@
       "config": {
         "llmProvider": "CLAUDE",
         "credentialId": "",
-        "prompt": "오늘의 최신 IT 뉴스를 검색해줘. 결과 데이터를 절대 요약하지 말고 원본 그대로 반환하시오.",
+        "prompt": "오늘의 최신 IT 뉴스를 검색해줘. 각 기사의 제목, URL, 요지를 임의로 누락하지 말고 정리해 반환하시오.",
         "agentType": "react",
         "tools": [{"name": "builtin:web_search"}]
       }
@@ -56,7 +56,7 @@
 ### 예시 2: GitHub PR 수집 → 가공 → Slack 알림
 
 - 흐름: TRIGGER(SCHEDULE) ➡️ AI(github PR 조회) ➡️ TRANSFORM(데이터 정리) ➡️ AI(slack 발송)
-- 조회 노드는 원본 데이터를 보존하고, 가공은 TRANSFORM 노드에 위임했다.
+- 조회 노드는 값을 왜곡하지 않으면서 후속 노드가 쓰는 필드만 추출하고(전체 raw 덤프 금지), 가공은 TRANSFORM 노드에 위임했다.
 
 ```json
 {
@@ -74,7 +74,7 @@
       "config": {
         "llmProvider": "CLAUDE",
         "credentialId": "",
-        "prompt": "지난 한 주간 생성된 PR 목록을 조회해줘. 결과 데이터를 절대 요약하지 말고 JSON 원본 그대로 반환하시오.",
+        "prompt": "PR을 최신순 1페이지(per_page=30, page=1, sort=created, direction=desc)만 조회하고, 그 중 최근 7일 내 생성된 것만 골라 각 PR에서 number, title, html_url, created_at 필드만 JSON 배열로 반환해줘. 값은 임의로 요약/변경하지 마.",
         "agentType": "react",
         "tools": []
       }
@@ -191,7 +191,7 @@
       "config": {
         "llmProvider": "GEMINI",
         "credentialId": "",
-        "prompt": "오늘의 최신 AI 트렌드를 검색해줘. 결과를 요약하지 말고 원본 그대로 반환하시오.",
+        "prompt": "오늘의 최신 AI 트렌드를 검색해줘. 각 항목의 제목, URL, 요지를 임의로 누락하지 말고 정리해 반환하시오.",
         "agentType": "react",
         "tools": [{"name": "builtin:web_search"}]
       }

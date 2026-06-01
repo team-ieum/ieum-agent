@@ -137,9 +137,13 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
     좋은 예: node-2(tools: [builtin:http_fetch]) → node-3(tools: [builtin:notion_create_page])
 12. Google 빌트인 도구(builtin:google_sheets_*, builtin:google_calendar_*, builtin:google_drive_*)의
     access_token 파라미터는 빈 문자열("")로 설정한다. Spring Boot에서 실행 시 주입한다.
-13. 데이터 무결성 보존 및 가공 위임:
-    - 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회, 노션 페이지 조회 등)는 원시 JSON 형태 데이터를 마음대로 요약/축소하지 말고 그대로 output으로 출력하도록 prompt 및 systemMessage를 설계해야 합니다. (예: "결과 데이터를 절대 요약하지 말고 JSON 원본 그대로 반환하시오")
-    - 데이터 요약, 날짜 포맷팅, JSON 파싱 등 데이터 변환 작업이 필요할 때는, 조회 노드에서 직접 가공하지 말고 `transform_agent` (혹은 `json_parse` 등의 도구)를 주입한 별도의 AI 노드에 가공 업무를 명시적으로 위임합니다.
+13. 데이터 무결성 보존 및 출력량 최소화:
+    - 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회, 노션 페이지 조회 등)는 후속 노드가 실제로 사용하는 필드만 추출하여 출력하도록 prompt를 설계합니다. 임의로 값을 요약/왜곡하는 것은 금지하되, 전체 원시 JSON을 그대로 덤프하는 것도 금지합니다. 거대한 raw 출력은 LLM 토큰 생성 지연으로 실행 타임아웃을 유발합니다.
+    - 가능하면 조회 단계에서 server-side 필터링(예: state=closed, since/날짜 범위, 개수 제한 등)을 적용해 조회량 자체를 줄이도록 prompt에 명시합니다.
+    - [필수] 목록 조회 노드(깃허브 PR/이슈, 노션 검색 등)는 반드시 페이지/개수 상한을 명시합니다. 날짜 기반 필터(예: "최근 7일")만으로는 API가 전체 목록을 페이지마다 순회하다 타임아웃되므로, "최신순 1페이지(per_page=30, page=1, sort 최신순)만 조회"처럼 단일 페이지·최대 건수를 prompt에 못박아 무한 페이징을 차단합니다. 날짜 필터는 그 1페이지 결과에 대해 적용합니다.
+    - 후속 노드의 필터링 조건(예: "최근 7일")이 명확하면, 그 필터를 가능한 한 조회 노드 단계로 끌어와 중복 작업과 불필요한 데이터 전달을 제거합니다.
+    - 추출할 필드는 후속 노드가 요구하는 것만 명시합니다. (예: "각 PR에서 number, title, html_url, created_at 필드만 JSON 배열로 반환")
+    - 날짜 포맷팅, 복잡한 JSON 파싱 등 변환 작업이 필요할 때는, 조회 노드에서 직접 처리하지 말고 `transform_agent` (혹은 `json_parse` 등의 도구)를 주입한 별도의 AI 노드에 위임합니다.
 14. 생성 노드 프롬프트 경량화:
     - 각 노드를 설계할 때 노드의 systemMessage나 prompt에 불필요한 사설이나 배경 설명을 과하게 채우지 말고, 핵심 지시사항(동작, 입력 참조값, 출력 형식 등) 위주로 최대 2~3문장 이내로만 간결하게 작성합니다.
 """
