@@ -8,11 +8,12 @@ from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult, UsageRecord
 from common.error_code import ErrorCode
 from common.exception import is_rate_limit_error
+from core.config import settings
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from db.mongodb import execution_logs
 from google.adk.sessions import BaseSessionService
-from agents.execute.factory import run_simple_agent, run_react_agent
+from agents.execute.factory import run_simple_agent, run_react_agent, ToolNotCalledError
 from core.execution_guard import ExecutionGuard, ExecutionGuardError
 from core.output_validator import OutputValidator
 
@@ -137,9 +138,13 @@ async def run_agent(
 
         if lock:
             async with lock:
-                output, input_tokens, output_tokens, total_tokens = await _execute()
+                output, input_tokens, output_tokens, total_tokens = await asyncio.wait_for(
+                    _execute(), timeout=settings.AGENT_TIMEOUT_SECONDS
+                )
         else:
-            output, input_tokens, output_tokens, total_tokens = await _execute()
+            output, input_tokens, output_tokens, total_tokens = await asyncio.wait_for(
+                _execute(), timeout=settings.AGENT_TIMEOUT_SECONDS
+            )
 
         usage = UsageRecord(
             promptTokens=input_tokens,
@@ -147,11 +152,37 @@ async def run_agent(
             totalTokens=total_tokens or (input_tokens + output_tokens),
         ) if (input_tokens or output_tokens) else None
 
+        if not (output or "").strip():
+            logger.warning(
+                "Agent completed with empty output for node %s (provider=%s, model=%s). "
+                "도구 호출만 수행하고 최종 텍스트를 생성하지 못했을 수 있습니다.",
+                request.nodeId, provider, model,
+            )
+
         result = AgentExecutionResult(
             success=True,
             status="COMPLETED",
             output=output,
             usage=usage,
+        )
+
+    except (asyncio.TimeoutError, TimeoutError):
+        logger.warning(
+            "Agent execution timed out after %ss for node %s",
+            settings.AGENT_TIMEOUT_SECONDS, request.nodeId,
+        )
+        result = AgentExecutionResult(
+            success=False,
+            status="ERROR",
+            errorMessage=ErrorCode.AGENT_TIMEOUT.message,
+        )
+
+    except ToolNotCalledError as e:
+        logger.warning("Tool not called for node %s: %s", request.nodeId, e)
+        result = AgentExecutionResult(
+            success=False,
+            status="ERROR",
+            errorMessage=ErrorCode.AGENT_TOOL_NOT_CALLED.message,
         )
 
     except Exception as e:

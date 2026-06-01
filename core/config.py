@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     # 지원 프로바이더 목록
     SUPPORTED_PROVIDERS: list[str] = ["CLAUDE", "OPENAI", "GEMINI"]
 
+    # 에이전트 실행 가드
+    # react 도구 호출 루프 상한 (ADK max_llm_calls). 광범위 조회로 무한 페이징하는 것을 차단한다.
+    AGENT_MAX_LLM_CALLS: int = 50
+    # 에이전트 실행 시간 상한(초). backend WebClient 타임아웃(기본 180s)보다 짧게 두어
+    # backend가 끊기 전에 agent가 정리된 에러를 반환하도록 한다.
+    AGENT_TIMEOUT_SECONDS: int = 150
+
     class Config:
         env_file = ".env"
         extra = "ignore"
