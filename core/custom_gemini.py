@@ -48,6 +48,30 @@ def _clean_tools(tools: Any):
                 if hasattr(fd, "parameters") and fd.parameters:
                     _clean_schema(fd.parameters)
 
+
+# Gemini 2.5 thinking 예산(토큰). 0=완전 비활성이나 도구 호출 판단까지 생략되어 에이전트가
+# 조회 도구(github_list_repos 등)를 안 부르는 부작용이 있다. 작은 값으로 추론은 유지하되
+# thinking 시간을 제한해 지연을 줄인다.
+_THINKING_BUDGET = 512
+
+
+def _limit_thinking(config: Any):
+    """Gemini 2.5 계열의 thinking(사고) 예산을 작은 값으로 제한해 호출당 지연을 줄인다.
+
+    완전 비활성(0)이 아니라 작은 예산을 주어 도구 호출 판단 등 최소한의 추론은 유지한다.
+    호출자가 명시적으로 thinking_config를 지정하지 않은 경우에만 적용한다."""
+    if config is None:
+        return
+    tc = types.ThinkingConfig(thinking_budget=_THINKING_BUDGET)
+    try:
+        if isinstance(config, dict):
+            config.setdefault("thinking_config", tc)
+        elif hasattr(config, "thinking_config"):
+            if getattr(config, "thinking_config", None) is None:
+                config.thinking_config = tc
+    except Exception:
+        pass
+
 class CustomGemini(Gemini):
     """API Key를 os.environ 없이 동적으로 주입받는 커스텀 Gemini 모델 객체"""
     api_key: Optional[str] = None
@@ -83,6 +107,7 @@ class CustomGemini(Gemini):
             config = kwargs.get("config") or (args[2] if len(args) > 2 else None)
             if config and hasattr(config, "tools") and config.tools:
                 _clean_tools(config.tools)
+            _limit_thinking(config)
 
         def wrapped_generate_content(*args, **kwargs):
             _clean_config(args, kwargs)
