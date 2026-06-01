@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult, UsageRecord
 from common.error_code import ErrorCode
+from common.exception import is_rate_limit_error
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from db.mongodb import execution_logs
@@ -155,10 +156,11 @@ async def run_agent(
 
     except Exception as e:
         logger.exception("Agent execution failed")
+        error_code = ErrorCode.RATE_LIMITED if is_rate_limit_error(e) else ErrorCode.AGENT_EXECUTION_FAILED
         result = AgentExecutionResult(
             success=False,
             status="ERROR",
-            errorMessage=ErrorCode.AGENT_EXECUTION_FAILED.message,
+            errorMessage=error_code.message,
         )
 
     duration_ms = int((time.monotonic() - start) * 1000)
