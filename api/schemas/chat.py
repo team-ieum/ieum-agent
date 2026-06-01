@@ -59,10 +59,19 @@ class ChatAction(BaseModel):
     type: ActionType
     provider: IntegrationProvider
 
+class ClarificationOption(BaseModel):
+    """CLARIFICATION_NEEDED 응답에서 사용자가 고를 수 있는 선택지.
+    UI는 label 버튼을 렌더하고, 선택 시 value를 후속 채팅 메시지로 보낸다.
+    (예: GitHub repo 선택, Slack/Discord 웹훅 선택)"""
+    value: str                          # 선택 시 사용할 값 (예: "ieum/ieum-backend")
+    label: str                          # 사용자에게 보일 텍스트 (예: "ieum-backend")
+    description: Optional[str] = None   # 부가 설명 (선택)
+
 class ChatResponse(BaseModel):
     message: str
     type: ChatResponseType
     actions: List[ChatAction] = []
+    options: List[ClarificationOption] = []   # CLARIFICATION_NEEDED일 때 선택지, 그 외 빈 배열
     changeDescription: Optional[str] = None
     nodes: Optional[List[WorkflowNode]] = None
     edges: Optional[List[WorkflowEdge]] = None

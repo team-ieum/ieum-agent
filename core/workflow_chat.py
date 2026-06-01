@@ -83,8 +83,12 @@ class ChatResponseOutputSchema(BaseModel):
         description="응답의 유형 (WORKFLOW_GENERATED | WORKFLOW_MODIFIED | INTEGRATION_REQUIRED | CLARIFICATION_NEEDED)"
     )
     actions: List[ChatAction] = Field(
-        default=[], 
+        default=[],
         description="OAuth 연동이 추가로 필요한 경우에만 포함하는 액션 목록"
+    )
+    options: List[ClarificationOption] = Field(
+        default=[],
+        description="CLARIFICATION_NEEDED 시 사용자가 고를 선택지(GitHub repo, 웹훅 등). 그 외에는 빈 배열"
     )
     changeDescription: Optional[str] = Field(
         default=None, 
@@ -687,26 +691,19 @@ async def chat_workflow(
                         session_id=session.id,
                         new_message=review_message,
                     ):
-                        if event.is_final_response() and event.content:
+                        if event.is_final_response() and event.content and event.content.parts:
                             for part in event.content.parts:
                                 if hasattr(part, "text") and part.text:
                                     review_parts.append(part.text)
                     
                     review_output = "\n".join(review_parts) if review_parts else ""
                     
-                    try:
-                        cleaned_review = review_output.strip()
-                        if cleaned_review.startswith("```"):
-                            cleaned_review = "\n".join(cleaned_review.split("\n")[1:])
-                        if cleaned_review.rstrip().endswith("```"):
-                            cleaned_review = "\n".join(cleaned_review.rstrip().split("\n")[:-1])
-                        cleaned_review = cleaned_review.strip()
-                        
-                        review_data = json.loads(cleaned_review)
+                    review_data = _extract_json(review_output)
+                    if review_data:
                         is_valid = review_data.get("isValid", True)
                         feedback = review_data.get("feedback")
-                    except Exception as e:
-                        logger.warning("검증 레이어 응답 파싱 실패, 기본값으로 통과 처리합니다. 에러: %s", e)
+                    else:
+                        logger.warning("검증 레이어 응답 파싱 실패, 기본값으로 통과 처리합니다.")
                         is_valid = True
                         feedback = None
                     
