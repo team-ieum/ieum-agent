@@ -232,6 +232,42 @@ async def test_send_discord_webhook_failure():
     assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
 
 
+def test_bind_config_strips_webhook_url_from_declaration():
+    """_bind_config로 webhook_url을 바인딩하면 ADK 도구 선언(parameters + description)
+    어디에도 webhook_url이 노출되지 않는다.
+    (docstring에 남으면 LLM이 'URL을 모른다'며 도구 호출을 포기 → 발송 실패)"""
+    from tools import _bind_config
+    from google.adk.tools.function_tool import FunctionTool
+
+    cfg = {
+        "webhook_url": "https://discord.com/api/webhooks/x",
+        "webhookCredentialId": "cred-id",
+    }
+    bound = _bind_config(send_discord_webhook, cfg)
+
+    # 시그니처에서 제거
+    assert "webhook_url" not in inspect.signature(bound).parameters
+    assert "content" in inspect.signature(bound).parameters
+
+    decl = FunctionTool(bound)._get_declaration()
+    # 파라미터 스키마에서 제거
+    assert "webhook_url" not in decl.parameters.properties
+    assert "content" in decl.parameters.properties
+    # description(docstring)에서도 제거
+    assert "webhook_url" not in (decl.description or "")
+
+
+def test_bind_config_keeps_unbound_params_in_docstring():
+    """바인딩하지 않은 인자의 docstring 설명은 그대로 유지된다."""
+    from tools import _bind_config
+    from google.adk.tools.function_tool import FunctionTool
+
+    bound = _bind_config(send_discord_webhook, {"webhook_url": "https://x"})
+    decl = FunctionTool(bound)._get_declaration()
+    # content는 바인딩 안 됐으므로 설명에 남아야 함
+    assert "content" in (decl.description or "")
+
+
 # ---------------------------------------------------------------------------
 # Gmail
 # ---------------------------------------------------------------------------

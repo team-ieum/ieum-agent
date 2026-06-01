@@ -25,6 +25,13 @@ def _make_final_event(text="agent response"):
     return event
 
 
+def _make_event_with_calls(n_calls=0, final_text="agent response"):
+    """function_call 개수를 제어할 수 있는 final 이벤트."""
+    event = _make_final_event(final_text)
+    event.get_function_calls.return_value = [MagicMock() for _ in range(n_calls)]
+    return event
+
+
 # ---------- run_simple_agent ----------
 
 @pytest.mark.asyncio
@@ -115,6 +122,101 @@ async def test_run_simple_agent_deletes_session_after_run():
     mock_ss.delete_session.assert_called_once_with(
         app_name="ieum-agent", user_id="user-1", session_id="s1"
     )
+
+
+# ---------- _assert_tool_called (도구 미호출 감지 가드) ----------
+
+def test_assert_tool_called_raises_when_tools_set_but_no_calls():
+    """도구가 명시됐는데 호출이 0건이면 ToolNotCalledError."""
+    from agents.execute.factory import _assert_tool_called, ToolNotCalledError
+
+    with pytest.raises(ToolNotCalledError):
+        _assert_tool_called([{"name": "discord"}], 0)
+
+
+def test_assert_tool_called_passes_when_called():
+    """도구가 한 번이라도 호출되면 통과한다."""
+    from agents.execute.factory import _assert_tool_called
+
+    _assert_tool_called([{"name": "discord"}], 1)  # 예외 없어야 함
+
+
+def test_assert_tool_called_passes_when_no_tools():
+    """도구 미명시(sub-agent 위임 노드)는 호출 0건이어도 통과한다."""
+    from agents.execute.factory import _assert_tool_called
+
+    _assert_tool_called([], 0)
+    _assert_tool_called(None, 0)
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_raises_when_tool_never_called():
+    """tools 명시 노드가 도구를 한 번도 호출하지 않으면 ToolNotCalledError를 던진다.
+    (LLM이 도구 없이 자연어로 '못 했다'고 답하는 조용한 실패 방지)"""
+    from agents.execute.factory import run_react_agent, ToolNotCalledError
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(0, final_text="웹훅 URL이 없어 발송할 수 없습니다.")
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock()
+    mock_session.id = "s-noncall"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=[{"name": "discord", "config": {}}])
+
+    with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        with pytest.raises(ToolNotCalledError):
+            await run_react_agent(
+                model="gemini-2.5-flash",
+                request=req,
+                api_key="test-key",
+                env_key=None,
+                user_id="user-1",
+                session_service=mock_ss,
+            )
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_succeeds_when_tool_called():
+    """tools 명시 노드가 도구를 호출하면 정상적으로 출력을 반환한다."""
+    from agents.execute.factory import run_react_agent
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(1, final_text="발송 완료")
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock()
+    mock_session.id = "s-call"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=[{"name": "discord", "config": {}}])
+
+    with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        output, _, _, _ = await run_react_agent(
+            model="gemini-2.5-flash",
+            request=req,
+            api_key="test-key",
+            env_key=None,
+            user_id="user-1",
+            session_service=mock_ss,
+        )
+
+    assert output == "발송 완료"
 
 
 # ---------- run_react_agent ----------
