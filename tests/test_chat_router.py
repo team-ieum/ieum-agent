@@ -50,3 +50,15 @@ def test_chat_endpoint_서버오류_500_반환():
         response = client.post("/v1/chat", json=CHAT_PAYLOAD)
     assert response.status_code == 500
     assert ErrorCode.CHAT_EXECUTION_FAILED.message in response.json()["detail"]
+
+
+class _RateLimitError(Exception):
+    def __init__(self):
+        self.code = 429
+
+
+def test_chat_endpoint_레이트리밋_429_반환():
+    with patch("api.routes.chat.chat_workflow", side_effect=_RateLimitError()):
+        response = client.post("/v1/chat", json=CHAT_PAYLOAD)
+    assert response.status_code == 429
+    assert ErrorCode.RATE_LIMITED.message in response.json()["detail"]
