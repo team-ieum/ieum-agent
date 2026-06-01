@@ -83,13 +83,18 @@ def _param_spec_from_fn(fn) -> dict:
         spec[p.name] = {
             "class": _classify(p),
             "type": _type_name(p.annotation),
-            "default": None if p.default is inspect.Parameter.empty else p.default,
+            # JSON 직렬화 불가 기본값(커스텀 객체/함수/datetime 등)은 문자열로 변환해
+            # 프론트 메타 엔드포인트 등에서 직렬화 에러가 나지 않도록 한다.
+            "default": None if p.default is inspect.Parameter.empty else (
+                p.default if isinstance(p.default, (str, int, float, bool, list, dict, type(None)))
+                else str(p.default)
+            ),
         }
     return spec
 
 
 def tool_param_spec(name: str) -> dict:
-    """노드 tools 키(_TOOL_MAP)의 도구 함수 시그니처에서 파라미터 명세를 파생한다.
+    """노드 tools 키(_TOOL_MAP) 또는 동적 서비스 액션의 함수 시그니처에서 파라미터 명세를 파생한다.
 
     반환 형식:
         {
@@ -98,7 +103,12 @@ def tool_param_spec(name: str) -> dict:
           ...
         }
     """
-    return _param_spec_from_fn(_TOOL_MAP[name])
+    if name in _TOOL_MAP:
+        return _param_spec_from_fn(_TOOL_MAP[name])
+    for actions in _DYNAMIC_SERVICE_ACTIONS.values():
+        if name in actions:
+            return _param_spec_from_fn(actions[name])
+    raise KeyError(f"Tool '{name}' not found in registry.")
 
 
 def required_user_params(name: str) -> list[str]:
