@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.middleware.credential import get_llm_credentials
 from api.schemas.generate_workflow import GenerateWorkflowRequest, GenerateWorkflowResponse
 from common.error_code import ErrorCode
+from common.exception import llm_http_exception
 from core.workflow_generator import generate_workflow
 
 logger = logging.getLogger(__name__)
@@ -31,5 +32,4 @@ async def generate_workflow_endpoint(
                             detail=ErrorCode.WORKFLOW_PARSE_FAILED.message)
     except Exception as e:
         logger.error("워크플로우 생성 중 예상치 못한 오류: %s", str(e), exc_info=True)
-        raise HTTPException(status_code=ErrorCode.WORKFLOW_GENERATION_FAILED.status_code,
-                            detail=ErrorCode.WORKFLOW_GENERATION_FAILED.message)
+        raise llm_http_exception(e, ErrorCode.WORKFLOW_GENERATION_FAILED)
