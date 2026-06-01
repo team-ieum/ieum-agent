@@ -49,7 +49,7 @@ def _notion_language(lang: str) -> str:
     return normalized if normalized in _NOTION_LANGUAGES else "plain text"
 
 
-def _text_segments(content: str, *, link: str = None, **annotations) -> list[dict]:
+def _text_segments(content: str, *, link: str | None = None, **annotations) -> list[dict]:
     """문자열을 Notion rich_text 세그먼트 목록으로 변환한다.
 
     - content가 2000자를 초과하면 여러 세그먼트로 분할 (Notion 제한)
@@ -163,38 +163,38 @@ def _blocks_from_text(content: str) -> list[dict]:
             i += 1
             continue
 
-        # 체크박스 (- [ ] / - [x])
-        todo = re.match(r"^[-*+]\s+\[([ xX])\]\s+(.*)", stripped)
+        # 체크박스 (- [ ] / - [x]) — 텍스트 없는 빈 항목도 매칭
+        todo = re.match(r"^[-*+]\s+\[([ xX])\](?:\s+(.*))?$", stripped)
         if todo:
             blocks.append({
                 "object": "block",
                 "type": "to_do",
                 "to_do": {
-                    "rich_text": _parse_inline(todo.group(2)),
+                    "rich_text": _parse_inline(todo.group(2) or ""),
                     "checked": todo.group(1).lower() == "x",
                 },
             })
             i += 1
             continue
 
-        # 불릿 리스트
-        bullet = re.match(r"^[-*+]\s+(.*)", stripped)
+        # 불릿 리스트 — 텍스트 없는 빈 항목도 매칭
+        bullet = re.match(r"^[-*+](?:\s+(.*))?$", stripped)
         if bullet:
             blocks.append({
                 "object": "block",
                 "type": "bulleted_list_item",
-                "bulleted_list_item": {"rich_text": _parse_inline(bullet.group(1))},
+                "bulleted_list_item": {"rich_text": _parse_inline(bullet.group(1) or "")},
             })
             i += 1
             continue
 
-        # 넘버드 리스트
-        numbered = re.match(r"^\d+\.\s+(.*)", stripped)
+        # 넘버드 리스트 — 텍스트 없는 빈 항목도 매칭
+        numbered = re.match(r"^\d+\.(?:\s+(.*))?$", stripped)
         if numbered:
             blocks.append({
                 "object": "block",
                 "type": "numbered_list_item",
-                "numbered_list_item": {"rich_text": _parse_inline(numbered.group(1))},
+                "numbered_list_item": {"rich_text": _parse_inline(numbered.group(1) or "")},
             })
             i += 1
             continue
