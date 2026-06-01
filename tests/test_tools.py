@@ -232,12 +232,14 @@ async def test_send_discord_webhook_failure():
     assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
 
 
-def test_bind_config_strips_webhook_url_from_declaration():
-    """_bind_config로 webhook_url을 바인딩하면 ADK 도구 선언(parameters + description)
-    어디에도 webhook_url이 노출되지 않는다.
-    (docstring에 남으면 LLM이 'URL을 모른다'며 도구 호출을 포기 → 발송 실패)"""
+def test_bind_config_strips_webhook_url_from_signature_and_docstring():
+    """_bind_config로 webhook_url을 바인딩하면 시그니처와 docstring 어디에도
+    webhook_url이 노출되지 않는다.
+    (docstring에 남으면 LLM이 'URL을 모른다'며 도구 호출을 포기 → 발송 실패)
+
+    ADK 내부 declaration 표현(버전마다 다름)에 의존하지 않도록 __signature__/__doc__를
+    직접 검증한다. ADK는 이 둘로부터 LLM 노출 스키마를 생성한다."""
     from tools import _bind_config
-    from google.adk.tools.function_tool import FunctionTool
 
     cfg = {
         "webhook_url": "https://discord.com/api/webhooks/x",
@@ -246,26 +248,13 @@ def test_bind_config_strips_webhook_url_from_declaration():
     bound = _bind_config(send_discord_webhook, cfg)
 
     # 시그니처에서 제거
-    assert "webhook_url" not in inspect.signature(bound).parameters
-    assert "content" in inspect.signature(bound).parameters
+    params = inspect.signature(bound).parameters
+    assert "webhook_url" not in params
+    assert "content" in params
 
-    decl = FunctionTool(bound)._get_declaration()
-    # 파라미터 스키마에서 제거
-    assert "webhook_url" not in decl.parameters.properties
-    assert "content" in decl.parameters.properties
-    # description(docstring)에서도 제거
-    assert "webhook_url" not in (decl.description or "")
-
-
-def test_bind_config_keeps_unbound_params_in_docstring():
-    """바인딩하지 않은 인자의 docstring 설명은 그대로 유지된다."""
-    from tools import _bind_config
-    from google.adk.tools.function_tool import FunctionTool
-
-    bound = _bind_config(send_discord_webhook, {"webhook_url": "https://x"})
-    decl = FunctionTool(bound)._get_declaration()
-    # content는 바인딩 안 됐으므로 설명에 남아야 함
-    assert "content" in (decl.description or "")
+    # docstring(Args)에서도 제거 — 이번 버그의 핵심
+    assert "webhook_url" not in (bound.__doc__ or "")
+    assert "content" in (bound.__doc__ or "")
 
 
 # ---------------------------------------------------------------------------
