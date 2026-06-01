@@ -45,6 +45,24 @@ def test_make_partial_removes_bound_annotation():
     assert "a" in partial_fn.__annotations__
 
 
+def test_make_partial_strips_bound_param_from_docstring():
+    """바인딩된 파라미터의 docstring Args 라인이 제거된다.
+    (제거 안 하면 LLM이 이미 주입된 인자를 직접 채워야 한다고 오판하여 도구 호출을 포기)"""
+    def sample_fn(a: str, token: str) -> str:
+        """설명 문장.
+
+        Args:
+            a: 첫 번째 인자
+            token: 비밀 토큰 값
+        """
+        return a
+
+    partial_fn = _make_partial(sample_fn, token="secret")
+    assert "token:" not in partial_fn.__doc__       # 바인딩된 인자 라인 제거
+    assert "a: 첫 번째 인자" in partial_fn.__doc__   # 미바인딩 인자 라인은 유지
+    assert "설명 문장." in partial_fn.__doc__         # 본문은 유지
+
+
 # ---------- _bind_google_token ----------
 
 def test_bind_google_token_binds_sheets_tool():
