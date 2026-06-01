@@ -37,6 +37,7 @@ async def chat_endpoint(
             available_webhooks=[w.model_dump() for w in request.availableWebhooks] if request.availableWebhooks else None,
         )
     except ValueError:
+        logger.exception("[chat-debug] chat_workflow ValueError — 실제 원인 추적")
         raise HTTPException(
             status_code=ErrorCode.CHAT_PARSE_FAILED.status_code,
             detail=ErrorCode.CHAT_PARSE_FAILED.message,

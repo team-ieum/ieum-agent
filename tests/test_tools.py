@@ -232,6 +232,31 @@ async def test_send_discord_webhook_failure():
     assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
 
 
+def test_bind_config_strips_webhook_url_from_signature_and_docstring():
+    """_bind_config로 webhook_url을 바인딩하면 시그니처와 docstring 어디에도
+    webhook_url이 노출되지 않는다.
+    (docstring에 남으면 LLM이 'URL을 모른다'며 도구 호출을 포기 → 발송 실패)
+
+    ADK 내부 declaration 표현(버전마다 다름)에 의존하지 않도록 __signature__/__doc__를
+    직접 검증한다. ADK는 이 둘로부터 LLM 노출 스키마를 생성한다."""
+    from tools import _bind_config
+
+    cfg = {
+        "webhook_url": "https://discord.com/api/webhooks/x",
+        "webhookCredentialId": "cred-id",
+    }
+    bound = _bind_config(send_discord_webhook, cfg)
+
+    # 시그니처에서 제거
+    params = inspect.signature(bound).parameters
+    assert "webhook_url" not in params
+    assert "content" in params
+
+    # docstring(Args)에서도 제거 — 이번 버그의 핵심
+    assert "webhook_url" not in (bound.__doc__ or "")
+    assert "content" in (bound.__doc__ or "")
+
+
 # ---------------------------------------------------------------------------
 # Gmail
 # ---------------------------------------------------------------------------

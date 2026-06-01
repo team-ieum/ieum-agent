@@ -20,6 +20,14 @@ async def build_communication_agent(
     comm_agent에 위임됐을 때도 실제 발송이 되도록 한다. (멀티 에이전트 경로에서 메인이
     comm_agent로 위임하면 unbound 도구가 webhook_url을 되묻던 간헐적 발송 실패를 방지)"""
     webhook_configs = webhook_configs or {}
+    import logging
+    _log = logging.getLogger(__name__)
+    _dc = webhook_configs.get("send_discord_webhook")
+    _sl = webhook_configs.get("send_slack_message")
+    _log.warning(
+        "[webhook-debug] comm_agent 빌드 — discord webhook_url 바인딩됨: %s, slack webhook_url 바인딩됨: %s",
+        bool(_dc and _dc.get("webhook_url")), bool(_sl and _sl.get("webhook_url")),
+    )
     tools = [
         FunctionTool(_bind_config(send_slack_message, webhook_configs.get("send_slack_message"))),
         FunctionTool(_bind_config(send_discord_webhook, webhook_configs.get("send_discord_webhook"))),
