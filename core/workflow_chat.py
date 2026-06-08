@@ -441,7 +441,7 @@ def _bind_token(fn, **bound_args):
     return p
 
 
-def _emit_stage(on_stage: Optional[Callable[[str], None]], stage: str) -> None:
+def _emit_stage(on_stage: Callable[[str], None] | None, stage: str) -> None:
     """진행 단계 콜백을 안전하게 호출한다.
 
     스트리밍(/v1/chat/stream) 경로에서만 on_stage가 전달되며, 블로킹(/v1/chat) 경로는
@@ -471,7 +471,7 @@ async def chat_workflow(
     available_mcp_servers: list | None = None,
     available_webhooks: list | None = None,
     preserve_id: bool | None = None,
-    on_stage: Optional[Callable[[str], None]] = None,
+    on_stage: Callable[[str], None] | None = None,
 ) -> ChatResponse:
     start = time.monotonic()
 
@@ -951,9 +951,11 @@ async def chat_workflow_stream(**kwargs):
         try:
             response = await chat_workflow(on_stage=on_stage, **kwargs)
             await queue.put(("done", response))
+        except ValueError as e:
+            await queue.put(("error", {"message": str(e)}))
         except Exception as e:
             logger.error("[chat-stream] 스트리밍 실행 실패: %s", e, exc_info=True)
-            await queue.put(("error", {"message": str(e)}))
+            await queue.put(("error", {"message": ErrorCode.CHAT_EXECUTION_FAILED.message}))
         finally:
             await queue.put(None)  # 종료 sentinel
 

@@ -67,7 +67,7 @@ async def test_stream_단계_이벤트_후_done_순서로_방출():
 async def test_stream_예외_시_error_이벤트_방출():
     async def fake(on_stage=None, **kwargs):
         on_stage("designing")
-        raise RuntimeError("boom")
+        raise ValueError("boom")
 
     with patch("core.workflow_chat.chat_workflow", fake):
         events = [ev async for ev in chat_workflow_stream(prompt="x")]
