@@ -1,6 +1,7 @@
 # Server
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
+sse-starlette>=2.1.0
 
 # AI Agent
 google-adk>=1.0.0
