@@ -7,7 +7,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Callable, List, Optional
 from pydantic import BaseModel, Field
 
 from google.adk.agents import LlmAgent
@@ -440,6 +440,19 @@ def _bind_token(fn, **bound_args):
     return p
 
 
+def _emit_stage(on_stage: Optional[Callable[[str], None]], stage: str) -> None:
+    """진행 단계 콜백을 안전하게 호출한다.
+
+    스트리밍(/v1/chat/stream) 경로에서만 on_stage가 전달되며, 블로킹(/v1/chat) 경로는
+    None이라 아무 동작도 하지 않는다. 콜백 실패가 설계 로직을 막지 않도록 예외는 무시한다."""
+    if on_stage is None:
+        return
+    try:
+        on_stage(stage)
+    except Exception:
+        logger.warning("[chat-stream] on_stage 콜백 실패 — stage: %s", stage, exc_info=True)
+
+
 async def chat_workflow(
     prompt: str,
     provider: str,
@@ -457,6 +470,7 @@ async def chat_workflow(
     available_mcp_servers: list | None = None,
     available_webhooks: list | None = None,
     preserve_id: bool | None = None,
+    on_stage: Optional[Callable[[str], None]] = None,
 ) -> ChatResponse:
     start = time.monotonic()
 
@@ -663,6 +677,7 @@ async def chat_workflow(
                     return text
 
                 # Gemini가 함수 호출 후 빈 텍스트를 반환하는 경우가 있어, 빈 응답이면 1회 재시도한다.
+                _emit_stage(on_stage, "designing")
                 draft_output = await _run_designer_once()
                 if not draft_output.strip():
                     logger.warning("[chat-debug] designer 빈 응답 — 1회 재시도합니다.")
@@ -687,6 +702,7 @@ async def chat_workflow(
                 # 신규 생성 또는 수정인 경우에만 지능형 검증(Reviewer) 가동
                 if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
                     # Step 2: 설계 초안 검증 (Reviewer)
+                    _emit_stage(on_stage, "reviewing")
                     review_prompt = (
                         f"Original User Request: {prompt}\n\n"
                         f"Drafted Workflow Configs:\n{cleaned_draft}"
