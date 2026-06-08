@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import functools
 import inspect
@@ -927,3 +928,45 @@ async def chat_workflow(
 
         logger.error("채팅 워크플로우 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
         raise ValueError(ErrorCode.CHAT_PARSE_FAILED.message)
+
+
+async def chat_workflow_stream(**kwargs):
+    """chat_workflow를 실행하며 진행 단계를 SSE용 이벤트로 yield한다.
+
+    yield 형식은 ``(event, data)`` 튜플이다.
+      - ``("stage", {"stage": "designing" | "reviewing"})`` — 설계/검토 진행 알림
+      - ``("done", ChatResponse)`` — 완성된 최종 응답
+      - ``("error", {"message": str})`` — 실행 중 예외
+
+    chat_workflow를 백그라운드 task로 돌리고, on_stage 콜백이 큐에 넣은 단계 이벤트를
+    실시간으로 흘린 뒤 완료 시 최종 결과(done) 또는 예외(error)를 마지막으로 방출한다.
+    on_stage는 내부에서 주입하므로 kwargs로 전달하면 안 된다.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def on_stage(stage: str) -> None:
+        queue.put_nowait(("stage", {"stage": stage}))
+
+    async def _run() -> None:
+        try:
+            response = await chat_workflow(on_stage=on_stage, **kwargs)
+            await queue.put(("done", response))
+        except Exception as e:
+            logger.error("[chat-stream] 스트리밍 실행 실패: %s", e, exc_info=True)
+            await queue.put(("error", {"message": str(e)}))
+        finally:
+            await queue.put(None)  # 종료 sentinel
+
+    task = asyncio.create_task(_run())
+    try:
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield item
+    finally:
+        # 구독자가 중간에 연결을 끊으면(클라이언트 disconnect) 백그라운드 task를 정리한다.
+        if not task.done():
+            task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
