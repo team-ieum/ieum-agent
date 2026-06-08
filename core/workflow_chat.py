@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import functools
 import inspect
@@ -7,7 +8,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Callable, List, Optional
 from pydantic import BaseModel, Field
 
 from google.adk.agents import LlmAgent
@@ -440,6 +441,19 @@ def _bind_token(fn, **bound_args):
     return p
 
 
+def _emit_stage(on_stage: Callable[[str], None] | None, stage: str) -> None:
+    """진행 단계 콜백을 안전하게 호출한다.
+
+    스트리밍(/v1/chat/stream) 경로에서만 on_stage가 전달되며, 블로킹(/v1/chat) 경로는
+    None이라 아무 동작도 하지 않는다. 콜백 실패가 설계 로직을 막지 않도록 예외는 무시한다."""
+    if on_stage is None:
+        return
+    try:
+        on_stage(stage)
+    except Exception:
+        logger.warning("[chat-stream] on_stage 콜백 실패 — stage: %s", stage, exc_info=True)
+
+
 async def chat_workflow(
     prompt: str,
     provider: str,
@@ -457,6 +471,7 @@ async def chat_workflow(
     available_mcp_servers: list | None = None,
     available_webhooks: list | None = None,
     preserve_id: bool | None = None,
+    on_stage: Callable[[str], None] | None = None,
 ) -> ChatResponse:
     start = time.monotonic()
 
@@ -663,6 +678,7 @@ async def chat_workflow(
                     return text
 
                 # Gemini가 함수 호출 후 빈 텍스트를 반환하는 경우가 있어, 빈 응답이면 1회 재시도한다.
+                _emit_stage(on_stage, "designing")
                 draft_output = await _run_designer_once()
                 if not draft_output.strip():
                     logger.warning("[chat-debug] designer 빈 응답 — 1회 재시도합니다.")
@@ -687,6 +703,7 @@ async def chat_workflow(
                 # 신규 생성 또는 수정인 경우에만 지능형 검증(Reviewer) 가동
                 if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
                     # Step 2: 설계 초안 검증 (Reviewer)
+                    _emit_stage(on_stage, "reviewing")
                     review_prompt = (
                         f"Original User Request: {prompt}\n\n"
                         f"Drafted Workflow Configs:\n{cleaned_draft}"
@@ -911,3 +928,47 @@ async def chat_workflow(
 
         logger.error("채팅 워크플로우 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
         raise ValueError(ErrorCode.CHAT_PARSE_FAILED.message)
+
+
+async def chat_workflow_stream(**kwargs):
+    """chat_workflow를 실행하며 진행 단계를 SSE용 이벤트로 yield한다.
+
+    yield 형식은 ``(event, data)`` 튜플이다.
+      - ``("stage", {"stage": "designing" | "reviewing"})`` — 설계/검토 진행 알림
+      - ``("done", ChatResponse)`` — 완성된 최종 응답
+      - ``("error", {"message": str})`` — 실행 중 예외
+
+    chat_workflow를 백그라운드 task로 돌리고, on_stage 콜백이 큐에 넣은 단계 이벤트를
+    실시간으로 흘린 뒤 완료 시 최종 결과(done) 또는 예외(error)를 마지막으로 방출한다.
+    on_stage는 내부에서 주입하므로 kwargs로 전달하면 안 된다.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def on_stage(stage: str) -> None:
+        queue.put_nowait(("stage", {"stage": stage}))
+
+    async def _run() -> None:
+        try:
+            response = await chat_workflow(on_stage=on_stage, **kwargs)
+            await queue.put(("done", response))
+        except ValueError as e:
+            await queue.put(("error", {"message": str(e)}))
+        except Exception as e:
+            logger.error("[chat-stream] 스트리밍 실행 실패: %s", e, exc_info=True)
+            await queue.put(("error", {"message": ErrorCode.CHAT_EXECUTION_FAILED.message}))
+        finally:
+            await queue.put(None)  # 종료 sentinel
+
+    task = asyncio.create_task(_run())
+    try:
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield item
+    finally:
+        # 구독자가 중간에 연결을 끊으면(클라이언트 disconnect) 백그라운드 task를 정리한다.
+        if not task.done():
+            task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
