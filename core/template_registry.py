@@ -46,9 +46,15 @@ def _tool_map_keys() -> set:
 
 def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
     """단일 템플릿의 스키마와 _TOOL_MAP 드리프트를 검증한다."""
+    if not isinstance(tpl, dict):
+        raise TemplateSchemaError(f"{filename}: 템플릿 루트는 JSON 객체(dict)여야 합니다.")
     missing = _REQUIRED_TOP_KEYS - tpl.keys()
     if missing:
         raise TemplateSchemaError(f"{filename}: 필수 필드 누락 {sorted(missing)}")
+    if not isinstance(tpl.get("allowed_config_fields"), list):
+        raise TemplateSchemaError(f"{tpl.get('id', filename)}: allowed_config_fields는 리스트여야 합니다.")
+    if not isinstance(tpl.get("slots"), list):
+        raise TemplateSchemaError(f"{tpl.get('id', filename)}: slots는 리스트여야 합니다.")
 
     tid = tpl["id"]
     expected_file = f"{tid}.json"
@@ -91,7 +97,7 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
         # config.* slot은 allowed_config_fields에 포함되어야 함
         path = slot["path"]
         if path.startswith("config."):
-            key = path.split(".", 1)[1]
+            key = path.split(".")[1]
             if key not in allowed:
                 raise TemplateSchemaError(f"{tid}: slot '{slot['name']}'의 config.{key}가 allowed_config_fields에 없음")
 
@@ -164,9 +170,13 @@ def resolve_template_for_node(node: dict) -> dict | None:
     """주어진 노드에 해당하는 템플릿을 찾는다(#5 검증용).
     AI 노드는 tools의 tool_key로, 그 외는 node_type으로 매칭한다.
     매칭 실패 시 None."""
+    if not isinstance(node, dict):
+        return None
     templates = load_templates()
     ntype = (node.get("type") or "").upper()
-    config = node.get("config", {}) or {}
+    config = node.get("config")
+    if not isinstance(config, dict):
+        config = {}
 
     if ntype == "AI":
         tool_names = [

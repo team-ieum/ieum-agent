@@ -194,6 +194,8 @@ class WorkflowValidator:
         """AI 노드 config의 enum/필수값을 검증한다.
         agentType(react|simple), llmProvider(CLAUDE|OPENAI|GEMINI) 값 화이트리스트와
         credentialId 빈 문자열 규칙(런타임 주입)을 강제해 환각을 차단한다."""
+        if not isinstance(config, dict):
+            raise WorkflowValidationError(f"AI 노드 '{node_id}'의 config는 객체(dict) 형식이어야 합니다.")
         agent_type = config.get("agentType")
         if agent_type not in cls.ALLOWED_AGENT_TYPES:
             raise WorkflowValidationError(

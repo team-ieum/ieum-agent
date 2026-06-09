@@ -42,6 +42,8 @@ async def seed_node_templates(collection=None) -> dict:
 
     col = collection if collection is not None else node_templates
     templates = all_templates()
+    if not templates:
+        raise ValueError("동기화할 템플릿이 존재하지 않습니다. 템플릿 디렉토리 경로를 확인하세요.")
     ids = [t["id"] for t in templates]
 
     await col.create_index("id", unique=True)
