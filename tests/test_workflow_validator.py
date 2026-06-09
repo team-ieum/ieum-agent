@@ -177,7 +177,7 @@ def test_edge_pointing_to_trigger_raises():
             "id": "node-2",
             "type": "AI",
             "label": "AI 노드",
-            "config": {"llmProvider": "OPENAI"}
+            "config": {"llmProvider": "OPENAI", "agentType": "react", "credentialId": ""}
         }
     ]
     edges = [
@@ -201,13 +201,13 @@ def test_unreachable_orphan_node_raises():
             "id": "node-2",
             "type": "AI",
             "label": "연결된 노드",
-            "config": {"llmProvider": "OPENAI"}
+            "config": {"llmProvider": "OPENAI", "agentType": "react", "credentialId": ""}
         },
         {
             "id": "node-3",
             "type": "AI",
             "label": "고아 노드",
-            "config": {"llmProvider": "OPENAI"}
+            "config": {"llmProvider": "OPENAI", "agentType": "react", "credentialId": ""}
         }
     ]
     edges = [
@@ -338,3 +338,45 @@ def test_unknown_tool_name_raises():
     with pytest.raises(WorkflowValidationError) as excinfo:
         WorkflowValidator.validate(nodes, edges)
     assert "유효하지 않습니다" in str(excinfo.value)
+
+
+# --- #5. config 필드 화이트리스트 (템플릿 기반) ---
+def _trigger():
+    return {"id": "node-1", "type": "TRIGGER", "label": "트리거",
+            "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}
+
+
+def test_config_unknown_field_rejected():
+    """템플릿에 없는 config 필드(환각)는 거부된다."""
+    nodes = [_trigger(),
+             {"id": "node-2", "type": "AI", "label": "ai",
+              "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "x",
+                         "agentType": "react", "tools": [], "temperature": 0.7}}]
+    edges = [{"source": "node-1", "target": "node-2"}]
+    with pytest.raises(WorkflowValidationError) as e:
+        WorkflowValidator.validate(nodes, edges)
+    assert "허용되지 않은 필드" in str(e.value) and "temperature" in str(e.value)
+
+
+def test_config_universal_credential_id_allowed():
+    """플랫폼 공통 필드(credentialId)는 모든 노드 타입에서 허용된다."""
+    nodes = [{"id": "node-1", "type": "TRIGGER", "label": "트리거",
+              "config": {"triggerType": "MANUAL", "credentialId": ""}},
+             {"id": "node-2", "type": "AI", "label": "ai",
+              "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "x",
+                         "agentType": "react", "tools": []}}]
+    edges = [{"source": "node-1", "target": "node-2"}]
+    WorkflowValidator.validate(nodes, edges)  # 통과해야 함
+
+
+def test_config_manual_trigger_with_cron_rejected():
+    """MANUAL 트리거에 cron 같은 타입별 무관 필드는 거부된다(triggerType별 정확 매칭)."""
+    nodes = [{"id": "node-1", "type": "TRIGGER", "label": "트리거",
+              "config": {"triggerType": "MANUAL", "cron": "0 9 * * *"}},
+             {"id": "node-2", "type": "AI", "label": "ai",
+              "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "x",
+                         "agentType": "react", "tools": []}}]
+    edges = [{"source": "node-1", "target": "node-2"}]
+    with pytest.raises(WorkflowValidationError) as e:
+        WorkflowValidator.validate(nodes, edges)
+    assert "cron" in str(e.value)

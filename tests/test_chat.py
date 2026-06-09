@@ -380,7 +380,7 @@ async def test_chat_workflow_id_translation():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "trigger_node", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL", "interval": "daily"}},
+            {"id": "trigger_node", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
             {"id": "ai_node", "type": "AI", "label": "AI 처리", "config": {"prompt": "이전 데이터: {{nodes.trigger_node.output.data}}", "agentType": "react", "llmProvider": "GEMINI"}}
         ],
         "edges": [
