@@ -304,15 +304,18 @@ async def run_react_agent(
 
         # [기본 흐름] 복수 크레덴셜 또는 커스텀 MCP가 있는 경우 오케스트레이터(Main) + 전문 서브에이전트 구조로 실행
         async with contextlib.AsyncExitStack() as stack:
-            web_agent, _ = await build_web_agent(model_param)
-            comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
-            transform_agent, _ = await build_transform_agent(model_param)
-
-            sub_agent_tools = [
-                AgentTool(agent=web_agent),
-                AgentTool(agent=comm_agent),
-                AgentTool(agent=transform_agent),
-            ]
+            # 헬퍼 서브에이전트는 필요할 때만 마운트한다(단일 경로와 동일 정책). 명시 도구가 있는 노드에
+            # web/transform 헬퍼까지 붙이면 곁길로 새므로, 도구 없는 능력형 노드에만 붙인다.
+            # comm은 webhook 설정이 있을 때만.
+            sub_agent_tools = []
+            if webhook_configs:
+                comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
+                sub_agent_tools.append(AgentTool(agent=comm_agent))
+            if not request.tools:
+                web_agent, _ = await build_web_agent(model_param)
+                transform_agent, _ = await build_transform_agent(model_param)
+                sub_agent_tools.append(AgentTool(agent=web_agent))
+                sub_agent_tools.append(AgentTool(agent=transform_agent))
 
             if notion_token:
                 notion_agent, _ = await build_notion_agent(model_param, notion_token, stack)
