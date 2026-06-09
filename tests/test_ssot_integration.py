@@ -32,6 +32,9 @@ def test_golden_snippet_tool_keys_in_tool_map():
         snip = tpl.get("golden_snippet") or {}
         for tool in (snip.get("config", {}) or {}).get("tools", []) or []:
             name = tool.get("name") if isinstance(tool, dict) else tool
+            # "mcp"는 동적 도구 센티넬(런타임 catalog 주입)로 _TOOL_MAP에 없어도 허용한다.
+            if name == "mcp":
+                continue
             assert name in keys, f"{tpl['id']}: 스니펫 도구 '{name}' 드리프트"
 
 
