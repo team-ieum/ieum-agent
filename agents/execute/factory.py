@@ -223,16 +223,23 @@ async def run_react_agent(
                     github_agent, _ = await build_github_agent(model_param, github_token, stack)
                     mcp_tools.extend(github_agent.tools)
 
-                web_agent, _ = await build_web_agent(model_param)
-                comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
-                transform_agent, _ = await build_transform_agent(model_param)
+                # 헬퍼 서브에이전트는 필요할 때만 마운트한다. 명시 도구가 있는 노드(예: 발송 노드)에
+                # web/transform 헬퍼까지 붙이면 ReAct 에이전트가 곁길(예: discord 발송 대신 web_search)로
+                # 새므로, 명시 도구가 없는 능력형 노드에만 붙인다. comm은 webhook 설정이 있을 때만.
+                helper_tools = []
+                if webhook_configs:
+                    comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
+                    helper_tools.extend(comm_agent.tools or [])
+                if not request.tools:
+                    web_agent, _ = await build_web_agent(model_param)
+                    transform_agent, _ = await build_transform_agent(model_param)
+                    helper_tools.extend(web_agent.tools or [])
+                    helper_tools.extend(transform_agent.tools or [])
 
                 raw_direct_tools = [
                     *builtin_tools,
                     *mcp_tools,
-                    *(web_agent.tools or []),
-                    *(comm_agent.tools or []),
-                    *(transform_agent.tools or []),
+                    *helper_tools,
                 ]
                 seen_names = set()
                 direct_tools = []
