@@ -443,3 +443,75 @@ def test_empty_list_items_match_their_block_type():
     assert blocks[1]["numbered_list_item"]["rich_text"] == []
     assert blocks[2]["to_do"]["rich_text"] == []
     assert blocks[2]["to_do"]["checked"] is False
+
+
+# ---------------------------------------------------------------------------
+# notion_query_database
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_notion_query_database_성공(mock_client):
+    mock_client.post = AsyncMock(return_value=_make_response(200, {
+        "results": [
+            {
+                "id": "row-1",
+                "url": "https://notion.so/row-1",
+                "properties": {
+                    "이름": {"type": "title", "title": [{"plain_text": "홍길동"}]},
+                    "상태": {"type": "status", "status": {"name": "진행중"}},
+                    "점수": {"type": "number", "number": 90},
+                    "태그": {"type": "multi_select", "multi_select": [{"name": "A"}, {"name": "B"}]},
+                    "완료": {"type": "checkbox", "checkbox": False},
+                },
+            }
+        ]
+    }))
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        result = json.loads(await notion_query_database(
+            token="secret_test",
+            database_id="db-123",
+            filter_json='{"property":"상태","status":{"equals":"진행중"}}',
+        ))
+
+    assert result["success"] is True
+    assert result["total"] == 1
+    row = result["rows"][0]
+    assert row["id"] == "row-1"
+    assert row["properties"]["이름"] == "홍길동"
+    assert row["properties"]["상태"] == "진행중"
+    assert row["properties"]["점수"] == 90
+    assert row["properties"]["태그"] == ["A", "B"]
+    assert row["properties"]["완료"] is False
+
+
+@pytest.mark.asyncio
+async def test_notion_query_database_api_오류(mock_client):
+    mock_client.post = AsyncMock(return_value=_make_response(404, {
+        "message": "Could not find database."
+    }))
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        result = json.loads(await notion_query_database(
+            token="secret_test",
+            database_id="db-missing",
+        ))
+
+    assert "error" in result
+    assert "404" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_notion_query_database_filter_json_파싱오류(mock_client):
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        result = json.loads(await notion_query_database(
+            token="secret_test",
+            database_id="db-123",
+            filter_json="{invalid json}",
+        ))
+
+    assert "error" in result
+    assert "파싱 오류" in result["error"]
