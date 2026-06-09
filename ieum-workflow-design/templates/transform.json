@@ -1,0 +1,24 @@
+{
+  "id": "transform",
+  "node_type": "TRANSFORM",
+  "tool_key": null,
+  "tags": ["변환", "transform", "가공", "정리", "포맷", "매핑", "mapping"],
+  "menu": "TRANSFORM: 선행 노드 데이터를 mappings로 정제/재구성",
+  "fixed": {
+    "type": "TRANSFORM",
+    "config": {}
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "mappings", "path": "config.mappings", "required": true, "kind": "mapping", "description": "출력 키 → 값(참조식 가능) dict. 예: {\"prSummary\": \"{{nodes.node-2.output.output}}\"}"}
+  ],
+  "allowed_config_fields": ["mappings"],
+  "golden_snippet": {
+    "id": "node-3",
+    "type": "TRANSFORM",
+    "label": "PR 데이터 정리",
+    "config": {
+      "mappings": {"prSummary": "{{nodes.node-2.output.output}}"}
+    }
+  }
+}

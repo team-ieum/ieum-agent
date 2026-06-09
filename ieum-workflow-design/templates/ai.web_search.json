@@ -1,0 +1,33 @@
+{
+  "id": "ai.web_search",
+  "node_type": "AI",
+  "tool_key": "builtin:web_search",
+  "tags": ["검색", "web search", "웹 검색", "뉴스", "수집", "최신", "트렌드", "구글링"],
+  "menu": "웹 검색 수집 (제목/URL/요지 추출)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:web_search"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "검색 지시. 각 항목의 제목/URL/요지를 임의 누락 없이 정리해 반환하도록 명시."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "IT 뉴스 검색",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "오늘의 최신 IT 뉴스를 검색해줘. 각 기사의 제목, URL, 요지를 임의로 누락하지 말고 정리해 반환하시오.",
+      "agentType": "react",
+      "tools": [{"name": "builtin:web_search"}]
+    }
+  }
+}

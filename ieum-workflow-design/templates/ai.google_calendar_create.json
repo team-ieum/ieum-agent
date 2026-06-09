@@ -1,0 +1,33 @@
+{
+  "id": "ai.google_calendar_create",
+  "node_type": "AI",
+  "tool_key": "builtin:google_calendar_create",
+  "tags": ["calendar", "캘린더", "일정", "구글 캘린더", "google calendar", "이벤트 생성", "등록"],
+  "menu": "Google Calendar 일정 생성",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:google_calendar_create"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "일정 생성 지시. 제목/시작·종료 시각/설명 명시."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "캘린더 일정 생성",
+    "config": {
+      "llmProvider": "GEMINI",
+      "credentialId": "",
+      "prompt": "내일 오후 2시부터 3시까지 '주간 회의' 일정을 생성해줘.",
+      "agentType": "react",
+      "tools": [{"name": "builtin:google_calendar_create"}]
+    }
+  }
+}

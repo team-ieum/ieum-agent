@@ -1,0 +1,33 @@
+{
+  "id": "ai.discord_send",
+  "node_type": "AI",
+  "tool_key": "discord",
+  "tags": ["discord", "디스코드", "메시지", "알림", "채널", "서버", "notify"],
+  "menu": "Discord 웹훅 메시지 전송 (webhookCredentialId는 보유 웹훅에서 선택)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "discord"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시. 보낼 내용은 선행 노드 참조식 사용. 서버/웹훅이 여러 개면 CLARIFICATION 처리."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-3",
+    "type": "AI",
+    "label": "Discord 알림 발송",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "다음 내용을 디스코드 채널로 보내줘: {{nodes.node-2.output.output}}",
+      "agentType": "react",
+      "tools": [{"name": "discord"}]
+    }
+  }
+}

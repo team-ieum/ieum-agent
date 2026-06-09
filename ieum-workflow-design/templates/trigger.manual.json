@@ -1,0 +1,23 @@
+{
+  "id": "trigger.manual",
+  "node_type": "TRIGGER",
+  "tool_key": null,
+  "tags": ["수동", "manual", "직접 실행", "버튼", "트리거"],
+  "menu": "MANUAL 트리거: 사용자가 수동 실행",
+  "fixed": {
+    "type": "TRIGGER",
+    "config": {
+      "triggerType": "MANUAL"
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "트리거 라벨 (예: '수동 실행')"}
+  ],
+  "allowed_config_fields": ["triggerType"],
+  "golden_snippet": {
+    "id": "node-1",
+    "type": "TRIGGER",
+    "label": "수동 실행",
+    "config": {"triggerType": "MANUAL"}
+  }
+}

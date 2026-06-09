@@ -1,0 +1,33 @@
+{
+  "id": "ai.google_calendar_list",
+  "node_type": "AI",
+  "tool_key": "builtin:google_calendar_list",
+  "tags": ["calendar", "캘린더", "일정", "구글 캘린더", "google calendar", "일정 조회", "목록"],
+  "menu": "Google Calendar 일정 조회",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:google_calendar_list"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "일정 조회 지시. 조회 기간 명시. 후속 노드가 쓰는 필드만 추출하도록 지시."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "오늘 일정 조회",
+    "config": {
+      "llmProvider": "GEMINI",
+      "credentialId": "",
+      "prompt": "오늘 일정을 조회해 각 일정의 제목, 시작시각만 JSON 배열로 반환해줘.",
+      "agentType": "react",
+      "tools": [{"name": "builtin:google_calendar_list"}]
+    }
+  }
+}

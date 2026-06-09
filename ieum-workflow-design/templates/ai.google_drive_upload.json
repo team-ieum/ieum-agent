@@ -1,0 +1,33 @@
+{
+  "id": "ai.google_drive_upload",
+  "node_type": "AI",
+  "tool_key": "builtin:google_drive_upload",
+  "tags": ["drive", "드라이브", "구글 드라이브", "google drive", "파일 업로드", "저장"],
+  "menu": "Google Drive 파일 업로드 (name, content 필요)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:google_drive_upload"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "업로드 지시. 파일 name과 content 명시. content는 선행 노드 참조식 사용 가능."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-3",
+    "type": "AI",
+    "label": "드라이브에 파일 업로드",
+    "config": {
+      "llmProvider": "GEMINI",
+      "credentialId": "",
+      "prompt": "다음 내용을 'report.md' 파일로 드라이브에 업로드해줘: {{nodes.node-2.output.output}}",
+      "agentType": "react",
+      "tools": [{"name": "builtin:google_drive_upload"}]
+    }
+  }
+}

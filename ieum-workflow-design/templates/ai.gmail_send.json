@@ -1,0 +1,33 @@
+{
+  "id": "ai.gmail_send",
+  "node_type": "AI",
+  "tool_key": "gmail",
+  "tags": ["gmail", "메일", "이메일", "email", "발송", "메일링"],
+  "menu": "Gmail 메일 발송",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "gmail"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시. 수신자/제목/본문 명시. 본문은 선행 노드 참조식 사용."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-4",
+    "type": "AI",
+    "label": "긴급 알림 메일 발송",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "담당자에게 긴급 문의 알림 메일을 보내줘: {{nodes.node-2.output.output}}",
+      "agentType": "react",
+      "tools": [{"name": "gmail"}]
+    }
+  }
+}

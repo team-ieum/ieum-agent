@@ -1,0 +1,33 @@
+{
+  "id": "ai.google_drive_read",
+  "node_type": "AI",
+  "tool_key": "builtin:google_drive_read",
+  "tags": ["drive", "드라이브", "구글 드라이브", "google drive", "파일 읽기", "문서 조회"],
+  "menu": "Google Drive 파일 읽기 (file_id 필요)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:google_drive_read"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "읽기 지시. file_id 명시. 후속 노드가 쓰는 부분만 추출하도록 지시."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "드라이브 파일 읽기",
+    "config": {
+      "llmProvider": "GEMINI",
+      "credentialId": "",
+      "prompt": "file_id 'file-abc123'의 내용을 읽어 핵심 텍스트만 반환해줘.",
+      "agentType": "react",
+      "tools": [{"name": "builtin:google_drive_read"}]
+    }
+  }
+}

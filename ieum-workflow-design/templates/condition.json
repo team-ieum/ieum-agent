@@ -1,0 +1,28 @@
+{
+  "id": "condition",
+  "node_type": "CONDITION",
+  "tool_key": null,
+  "tags": ["조건", "condition", "분기", "if", "판단", "true", "false"],
+  "menu": "CONDITION: 조건 분기. edges의 conditionType(true/false)로 경로 분리",
+  "fixed": {
+    "type": "CONDITION",
+    "config": {}
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "operator", "path": "config.operator", "required": true, "kind": "string", "description": "비교 연산자 (예: equals, notEquals, contains, greaterThan, lessThan)"},
+    {"name": "leftValue", "path": "config.leftValue", "required": true, "kind": "expr", "description": "비교 좌변(선행 노드 참조식 가능)"},
+    {"name": "rightValue", "path": "config.rightValue", "required": true, "kind": "string", "description": "비교 우변(기대값)"}
+  ],
+  "allowed_config_fields": ["operator", "leftValue", "rightValue"],
+  "golden_snippet": {
+    "id": "node-3",
+    "type": "CONDITION",
+    "label": "긴급 여부 분기",
+    "config": {
+      "operator": "equals",
+      "leftValue": "{{nodes.node-2.output.output}}",
+      "rightValue": "urgent"
+    }
+  }
+}
