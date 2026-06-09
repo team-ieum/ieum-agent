@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -7,37 +8,96 @@ SKILL_DIR = os.path.abspath(
     os.path.join(os.path.dirname(os.path.dirname(__file__)), "ieum-workflow-design")
 )
 
-# 생성 단계에서 항상 주입하는 설계 레퍼런스 파일 (로드 순서대로).
-# 도구 카탈로그(tool-selection.md)를 프롬프트 키워드와 무관하게 상시 주입하여,
-# 모델이 "이메일/스프레드시트" 등 키워드 매칭에서 누락되던 도구의 존재를 항상 인지하도록 한다.
-_REFERENCE_FILES = [
+# 항상 주입하는 구조 레퍼런스 파일(작음). 도구 카탈로그(tool-selection.md)와
+# 통짜 골든 예시(good-examples.md)는 노드 템플릿 레지스트리(검색층)로 대체되었다.
+_ALWAYS_REFERENCE_FILES = [
     "node-types.md",          # 노드 타입/스키마 (공통 기본 지식)
-    "tool-selection.md",      # 도구 카탈로그 (정확한 도구 키 — 상시 주입)
     "workflow-patterns.md",   # 대표 워크플로우 패턴
-    "good-examples.md",       # 검증 통과 골든 예시 (few-shot 모방용)
     "bad-examples.md",        # 안티패턴 (실수 방지)
     "validation-checklist.md",  # 출력 전 자가 점검 항목
 ]
 
+# 항상 골든 스니펫을 주입하는 구조 노드 타입(작고 거의 모든 워크플로우에 필요).
+_ALWAYS_SNIPPET_NODE_TYPES = {"TRIGGER", "CONDITION", "TRANSFORM", "HTTP"}
 
-def load_design_rules(prompt: str = "") -> str:
-    """생성 에이전트(Planner/Builder) instruction에 주입할 설계 지식 레퍼런스를 빌드한다.
 
-    도구 카탈로그를 포함한 모든 레퍼런스를 항상 주입한다. (prompt 인자는 하위 호환을 위해 유지하며
-    현재는 사용하지 않는다.)
-    """
-    rules = []
-    for filename in _REFERENCE_FILES:
+def _render_template_snippet(tpl: dict) -> str:
+    """템플릿 1개를 instruction용 골든 스니펫 텍스트로 렌더한다."""
+    snippet = tpl.get("golden_snippet")
+    head = f"### {tpl['id']} — {tpl['menu']}"
+    if not snippet:
+        return head
+    body = json.dumps(snippet, ensure_ascii=False, indent=2)
+    return f"{head}\n```json\n{body}\n```"
+
+
+def _select_templates(prompt: str, current_nodes: list | None) -> list:
+    """검색층에 주입할 AI 도구 템플릿을 선택한다.
+    - prompt 태그 매칭 + (수정 요청 시) 현재 노드가 사용하는 템플릿
+    - 매칭 0건이면 AI 템플릿 전체를 폴백 주입한다(recall 우선)."""
+    from core.template_registry import select_by_tags, resolve_template_for_node, all_templates
+
+    selected: dict = {}
+    for tpl in select_by_tags(prompt):
+        if tpl["node_type"] == "AI":
+            selected[tpl["id"]] = tpl
+
+    for node in (current_nodes or []):
+        tpl = resolve_template_for_node(node)
+        if tpl and tpl["node_type"] == "AI":
+            selected[tpl["id"]] = tpl
+
+    if not selected:
+        # 무매칭 → AI 템플릿 전체 폴백(상위집합, recall 우선)
+        return [t for t in all_templates() if t["node_type"] == "AI"]
+    return list(selected.values())
+
+
+def load_design_rules(prompt: str = "", current_nodes: list | None = None) -> str:
+    """생성 에이전트 instruction에 주입할 설계 지식을 2층 구조로 빌드한다.
+
+    - 항상층: 구조 레퍼런스(작음) + 도구 메뉴 인덱스 + 구조 노드 골든 스니펫
+    - 검색층: 요청(prompt)·현재 노드에 관련된 AI 도구 템플릿 골든 스니펫만 주입
+
+    prompt 태그로 관련 템플릿만 선택해 토큰을 절감하되, 메뉴 인덱스를 항상 주입해
+    노드 누락(검색 miss) 환각을 방지한다."""
+    from core.template_registry import menu_index, all_templates
+
+    parts = []
+
+    # 1. 항상층: 구조 레퍼런스 파일
+    for filename in _ALWAYS_REFERENCE_FILES:
         path = os.path.join(SKILL_DIR, "references", filename)
         if not os.path.exists(path):
             continue
         try:
             with open(path, "r", encoding="utf-8") as f:
-                rules.append(f.read())
+                parts.append(f.read())
         except Exception as e:
             logger.warning("Failed to load %s: %s", filename, e)
 
-    return "\n\n========================================\n\n".join(rules)
+    # 2. 항상층: 도구 메뉴 인덱스(노드 존재 인지 → 검색 miss 환각 방지)
+    try:
+        parts.append("## 사용 가능한 노드/도구 메뉴\n" + menu_index())
+    except Exception as e:
+        logger.warning("Failed to build menu index: %s", e)
+        return "\n\n========================================\n\n".join(parts)
+
+    # 3. 항상층: 구조 노드 골든 스니펫(작고 거의 모든 워크플로우에 필요)
+    structural = [
+        _render_template_snippet(t) for t in all_templates()
+        if t["node_type"] in _ALWAYS_SNIPPET_NODE_TYPES
+    ]
+    if structural:
+        parts.append("## 구조 노드 예시\n" + "\n\n".join(structural))
+
+    # 4. 검색층: 요청에 관련된 AI 도구 템플릿 골든 스니펫
+    selected = _select_templates(prompt, current_nodes)
+    if selected:
+        rendered = [_render_template_snippet(t) for t in selected]
+        parts.append("## 관련 도구 노드 예시 (요청 기반 선택)\n" + "\n\n".join(rendered))
+
+    return "\n\n========================================\n\n".join(parts)
 
 
 def format_mcp_catalog(available_mcp_servers: list | None) -> str:

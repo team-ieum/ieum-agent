@@ -1,0 +1,33 @@
+{
+  "id": "ai.notion_search",
+  "node_type": "AI",
+  "tool_key": "builtin:notion_search",
+  "tags": ["notion", "노션", "검색", "search", "페이지 찾기", "query"],
+  "menu": "Notion 워크스페이스 검색 (query 필요). parent_page_id 미상 시 선행 탐색에 사용",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:notion_search"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "검색 지시. query와 목적 명시. 결과에서 page_id/title만 추출하도록 지시."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "Notion 페이지 검색",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "'트렌드 노트' 페이지를 검색해 page_id와 title만 반환해줘.",
+      "agentType": "react",
+      "tools": [{"name": "builtin:notion_search"}]
+    }
+  }
+}

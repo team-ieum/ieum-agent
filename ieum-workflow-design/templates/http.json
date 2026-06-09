@@ -1,0 +1,30 @@
+{
+  "id": "http",
+  "node_type": "HTTP",
+  "tool_key": null,
+  "tags": ["http", "rest", "api", "외부 api", "엔드포인트", "요청"],
+  "menu": "HTTP: 내장 도구가 없는 임의 외부 REST API 호출 (Notion/Slack/Google/GitHub 등은 금지)",
+  "fixed": {
+    "type": "HTTP",
+    "config": {}
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "method", "path": "config.method", "required": true, "kind": "http_method", "enum": ["GET", "POST", "PUT", "DELETE"], "description": "HTTP 메서드"},
+    {"name": "url", "path": "config.url", "required": true, "kind": "string", "description": "요청 URL (내장 도구 지원 서비스 도메인 금지)"},
+    {"name": "headers", "path": "config.headers", "required": false, "kind": "mapping", "description": "요청 헤더 dict"},
+    {"name": "body", "path": "config.body", "required": false, "kind": "string", "description": "요청 바디(POST/PUT 시)"}
+  ],
+  "allowed_config_fields": ["method", "url", "headers", "body"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "HTTP",
+    "label": "환율 API 조회",
+    "config": {
+      "method": "GET",
+      "url": "https://open.er-api.com/v6/latest/USD",
+      "headers": {},
+      "body": null
+    }
+  }
+}

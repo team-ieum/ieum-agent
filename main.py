@@ -3,7 +3,7 @@ import logging
 
 from fastapi import FastAPI
 from api.routes import execute, generate, modify, chat
-from db.mongodb import ensure_indexes
+from db.mongodb import ensure_indexes, seed_node_templates
 from tools.http_client import close_http_client
 
 logging.basicConfig(
@@ -20,6 +20,10 @@ async def lifespan(app: FastAPI):
         await ensure_indexes()
     except Exception:
         logger.warning("인덱스 생성 실패 — 계속 진행합니다.", exc_info=True)
+    try:
+        await seed_node_templates()
+    except Exception:
+        logger.warning("노드 템플릿 동기화 실패 — 계속 진행합니다.", exc_info=True)
     yield
     await close_http_client()
 

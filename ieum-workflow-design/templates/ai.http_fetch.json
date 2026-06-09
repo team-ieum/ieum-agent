@@ -1,0 +1,33 @@
+{
+  "id": "ai.http_fetch",
+  "node_type": "AI",
+  "tool_key": "builtin:http_fetch",
+  "tags": ["fetch", "url", "외부 api", "http 조회", "크롤", "가져오기"],
+  "menu": "임의 외부 URL fetch (AI 노드 내 조회+가공). 구조적 호출만 필요하면 HTTP 노드 사용",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:http_fetch"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "fetch 지시. 대상 URL과 추출할 필드 명시."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "외부 데이터 조회",
+    "config": {
+      "llmProvider": "GEMINI",
+      "credentialId": "",
+      "prompt": "https://example.com/api/status 를 조회해 status 필드만 추출해 반환해줘.",
+      "agentType": "react",
+      "tools": [{"name": "builtin:http_fetch"}]
+    }
+  }
+}

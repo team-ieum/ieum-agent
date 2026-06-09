@@ -1,0 +1,24 @@
+{
+  "id": "trigger.schedule",
+  "node_type": "TRIGGER",
+  "tool_key": null,
+  "tags": ["스케줄", "schedule", "정기", "매일", "매주", "매월", "cron", "주기", "트리거"],
+  "menu": "SCHEDULE 트리거: 표준 5필드 cron으로 주기 실행",
+  "fixed": {
+    "type": "TRIGGER",
+    "config": {
+      "triggerType": "SCHEDULE"
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "트리거 라벨 (예: '매일 아침 9시 트리거')"},
+    {"name": "cron", "path": "config.cron", "required": true, "kind": "cron", "description": "표준 5필드 크론식. 예: 매일 9시='0 9 * * *', 매주 금 17시='0 17 * * 5'"}
+  ],
+  "allowed_config_fields": ["triggerType", "cron"],
+  "golden_snippet": {
+    "id": "node-1",
+    "type": "TRIGGER",
+    "label": "매일 아침 9시 트리거",
+    "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}
+  }
+}

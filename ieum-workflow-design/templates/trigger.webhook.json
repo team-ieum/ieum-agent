@@ -1,0 +1,23 @@
+{
+  "id": "trigger.webhook",
+  "node_type": "TRIGGER",
+  "tool_key": null,
+  "tags": ["웹훅", "webhook", "외부 이벤트", "수신", "콜백", "트리거"],
+  "menu": "WEBHOOK 트리거: 외부 이벤트 수신 시 실행",
+  "fixed": {
+    "type": "TRIGGER",
+    "config": {
+      "triggerType": "WEBHOOK"
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "트리거 라벨 (예: '웹훅 수신 트리거')"}
+  ],
+  "allowed_config_fields": ["triggerType"],
+  "golden_snippet": {
+    "id": "node-1",
+    "type": "TRIGGER",
+    "label": "웹훅 수신 트리거",
+    "config": {"triggerType": "WEBHOOK"}
+  }
+}
