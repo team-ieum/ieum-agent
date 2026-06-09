@@ -185,6 +185,10 @@ provider 슬롯(llmProvider 등 '자동주입' 표기)은 시스템이 채우므
 1. 외부 연동(Notion/Gmail/Slack/Discord/GitHub 등)은 해당 서비스의 ai.* 템플릿을 선택합니다. http 템플릿으로 직접 호출하지 않습니다.
 2. 노드 간 데이터 참조 및 무결성:
    - prompt 등 슬롯 값에서 선행 노드 결과는 이중 중괄호 'nodes.노드ID.output.필드명' 형식만 사용합니다. 정의되지 않은 변수를 날조하지 마십시오.
+   - [필드명 규약] 노드 타입별 실제 출력 필드만 참조합니다(임의 필드명 results/content/data 금지):
+     · AI 노드 결과 → `output.output` (예: 이중 중괄호로 nodes.node-2.output.output)
+     · HTTP → `output.body`, `output.statusCode`   · TRIGGER(SCHEDULE) → `output.triggeredAt`
+     · TRANSFORM → 그 노드 매핑에서 정의한 키
    - [참조 전용] 이중 중괄호 안에는 'nodes.노드ID.output.필드명'만 허용됩니다. `{{#each}}`, `{{formatDate now}}`, `{{this.필드}}` 같은 헬퍼·함수·반복문은 **금지**입니다(엔진에 함수 없음). 날짜 삽입·반복·포맷팅이 필요하면 prompt에 자연어로 지시합니다.
    - [데이터 보존·출력 최소화] 조회 노드 prompt는 후속 노드가 실제 쓰는 필드만 추출하도록 지시합니다. 전체 raw JSON 덤프 금지(타임아웃 유발), 임의 요약/왜곡 금지. 목록 조회(깃허브 PR/이슈, 노션 검색 등)는 반드시 단일 페이지·개수 상한을 명시합니다("최신순 1페이지(per_page=30, page=1)만 조회"). 날짜 필터는 그 1페이지 결과에 적용합니다.
    - [데이터 가공 위임] 요약·날짜 포맷·JSON 파싱 등 변환은 transform 템플릿 또는 별도 AI 노드 prompt에 위임합니다(실행 시 서브 에이전트 자동 처리).
@@ -193,8 +197,10 @@ provider 슬롯(llmProvider 등 '자동주입' 표기)은 시스템이 채우므
 4-1. [요약·가공과 발송·저장 분리] 발송/저장 노드(ai.slack_send / ai.discord_send / ai.gmail_send /
    ai.notion_create_page 등)에서 콘텐츠를 직접 요약·분석·포맷하지 마십시오. 요약/판단/정리가 필요하면
    선행에 ai.reasoning(순수 추론) 또는 transform 노드를 두고, 발송/저장 노드는 그 결과를
-   {{nodes.<id>.output...}}로 참조해 전달만 하도록 노드를 나눕니다.
+   {{nodes.<id>.output.output}}로 참조해 전달만 하도록 노드를 나눕니다.
    (예: ai.web_search → ai.reasoning(요약) → ai.discord_send(발송만))
+   - [발송 prompt 명령형] 발송/저장 노드의 prompt는 **참조식만 단독으로 두지 마십시오.** 반드시 발송·저장
+     지시문과 보낼 내용 참조를 함께 씁니다. (예: "다음 내용을 디스코드로 보내줘: {{nodes.node-3.output.output}}")
 5. 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 대변하는 한국어 이름을 'workflowName'에 기입하고, 수정 시에는 null로 둡니다.
 6. 모든 워크플로우는 1개의 TRIGGER 템플릿(trigger.manual / trigger.schedule / trigger.webhook)으로 시작합니다.
    trigger.schedule을 고르면 cron 슬롯에 5필드 표준 크론 표현식을 채웁니다(예: "매일 오전 9시" -> "0 9 * * *").
