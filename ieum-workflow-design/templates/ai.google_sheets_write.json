@@ -1,0 +1,33 @@
+{
+  "id": "ai.google_sheets_write",
+  "node_type": "AI",
+  "tool_key": "builtin:google_sheets_write",
+  "tags": ["sheets", "스프레드시트", "시트", "구글 시트", "google sheets", "기록", "쓰기", "로그"],
+  "menu": "Google Sheets 쓰기 (spreadsheet_id, range, values 필요)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:google_sheets_write"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "쓰기 지시. spreadsheet_id, range, values 명시. 값은 선행 노드 참조식 사용 가능."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "Google Sheets에 상태 기록",
+    "config": {
+      "llmProvider": "GEMINI",
+      "credentialId": "",
+      "prompt": "현재 시각과 상태값을 스프레드시트에 한 행 추가해줘. spreadsheet_id: 'sheet-abc123', range: 'Sheet1!A:B', values: [[현재시각, 'OK']]",
+      "agentType": "react",
+      "tools": [{"name": "builtin:google_sheets_write"}]
+    }
+  }
+}
