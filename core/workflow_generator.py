@@ -9,6 +9,7 @@ from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from db.mongodb import generate_workflow_logs
 from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
+from core.template_registry import apply_template_fixed
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,9 @@ def _parse_and_validate(raw_output: str, original_prompt: str,
         data = json.loads(cleaned)
     except json.JSONDecodeError as e:
         raise ValueError(f"JSON 문법 오류가 있습니다: {str(e)}")
+
+    # 0. 템플릿 fixed.config 결정론 강제 적용(tools/agentType 등 보장값). LLM 누락/오류 교정.
+    apply_template_fixed(data.get("nodes", []))
 
     # 1. Pydantic 스키마 형태 로드 (여기서 Pydantic ValidationError 발생 가능)
     try:

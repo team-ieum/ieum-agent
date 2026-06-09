@@ -1,10 +1,12 @@
 import asyncio
 import contextlib
+import copy
 import functools
 import inspect
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -34,6 +36,7 @@ from tools.discord import send_discord_webhook
 from tools.slack import send_slack_message
 from agents.base import _safe_close_mcp
 from core.validators.workflow_validator import WorkflowValidator
+from core.template_registry import apply_template_fixed, backfill_empty_ai_tools
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +181,7 @@ _SYSTEM_PROMPT_BASE = """\
    - Notion, Gmail, Slack, Discord, GitHub 등 외부 연동은 **절대로 HTTP 노드로 직접 구현하지 말고**, 반드시 도구를 매핑한 AI 노드(agentType: "react")를 통해 처리하십시오. (외부 알림/웹훅 발송이나 목록 조회 등 포함)
 2. 노드 간 데이터 참조 및 데이터 무결성 보존:
    - 선행 노드의 결과는 반드시 이중 중괄호로 감싼 'nodes.노드ID.output.필드명' 형식(예: nodes.node-1.output.data를 이중 중괄호로 포장)으로 참조하십시오. 임의의 정의되지 않은 변수(예: today 등)를 날조해서 지어내지 마십시오.
+   - [이중 중괄호는 참조 전용] 이중 중괄호 안에는 오직 'nodes.노드ID.output.필드명'만 허용됩니다. `{{#each ...}}`, `{{formatDate now ...}}`, `{{this.필드}}`, `{{날짜()}}` 같은 템플릿 헬퍼·함수·반복문(Handlebars/Jinja류) 문법은 **절대 금지**입니다. 실행 엔진에 그런 함수가 없어 문자열이 그대로 남아 깨집니다. 날짜 삽입·목록 반복·포맷팅이 필요하면 그 작업을 노드의 prompt에 자연어로 지시하십시오. (예: "오늘 날짜를 제목 앞에 붙여줘", "각 PR을 마크다운 목록으로 정리해줘")
    - [데이터 보존·출력 최소화] 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회 등)는 값을 임의로 요약/왜곡하지 않으면서도, 후속 노드가 실제 사용하는 필드만 추출해 `output`으로 출력하게 prompt를 설계하십시오. 전체 원시 JSON 통째 덤프는 금지합니다(거대 출력은 LLM 토큰 생성 지연으로 실행 타임아웃 유발). 가능하면 조회 단계에서 server-side 필터(state/날짜 범위/개수 제한)를 적용하고, 후속 노드의 필터 조건(예: 최근 7일)이 명확하면 조회 노드 단계로 끌어와 추출 필드와 함께 명시하십시오. (예: "각 PR에서 number, title, html_url, created_at 필드만 JSON 배열로 반환")
    - [목록 조회 페이지 상한 필수] 목록 조회 노드(깃허브 PR/이슈, 노션 검색 등)는 반드시 페이지/개수 상한을 명시하십시오. 날짜 기반 필터(예: "최근 7일")만으로는 API가 전체 목록을 페이지마다 순회하다 타임아웃되므로, "최신순 1페이지(per_page=30, page=1, sort 최신순)만 조회"처럼 단일 페이지·최대 건수를 prompt에 못박고, 날짜 필터는 그 1페이지 결과에 적용하게 하십시오.
    - [데이터 가공 위임] 데이터 요약, 날짜 포맷팅, JSON 파싱 등 변환 작업이 필요할 때는, 별도 TRANSFORM 노드를 사용하거나 AI 노드(agentType: "react")에 가공 업무를 prompt로 명시하여 위임하십시오. (실행 시 가공용 서브 에이전트가 자동 처리됩니다.)
@@ -267,6 +271,9 @@ _DESIGNER_EXCLUDED_TOOLS = {"send_slack_message", "send_discord_webhook"}
 
 # CLARIFICATION_NEEDED options 최대 개수(UI 과부하 방지 하드 캡). 초과분은 잘리며 사용자는 직접 입력 가능.
 _MAX_CLARIFICATION_OPTIONS = 8
+
+# 정적 검증(WorkflowValidator) 실패 시 Designer에 오류를 피드백해 재생성하는 최대 횟수.
+_MAX_VALIDATION_RETRIES = 2
 
 
 _NODE_META_KEYS = {"id", "type", "nodeType", "label", "config"}
@@ -538,6 +545,69 @@ async def chat_workflow(
         + f"\n\n## Current Request Context\n- provider: {provider.upper()}\n  (모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정한다)"
     )
 
+    def _prepare_nodes(data: dict):
+        """LLM 출력 data에서 nodes/edges를 정규화하고 노드 ID 재부여 + 참조식/엣지 리맵을 적용한다.
+        외부 응답 빌드와 정적 검증 사전점검이 동일 로직을 공유하도록 추출했다."""
+        raw_nodes = data.get("nodes")
+        raw_edges = data.get("edges")
+        if not raw_nodes:
+            return raw_nodes, raw_edges
+
+        pid = preserve_id if preserve_id is not None else bool(current_nodes)
+        id_mapping = {}
+        normalized_nodes = []
+        for idx, n in enumerate(raw_nodes):
+            old_id = n.get("id")
+            norm_node = _normalize_node(n, idx + 1, preserve_id=pid)
+            new_id = norm_node.get("id")
+            if old_id and old_id != new_id:
+                id_mapping[old_id] = new_id
+            normalized_nodes.append(norm_node)
+        raw_nodes = normalized_nodes
+
+        if raw_edges and id_mapping:
+            for e in raw_edges:
+                if e.get("source") in id_mapping:
+                    e["source"] = id_mapping[e["source"]]
+                if e.get("target") in id_mapping:
+                    e["target"] = id_mapping[e["target"]]
+
+        if id_mapping:
+            def _replace_refs(val):
+                if isinstance(val, dict):
+                    return {k: _replace_refs(v) for k, v in val.items()}
+                elif isinstance(val, list):
+                    return [_replace_refs(v) for v in val]
+                elif isinstance(val, str):
+                    for old, new in id_mapping.items():
+                        pattern = r'\{\{\s*nodes\.' + re.escape(old) + r'\.output\.'
+                        val = re.sub(pattern, '{{nodes.' + new + '.output.', val)
+                    return val
+                return val
+            raw_nodes = _replace_refs(raw_nodes)
+
+        return raw_nodes, raw_edges
+
+    def _static_validation_error(output_str: str) -> str | None:
+        """후보 출력이 정적 검증(WorkflowValidator)을 통과하는지 확인한다.
+        통과하면 None, 실패하면 사람이 읽을 수 있는 오류 메시지를 반환한다(부작용 없음 — deepcopy 사용).
+        GENERATED/MODIFIED가 아니거나 JSON이 아니면 검증 대상이 아니므로 None."""
+        data = _extract_json(output_str)
+        if not data or data.get("type") not in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
+            return None
+        data = copy.deepcopy(data)
+        raw_nodes, raw_edges = _prepare_nodes(data)
+        if not raw_nodes:
+            return "WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다."
+        try:
+            _canonicalize_node_tools(raw_nodes, allowed_mcp_catalog_ids, allowed_webhook_credential_ids)
+            backfill_empty_ai_tools(raw_nodes)
+            apply_template_fixed(raw_nodes)
+            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
+        except Exception as e:
+            return str(e)
+        return None
+
     async def _execute() -> str:
         prev_value = None
         if env_key and not is_gemini:
@@ -677,6 +747,19 @@ async def chat_workflow(
                     )
                     return text
 
+                async def _run_designer(message_text: str) -> str:
+                    """임의의 지시 텍스트로 Designer를 1회 실행해 최종 텍스트를 반환한다(자가교정 재생성용)."""
+                    message = types.Content(role="user", parts=[types.Part(text=message_text)])
+                    parts_out = []
+                    async for event in designer_runner.run_async(
+                        user_id=user_id, session_id=session.id, new_message=message,
+                    ):
+                        if event.is_final_response() and event.content and event.content.parts:
+                            for part in event.content.parts:
+                                if hasattr(part, "text") and part.text:
+                                    parts_out.append(part.text)
+                    return "\n".join(parts_out) if parts_out else ""
+
                 # Gemini가 함수 호출 후 빈 텍스트를 반환하는 경우가 있어, 빈 응답이면 1회 재시도한다.
                 _emit_stage(on_stage, "designing")
                 draft_output = await _run_designer_once()
@@ -700,6 +783,8 @@ async def chat_workflow(
                 response_type = draft_data.get("type") if draft_data else None
                 cleaned_draft = json.dumps(draft_data, ensure_ascii=False) if draft_data else draft_output
 
+                candidate = draft_output
+
                 # 신규 생성 또는 수정인 경우에만 지능형 검증(Reviewer) 가동
                 if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
                     # Step 2: 설계 초안 검증 (Reviewer)
@@ -712,7 +797,7 @@ async def chat_workflow(
                         role="user",
                         parts=[types.Part(text=review_prompt)],
                     )
-                    
+
                     review_parts = []
                     async for event in reviewer_runner.run_async(
                         user_id=user_id,
@@ -723,9 +808,9 @@ async def chat_workflow(
                             for part in event.content.parts:
                                 if hasattr(part, "text") and part.text:
                                     review_parts.append(part.text)
-                    
+
                     review_output = "\n".join(review_parts) if review_parts else ""
-                    
+
                     review_data = _extract_json(review_output)
                     if review_data:
                         is_valid = review_data.get("isValid", True)
@@ -734,8 +819,8 @@ async def chat_workflow(
                         logger.warning("검증 레이어 응답 파싱 실패, 기본값으로 통과 처리합니다.")
                         is_valid = True
                         feedback = None
-                    
-                    # Step 3: 결함 발견 시 피드백 기반 1회 자가 교정 (Self-Correction Loop)
+
+                    # Step 3: 결함 발견 시 피드백 기반 1회 자가 교정 (Reviewer Self-Correction Loop)
                     if not is_valid and feedback:
                         logger.info("검증 레이어 결함 발견! 자가 교정을 시도합니다. 피드백: %s", feedback)
                         correction_prompt = (
@@ -744,26 +829,50 @@ async def chat_workflow(
                             f"## 검증 피드백:\n{feedback}\n\n"
                             f"## 이전 설계 초안:\n{cleaned_draft}"
                         )
-                        correction_message = types.Content(
-                            role="user",
-                            parts=[types.Part(text=correction_prompt)],
-                        )
-                        
-                        corrected_parts = []
-                        async for event in designer_runner.run_async(
-                            user_id=user_id,
-                            session_id=session.id,
-                            new_message=correction_message,
-                        ):
-                            if event.is_final_response() and event.content and event.content.parts:
-                                for part in event.content.parts:
-                                    if hasattr(part, "text") and part.text:
-                                        corrected_parts.append(part.text)
-                        
-                        final_output = "\n".join(corrected_parts) if corrected_parts else draft_output
-                        return final_output
+                        corrected = await _run_designer(correction_prompt)
+                        if corrected.strip():
+                            candidate = corrected
 
-                return draft_output
+                # Step 4: 정적 검증(WorkflowValidator) 기반 자가 교정 루프.
+                # Reviewer(LLM)가 못 잡는 결정론적 오류(잘못된 변수 참조 문법, config 필드 환각,
+                # enum 위반 등)를 validator가 잡으면, 그 오류 메시지를 Designer에 피드백해 재생성한다.
+                for attempt in range(_MAX_VALIDATION_RETRIES):
+                    err = _static_validation_error(candidate)
+                    if err is None:
+                        break
+                    logger.info(
+                        "[chat] 정적 검증 실패(시도 %d/%d) — 자가 교정 재생성. error: %s",
+                        attempt + 1, _MAX_VALIDATION_RETRIES, err,
+                    )
+                    _emit_stage(on_stage, "designing")
+                    fix_prompt = (
+                        "당신이 작성한 워크플로우가 정적 검증(WorkflowValidator)에서 거부되었습니다.\n"
+                        "아래 오류를 반드시 해소하여 완전한 워크플로우 JSON을 재생성하십시오.\n"
+                        "특히 이중 중괄호는 '{{nodes.노드ID.output.필드}}' 참조 전용입니다. "
+                        "{{#each}}, {{formatDate ...}}, {{this.x}} 같은 템플릿 헬퍼/함수/루프 문법은 절대 사용하지 마십시오. "
+                        "날짜·목록·포맷팅이 필요하면 노드의 prompt에 자연어로 지시하십시오.\n\n"
+                        f"## 검증 오류:\n{err}\n\n## 이전 출력:\n{candidate}"
+                    )
+                    fixed = await _run_designer(fix_prompt)
+                    if fixed.strip():
+                        candidate = fixed
+
+                # 재시도 후에도 검증 실패면 하드 실패(CHAT_PARSE_FAILED) 대신 CLARIFICATION으로 우아하게 폴백
+                if _static_validation_error(candidate) is not None:
+                    logger.warning(
+                        "[chat] 정적 검증 자가 교정 %d회 실패 — CLARIFICATION 폴백.", _MAX_VALIDATION_RETRIES,
+                    )
+                    return json.dumps({
+                        "message": "워크플로우를 자동 생성했지만 일부 노드 설정에 오류가 있어 완성하지 못했습니다. "
+                                   "조금 더 단순하게 다시 설명해 주시겠어요? "
+                                   "(예: 날짜 형식이나 목록 정리는 각 노드 설명에 맡겨 주세요)",
+                        "type": "CLARIFICATION_NEEDED",
+                        "actions": [], "options": [],
+                        "changeDescription": None, "nodes": None, "edges": None,
+                        "workflowName": None,
+                    }, ensure_ascii=False)
+
+                return candidate
 
         finally:
             if env_key and not is_gemini:
@@ -818,56 +927,16 @@ async def chat_workflow(
             return response
 
         response_type = data.get("type")
-        raw_nodes = data.get("nodes")
-        raw_edges = data.get("edges")
-
-        if raw_nodes:
-            pid = preserve_id if preserve_id is not None else bool(current_nodes)
-            
-            # Build node ID conversion mapping
-            id_mapping = {}
-            normalized_nodes = []
-            for idx, n in enumerate(raw_nodes):
-                old_id = n.get("id")
-                norm_node = _normalize_node(n, idx + 1, preserve_id=pid)
-                new_id = norm_node.get("id")
-                if old_id and old_id != new_id:
-                    id_mapping[old_id] = new_id
-                normalized_nodes.append(norm_node)
-            raw_nodes = normalized_nodes
-
-            # 1. Update edges' source/target node IDs
-            if raw_edges and id_mapping:
-                for e in raw_edges:
-                    source = e.get("source")
-                    target = e.get("target")
-                    if source in id_mapping:
-                        e["source"] = id_mapping[source]
-                    if target in id_mapping:
-                        e["target"] = id_mapping[target]
-
-            # 2. Update variable reference syntax ({{nodes.old_id.output.field}})
-            if id_mapping:
-                import re
-                def _replace_refs(val):
-                    if isinstance(val, dict):
-                        return {k: _replace_refs(v) for k, v in val.items()}
-                    elif isinstance(val, list):
-                        return [_replace_refs(v) for v in val]
-                    elif isinstance(val, str):
-                        for old, new in id_mapping.items():
-                            pattern = r'\{\{\s*nodes\.' + re.escape(old) + r'\.output\.'
-                            replacement = '{{nodes.' + new + '.output.'
-                            val = re.sub(pattern, replacement, val)
-                        return val
-                    return val
-                raw_nodes = _replace_refs(raw_nodes)
+        # 노드 정규화 + ID 재부여 + 참조식/엣지 리맵 (정적 검증 사전점검과 동일 로직 공유)
+        raw_nodes, raw_edges = _prepare_nodes(data)
 
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             if not raw_nodes:
                 raise ValueError("WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다.")
             # 검증 전 도구 이름 결정론 교정(프리픽스 누락/별칭/MCP/webhook) — 환각으로 인한 하드 실패 방지
             _canonicalize_node_tools(raw_nodes, allowed_mcp_catalog_ids, allowed_webhook_credential_ids)
+            backfill_empty_ai_tools(raw_nodes)
+            apply_template_fixed(raw_nodes)
             WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
