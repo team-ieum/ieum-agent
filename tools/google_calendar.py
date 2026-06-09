@@ -71,6 +71,66 @@ async def google_calendar_create(
         }, ensure_ascii=False)
 
 
+async def google_calendar_update(
+    access_token: str,
+    event_id: str,
+    summary: str = None,
+    start_datetime: str = None,
+    end_datetime: str = None,
+    description: str = None,
+    calendar_id: str = "primary",
+) -> str:
+    """
+    Google Calendar의 기존 일정을 수정합니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        event_id: 수정할 일정 ID
+        summary: 새 일정 제목 (optional, 없으면 기존 유지)
+        start_datetime: 새 시작 일시 (ISO 8601, optional)
+        end_datetime: 새 종료 일시 (ISO 8601, optional)
+        description: 새 일정 설명 (optional)
+        calendar_id: 캘린더 ID (기본값: "primary")
+
+    Returns:
+        수정된 일정 ID, URL을 포함한 JSON 문자열
+    """
+    payload = {}
+    if summary is not None:
+        payload["summary"] = summary
+    if description is not None:
+        payload["description"] = description
+    if start_datetime is not None:
+        payload["start"] = {"dateTime": start_datetime}
+    if end_datetime is not None:
+        payload["end"] = {"dateTime": end_datetime}
+
+    try:
+        client = get_http_client()
+        response = await client.patch(
+            f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+            headers=_headers(access_token),
+            json=payload,
+            timeout=_TIMEOUT,
+        )
+        data = response.json()
+        if not response.is_success:
+            return json.dumps({
+                "error": f"Google Calendar API 오류 ({response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
+            }, ensure_ascii=False)
+
+        return json.dumps({
+            "success": True,
+            "eventId": data.get("id", ""),
+            "htmlLink": data.get("htmlLink", ""),
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_calendar_update: {str(e)})"
+        }, ensure_ascii=False)
+
+
 async def google_calendar_list(
     access_token: str,
     time_min: str,
