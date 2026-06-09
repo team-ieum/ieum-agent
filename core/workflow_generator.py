@@ -228,6 +228,12 @@ def _parse_and_validate(raw_output: str, original_prompt: str,
     # 0. 템플릿 fixed.config 결정론 강제 적용(tools/agentType 등 보장값). LLM 누락/오류 교정.
     apply_template_fixed(data.get("nodes", []))
 
+    # 0-1. 노드 config["brand"] 주입(프론트 UI 서비스 라벨/아이콘). tools 강제 적용 후에
+    # 실행해 최종 tool_key 기준으로 brand를 도출한다. tools 패키지는 google.adk를 import하므로
+    # lazy import한다.
+    from tools.registry import apply_service_brand
+    apply_service_brand(data.get("nodes", []))
+
     # 1. Pydantic 스키마 형태 로드 (여기서 Pydantic ValidationError 발생 가능)
     try:
         nodes = [WorkflowNode(**n) for n in data.get("nodes", [])]

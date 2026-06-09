@@ -37,6 +37,7 @@ from tools.slack import send_slack_message
 from agents.base import _safe_close_mcp
 from core.validators.workflow_validator import WorkflowValidator
 from core.template_registry import apply_template_fixed, backfill_empty_ai_tools
+from tools.registry import apply_service_brand
 
 logger = logging.getLogger(__name__)
 
@@ -603,6 +604,7 @@ async def chat_workflow(
             _canonicalize_node_tools(raw_nodes, allowed_mcp_catalog_ids, allowed_webhook_credential_ids)
             backfill_empty_ai_tools(raw_nodes)
             apply_template_fixed(raw_nodes)
+            apply_service_brand(raw_nodes)
             WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
         except Exception as e:
             return str(e)
@@ -937,6 +939,7 @@ async def chat_workflow(
             _canonicalize_node_tools(raw_nodes, allowed_mcp_catalog_ids, allowed_webhook_credential_ids)
             backfill_empty_ai_tools(raw_nodes)
             apply_template_fixed(raw_nodes)
+            apply_service_brand(raw_nodes)
             WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
