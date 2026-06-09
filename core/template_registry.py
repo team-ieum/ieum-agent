@@ -224,10 +224,21 @@ def resolve_template_for_node(node: dict) -> dict | None:
         for tpl in templates.values():
             if tpl["node_type"] == "AI" and tpl["tool_key"] and tpl["tool_key"] in tool_names:
                 return tpl
-        # 도구 없는 AI(능력 기반/단순 추론) → tool_key null인 AI 템플릿
-        for tpl in templates.values():
-            if tpl["node_type"] == "AI" and tpl["tool_key"] is None and not tool_names:
-                return tpl
+        # 도구 없는 AI → tool_key null인 AI 템플릿. 후보가 여럿(예: github 서브에이전트 vs 순수 추론)이면
+        # fixed.config.agentType로 판별한다(github=react, ai.reasoning=simple). 일치 없으면 simple(추론) 우선.
+        if not tool_names:
+            candidates = [t for t in templates.values()
+                          if t["node_type"] == "AI" and t["tool_key"] is None]
+            if not candidates:
+                return None
+            node_agent = config.get("agentType")
+            for tpl in candidates:
+                if (tpl["fixed"].get("config") or {}).get("agentType") == node_agent:
+                    return tpl
+            for tpl in candidates:
+                if (tpl["fixed"].get("config") or {}).get("agentType") == "simple":
+                    return tpl
+            return candidates[0]
         return None
 
     # TRIGGER: triggerType로 정확히 매칭(schedule/manual/webhook)

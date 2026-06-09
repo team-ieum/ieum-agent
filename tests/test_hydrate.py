@@ -80,6 +80,35 @@ def test_hydrate_schedule_trigger():
     assert node["config"]["cron"] == "0 9 * * *"
 
 
+def test_hydrate_reasoning_node():
+    draft = {"templateId": "ai.reasoning", "slots": {"label": "요약", "prompt": "결과를 요약해줘"}}
+    node = hydrate_node(draft, provider="CLAUDE")
+    assert node["type"] == "AI"
+    assert node["config"]["agentType"] == "simple"
+    assert node["config"]["tools"] == []
+    assert node["config"]["prompt"] == "결과를 요약해줘"
+
+
+def test_resolve_toolless_ai_disambiguates_by_agent_type():
+    # 도구 없는 AI 노드: agentType으로 github(react) vs reasoning(simple) 구분
+    from core.template_registry import resolve_template_for_node
+    reasoning_node = {"type": "AI", "config": {"agentType": "simple", "tools": []}}
+    github_node = {"type": "AI", "config": {"agentType": "react", "tools": []}}
+    assert resolve_template_for_node(reasoning_node)["id"] == "ai.reasoning"
+    assert resolve_template_for_node(github_node)["id"] == "ai.github_query"
+
+
+def test_dehydrate_reasoning_round_trip():
+    from core.template_registry import dehydrate_node
+    node = {"id": "node-3", "type": "AI",
+            "config": {"agentType": "simple", "credentialId": "", "tools": [],
+                       "llmProvider": "CLAUDE", "prompt": "요약해줘"}}
+    draft = dehydrate_node(node)
+    assert draft["templateId"] == "ai.reasoning"
+    assert draft["slots"]["prompt"] == "요약해줘"
+    assert "llmProvider" not in draft["slots"]
+
+
 def test_hydrate_mcp_pseudo_template_nested_catalog_id():
     draft = {"templateId": "ai.mcp",
              "slots": {"label": "MCP", "prompt": "도구 호출", "catalogId": "srv-1"}}
