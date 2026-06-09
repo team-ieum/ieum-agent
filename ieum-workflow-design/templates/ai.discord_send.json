@@ -15,7 +15,8 @@
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
     {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
-    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시. 보낼 내용은 선행 노드 참조식 사용. 서버/웹훅이 여러 개면 CLARIFICATION 처리."}
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시. 보낼 내용은 선행 노드 참조식 사용. 서버/웹훅이 여러 개면 CLARIFICATION 처리."},
+    {"name": "webhookCredentialId", "path": "config.tools.0.config.webhookCredentialId", "required": false, "kind": "string", "description": "보유 Discord 웹훅 자격증명 ID(가용 목록에서 선택). 미상이면 비움."}
   ],
   "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
   "golden_snippet": {

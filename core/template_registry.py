@@ -378,6 +378,49 @@ def hydrate_nodes(drafts: list, provider: str | None = None) -> list:
     return nodes
 
 
+def _get_by_path(obj, path: str):
+    """dotted path(숫자=list 인덱스) 위치의 값을 읽는다. 없으면 None."""
+    cur = obj
+    for raw in path.split("."):
+        if raw.isdigit():
+            idx = int(raw)
+            if not isinstance(cur, list) or idx >= len(cur):
+                return None
+            cur = cur[idx]
+        else:
+            if not isinstance(cur, dict) or raw not in cur:
+                return None
+            cur = cur[raw]
+    return cur
+
+
+def dehydrate_node(node: dict) -> dict | None:
+    """완성된 노드(full-node)를 draft({id, templateId, slots})로 역변환한다(MODIFY 편집용).
+
+    resolve_template_for_node로 templateId를 찾고, 각 슬롯의 path에서 현재 값을 읽어 slots를 구성한다.
+    provider 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 None(역변환 불가)."""
+    if not isinstance(node, dict):
+        return None
+    tpl = resolve_template_for_node(node)
+    if tpl is None:
+        return None
+    slots = {}
+    for s in tpl["slots"]:
+        if s["kind"] == "provider":
+            continue
+        val = _get_by_path(node, s["path"])
+        if val not in (None, ""):
+            slots[s["name"]] = val
+    return {"id": node.get("id"), "templateId": tpl["id"], "slots": slots}
+
+
+def dehydrate_nodes(nodes: list) -> list:
+    """노드 리스트를 draft 리스트로 역변환한다. 매칭 실패 노드는 건너뛴다."""
+    if not isinstance(nodes, list):
+        return []
+    return [d for d in (dehydrate_node(n) for n in nodes) if d is not None]
+
+
 def backfill_empty_ai_tools(nodes: list) -> None:
     """빈 tools를 가진 react AI 노드에 한해, 라벨+프롬프트 의도로 명시도구형 템플릿을
     해석해 tool_key를 결정론적으로 주입한다(in-place).
