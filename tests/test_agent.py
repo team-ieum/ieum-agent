@@ -82,11 +82,11 @@ def test_resolve_model_case_insensitive():
 
 
 def test_resolve_model_unknown_provider_returns_default():
-    assert resolve_model("UNKNOWN") == "gemini-2.5-flash"
+    assert resolve_model("UNKNOWN") == settings.GEMINI_DEFAULT_MODEL
 
 
 def test_resolve_model_empty_string_returns_default():
-    assert resolve_model("") == "gemini-2.5-flash"
+    assert resolve_model("") == settings.GEMINI_DEFAULT_MODEL
 
 
 def test_model_map_reflects_settings():

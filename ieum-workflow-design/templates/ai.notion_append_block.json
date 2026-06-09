@@ -1,0 +1,33 @@
+{
+  "id": "ai.notion_append_block",
+  "node_type": "AI",
+  "tool_key": "builtin:notion_append_block",
+  "tags": ["notion", "노션", "블록 추가", "append", "본문 추가", "댓글"],
+  "menu": "Notion 블록 추가 (기존 페이지에 내용 덧붙이기, page_id 필요)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:notion_append_block"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "추가 지시. page_id와 추가할 블록 내용 명시. 내용은 선행 노드 참조식 사용."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-3",
+    "type": "AI",
+    "label": "Notion 블록 추가",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "page_id '1a2b3c4d'에 다음 내용을 마크다운 블록으로 추가해줘: {{nodes.node-2.output.output}}",
+      "agentType": "react",
+      "tools": [{"name": "builtin:notion_append_block"}]
+    }
+  }
+}

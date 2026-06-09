@@ -1,0 +1,33 @@
+{
+  "id": "ai.notion_update_page",
+  "node_type": "AI",
+  "tool_key": "builtin:notion_update_page",
+  "tags": ["notion", "노션", "페이지 수정", "update", "갱신", "편집"],
+  "menu": "Notion 페이지 수정 (page_id 필요)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:notion_update_page"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "수정 지시. page_id와 변경 내용 명시. 본문은 선행 노드 참조식 사용."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-3",
+    "type": "AI",
+    "label": "Notion 페이지 갱신",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "page_id '1a2b3c4d'의 상태 속성을 다음 값으로 갱신해줘: {{nodes.node-2.output.output}}",
+      "agentType": "react",
+      "tools": [{"name": "builtin:notion_update_page"}]
+    }
+  }
+}

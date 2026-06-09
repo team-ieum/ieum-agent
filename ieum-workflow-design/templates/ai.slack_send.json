@@ -1,0 +1,33 @@
+{
+  "id": "ai.slack_send",
+  "node_type": "AI",
+  "tool_key": "slack",
+  "tags": ["slack", "슬랙", "메시지", "알림", "채널", "notify"],
+  "menu": "Slack 메시지 전송 (webhookCredentialId는 보유 웹훅에서 선택)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "slack"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시. 보낼 내용은 선행 노드 참조식 사용. 채널/웹훅이 여러 개면 CLARIFICATION 처리."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-4",
+    "type": "AI",
+    "label": "Slack 알림 발송",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "다음 PR 요약을 개발 채널에 슬랙 메시지로 보내줘: {{nodes.node-3.output.prSummary}}",
+      "agentType": "react",
+      "tools": [{"name": "slack"}]
+    }
+  }
+}

@@ -96,6 +96,45 @@ def _make_patches(text_output: str):
     )
 
 
+def _make_seq_runner_mock(outputs: list):
+    """호출마다 outputs를 순서대로 반환하는 Runner mock(마지막 값 반복). 자가 교정 순차 응답 테스트용."""
+    state = {"i": 0}
+
+    async def mock_run_async(**kwargs):
+        i = state["i"]
+        state["i"] += 1
+        text = outputs[min(i, len(outputs) - 1)]
+        ev = MagicMock()
+        ev.is_final_response.return_value = True
+        ev.content.parts = [type("Part", (), {"text": text})()]
+        yield ev
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = mock_run_async
+    return mock_runner
+
+
+def _make_patches_seq(outputs: list):
+    """Runner가 호출마다 다른 출력을 내도록 한 패치 컨텍스트(designer/reviewer/재생성 공유 카운터)."""
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.get_session = AsyncMock(return_value=None)
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+    mock_session_service.delete_session = AsyncMock(return_value=None)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    return (
+        patch("core.workflow_chat.Runner", return_value=_make_seq_runner_mock(outputs)),
+        patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
+        patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
+        patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
+    )
+
+
 async def _call(prompt="테스트", current_nodes=None, current_edges=None,
                 available=None, unavailable=None, preserve_id=None,
                 available_mcp_servers=None, available_webhooks=None,
@@ -290,7 +329,7 @@ async def test_chat_workflow_invalid_node_type():
 
 @pytest.mark.asyncio
 async def test_chat_workflow_duplicate_node_id():
-    """중복된 node id → ValueError."""
+    """중복된 node id → 자가 교정 재시도(동일 출력 반복) 후에도 검증 실패면 CLARIFICATION_NEEDED 폴백."""
     invalid_json = json.dumps({
         "message": "생성했습니다.",
         "type": "WORKFLOW_GENERATED",
@@ -304,13 +343,13 @@ async def test_chat_workflow_duplicate_node_id():
     })
     p1, p2, p3, p4 = _make_patches(invalid_json)
     with p1, p2, p3, p4:
-        with pytest.raises(ValueError):
-            await _call(preserve_id=True)
+        result = await _call(preserve_id=True)
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
 
 @pytest.mark.asyncio
 async def test_chat_workflow_invalid_edge_reference():
-    """존재하지 않는 node를 참조하는 edge → ValueError."""
+    """존재하지 않는 node를 참조하는 edge → 자가 교정 실패 시 CLARIFICATION_NEEDED 폴백."""
     invalid_json = json.dumps({
         "message": "생성했습니다.",
         "type": "WORKFLOW_GENERATED",
@@ -325,13 +364,39 @@ async def test_chat_workflow_invalid_edge_reference():
     })
     p1, p2, p3, p4 = _make_patches(invalid_json)
     with p1, p2, p3, p4:
-        with pytest.raises(ValueError):
-            await _call(preserve_id=True)
+        result = await _call(preserve_id=True)
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
 
 @pytest.mark.asyncio
-async def test_chat_workflow_generated_nodes_없으면_에러():
-    """WORKFLOW_GENERATED 타입인데 nodes가 None이면 ValueError가 발생한다."""
+async def test_chat_workflow_static_validation_self_correction_success():
+    """정적 검증 실패 후 자가 교정 재생성으로 유효한 워크플로우를 복구한다.
+    호출 순서: designer(잘못된 참조 문법) → reviewer(통과) → 재생성(정상) → WORKFLOW_GENERATED."""
+    bad = json.dumps({
+        "message": "생성했습니다.",
+        "type": "WORKFLOW_GENERATED",
+        "actions": [],
+        "changeDescription": None,
+        "nodes": [
+            {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+            {"id": "node-2", "type": "AI", "label": "처리",
+             "config": {"llmProvider": "CLAUDE", "credentialId": "", "agentType": "simple",
+                        "tools": [], "prompt": "오늘은 {{formatDate now 'YYYY-MM-DD'}}"}},
+        ],
+        "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
+    })
+    reviewer_pass = json.dumps({"isValid": True, "feedback": None})
+    # designer 초안(bad) → reviewer(pass) → 정적검증 실패 → 재생성(정상)
+    p1, p2, p3, p4 = _make_patches_seq([bad, reviewer_pass, WORKFLOW_GENERATED_JSON])
+    with p1, p2, p3, p4:
+        result = await _call(preserve_id=True)
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    assert result.nodes is not None
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_generated_nodes_없으면_clarification():
+    """WORKFLOW_GENERATED인데 nodes가 None이면 자가 교정 후 CLARIFICATION_NEEDED로 폴백한다."""
     invalid = json.dumps({
         "message": "생성했습니다.",
         "type": "WORKFLOW_GENERATED",
@@ -342,8 +407,8 @@ async def test_chat_workflow_generated_nodes_없으면_에러():
     })
     p1, p2, p3, p4 = _make_patches(invalid)
     with p1, p2, p3, p4:
-        with pytest.raises(ValueError):
-            await _call()
+        result = await _call()
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
 
 @pytest.mark.asyncio
@@ -380,7 +445,7 @@ async def test_chat_workflow_id_translation():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "trigger_node", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL", "interval": "daily"}},
+            {"id": "trigger_node", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
             {"id": "ai_node", "type": "AI", "label": "AI 처리", "config": {"prompt": "이전 데이터: {{nodes.trigger_node.output.data}}", "agentType": "react", "llmProvider": "GEMINI"}}
         ],
         "edges": [

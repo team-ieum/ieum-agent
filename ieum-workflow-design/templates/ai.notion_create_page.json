@@ -1,0 +1,33 @@
+{
+  "id": "ai.notion_create_page",
+  "node_type": "AI",
+  "tool_key": "builtin:notion_create_page",
+  "tags": ["notion", "노션", "페이지", "page", "문서", "저장", "기록"],
+  "menu": "Notion 페이지 생성 (parent_page_id 필요, 없으면 notion_search로 탐색 유도)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:notion_create_page"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "저장 지시. parent_page_id를 알면 명시, 모르면 notion_search로 페이지를 찾도록 유도. 본문은 선행 노드 참조식 사용."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-3",
+    "type": "AI",
+    "label": "Notion에 페이지 생성",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "다음 뉴스 내용을 마크다운으로 정리해 Notion 페이지로 저장해줘: {{nodes.node-2.output.output}}",
+      "agentType": "react",
+      "tools": [{"name": "builtin:notion_create_page"}]
+    }
+  }
+}
