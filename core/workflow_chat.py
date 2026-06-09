@@ -36,7 +36,7 @@ from tools.discord import send_discord_webhook
 from tools.slack import send_slack_message
 from agents.base import _safe_close_mcp
 from core.validators.workflow_validator import WorkflowValidator
-from core.template_registry import apply_template_fixed, backfill_empty_ai_tools
+from core.template_registry import hydrate_node, dehydrate_nodes, slot_catalog_text
 from tools.registry import apply_service_brand
 
 logger = logging.getLogger(__name__)
@@ -178,25 +178,21 @@ _SYSTEM_PROMPT_BASE = """\
 사용자 요청에 따라 TRIGGER, AI, HTTP, CONDITION, TRANSFORM 노드로 구성된 최적의 워크플로우를 설계하십시오.
 
 <workflow_design_rules>
-1. 외부 연동은 AI 노드 전용 도구 사용:
-   - Notion, Gmail, Slack, Discord, GitHub 등 외부 연동은 **절대로 HTTP 노드로 직접 구현하지 말고**, 반드시 도구를 매핑한 AI 노드(agentType: "react")를 통해 처리하십시오. (외부 알림/웹훅 발송이나 목록 조회 등 포함)
-2. 노드 간 데이터 참조 및 데이터 무결성 보존:
-   - 선행 노드의 결과는 반드시 이중 중괄호로 감싼 'nodes.노드ID.output.필드명' 형식(예: nodes.node-1.output.data를 이중 중괄호로 포장)으로 참조하십시오. 임의의 정의되지 않은 변수(예: today 등)를 날조해서 지어내지 마십시오.
-   - [이중 중괄호는 참조 전용] 이중 중괄호 안에는 오직 'nodes.노드ID.output.필드명'만 허용됩니다. `{{#each ...}}`, `{{formatDate now ...}}`, `{{this.필드}}`, `{{날짜()}}` 같은 템플릿 헬퍼·함수·반복문(Handlebars/Jinja류) 문법은 **절대 금지**입니다. 실행 엔진에 그런 함수가 없어 문자열이 그대로 남아 깨집니다. 날짜 삽입·목록 반복·포맷팅이 필요하면 그 작업을 노드의 prompt에 자연어로 지시하십시오. (예: "오늘 날짜를 제목 앞에 붙여줘", "각 PR을 마크다운 목록으로 정리해줘")
-   - [데이터 보존·출력 최소화] 외부 데이터를 수집하는 조회 노드(예: 깃허브 PR 조회 등)는 값을 임의로 요약/왜곡하지 않으면서도, 후속 노드가 실제 사용하는 필드만 추출해 `output`으로 출력하게 prompt를 설계하십시오. 전체 원시 JSON 통째 덤프는 금지합니다(거대 출력은 LLM 토큰 생성 지연으로 실행 타임아웃 유발). 가능하면 조회 단계에서 server-side 필터(state/날짜 범위/개수 제한)를 적용하고, 후속 노드의 필터 조건(예: 최근 7일)이 명확하면 조회 노드 단계로 끌어와 추출 필드와 함께 명시하십시오. (예: "각 PR에서 number, title, html_url, created_at 필드만 JSON 배열로 반환")
-   - [목록 조회 페이지 상한 필수] 목록 조회 노드(깃허브 PR/이슈, 노션 검색 등)는 반드시 페이지/개수 상한을 명시하십시오. 날짜 기반 필터(예: "최근 7일")만으로는 API가 전체 목록을 페이지마다 순회하다 타임아웃되므로, "최신순 1페이지(per_page=30, page=1, sort 최신순)만 조회"처럼 단일 페이지·최대 건수를 prompt에 못박고, 날짜 필터는 그 1페이지 결과에 적용하게 하십시오.
-   - [데이터 가공 위임] 데이터 요약, 날짜 포맷팅, JSON 파싱 등 변환 작업이 필요할 때는, 별도 TRANSFORM 노드를 사용하거나 AI 노드(agentType: "react")에 가공 업무를 prompt로 명시하여 위임하십시오. (실행 시 가공용 서브 에이전트가 자동 처리됩니다.)
-   - [tools 작성 규칙] AI 노드의 `tools`에는 빌트인 도구 키(`slack`, `discord`, `gmail`, `builtin:...`)만 넣습니다. **서브 에이전트 이름(`transform_agent`, `web_agent`, `github_agent` 등)이나 GitHub 도구명(`github_list_pull_requests` 등)은 절대 `tools`에 넣지 마십시오.** 이들은 실행 시 자동 부착되므로, 해당 작업은 prompt에 자연어로만 지시하고 `tools`는 비워 둡니다. (예: GitHub PR 조회 노드는 `tools: []`)
-3. 생성 노드 프롬프트 경량화 지침:
-   - 각 노드를 설계할 때 노드의 `systemMessage` 나 `prompt` 에 불필요한 사설이나 배경 설명을 과하게 채우지 말고, **핵심 지시사항(동작, 입력 참조값, 출력 형식 등) 위주로 최대 2~3문장 이내로만 간결하게 작성**하십시오. (실행 시 Latency 최적화 목적)
-4. 다중 서비스 노드 분리:
-   - 단일 노드가 다른 성격의 외부 서비스를 중복 호출하게 설계하지 말고, 서로 다른 외부 서비스 호출(예: 뉴스 수집과 노션 등록)은 항상 별도의 AI 노드로 명확히 분리하십시오.
-5. 워크플로우 자동 이름 부여:
-   - 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 명확히 대변하는 한국어 이름(예: 'IT 트렌드 자동 노션 요약')을 지어 'workflowName' 필드에 기입하고, 수정 시에는 null로 비워두십시오.
-6. TRIGGER 노드 스케줄링 규칙:
-   - 모든 워크플로우는 1개의 TRIGGER 노드(type: "TRIGGER")로 시작해야 합니다.
-   - TRIGGER 노드의 `config.triggerType`은 "MANUAL", "SCHEDULE", "WEBHOOK" 중 하나여야 합니다.
-   - `config.triggerType`이 "SCHEDULE"인 경우, config 내에 반드시 "cron" 필드를 생성해야 하며, 5필드 표준 크론 표현식 문자열을 값으로 설정해야 합니다. (예: "매주 금요일 오후 5시" -> "0 17 * * 5", "매일 오전 9시" -> "0 9 * * *", "매월 1일 새벽 3시" -> "0 3 1 * *")
+당신은 노드 구조를 직접 설계하지 않습니다. 아래 '노드 템플릿 카탈로그'에서 각 노드의 templateId를 고르고,
+그 템플릿이 정의한 슬롯(slots)만 채웁니다. 노드의 타입·도구·고정 설정은 템플릿이 결정합니다.
+provider 슬롯(llmProvider 등 '자동주입' 표기)은 시스템이 채우므로 작성하지 않습니다.
+
+1. 외부 연동(Notion/Gmail/Slack/Discord/GitHub 등)은 해당 서비스의 ai.* 템플릿을 선택합니다. http 템플릿으로 직접 호출하지 않습니다.
+2. 노드 간 데이터 참조 및 무결성:
+   - prompt 등 슬롯 값에서 선행 노드 결과는 이중 중괄호 'nodes.노드ID.output.필드명' 형식만 사용합니다. 정의되지 않은 변수를 날조하지 마십시오.
+   - [참조 전용] 이중 중괄호 안에는 'nodes.노드ID.output.필드명'만 허용됩니다. `{{#each}}`, `{{formatDate now}}`, `{{this.필드}}` 같은 헬퍼·함수·반복문은 **금지**입니다(엔진에 함수 없음). 날짜 삽입·반복·포맷팅이 필요하면 prompt에 자연어로 지시합니다.
+   - [데이터 보존·출력 최소화] 조회 노드 prompt는 후속 노드가 실제 쓰는 필드만 추출하도록 지시합니다. 전체 raw JSON 덤프 금지(타임아웃 유발), 임의 요약/왜곡 금지. 목록 조회(깃허브 PR/이슈, 노션 검색 등)는 반드시 단일 페이지·개수 상한을 명시합니다("최신순 1페이지(per_page=30, page=1)만 조회"). 날짜 필터는 그 1페이지 결과에 적용합니다.
+   - [데이터 가공 위임] 요약·날짜 포맷·JSON 파싱 등 변환은 transform 템플릿 또는 별도 AI 노드 prompt에 위임합니다(실행 시 서브 에이전트 자동 처리).
+3. prompt 슬롯은 핵심 지시(동작·입력 참조·출력 형식) 위주 2~3문장 이내로 간결히 작성합니다.
+4. 서로 다른 외부 서비스 작업은 항상 별도 노드(별도 templateId)로 분리합니다.
+5. 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 대변하는 한국어 이름을 'workflowName'에 기입하고, 수정 시에는 null로 둡니다.
+6. 모든 워크플로우는 1개의 TRIGGER 템플릿(trigger.manual / trigger.schedule / trigger.webhook)으로 시작합니다.
+   trigger.schedule을 고르면 cron 슬롯에 5필드 표준 크론 표현식을 채웁니다(예: "매일 오전 9시" -> "0 9 * * *").
 </workflow_design_rules>
 
 <resource_rules>
@@ -208,7 +204,7 @@ _SYSTEM_PROMPT_BASE = """\
    - Notion `parent_page_id`, Sheets `spreadsheet_id`, GitHub `owner/repo` 등이 누락되었을 경우,
      먼저 바인딩된 목록 조회 도구(notion_search, github_list_repos 등)를 실행하여 실제 목록을 조회하십시오.
    - 조회 목록 중 워크플로우 목적에 가장 잘 부합하는 항목이 명확히 매칭되면, 되묻지 않고 해당
-     리소스 ID/이름을 노드 config·prompt에 자동으로 기입하여 완성형 워크플로우(WORKFLOW_GENERATED)를 제공하십시오.
+     리소스 ID/이름을 노드의 prompt 슬롯에 자연어로 기입하여 완성형 워크플로우(WORKFLOW_GENERATED)를 제공하십시오.
    - 미연동이라 조회 도구가 없는 경우(예: GitHub 토큰 없음)에는 가정하지 말고 `INTEGRATION_REQUIRED`
      유형으로 해당 서비스 연동을 요청하십시오. (actions에 {type: OAUTH, provider: <서비스>} 추가)
    - 연동은 되어 있으나 후보가 여러 개이거나 매칭이 애매하면, **가정하지 말고** `CLARIFICATION_NEEDED`
@@ -251,18 +247,20 @@ _OUTPUT_FORMAT_SPEC = """\
   "actions": [],
   "options": [],
   "changeDescription": null,
-  "nodes": [ /* 생성/수정된 노드 목록. 그 외에는 null */ ],
-  "edges": [ /* 생성/수정된 엣지 목록. 그 외에는 null */ ],
+  "nodes": [ /* 생성/수정된 노드 draft 목록. 각 노드는 {"id","templateId","slots"} 형식. 그 외에는 null */ ],
+  "edges": [ /* 생성/수정된 엣지 목록(source/target, 분기는 conditionType). 그 외에는 null */ ],
   "workflowName": null
 }
+- nodes 각 항목은 draft 형식이다: {"id": "node-1", "templateId": "<카탈로그의 templateId>", "slots": { ... }}.
+  슬롯은 해당 templateId가 정의한 것만 채우고(없는 슬롯 키 금지), provider 슬롯('자동주입')은 작성하지 않는다.
 - actions: OAuth 연동이 추가로 필요할 때(INTEGRATION_REQUIRED)만 채우고, 그 외에는 빈 배열([]).
 - options: CLARIFICATION_NEEDED로 사용자에게 선택을 요청할 때만 채운다(예: GitHub repo 후보, 웹훅 후보).
   각 항목은 {"value": "선택 시 사용할 값", "label": "사용자에게 보일 이름", "description": null} 형식이다.
   그 외(생성/수정/연동요청)에는 빈 배열([]).
 - changeDescription: 워크플로우 수정(WORKFLOW_MODIFIED) 시 변경 요약 한 문장, 그 외 null.
-- nodes/edges: 생성/수정 시에만 채우고(위 노드 타입별 config 규칙 준수), INTEGRATION_REQUIRED/CLARIFICATION_NEEDED일 때는 null.
+- nodes/edges: 생성/수정 시에만 채우고, INTEGRATION_REQUIRED/CLARIFICATION_NEEDED일 때는 null.
 - workflowName: 신규 생성(WORKFLOW_GENERATED) 시에만 간결한 한국어 이름, 그 외 null.
-- 리소스 ID(parent_page_id 등)가 필요하면 바인딩된 조회 도구(notion_search 등)를 호출해 실제 ID를 찾아 채운다. 못 찾으면 빈 문자열("")로 둔다.
+- 리소스 ID(parent_page_id, owner/repo 등)가 필요하면 바인딩된 조회 도구(notion_search 등)로 실제 ID를 찾아 prompt 슬롯에 자연어로 기입한다. 못 찾으면 비운다.
 </output_format>
 """
 
@@ -277,126 +275,29 @@ _MAX_CLARIFICATION_OPTIONS = 8
 _MAX_VALIDATION_RETRIES = 2
 
 
-_NODE_META_KEYS = {"id", "type", "nodeType", "label", "config"}
-
-
 _WEBHOOK_TOOL_NAMES = {"slack", "discord"}
 
 
-def _canonicalize_node_tools(nodes: list, allowed_mcp_catalog_ids: set,
-                             allowed_webhook_credential_ids: set | None = None) -> None:
-    """AI 노드 config.tools의 도구 이름을 실행기 레지스트리의 정확한 키로 in-place 교정한다.
+def _strip_invalid_webhook_credentials(nodes: list, allowed_webhook_credential_ids: set | None = None) -> None:
+    """하이드레이션된 slack/discord 노드의 webhookCredentialId가 보유 자격증명에 없으면 제거한다(in-place).
 
-    - 프리픽스 누락('notion_create_page')·흔한 별칭('search')은 PlanValidator의 결정론 매핑으로 교정.
-    - MCP 도구('mcp' 또는 'mcp:<catalogId>')는 catalogId가 보유 카탈로그에 있을 때만
-      실행 주입 형식 {"name":"mcp","config":{"catalogId":...}}로 정규화하고, 없으면 환각이므로 제거.
-    - slack/discord 도구는 config.webhookCredentialId가 보유 자격증명에 있을 때만 보존하고,
-      없는 id는 환각이므로 제거(도구 자체는 유지 — webhook_url은 실행 시 backend가 주입).
-    - 그 외 도구는 기존 config를 보존한다. 환원 불가능한 빌트인 이름은 원본을 유지해 이후
-      WorkflowValidator가 차단하도록 둔다.
-
-    Designer 출력의 도구 이름 환각/프리픽스 누락을 검증 전에 메워, 정상 워크플로우가
-    'CHAT_PARSE_FAILED'로 하드 실패하는 것을 막는다(생성 파이프라인의 canonicalize 안전망 이식)."""
-    from tools import _TOOL_MAP
-    from core.validators.plan_validator import PlanValidator
-    allowed = set(_TOOL_MAP.keys())
-    allowed_webhook_credential_ids = allowed_webhook_credential_ids or set()
-
+    webhookCredentialId는 슬롯으로 config.tools[0].config.webhookCredentialId에 주입된다. Designer가
+    환각으로 채운 id를 검증 전에 떼어내, 정상 워크플로우가 하드 실패하지 않게 한다(도구 자체는 유지 —
+    webhook_url은 실행 시 backend가 주입). mcp catalogId는 WorkflowValidator가 별도 검증한다."""
+    allowed = allowed_webhook_credential_ids or set()
     for node in nodes:
-        if str(node.get("type", "")).upper() != "AI":
+        if not isinstance(node, dict):
             continue
         cfg = node.get("config")
-        if not isinstance(cfg, dict):
-            continue
-        tools = cfg.get("tools")
+        tools = cfg.get("tools") if isinstance(cfg, dict) else None
         if not isinstance(tools, list):
             continue
-
-        new_tools = []
-        for item in tools:
-            if isinstance(item, dict):
-                name = item.get("name")
-                item_cfg = item.get("config")
-            else:
-                name = item
-                item_cfg = None
-            if not name:
+        for tool in tools:
+            if not (isinstance(tool, dict) and tool.get("name") in _WEBHOOK_TOOL_NAMES):
                 continue
-
-            # 서브 에이전트(github/transform/web 등)는 실행 시 자동 처리되므로 tools에서 제거(환각 방지)
-            if PlanValidator._is_runtime_subagent_tool(name):
-                continue
-
-            # MCP 도구 정규화
-            if name == "mcp" or (isinstance(name, str) and name.startswith("mcp:")):
-                catalog_id = name[len("mcp:"):] if isinstance(name, str) and name.startswith("mcp:") else ""
-                if not catalog_id and isinstance(item_cfg, dict):
-                    catalog_id = item_cfg.get("catalogId") or ""
-                if catalog_id and catalog_id in allowed_mcp_catalog_ids:
-                    new_tools.append({"name": "mcp", "config": {"catalogId": catalog_id}})
-                # 보유 카탈로그에 없는 mcp는 환각이므로 조용히 제거
-                continue
-
-            resolved = PlanValidator._canonicalize_tool_name(name, allowed) or name
-            tool = {"name": resolved}
-
-            # slack/discord: webhookCredentialId 검증 + 보존 (webhook_url은 backend가 실행 시 주입)
-            if resolved in _WEBHOOK_TOOL_NAMES:
-                cred_id = item_cfg.get("webhookCredentialId") if isinstance(item_cfg, dict) else None
-                if cred_id and cred_id in allowed_webhook_credential_ids:
-                    tool["config"] = {"webhookCredentialId": cred_id}
-                # 보유 자격증명에 없는 webhookCredentialId는 환각이므로 제거(도구는 유지)
-            elif isinstance(item_cfg, dict):
-                # 그 외 도구는 기존 config 보존
-                tool["config"] = item_cfg
-
-            new_tools.append(tool)
-
-        cfg["tools"] = new_tools
-
-
-def _normalize_node(node: dict, index: int, preserve_id: bool = False) -> dict:
-    """LLM이 생성한 노드를 정규화한다.
-
-    - nodeType → type 변환
-    - config 없이 루트에 펼쳐진 필드들을 config 객체로 모음
-    - 노드 ID 자동 순차 부여 (node-1, node-2 등)
-    - 빈 문자열 기본값 강제 (credentialId, access_token, parent_page_id 등)
-    """
-    node = dict(node)
-    
-    # 1. 노드 ID 규칙 자동 정렬
-    if preserve_id:
-        if "id" not in node or not node["id"]:
-            node["id"] = f"node-{index}"
-    else:
-        node["id"] = f"node-{index}"
-
-    # 2. nodeType → type
-    if "nodeType" in node and "type" not in node:
-        node["type"] = node.pop("nodeType")
-    elif "nodeType" in node:
-        node.pop("nodeType")
-
-    # 3. config 구조화
-    if "config" not in node:
-        config = {k: v for k, v in node.items() if k not in _NODE_META_KEYS}
-        for k in list(config.keys()):
-            del node[k]
-        node["config"] = config
-    else:
-        node["config"] = dict(node["config"])
-
-    # 4. 기본값 보정 (Spring Boot 주입용 및 플레이스홀더 대체)
-    node["config"]["credentialId"] = ""
-    if "access_token" in node["config"]:
-        node["config"]["access_token"] = ""
-        
-    for field in ["parent_page_id", "spreadsheet_id", "calendar_id"]:
-        if field in node["config"] and not node["config"][field]:
-            node["config"][field] = ""
-
-    return node
+            tcfg = tool.get("config")
+            if isinstance(tcfg, dict) and tcfg.get("webhookCredentialId") not in allowed:
+                tcfg.pop("webhookCredentialId", None)
 
 
 # 공통 WorkflowValidator 사용으로 대체됨
@@ -521,24 +422,26 @@ async def chat_workflow(
 
     workflow_section = ""
     if current_nodes:
+        # 저장된 full-node를 draft(templateId+slots)로 역변환해 주입한다. Designer는 draft로 편집한다.
+        current_drafts = dehydrate_nodes(current_nodes)
         workflow_section = f"""
 ## 현재 워크플로우 (수정 요청)
-{json.dumps({"nodes": current_nodes, "edges": current_edges}, ensure_ascii=False)}
+{json.dumps({"nodes": current_drafts, "edges": current_edges}, ensure_ascii=False)}
 
 수정 규칙:
 1. 기존 노드 id 체계 유지. 새 노드는 가장 큰 번호 + 1로 부여
-2. 수정되지 않은 노드는 그대로 유지
+2. 수정되지 않은 노드는 그대로 유지(같은 templateId·slots)
 3. type은 반드시 WORKFLOW_MODIFIED
 """
 
-    from core.skill_loader import load_design_rules, format_mcp_catalog, format_webhook_catalog
-    design_rules = load_design_rules(prompt, current_nodes=current_nodes)
+    from core.skill_loader import format_mcp_catalog, format_webhook_catalog
+    catalog = slot_catalog_text()
     mcp_catalog_section = format_mcp_catalog(available_mcp_servers)
     webhook_catalog_section = format_webhook_catalog(available_webhooks)
 
     instruction = (
         _SYSTEM_PROMPT_BASE
-        + f"\n\n## 참고 설계 규칙 (스킬 레퍼런스)\n{design_rules}"
+        + f"\n\n## 노드 템플릿 카탈로그 (templateId + 채울 슬롯)\n{catalog}"
         + (f"\n\n{mcp_catalog_section}" if mcp_catalog_section else "")
         + (f"\n\n{webhook_catalog_section}" if webhook_catalog_section else "")
         + integration_section
@@ -547,24 +450,25 @@ async def chat_workflow(
     )
 
     def _prepare_nodes(data: dict):
-        """LLM 출력 data에서 nodes/edges를 정규화하고 노드 ID 재부여 + 참조식/엣지 리맵을 적용한다.
-        외부 응답 빌드와 정적 검증 사전점검이 동일 로직을 공유하도록 추출했다."""
-        raw_nodes = data.get("nodes")
+        """LLM 출력 draft(nodes)를 템플릿으로 하이드레이션하고 노드 ID 재부여 + 참조식/엣지 리맵을 적용한다.
+        외부 응답 빌드와 정적 검증 사전점검이 동일 로직을 공유하도록 추출했다.
+        하이드레이션 실패(SlotFillError 등)는 호출부(try/except)에서 처리된다."""
+        raw_drafts = data.get("nodes")
         raw_edges = data.get("edges")
-        if not raw_nodes:
-            return raw_nodes, raw_edges
+        if not raw_drafts:
+            return raw_drafts, raw_edges
 
         pid = preserve_id if preserve_id is not None else bool(current_nodes)
         id_mapping = {}
-        normalized_nodes = []
-        for idx, n in enumerate(raw_nodes):
-            old_id = n.get("id")
-            norm_node = _normalize_node(n, idx + 1, preserve_id=pid)
-            new_id = norm_node.get("id")
+        raw_nodes = []
+        for idx, draft in enumerate(raw_drafts):
+            old_id = draft.get("id") if isinstance(draft, dict) else None
+            node = hydrate_node(draft, provider=provider)
+            new_id = old_id if (pid and old_id) else f"node-{idx + 1}"
+            node["id"] = new_id
             if old_id and old_id != new_id:
                 id_mapping[old_id] = new_id
-            normalized_nodes.append(norm_node)
-        raw_nodes = normalized_nodes
+            raw_nodes.append(node)
 
         if raw_edges and id_mapping:
             for e in raw_edges:
@@ -597,14 +501,12 @@ async def chat_workflow(
         if not data or data.get("type") not in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             return None
         data = copy.deepcopy(data)
-        raw_nodes, raw_edges = _prepare_nodes(data)
-        if not raw_nodes:
-            return "WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다."
         try:
-            _canonicalize_node_tools(raw_nodes, allowed_mcp_catalog_ids, allowed_webhook_credential_ids)
-            backfill_empty_ai_tools(raw_nodes)
-            apply_template_fixed(raw_nodes)
+            raw_nodes, raw_edges = _prepare_nodes(data)
+            if not raw_nodes:
+                return "WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다."
             apply_service_brand(raw_nodes)
+            _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
             WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
         except Exception as e:
             return str(e)
@@ -929,17 +831,14 @@ async def chat_workflow(
             return response
 
         response_type = data.get("type")
-        # 노드 정규화 + ID 재부여 + 참조식/엣지 리맵 (정적 검증 사전점검과 동일 로직 공유)
+        # draft 하이드레이션 + ID 재부여 + 참조식/엣지 리맵 (정적 검증 사전점검과 동일 로직 공유)
         raw_nodes, raw_edges = _prepare_nodes(data)
 
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             if not raw_nodes:
                 raise ValueError("WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다.")
-            # 검증 전 도구 이름 결정론 교정(프리픽스 누락/별칭/MCP/webhook) — 환각으로 인한 하드 실패 방지
-            _canonicalize_node_tools(raw_nodes, allowed_mcp_catalog_ids, allowed_webhook_credential_ids)
-            backfill_empty_ai_tools(raw_nodes)
-            apply_template_fixed(raw_nodes)
             apply_service_brand(raw_nodes)
+            _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
             WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
