@@ -12,7 +12,6 @@ from agents.generate.sub.planner_agent import build_planner_agent
 from agents.generate.sub.builder_agent import build_builder_agent
 from api.schemas.generate_workflow import WorkflowPlanSchema
 from core.validators.plan_validator import PlanValidator
-from core.template_registry import resolve_tool_key_by_intent, tool_key_to_config_tool
 
 logger = logging.getLogger(__name__)
 
@@ -79,21 +78,10 @@ async def _run_single_agent(agent: LlmAgent, prompt_text: str, user_id: str) -> 
     return "\n".join(output_parts) if output_parts else ""
 
 
-def backfill_plan_tools(plan: WorkflowPlanSchema) -> None:
-    """plan의 AI 노드 중 tools가 빈 것을 role+description 의도로 해석해 tool_key를 채운다(in-place).
-    서브에이전트형(tool_key=None, 예: github)·매칭 없음은 빈 채로 둔다(실행 시 서브에이전트 처리)."""
-    for node in plan.nodes:
-        if node.type.upper() != "AI" or node.tools:
-            continue
-        key = resolve_tool_key_by_intent(f"{node.role} {node.description}")
-        if key:
-            node.tools = [key]
+def _apply_plan_templates(workflow_raw: str, plan: WorkflowPlanSchema) -> str:
+    """builder draft 출력(JSON 문자열)의 각 노드 templateId를 plan templateId로 강제 정합한다.
 
-
-def _apply_plan_tools(workflow_raw: str, plan: WorkflowPlanSchema) -> str:
-    """builder 출력(JSON 문자열)의 AI 노드 tools를 plan tools로 결정론적으로 강제 주입한다.
-
-    plan을 tools의 단일 진실원천으로 강제해 builder의 누락/변형을 차단한다. AI 노드 id로 매핑하며,
+    plan을 templateId의 단일 진실원천으로 삼아 builder의 변형을 차단한다. 노드 id로 매핑하며,
     plan에 해당 노드가 없으면 건드리지 않는다. 파싱 실패 시 원본을 반환한다(검증 단계가 오류 처리)."""
     from core.workflow_generator import _extract_json_object
     try:
@@ -105,14 +93,13 @@ def _apply_plan_tools(workflow_raw: str, plan: WorkflowPlanSchema) -> str:
         return workflow_raw
 
     original = copy.deepcopy(data)
-    plan_tools = {n.id: n.tools for n in plan.nodes}
+    plan_templates = {n.id: n.templateId for n in plan.nodes}
     for node in nodes:
-        if not isinstance(node, dict) or (node.get("type") or "").upper() != "AI":
+        if not isinstance(node, dict):
             continue
-        keys = plan_tools.get(node.get("id"))
-        if keys is None:
-            continue
-        node.setdefault("config", {})["tools"] = [tool_key_to_config_tool(k) for k in keys]
+        tid = plan_templates.get(node.get("id"))
+        if tid is not None:
+            node["templateId"] = tid
     # 변경이 없으면 원본 문자열을 그대로 보존(불필요한 재직렬화 방지).
     if data == original:
         return workflow_raw
@@ -175,10 +162,6 @@ async def run_generate_agent(
 
         logger.info("성공적으로 워크플로우 계획(Plan)이 검증 통과했습니다. Justification: %s", plan.justification)
 
-        # Layer 1: plan AI 노드의 빈 tools를 의도 기반으로 결정론적 백필(LLM 누락 보강).
-        # 이후 builder_prompt에 완성된 plan이 주입되고, Layer 2에서 최종 강제 주입의 기준이 된다.
-        backfill_plan_tools(plan)
-
         # 2. 최종 워크플로우 빌드 (+ Builder 대상 Reflexion 루프)
         builder_agent = build_builder_agent(model, prompt, provider, available_mcp_servers)
         builder_prompt = (
@@ -191,9 +174,9 @@ async def run_generate_agent(
 
         workflow_raw = await _run_single_agent(builder_agent, builder_prompt, _GENERATE_USER_ID)
 
-        # validate_fn 미주입 시 기존 동작(검증 없이 raw 반환)을 유지하되, plan tools는 강제한다.
+        # validate_fn 미주입 시 기존 동작(검증 없이 raw 반환)을 유지하되, plan templateId는 강제한다.
         if validate_fn is None:
-            return _apply_plan_tools(workflow_raw, plan)
+            return _apply_plan_templates(workflow_raw, plan)
 
         last_err: Exception | None = None
         for attempt in range(max_builder_retries + 1):
@@ -201,10 +184,9 @@ async def run_generate_agent(
                 validate_fn(workflow_raw)
                 if attempt > 0:
                     logger.info("Builder Reflexion 루프 %d회 만에 검증 통과", attempt)
-                # Layer 2: 검증 통과한 산출물의 AI tools를 plan tools로 강제 주입한다.
-                # builder가 도구를 빠뜨리거나 변형해도 plan이 단일 진실원천으로 보장되며,
-                # 강제 주입된 최종 산출물은 호출측(_parse_and_validate)에서 재검증된다.
-                return _apply_plan_tools(workflow_raw, plan)
+                # 검증 통과한 draft의 templateId를 plan으로 강제 정합한다(plan = 단일 진실원천).
+                # builder가 templateId를 변형해도 plan이 보장하며, 최종 산출물은 호출측에서 재검증된다.
+                return _apply_plan_templates(workflow_raw, plan)
             except Exception as e:
                 last_err = e
                 if attempt >= max_builder_retries:

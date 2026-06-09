@@ -8,18 +8,18 @@ from core.validators.plan_validator import PlanValidationError
 
 VALID_PLAN_JSON = """{
   "nodes": [
-    {"id": "node-1", "type": "TRIGGER", "role": "매일 아침 9시 트리거", "description": "스케줄러"}
+    {"id": "node-1", "templateId": "trigger.schedule", "role": "매일 아침 9시 트리거", "description": "스케줄러"}
   ],
   "edges": [],
-  "justification": "스케줄 트리거로 시작해야 하므로 node-1에 TRIGGER를 구성함."
+  "justification": "스케줄 트리거로 시작해야 하므로 node-1에 trigger.schedule을 구성함."
 }"""
 
+# Builder는 draft({id, templateId, slots})를 출력한다.
 VALID_WORKFLOW_JSON = """{
   "nodes": [
-    {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}
+    {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "cron": "0 9 * * *"}}
   ],
-  "edges": [],
-  "rawPrompt": "테스트"
+  "edges": []
 }"""
 
 
@@ -115,7 +115,7 @@ async def test_run_generate_agent_with_plan_retry():
     from agents.generate.factory import run_generate_agent
 
     # 1차 Plan(실패: TRIGGER 없음) ➡️ 2차 Plan(성공) ➡️ Builder(성공)
-    invalid_plan = '{"nodes": [{"id": "node-1", "type": "AI", "role": "역할", "description": "설명"}], "edges": [], "justification": "TRIGGER 누락됨"}'
+    invalid_plan = '{"nodes": [{"id": "node-1", "templateId": "ai.web_search", "role": "역할", "description": "설명"}], "edges": [], "justification": "TRIGGER 누락됨"}'
 
     mock_runner = _make_runner_mock([invalid_plan, VALID_PLAN_JSON, VALID_WORKFLOW_JSON])
 

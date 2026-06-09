@@ -25,6 +25,14 @@ class GenerateWorkflowRequest(BaseModel):
     available_mcp_servers: Optional[List[McpServerMeta]] = None
 
 
+class WorkflowNodeDraft(BaseModel):
+    """LLM이 생성하는 노드 초안. 구조는 만들지 않고 templateId 선택 + 가변값(slots)만 채운다.
+    시스템이 template_registry.hydrate_node로 완성된 WorkflowNode로 변환한다."""
+    id: Optional[str] = None
+    templateId: str
+    slots: Dict[str, Any] = {}
+
+
 class WorkflowNode(BaseModel):
     id: str
     type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM
@@ -97,10 +105,9 @@ class GenerateWorkflowResponse(BaseModel):
 
 class PlanNode(BaseModel):
     id: str
-    type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM
+    templateId: str                    # 레지스트리 템플릿 id (Planner가 카탈로그에서 선택). node_type/도구는 템플릿이 결정.
     role: str                          # 노드가 수행할 구체적 역할 설명
     description: str                   # 상세 동작 설명
-    tools: List[str] = []              # AI 노드가 사용할 도구 키 목록 (예: ["builtin:web_search"]). AI 노드가 아니면 빈 리스트.
 
 
 class PlanEdge(BaseModel):

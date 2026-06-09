@@ -7,35 +7,22 @@ from core.workflow_generator import generate_workflow
 
 VALID_PLAN_JSON = """{
   "nodes": [
-    {"id": "node-1", "type": "TRIGGER", "role": "매일 오전 9시", "description": "스케줄 트리거"},
-    {"id": "node-2", "type": "AI", "role": "경제 뉴스 요약", "description": "경제 뉴스를 요약해줘"}
+    {"id": "node-1", "templateId": "trigger.schedule", "role": "매일 오전 9시", "description": "스케줄 트리거"},
+    {"id": "node-2", "templateId": "ai.web_search", "role": "경제 뉴스 검색", "description": "경제 뉴스를 검색해줘"}
   ],
   "edges": [
     {"source": "node-1", "target": "node-2"}
   ],
-  "justification": "스케줄 트리거 이후 요약 AI로 매핑함"
+  "justification": "스케줄 트리거 이후 검색 AI로 매핑함"
 }"""
 
+# Builder는 draft({id, templateId, slots})를 출력하고, 시스템이 템플릿으로 하이드레이션한다.
 VALID_WORKFLOW_JSON = json.dumps({
     "nodes": [
-        {
-            "id": "node-1",
-            "type": "TRIGGER",
-            "label": "매일 오전 9시",
-            "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}
-        },
-        {
-            "id": "node-2",
-            "type": "AI",
-            "label": "경제 뉴스 요약",
-            "config": {
-                "llmProvider": "CLAUDE",
-                "credentialId": "",
-                "prompt": "경제 뉴스를 요약해줘",
-                "agentType": "react",
-                "tools": [{"name": "builtin:http_fetch"}]
-            }
-        }
+        {"id": "node-1", "templateId": "trigger.schedule",
+         "slots": {"label": "매일 오전 9시", "cron": "0 9 * * *"}},
+        {"id": "node-2", "templateId": "ai.web_search",
+         "slots": {"label": "경제 뉴스 검색", "prompt": "경제 뉴스를 검색해 핵심만 반환해줘"}}
     ],
     "edges": [
         {"source": "node-1", "target": "node-2"}
@@ -148,22 +135,22 @@ async def test_generate_workflow_프롬프트_내_중괄호_보존():
     """노드 프롬프트의 변수참조({{...}})로 중괄호가 섞여도 JSON 추출이 깨지지 않는다 (A1)."""
     workflow_with_braces = json.dumps({
         "nodes": [
-            {"id": "node-1", "type": "TRIGGER", "label": "수동", "config": {"triggerType": "MANUAL"}},
-            {
-                "id": "node-2",
-                "type": "AI",
-                "label": "요약",
-                "config": {
-                    "llmProvider": "CLAUDE",
-                    "credentialId": "",
-                    "prompt": "이전 결과 {{nodes.node-1.output.triggeredAt}}를 요약",
-                    "agentType": "simple",
-                },
-            },
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "수동"}},
+            {"id": "node-2", "templateId": "ai.web_search",
+             "slots": {"label": "요약", "prompt": "이전 결과 {{nodes.node-1.output.triggeredAt}}를 요약"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2"}],
     })
-    outputs = [VALID_PLAN_JSON, f"```json\n{workflow_with_braces}\n```"]
+    # 이 워크플로우와 정합하는 Plan(node-1=trigger.manual). _apply_plan_templates가 plan templateId를 강제하므로.
+    manual_plan = json.dumps({
+        "nodes": [
+            {"id": "node-1", "templateId": "trigger.manual", "role": "수동", "description": "수동 시작"},
+            {"id": "node-2", "templateId": "ai.web_search", "role": "요약", "description": "요약"},
+        ],
+        "edges": [{"source": "node-1", "target": "node-2"}],
+        "justification": "수동 트리거 후 요약",
+    })
+    outputs = [manual_plan, f"```json\n{workflow_with_braces}\n```"]
 
     mock_session = AsyncMock()
     mock_session.id = "test-session"
@@ -195,8 +182,8 @@ async def test_generate_workflow_빈_응답_에러():
     mock_lock.__aenter__ = AsyncMock(return_value=None)
     mock_lock.__aexit__ = AsyncMock(return_value=None)
 
-    # 1차 Plan ➡️ 2차 Workflow(빈 응답 ➡️ 자가교정 빈 응답)
-    outputs = [VALID_PLAN_JSON, "", VALID_PLAN_JSON, ""]
+    # 1차 Plan ➡️ Builder 빈 응답(+ Reflexion 재시도도 빈 응답)
+    outputs = [VALID_PLAN_JSON, "", "", ""]
 
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
          patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
