@@ -11,6 +11,10 @@ class WorkflowValidationError(ValueError):
 class WorkflowValidator:
     """최종 생성/수정된 워크플로우 JSON의 의미 및 정적 규칙 검증기"""
 
+    # AI 노드 config 값 화이트리스트 (환각 방지)
+    ALLOWED_AGENT_TYPES = {"react", "simple"}
+    ALLOWED_LLM_PROVIDERS = {"CLAUDE", "OPENAI", "GEMINI"}
+
     # AI 전용 도구가 매핑되어 제공되어야 하는 외부 연동 API 도메인 (HTTP 노드 직접 사용 금지)
     PROHIBITED_HTTP_DOMAINS = [
         r"api\.notion\.com",
@@ -86,6 +90,10 @@ class WorkflowValidator:
                 cls._validate_variable_references(prompt, nid)
                 cls._validate_variable_references(system_msg, nid)
                 cls._validate_tool_names(config.get("tools"), nid, allowed_mcp_catalog_ids)
+                cls._validate_ai_node_fields(config, nid)
+
+            # 노드 타입 무관: 템플릿 기반 config 필드 화이트리스트 검증
+            cls._validate_config_fields(node, nid)
 
         if trigger_count == 0:
             raise WorkflowValidationError("워크플로우는 반드시 1개의 TRIGGER 노드로 시작해야 합니다. TRIGGER 노드가 발견되지 않았습니다.")
@@ -110,6 +118,9 @@ class WorkflowValidator:
 
         # 3. 고아 노드 및 그래프 연결 구조 분석
         cls._validate_graph_connectivity(nodes, edges, trigger_node_id)
+
+        # 4. 변수 참조 대상 노드의 존재성 및 선행(upstream) 관계 검증
+        cls._validate_reference_targets(nodes, edges)
 
     @classmethod
     def _validate_cron(cls, cron: str, node_id: str) -> None:
@@ -177,6 +188,126 @@ class WorkflowValidator:
                     f"AI 노드 '{node_id}'의 도구 이름 '{name}'이(가) 유효하지 않습니다."
                     f"{hint} 사용 가능한 도구 이름만 지정하십시오."
                 )
+
+    @classmethod
+    def _validate_ai_node_fields(cls, config: Dict[str, Any], node_id: str) -> None:
+        """AI 노드 config의 enum/필수값을 검증한다.
+        agentType(react|simple), llmProvider(CLAUDE|OPENAI|GEMINI) 값 화이트리스트와
+        credentialId 빈 문자열 규칙(런타임 주입)을 강제해 환각을 차단한다."""
+        agent_type = config.get("agentType")
+        if agent_type not in cls.ALLOWED_AGENT_TYPES:
+            raise WorkflowValidationError(
+                f"AI 노드 '{node_id}'의 agentType '{agent_type}'이(가) 유효하지 않습니다. "
+                f"{sorted(cls.ALLOWED_AGENT_TYPES)} 중 하나여야 합니다."
+            )
+
+        provider = config.get("llmProvider")
+        if provider not in cls.ALLOWED_LLM_PROVIDERS:
+            raise WorkflowValidationError(
+                f"AI 노드 '{node_id}'의 llmProvider '{provider}'이(가) 유효하지 않습니다. "
+                f"{sorted(cls.ALLOWED_LLM_PROVIDERS)} 중 하나여야 합니다."
+            )
+
+        # credentialId는 런타임에 백엔드가 주입하므로 빈 문자열이어야 한다.
+        # (키 누락은 허용하되, 값이 있으면 반드시 ""여야 한다)
+        cred = config.get("credentialId")
+        if cred not in (None, ""):
+            raise WorkflowValidationError(
+                f"AI 노드 '{node_id}'의 credentialId는 빈 문자열(\"\")이어야 합니다(런타임 주입). "
+                f"현재 값: '{cred}'"
+            )
+
+    @classmethod
+    def _validate_config_fields(cls, node: Dict[str, Any], node_id: str) -> None:
+        """노드 config의 키가 해당 노드 템플릿의 allowed_config_fields에 속하는지 검증한다.
+        템플릿에 없는 필드를 날조하는 환각을 차단한다. 매칭 템플릿이 없으면(예: MCP 전용 노드 등)
+        화이트리스트를 적용하지 않는다(false reject 방지)."""
+        from core.template_registry import allowed_config_fields_for_node
+
+        config = node.get("config")
+        if not isinstance(config, dict):
+            return  # config 형식 문제는 타입별 검증 영역
+        allowed = allowed_config_fields_for_node(node)
+        if allowed is None:
+            return
+        unknown = set(config.keys()) - allowed
+        if unknown:
+            raise WorkflowValidationError(
+                f"노드 '{node_id}'의 config에 허용되지 않은 필드가 있습니다: {sorted(unknown)}. "
+                f"허용 필드: {sorted(allowed)}"
+            )
+
+    @classmethod
+    def _iter_config_strings(cls, value: Any):
+        """config 내의 모든 문자열 값을 재귀적으로 순회한다(dict/list 중첩 포함)."""
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, dict):
+            for v in value.values():
+                yield from cls._iter_config_strings(v)
+        elif isinstance(value, list):
+            for v in value:
+                yield from cls._iter_config_strings(v)
+
+    @classmethod
+    def _validate_reference_targets(cls, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
+        """변수 참조({{nodes.X.output.Y}})가 가리키는 노드 X가 실제 존재하고,
+        참조하는 노드의 선행(upstream) 노드인지 검증한다.
+        형식 검증(_validate_variable_references)과 달리, 존재하지 않는 노드ID 참조와
+        하류/형제/자기 자신 참조 같은 데이터 흐름 환각을 차단한다."""
+        node_ids = {n.get("id") for n in nodes}
+
+        # 역방향 인접 리스트(선행 노드 맵) 구성
+        preds: Dict[Any, list] = {n.get("id"): [] for n in nodes}
+        for edge in edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            if target in preds and source in node_ids:
+                preds[target].append(source)
+
+        def ancestors(nid: Any) -> set:
+            """nid의 모든 조상(선행) 노드 집합을 역방향 BFS로 수집한다."""
+            seen: set = set()
+            stack = list(preds.get(nid, []))
+            while stack:
+                cur = stack.pop()
+                if cur in seen:
+                    continue
+                seen.add(cur)
+                stack.extend(preds.get(cur, []))
+            return seen
+
+        node_ref_pattern = re.compile(r"^nodes\.([a-zA-Z0-9_-]+)\.output\.[a-zA-Z0-9_-]+$")
+        ref_pattern = re.compile(r"\{\{(.*?)\}\}")
+
+        for node in nodes:
+            nid = node.get("id")
+            config = node.get("config", {}) or {}
+            anc = None  # 조상 집합은 참조가 실제 있을 때만 lazy 계산
+            for text in cls._iter_config_strings(config):
+                for raw_ref in ref_pattern.findall(text):
+                    m = node_ref_pattern.match(raw_ref.strip())
+                    if not m:
+                        # 형식 불일치는 _validate_variable_references 책임 영역이므로 여기선 건너뜀
+                        continue
+                    target = m.group(1)
+                    if target not in node_ids:
+                        raise WorkflowValidationError(
+                            f"노드 '{nid}'가 존재하지 않는 노드 '{target}'를 참조합니다"
+                            f"(참조: '{{{{{raw_ref.strip()}}}}}')."
+                        )
+                    if target == nid:
+                        raise WorkflowValidationError(
+                            f"노드 '{nid}'가 자기 자신을 참조합니다(참조: '{{{{{raw_ref.strip()}}}}}')."
+                        )
+                    if anc is None:
+                        anc = ancestors(nid)
+                    if target not in anc:
+                        raise WorkflowValidationError(
+                            f"노드 '{nid}'가 선행(upstream) 노드가 아닌 '{target}'를 참조합니다. "
+                            f"참조 대상은 반드시 엣지로 연결된 앞선 노드여야 합니다"
+                            f"(참조: '{{{{{raw_ref.strip()}}}}}')."
+                        )
 
     @classmethod
     def _validate_variable_references(cls, text: str, node_id: str) -> None:
