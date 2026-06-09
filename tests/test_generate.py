@@ -80,7 +80,8 @@ def mock_adk():
 
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
          patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
-         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
+         patch("core.workflow_generator.get_env_lock", return_value=mock_lock), \
+         patch("core.workflow_generator.generate_workflow_logs.insert_one", AsyncMock()):
         yield
 
 
