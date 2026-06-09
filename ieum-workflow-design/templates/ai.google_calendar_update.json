@@ -1,0 +1,33 @@
+{
+  "id": "ai.google_calendar_update",
+  "node_type": "AI",
+  "tool_key": "builtin:google_calendar_update",
+  "tags": ["calendar", "캘린더", "일정", "구글 캘린더", "google calendar", "이벤트 수정", "일정 변경", "update", "수정"],
+  "menu": "Google Calendar 일정 수정 (event_id 필요)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:google_calendar_update"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "일정 수정 지시. event_id 명시. 변경할 제목/시작·종료 시각/설명만 명시. event_id 미상 시 builtin:google_calendar_list로 선행 조회."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "회의 시간 변경",
+    "config": {
+      "llmProvider": "GEMINI",
+      "credentialId": "",
+      "prompt": "event_id 'evt-abc123' 일정의 시작 시각을 내일 오후 3시, 종료 시각을 오후 4시로 변경해줘.",
+      "agentType": "react",
+      "tools": [{"name": "builtin:google_calendar_update"}]
+    }
+  }
+}
