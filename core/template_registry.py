@@ -24,6 +24,7 @@ TEMPLATES_DIR = os.path.abspath(
 # 노드 타입과 무관하게 허용된다(런타임 주입 또는 리소스 ID 플레이스홀더).
 UNIVERSAL_CONFIG_FIELDS = {
     "credentialId", "access_token", "parent_page_id", "spreadsheet_id", "calendar_id",
+    "brand",
 }
 
 _VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM"}
@@ -217,6 +218,25 @@ def resolve_tool_key_by_intent(text: str) -> str | None:
     for tpl in select_by_tags(text):  # score 내림차순
         if tpl["node_type"] == "AI":
             return tpl["tool_key"]  # 명시도구형은 키, 서브에이전트형은 None
+    return None
+
+
+def subagent_service_for_node(node: dict) -> str | None:
+    """tool 없는 AI 노드의 동적 서브에이전트 서비스명을 intent(라벨+프롬프트) 태그 매칭으로 도출한다.
+
+    select_by_tags 최상위 AI 템플릿이 서브에이전트형(tool_key=None)이고 service 필드가 있으면
+    그 service를, 그렇지 않으면 None을 반환한다. resolve_tool_key_by_intent와 동일한 신호를 써서
+    '생성 시 github로 분류된 노드'와 'github brand를 받는 노드'가 정확히 일치하도록 한다.
+    brand 도출(tools.registry.brand_for_node)이 tool_key 없는 github 노드를 식별하는 데 쓴다."""
+    if not isinstance(node, dict) or (node.get("type") or "").upper() != "AI":
+        return None
+    cfg = node.get("config")
+    if not isinstance(cfg, dict) or cfg.get("tools"):
+        return None  # 도구가 있으면 tool_key 기반으로 brand가 도출된다
+    text = f"{node.get('label', '')} {cfg.get('prompt', '')}"
+    for tpl in select_by_tags(text):  # score 내림차순
+        if tpl["node_type"] == "AI":
+            return tpl.get("service") if tpl["tool_key"] is None else None
     return None
 
 

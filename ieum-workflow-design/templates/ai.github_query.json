@@ -2,6 +2,7 @@
   "id": "ai.github_query",
   "node_type": "AI",
   "tool_key": null,
+  "service": "github",
   "tags": ["github", "깃허브", "pr", "pull request", "이슈", "issue", "리포", "repo", "커밋"],
   "menu": "GitHub 조회(PR/이슈/리포): tools는 빈 배열, 전용 서브에이전트가 자동 부착",
   "fixed": {
