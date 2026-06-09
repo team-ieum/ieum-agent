@@ -1,0 +1,34 @@
+{
+  "id": "ai.mcp",
+  "node_type": "AI",
+  "tool_key": null,
+  "tags": ["mcp", "외부 도구", "커스텀 도구", "통합", "custom tool", "integration"],
+  "menu": "MCP 노드: 카탈로그의 MCP 서버 도구를 AI 노드에 동적 부착 (catalogId 필요)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "mcp", "config": {}}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "MCP 도구 사용 지시"},
+    {"name": "catalogId", "path": "config.tools.0.config.catalogId", "required": true, "kind": "string", "description": "사용할 MCP 서버의 catalogId(허용된 카탈로그에서 선택)"}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "MCP 도구 호출",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "연결된 MCP 도구로 작업을 수행하고 결과의 핵심 필드만 JSON으로 반환해줘.",
+      "agentType": "react",
+      "tools": [{"name": "mcp", "config": {"catalogId": "my-mcp-server"}}]
+    }
+  }
+}

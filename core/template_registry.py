@@ -40,6 +40,11 @@ class TemplateSchemaError(ValueError):
     pass
 
 
+class SlotFillError(ValueError):
+    """노드 draft(templateId+slots) 하이드레이션 실패(미존재 템플릿/누락·미허용 슬롯 등)"""
+    pass
+
+
 def _tool_map_keys() -> set:
     """_TOOL_MAP 키 집합. tools 패키지는 google.adk를 import하므로 lazy import한다."""
     from tools import _TOOL_MAP
@@ -82,10 +87,11 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
 
     fixed_config = fixed.get("config", {}) or {}
 
-    # fixed.config.tools[*].name 도 _TOOL_MAP에 존재해야 함
+    # fixed.config.tools[*].name 도 _TOOL_MAP에 존재해야 함.
+    # "mcp"는 동적 도구 센티넬(런타임 catalog 주입)로 _TOOL_MAP에 없어도 허용한다.
     for tool in fixed_config.get("tools", []) or []:
         name = tool.get("name") if isinstance(tool, dict) else tool
-        if name and name not in tool_keys:
+        if name and name != "mcp" and name not in tool_keys:
             raise TemplateSchemaError(f"{tid}: fixed tools '{name}'가 _TOOL_MAP에 없음(드리프트)")
 
     # slots 검증
@@ -151,6 +157,35 @@ def get_template(template_id: str) -> dict | None:
 def menu_index() -> str:
     """항상층에 주입할 도구 메뉴(1줄들). 노드 존재 인지 → 검색 miss 환각 방지."""
     lines = [f"- {t['id']}: {t['menu']}" for t in load_templates().values()]
+    return "\n".join(lines)
+
+
+def template_ids() -> set:
+    """등록된 모든 템플릿 id 집합. Planner가 고른 templateId 존재 검증에 쓴다."""
+    return set(load_templates().keys())
+
+
+def node_type_of_template(template_id: str) -> str | None:
+    """templateId의 node_type(TRIGGER/AI/...)을 반환한다. 없으면 None."""
+    tpl = load_templates().get(template_id)
+    return tpl["node_type"] if tpl else None
+
+
+def slot_catalog_text() -> str:
+    """templateId별 slot 스펙 카탈로그 텍스트(Builder의 draft 작성용).
+
+    각 줄: `- <id> [<node_type>] — <menu>` 다음 줄에 slots 명세.
+    provider 슬롯은 시스템이 자동 주입하므로 '자동주입'으로 표기해 Builder가 채우지 않게 한다."""
+    lines = []
+    for t in load_templates().values():
+        slot_specs = []
+        for s in t["slots"]:
+            if s["kind"] == "provider":
+                tag = "자동주입(작성금지)"
+            else:
+                tag = "필수" if s["required"] else "선택"
+            slot_specs.append(f"{s['name']}({s['kind']},{tag})")
+        lines.append(f"- {t['id']} [{t['fixed']['type']}] — {t['menu']}\n    slots: {', '.join(slot_specs)}")
     return "\n".join(lines)
 
 
@@ -247,6 +282,100 @@ def tool_key_to_config_tool(key: str) -> dict:
         catalog_id = key[len("mcp:"):] if key.startswith("mcp:") else ""
         return {"name": "mcp", "config": {"catalogId": catalog_id}}
     return {"name": key}
+
+
+def _set_by_path(obj: dict, path: str, value) -> None:
+    """dotted path 위치에 value를 설정한다(in-place). 숫자 세그먼트는 list 인덱스로 처리한다.
+    예: "label" → obj["label"], "config.prompt" → obj["config"]["prompt"],
+        "config.tools.0.config.catalogId" → obj["config"]["tools"][0]["config"]["catalogId"].
+    중간 컨테이너가 없으면 다음 세그먼트 종류(숫자=list, 그 외=dict)에 맞춰 생성한다."""
+    parts = path.split(".")
+    cur = obj
+    for i, raw in enumerate(parts[:-1]):
+        nxt_is_idx = parts[i + 1].isdigit()
+        if raw.isdigit():
+            idx = int(raw)
+            while len(cur) <= idx:
+                cur.append({})
+            if not isinstance(cur[idx], (dict, list)):
+                cur[idx] = [] if nxt_is_idx else {}
+            cur = cur[idx]
+        else:
+            if raw not in cur or not isinstance(cur[raw], (dict, list)):
+                cur[raw] = [] if nxt_is_idx else {}
+            cur = cur[raw]
+    last = parts[-1]
+    if last.isdigit():
+        idx = int(last)
+        while len(cur) <= idx:
+            cur.append(None)
+        cur[idx] = value
+    else:
+        cur[last] = value
+
+
+def hydrate_node(draft: dict, provider: str | None = None) -> dict:
+    """draft({id, templateId, slots})를 템플릿으로 완성된 노드로 변환한다.
+
+    구조(type/fixed.config)는 템플릿이 결정론적으로 제공하고, 가변값만 slots에서 채운다.
+    - templateId가 레지스트리에 없으면 SlotFillError(노드 날조 차단).
+    - 템플릿에 없는 슬롯 키, 필수 슬롯 누락이면 SlotFillError(필드 날조 차단).
+    - provider 슬롯(kind=provider)은 인자 provider로 자동 주입한다(LLM이 채우지 않음).
+    의미 검증(llmProvider/cron/tool/참조 등)은 호출부의 WorkflowValidator가 담당한다."""
+    if not isinstance(draft, dict):
+        raise SlotFillError("노드 draft는 객체여야 합니다.")
+    templates = load_templates()
+    tid = draft.get("templateId")
+    tpl = templates.get(tid)
+    if tpl is None:
+        raise SlotFillError(f"존재하지 않는 templateId '{tid}'. 사용 가능: {sorted(templates)}")
+    slots_in = draft.get("slots")
+    if slots_in is None:
+        slots_in = {}
+    if not isinstance(slots_in, dict):
+        raise SlotFillError(f"'{tid}'의 slots는 객체(dict)여야 합니다.")
+
+    node = {
+        "id": draft.get("id"),
+        "type": tpl["fixed"]["type"],
+        "config": copy.deepcopy(tpl["fixed"].get("config") or {}),
+    }
+
+    slot_by_name = {s["name"]: s for s in tpl["slots"]}
+    unknown = set(slots_in) - set(slot_by_name)
+    if unknown:
+        raise SlotFillError(f"'{tid}'에 없는 슬롯: {sorted(unknown)}. 허용: {sorted(slot_by_name)}")
+
+    for name, slot in slot_by_name.items():
+        if slot["kind"] == "provider":
+            if provider is not None:
+                value = provider  # 시스템 자동 주입(요청 provider 계승)
+            elif name in slots_in:
+                value = slots_in[name]
+            else:
+                raise SlotFillError(f"'{tid}'의 provider 슬롯 '{name}' 주입 실패: provider 미지정")
+        elif name in slots_in:
+            value = slots_in[name]
+        elif slot["required"]:
+            raise SlotFillError(f"'{tid}'의 필수 슬롯 '{name}'이(가) 누락되었습니다.")
+        else:
+            continue  # optional 미제공 → fixed.config 기본값 유지
+        _set_by_path(node, slot["path"], value)
+
+    return node
+
+
+def hydrate_nodes(drafts: list, provider: str | None = None) -> list:
+    """draft 리스트를 하이드레이션한다. id 누락 시 node-N 순차 부여한다."""
+    if not isinstance(drafts, list):
+        raise SlotFillError("nodes는 리스트여야 합니다.")
+    nodes = []
+    for idx, draft in enumerate(drafts):
+        node = hydrate_node(draft, provider=provider)
+        if not node.get("id"):
+            node["id"] = f"node-{idx + 1}"
+        nodes.append(node)
+    return nodes
 
 
 def backfill_empty_ai_tools(nodes: list) -> None:
