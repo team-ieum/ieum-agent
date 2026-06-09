@@ -45,7 +45,10 @@ def test_each_good_example_passes_validation(idx):
     WorkflowValidator.validate(nodes, edges)
 
 
-def test_good_examples_injected_into_design_rules():
-    """good-examples.md가 생성 레퍼런스에 상시 주입된다."""
+def test_golden_snippets_injected_into_design_rules():
+    """노드 템플릿 골든 스니펫이 생성 레퍼런스에 주입된다(통짜 good-examples.md 대체).
+    메뉴 인덱스·구조 노드 예시는 항상층으로 주입된다."""
     rules = load_design_rules("아무 요청")
-    assert "골든 예시" in rules or "Good Examples" in rules
+    assert "사용 가능한 노드/도구 메뉴" in rules
+    assert "구조 노드 예시" in rules
+    assert "```json" in rules  # 골든 스니펫(JSON) 주입 확인
