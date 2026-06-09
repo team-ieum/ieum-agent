@@ -190,6 +190,11 @@ provider 슬롯(llmProvider 등 '자동주입' 표기)은 시스템이 채우므
    - [데이터 가공 위임] 요약·날짜 포맷·JSON 파싱 등 변환은 transform 템플릿 또는 별도 AI 노드 prompt에 위임합니다(실행 시 서브 에이전트 자동 처리).
 3. prompt 슬롯은 핵심 지시(동작·입력 참조·출력 형식) 위주 2~3문장 이내로 간결히 작성합니다.
 4. 서로 다른 외부 서비스 작업은 항상 별도 노드(별도 templateId)로 분리합니다.
+4-1. [요약·가공과 발송·저장 분리] 발송/저장 노드(ai.slack_send / ai.discord_send / ai.gmail_send /
+   ai.notion_create_page 등)에서 콘텐츠를 직접 요약·분석·포맷하지 마십시오. 요약/판단/정리가 필요하면
+   선행에 ai.reasoning(순수 추론) 또는 transform 노드를 두고, 발송/저장 노드는 그 결과를
+   {{nodes.<id>.output...}}로 참조해 전달만 하도록 노드를 나눕니다.
+   (예: ai.web_search → ai.reasoning(요약) → ai.discord_send(발송만))
 5. 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 대변하는 한국어 이름을 'workflowName'에 기입하고, 수정 시에는 null로 둡니다.
 6. 모든 워크플로우는 1개의 TRIGGER 템플릿(trigger.manual / trigger.schedule / trigger.webhook)으로 시작합니다.
    trigger.schedule을 고르면 cron 슬롯에 5필드 표준 크론 표현식을 채웁니다(예: "매일 오전 9시" -> "0 9 * * *").
