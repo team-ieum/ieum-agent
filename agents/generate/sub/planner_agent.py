@@ -18,7 +18,11 @@ _PLANNER_INSTRUCTION = """
 4. 서로 다른 외부 서비스 작업은 반드시 별도 노드로 분리한다.
 5. 분기가 필요하면 condition 템플릿을 적절히 배치한다.
 6. MCP 의사 템플릿(ai.mcp)은 아래 '사용 가능한 MCP 서버'가 제공된 경우에만 선택할 수 있다.
-7. 출력은 WorkflowPlanSchema에 부합하는 JSON Plan만 작성한다.
+7. [요약·가공과 발송·저장 분리] 발송/저장 노드(ai.slack_send / ai.discord_send / ai.gmail_send /
+   ai.notion_create_page 등)에서 콘텐츠를 직접 요약·분석·포맷하지 않는다. 요약/판단/정리가 필요하면
+   선행에 ai.reasoning(순수 추론) 또는 transform 노드를 두고, 발송/저장 노드는 그 결과를 참조해
+   전달만 하도록 노드를 분리한다. (예: web_search → ai.reasoning(요약) → ai.discord_send(발송만))
+8. 출력은 WorkflowPlanSchema에 부합하는 JSON Plan만 작성한다.
    각 노드는 {id, templateId, role, description} 형식이며, role/description에 노드가 할 일을 구체적으로 적는다.
 """
 
