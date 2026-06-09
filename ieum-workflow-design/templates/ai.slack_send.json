@@ -15,7 +15,7 @@
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
     {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
-    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시. 보낼 내용은 선행 노드 참조식 사용. 채널/웹훅이 여러 개면 CLARIFICATION 처리."},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시문 + 보낼 내용 참조를 함께 작성(참조식 단독 금지). AI 결과는 {{nodes.<id>.output.output}}로 참조. 예: '다음 내용을 슬랙으로 보내줘: {{nodes.node-3.output.output}}'. 채널/웹훅 여러 개면 CLARIFICATION."},
     {"name": "webhookCredentialId", "path": "config.tools.0.config.webhookCredentialId", "required": false, "kind": "string", "description": "보유 Slack 웹훅 자격증명 ID(가용 목록에서 선택). 미상이면 비움."}
   ],
   "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],

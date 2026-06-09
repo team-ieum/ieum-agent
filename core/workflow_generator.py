@@ -38,8 +38,14 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 4. '필수' 슬롯은 모두 채운다. '선택' 슬롯은 실제로 필요할 때만 채운다.
 5. credentialId / access_token / tools / agentType / triggerType 등 구조·자격 값은
    템플릿과 런타임이 처리한다. slots에 넣지 않는다.
-6. 변수 참조: {{nodes.<node-id>.output.<field>}} (예: {{nodes.node-2.output.output}})
-7. CONDITION 노드의 true/false 분기는 edges의 conditionType: "true" | "false" 로 표현한다.
+6. 변수 참조: {{nodes.<node-id>.output.<field>}}. 노드 타입별 실제 출력 필드만 사용한다(임의 필드명 금지):
+   - AI 노드 결과 → `output.output` (예: {{nodes.node-2.output.output}}). results/content/data 등 날조 금지.
+   - HTTP → `output.body`, `output.statusCode`
+   - TRIGGER(SCHEDULE) → `output.triggeredAt`, `output.cron`
+   - TRANSFORM → 그 노드 매핑에서 정의한 키
+7. 발송/저장 노드(slack/discord/gmail/notion)의 prompt는 **참조식 단독으로 두지 말고** 발송·저장 지시문과
+   보낼 내용 참조를 함께 쓴다. (예: "다음 내용을 디스코드로 보내줘: {{nodes.node-3.output.output}}")
+8. CONDITION 노드의 true/false 분기는 edges의 conditionType: "true" | "false" 로 표현한다.
 8. edges의 source/target은 반드시 nodes에 존재하는 id를 참조한다.
 9. label/prompt는 반드시 사용자 요청과 동일한 언어로 작성한다.
 10. 사용자가 명시하지 않은 식별값(page_id 등)에 플레이스홀더(YOUR_XXX_HERE, <값>)를 쓰지 않는다.

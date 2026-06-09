@@ -15,7 +15,7 @@
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
     {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
-    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시. 수신자/제목/본문 명시. 본문은 선행 노드 참조식 사용."}
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시문 + 수신자/제목/본문 명시(참조식 단독 금지). 본문의 AI 결과는 {{nodes.<id>.output.output}}로 참조. 예: '아래 내용을 이메일로 보내줘. 수신자 X, 제목 Y, 본문: {{nodes.node-3.output.output}}'."}
   ],
   "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
   "golden_snippet": {
