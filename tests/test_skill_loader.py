@@ -37,10 +37,11 @@ def test_load_design_rules_always_includes_tool_catalog():
 
 
 def test_load_design_rules_injects_catalog_for_unmatched_keyword():
-    # T2 회귀: 기존 키워드 맵에 없던 표현('이메일')에도 도구 카탈로그가 누락 없이 주입된다
+    # T2 회귀: 키워드 갭이 있어도 도구 메뉴 인덱스가 항상 주입되어 도구 존재가 누락되지 않는다.
     rules = load_design_rules("매일 이메일로 요약 보내줘")
-    assert "gmail" in rules.lower()
-    assert "builtin:google_sheets_read" in rules
+    assert "gmail" in rules.lower()              # '이메일' 태그로 검색층 매칭
+    assert "google_sheets" in rules.lower()      # 메뉴 인덱스에 항상 노출
+    assert "사용 가능한 노드/도구 메뉴" in rules
 
 
 def test_load_design_rules_works_without_prompt_arg():
@@ -48,3 +49,24 @@ def test_load_design_rules_works_without_prompt_arg():
     rules = load_design_rules()
     assert isinstance(rules, str)
     assert "builtin:notion_create_page" in rules
+
+
+def test_relevant_selection_smaller_than_fallback():
+    """관련 태그가 매칭되면 검색층이 좁아져 무관 요청(전체 폴백)보다 짧아야 한다(토큰 절감)."""
+    focused = load_design_rules("노션 페이지에 저장해줘")
+    fallback = load_design_rules("대충 아무거나 만들어줘")
+    assert len(focused) < len(fallback)
+
+
+def test_menu_index_always_present():
+    """검색 매칭과 무관하게 도구 메뉴 인덱스와 구조 노드 예시는 항상 주입된다."""
+    rules = load_design_rules("zzz 무관한 텍스트")
+    assert "사용 가능한 노드/도구 메뉴" in rules
+    assert "구조 노드 예시" in rules
+
+
+def test_modify_request_includes_current_node_templates():
+    """수정 요청 시 현재 노드가 쓰는 도구 템플릿이 검색층에 포함된다."""
+    current = [{"type": "AI", "config": {"tools": [{"name": "slack"}]}}]
+    rules = load_design_rules("메시지 문구만 바꿔줘", current_nodes=current)
+    assert "ai.slack_send" in rules

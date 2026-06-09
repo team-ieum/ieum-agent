@@ -524,7 +524,7 @@ async def chat_workflow(
 """
 
     from core.skill_loader import load_design_rules, format_mcp_catalog, format_webhook_catalog
-    design_rules = load_design_rules(prompt)
+    design_rules = load_design_rules(prompt, current_nodes=current_nodes)
     mcp_catalog_section = format_mcp_catalog(available_mcp_servers)
     webhook_catalog_section = format_webhook_catalog(available_webhooks)
 
