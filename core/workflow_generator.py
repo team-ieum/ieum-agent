@@ -46,11 +46,11 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 7. 발송/저장 노드(slack/discord/gmail/notion)의 prompt는 **참조식 단독으로 두지 말고** 발송·저장 지시문과
    보낼 내용 참조를 함께 쓴다. (예: "다음 내용을 디스코드로 보내줘: {{nodes.node-3.output.output}}")
 8. CONDITION 노드의 true/false 분기는 edges의 conditionType: "true" | "false" 로 표현한다.
-8. edges의 source/target은 반드시 nodes에 존재하는 id를 참조한다.
-9. label/prompt는 반드시 사용자 요청과 동일한 언어로 작성한다.
-10. 사용자가 명시하지 않은 식별값(page_id 등)에 플레이스홀더(YOUR_XXX_HERE, <값>)를 쓰지 않는다.
-11. JSON 외 어떤 텍스트도 출력하지 않는다.
-12. 조회 노드 prompt 경량화 (필수):
+9. edges의 source/target은 반드시 nodes에 존재하는 id를 참조한다.
+10. label/prompt는 반드시 사용자 요청과 동일한 언어로 작성한다.
+11. 사용자가 명시하지 않은 식별값(page_id 등)에 플레이스홀더(YOUR_XXX_HERE, <값>)를 쓰지 않는다.
+12. JSON 외 어떤 텍스트도 출력하지 않는다.
+13. 조회 노드 prompt 경량화 (필수):
     - 후속 노드가 실제로 쓰는 필드만 추출하도록 지시한다. 전체 raw JSON 덤프 금지(타임아웃 유발), 임의 요약/왜곡 금지.
     - 목록 조회(깃허브 PR/이슈, 노션 검색 등)는 반드시 단일 페이지·개수 상한을 못박는다
       (예: "최신순 1페이지(per_page=30, page=1)만 조회"). 무한 페이징 차단.
