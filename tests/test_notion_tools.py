@@ -515,3 +515,30 @@ async def test_notion_query_database_filter_json_파싱오류(mock_client):
 
     assert "error" in result
     assert "파싱 오류" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_notion_query_database_filter_dict_와_빈문자(mock_client):
+    """filter가 dict로 오면 그대로 전송되고, 빈/공백 문자열은 무시(파싱 시도 없음)된다."""
+    captured = {}
+
+    async def _post(url, **kwargs):
+        captured["payload"] = kwargs.get("json")
+        return _make_response(200, {"results": []})
+
+    mock_client.post = AsyncMock(side_effect=_post)
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        # dict 필터
+        r1 = json.loads(await notion_query_database(
+            token="secret_test", database_id="db-1",
+            filter_json={"property": "상태", "status": {"equals": "진행중"}},
+        ))
+        assert r1["success"] is True
+        assert captured["payload"]["filter"] == {"property": "상태", "status": {"equals": "진행중"}}
+        # 공백 문자열 → filter 미포함, 에러 없음
+        r2 = json.loads(await notion_query_database(
+            token="secret_test", database_id="db-1", filter_json="   ",
+        ))
+        assert r2["success"] is True
+        assert "filter" not in captured["payload"]

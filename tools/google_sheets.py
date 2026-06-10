@@ -75,12 +75,16 @@ async def google_sheets_append(
     Returns:
         추가 결과를 포함한 JSON 문자열
     """
-    try:
-        parsed_values = json.loads(values)
-    except json.JSONDecodeError as e:
-        return json.dumps({
-            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_append: values JSON 파싱 오류 - {str(e)})"
-        }, ensure_ascii=False)
+    # values는 JSON 배열 문자열이 기본이나, 프레임워크/LLM이 이미 list로 넘길 수도 있어 둘 다 허용한다.
+    if isinstance(values, list):
+        parsed_values = values
+    else:
+        try:
+            parsed_values = json.loads(values)
+        except (json.JSONDecodeError, TypeError) as e:
+            return json.dumps({
+                "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_append: values JSON 파싱 오류 - {str(e)})"
+            }, ensure_ascii=False)
 
     payload = {
         "range": cell_range,

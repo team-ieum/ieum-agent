@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 
 import httpx
 
@@ -74,10 +75,10 @@ async def google_calendar_create(
 async def google_calendar_update(
     access_token: str,
     event_id: str,
-    summary: str = None,
-    start_datetime: str = None,
-    end_datetime: str = None,
-    description: str = None,
+    summary: Optional[str] = None,
+    start_datetime: Optional[str] = None,
+    end_datetime: Optional[str] = None,
+    description: Optional[str] = None,
     calendar_id: str = "primary",
 ) -> str:
     """
@@ -100,9 +101,10 @@ async def google_calendar_update(
         payload["summary"] = summary
     if description is not None:
         payload["description"] = description
-    if start_datetime is not None:
+    # 빈 문자열 dateTime은 API가 400으로 반려하므로 실제 값이 있을 때만 포함한다(선택 슬롯 "" 방지).
+    if start_datetime and start_datetime.strip():
         payload["start"] = {"dateTime": start_datetime}
-    if end_datetime is not None:
+    if end_datetime and end_datetime.strip():
         payload["end"] = {"dateTime": end_datetime}
 
     try:
