@@ -118,6 +118,20 @@ def test_hydrate_mcp_pseudo_template_nested_catalog_id():
     assert tool["config"]["catalogId"] == "srv-1"  # 중첩 list 경로 주입
 
 
+def test_dehydrate_mcp_node_round_trip_not_dropped():
+    # MODIFY 시 저장된 MCP 노드(tool_key 없는 'mcp' 센티넬)가 dehydrate에서 드롭되지 않아야 한다.
+    from core.template_registry import dehydrate_node, dehydrate_nodes
+    node = {"id": "node-2", "type": "AI",
+            "config": {"agentType": "react", "credentialId": "", "llmProvider": "CLAUDE",
+                       "prompt": "도구 호출", "tools": [{"name": "mcp", "config": {"catalogId": "srv-1"}}]}}
+    draft = dehydrate_node(node)
+    assert draft is not None  # 회귀: 과거엔 None으로 드롭됨
+    assert draft["templateId"] == "ai.mcp"
+    assert draft["slots"]["catalogId"] == "srv-1"
+    assert draft["slots"]["prompt"] == "도구 호출"
+    assert len(dehydrate_nodes([node])) == 1  # 리스트 역변환에서도 보존
+
+
 # --- hydrate_node: 에러(환각 차단) -------------------------------------------
 
 def test_hydrate_unknown_template_rejected():

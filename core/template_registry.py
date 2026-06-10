@@ -224,6 +224,12 @@ def resolve_template_for_node(node: dict) -> dict | None:
         for tpl in templates.values():
             if tpl["node_type"] == "AI" and tpl["tool_key"] and tpl["tool_key"] in tool_names:
                 return tpl
+        # MCP 노드: tool_key가 없는 'mcp' 동적 센티넬을 가지므로 위 매칭에 안 잡힌다.
+        # ai.mcp 의사 템플릿으로 직접 해석해 dehydrate(MODIFY 역변환) 시 누락되지 않게 한다.
+        if "mcp" in tool_names:
+            tpl = templates.get("ai.mcp")
+            if tpl is not None:
+                return tpl
         # 도구 없는 AI → tool_key null인 AI 템플릿. 후보가 여럿(예: github 서브에이전트 vs 순수 추론)이면
         # fixed.config.agentType로 판별한다(github=react, ai.reasoning=simple). 일치 없으면 simple(추론) 우선.
         if not tool_names:
@@ -257,21 +263,11 @@ def resolve_template_for_node(node: dict) -> dict | None:
     return None
 
 
-def resolve_tool_key_by_intent(text: str) -> str | None:
-    """의도 텍스트(role/description/label/prompt)를 태그 매칭해 가장 적합한 AI 템플릿의
-    tool_key를 반환한다. 매칭 없거나, 최상위 AI 템플릿이 서브에이전트형(tool_key=None,
-    예: ai.github_query)이면 None을 반환한다(빈 tools 유지 = 실행 시 서브에이전트 처리)."""
-    for tpl in select_by_tags(text):  # score 내림차순
-        if tpl["node_type"] == "AI":
-            return tpl["tool_key"]  # 명시도구형은 키, 서브에이전트형은 None
-    return None
-
-
 def subagent_service_for_node(node: dict) -> str | None:
     """tool 없는 AI 노드의 동적 서브에이전트 서비스명을 intent(라벨+프롬프트) 태그 매칭으로 도출한다.
 
     select_by_tags 최상위 AI 템플릿이 서브에이전트형(tool_key=None)이고 service 필드가 있으면
-    그 service를, 그렇지 않으면 None을 반환한다. resolve_tool_key_by_intent와 동일한 신호를 써서
+    그 service를, 그렇지 않으면 None을 반환한다. select_by_tags 태그 매칭 신호를 써서
     '생성 시 github로 분류된 노드'와 'github brand를 받는 노드'가 정확히 일치하도록 한다.
     brand 도출(tools.registry.brand_for_node)이 tool_key 없는 github 노드를 식별하는 데 쓴다."""
     if not isinstance(node, dict) or (node.get("type") or "").upper() != "AI":
@@ -284,15 +280,6 @@ def subagent_service_for_node(node: dict) -> str | None:
         if tpl["node_type"] == "AI":
             return tpl.get("service") if tpl["tool_key"] is None else None
     return None
-
-
-def tool_key_to_config_tool(key: str) -> dict:
-    """plan/도구키 문자열을 노드 config.tools 항목 형식으로 변환한다.
-    'mcp:<catalogId>' 또는 'mcp'는 실행 주입 형식으로, 그 외는 {"name": key}로 변환."""
-    if key == "mcp" or (isinstance(key, str) and key.startswith("mcp:")):
-        catalog_id = key[len("mcp:"):] if key.startswith("mcp:") else ""
-        return {"name": "mcp", "config": {"catalogId": catalog_id}}
-    return {"name": key}
 
 
 def _set_by_path(obj: dict, path: str, value) -> None:
@@ -430,101 +417,6 @@ def dehydrate_nodes(nodes: list) -> list:
     if not isinstance(nodes, list):
         return []
     return [d for d in (dehydrate_node(n) for n in nodes) if d is not None]
-
-
-def backfill_empty_ai_tools(nodes: list) -> None:
-    """빈 tools를 가진 react AI 노드에 한해, 라벨+프롬프트 의도로 명시도구형 템플릿을
-    해석해 tool_key를 결정론적으로 주입한다(in-place).
-
-    - react + 빈 tools만 대상: simple(순수 추론)은 건드리지 않는다.
-    - 서브에이전트형(github 등, tool_key=None) 또는 매칭 없음이면 빈 채로 둔다.
-    plan이 없는 chat 경로의 결정론 보강용(plan 경로는 plan tools 강제 주입으로 처리)."""
-    if not isinstance(nodes, list):
-        return
-    for node in nodes:
-        if not isinstance(node, dict) or (node.get("type") or "").upper() != "AI":
-            continue
-        cfg = node.get("config")
-        if not isinstance(cfg, dict):
-            continue
-        if cfg.get("agentType") != "react" or cfg.get("tools"):
-            continue
-        text = f"{node.get('label', '')} {cfg.get('prompt', '')}"
-        key = resolve_tool_key_by_intent(text)
-        if key:
-            cfg["tools"] = [tool_key_to_config_tool(key)]
-
-
-def _tool_identity(tool) -> tuple:
-    """도구 항목의 동일성 키. mcp는 catalogId까지 구분한다."""
-    if isinstance(tool, dict):
-        cfg = tool.get("config") or {}
-        return (tool.get("name"), cfg.get("catalogId"))
-    return (tool, None)
-
-
-def _merge_fixed_tools(fixed_tools: list, existing: list | None) -> list:
-    """템플릿 fixed 도구를 보장하되, 동일 도구가 이미 있으면 기존 항목을 우선한다.
-
-    기존 항목은 런타임 config(slack/discord의 webhookCredentialId, mcp의 catalogId 등)를
-    담고 있으므로 템플릿의 bare fixed 도구로 덮어쓰면 안 된다. fixed 도구가 누락된 경우에만
-    주입하고, 기존의 추가 도구(mcp 등)도 보존한다."""
-    existing = existing or []
-    existing_by_key: dict = {}
-    for tool in existing:
-        existing_by_key.setdefault(_tool_identity(tool), tool)
-
-    result: list = []
-    seen: set = set()
-    for tool in (fixed_tools or []):
-        key = _tool_identity(tool)
-        if key in seen:
-            continue
-        seen.add(key)
-        # 동일 도구가 이미 있으면 런타임 config 보존을 위해 기존 항목을 사용
-        result.append(existing_by_key.get(key, copy.deepcopy(tool)))
-    for tool in existing:
-        key = _tool_identity(tool)
-        if key not in seen:
-            seen.add(key)
-            result.append(tool)
-    return result
-
-
-def apply_template_fixed(nodes: list) -> None:
-    """각 노드에 매칭되는 템플릿의 fixed.config를 결정론적으로 강제 적용한다(in-place).
-
-    LLM이 빠뜨리거나 잘못 채운 '보장값'(tools, agentType, credentialId, triggerType 등)을
-    템플릿 SSOT로 덮어써 비결정론을 제거한다. tools는 fixed 도구를 보장하되 기존 추가 도구
-    (mcp 등)는 보존하는 병합 방식을 쓴다. prompt·llmProvider 등 slot(가변값)은 fixed.config에
-    없으므로 건드리지 않는다. 매칭 템플릿이 없으면 건너뛴다(검증 게이트가 별도 차단)."""
-    if not isinstance(nodes, list):
-        return
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        # 빈 tools AI 노드는 실행 시 서브에이전트(web/github/transform 등)가 자동 처리하는
-        # 정상 패턴이다. tool_key로 결정론 매칭이 불가하고(빈 tools는 tool_key=None 템플릿으로
-        # 폴백되어 오매칭됨), 강제할 fixed 도구도 없으므로 건너뛴다.
-        if (node.get("type") or "").upper() == "AI":
-            cfg = node.get("config")
-            if not (isinstance(cfg, dict) and cfg.get("tools")):
-                continue
-        tpl = resolve_template_for_node(node)
-        if tpl is None:
-            continue
-        fixed_config = (tpl.get("fixed") or {}).get("config") or {}
-        if not fixed_config:
-            continue
-        config = node.get("config")
-        if not isinstance(config, dict):
-            config = {}
-            node["config"] = config
-        for key, val in fixed_config.items():
-            if key == "tools":
-                config["tools"] = _merge_fixed_tools(val, config.get("tools"))
-            else:
-                config[key] = copy.deepcopy(val)
 
 
 def allowed_config_fields_for_node(node: dict) -> set | None:
