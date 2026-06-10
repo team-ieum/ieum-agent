@@ -1,0 +1,33 @@
+{
+  "id": "ai.notion_query_database",
+  "node_type": "AI",
+  "tool_key": "builtin:notion_query_database",
+  "tags": ["notion", "노션", "데이터베이스", "database", "db", "행 조회", "필터", "query", "목록"],
+  "menu": "Notion 데이터베이스 행 조회 (database_id 필요, 필터 가능)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:notion_query_database"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "DB 조회 지시. database_id 명시. 필터가 필요하면 Notion 필터 객체 JSON을 명시. database_id 미상 시 builtin:notion_search(filter_type=database)로 선행 탐색."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-2",
+    "type": "AI",
+    "label": "진행중 작업 조회",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "database_id 'db-abc123'에서 상태가 '진행중'인 행을 조회해줘. 필터: {\"property\":\"상태\",\"status\":{\"equals\":\"진행중\"}}",
+      "agentType": "react",
+      "tools": [{"name": "builtin:notion_query_database"}]
+    }
+  }
+}

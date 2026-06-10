@@ -1,0 +1,33 @@
+{
+  "id": "ai.google_sheets_append",
+  "node_type": "AI",
+  "tool_key": "builtin:google_sheets_append",
+  "tags": ["sheets", "스프레드시트", "시트", "구글 시트", "google sheets", "행 추가", "append", "누적", "로그"],
+  "menu": "Google Sheets 행 추가 (마지막 행 뒤에 누적, spreadsheet_id, range, values 필요)",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": [{"name": "builtin:google_sheets_append"}]
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "행 추가 지시. spreadsheet_id, range(예: 'Sheet1!A:B'), values 명시. 값은 선행 노드 참조식 사용 가능. 기존 데이터 마지막 행 뒤에 누적된다."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-3",
+    "type": "AI",
+    "label": "처리 결과 행 추가",
+    "config": {
+      "llmProvider": "GEMINI",
+      "credentialId": "",
+      "prompt": "spreadsheet_id 'sheet-abc123'의 'Sheet1!A:B' 범위에 한 행을 추가해줘. values: [[현재시각, {{nodes.node-2.output.output}}]]",
+      "agentType": "react",
+      "tools": [{"name": "builtin:google_sheets_append"}]
+    }
+  }
+}

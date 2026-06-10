@@ -16,9 +16,10 @@ from tools.notion import (
     notion_search,
     notion_update_page,
     notion_append_block,
+    notion_query_database,
 )
-from tools.google_sheets import google_sheets_read, google_sheets_write
-from tools.google_calendar import google_calendar_create, google_calendar_list
+from tools.google_sheets import google_sheets_read, google_sheets_write, google_sheets_append
+from tools.google_calendar import google_calendar_create, google_calendar_list, google_calendar_update
 from tools.google_drive import google_drive_read, google_drive_upload
 from tools.workflow_context import workflow_context
 
@@ -76,10 +77,13 @@ _TOOL_MAP: dict = {
     "builtin:notion_search": notion_search,
     "builtin:notion_update_page": notion_update_page,
     "builtin:notion_append_block": notion_append_block,
+    "builtin:notion_query_database": notion_query_database,
     "builtin:google_sheets_read": google_sheets_read,
     "builtin:google_sheets_write": google_sheets_write,
+    "builtin:google_sheets_append": google_sheets_append,
     "builtin:google_calendar_create": google_calendar_create,
     "builtin:google_calendar_list": google_calendar_list,
+    "builtin:google_calendar_update": google_calendar_update,
     "builtin:google_drive_read": google_drive_read,
     "builtin:google_drive_upload": google_drive_upload,
     "builtin:workflow_context": workflow_context,

@@ -24,6 +24,7 @@ TEMPLATES_DIR = os.path.abspath(
 # 노드 타입과 무관하게 허용된다(런타임 주입 또는 리소스 ID 플레이스홀더).
 UNIVERSAL_CONFIG_FIELDS = {
     "credentialId", "access_token", "parent_page_id", "spreadsheet_id", "calendar_id",
+    "brand",
 }
 
 _VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM"}
@@ -36,6 +37,11 @@ _cache: dict | None = None
 
 class TemplateSchemaError(ValueError):
     """템플릿 스키마/드리프트 검증 실패"""
+    pass
+
+
+class SlotFillError(ValueError):
+    """노드 draft(templateId+slots) 하이드레이션 실패(미존재 템플릿/누락·미허용 슬롯 등)"""
     pass
 
 
@@ -81,10 +87,11 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
 
     fixed_config = fixed.get("config", {}) or {}
 
-    # fixed.config.tools[*].name 도 _TOOL_MAP에 존재해야 함
+    # fixed.config.tools[*].name 도 _TOOL_MAP에 존재해야 함.
+    # "mcp"는 동적 도구 센티넬(런타임 catalog 주입)로 _TOOL_MAP에 없어도 허용한다.
     for tool in fixed_config.get("tools", []) or []:
         name = tool.get("name") if isinstance(tool, dict) else tool
-        if name and name not in tool_keys:
+        if name and name != "mcp" and name not in tool_keys:
             raise TemplateSchemaError(f"{tid}: fixed tools '{name}'가 _TOOL_MAP에 없음(드리프트)")
 
     # slots 검증
@@ -153,6 +160,35 @@ def menu_index() -> str:
     return "\n".join(lines)
 
 
+def template_ids() -> set:
+    """등록된 모든 템플릿 id 집합. Planner가 고른 templateId 존재 검증에 쓴다."""
+    return set(load_templates().keys())
+
+
+def node_type_of_template(template_id: str) -> str | None:
+    """templateId의 node_type(TRIGGER/AI/...)을 반환한다. 없으면 None."""
+    tpl = load_templates().get(template_id)
+    return tpl["node_type"] if tpl else None
+
+
+def slot_catalog_text() -> str:
+    """templateId별 slot 스펙 카탈로그 텍스트(Builder의 draft 작성용).
+
+    각 줄: `- <id> [<node_type>] — <menu>` 다음 줄에 slots 명세.
+    provider 슬롯은 시스템이 자동 주입하므로 '자동주입'으로 표기해 Builder가 채우지 않게 한다."""
+    lines = []
+    for t in load_templates().values():
+        slot_specs = []
+        for s in t["slots"]:
+            if s["kind"] == "provider":
+                tag = "자동주입(작성금지)"
+            else:
+                tag = "필수" if s["required"] else "선택"
+            slot_specs.append(f"{s['name']}({s['kind']},{tag})")
+        lines.append(f"- {t['id']} [{t['fixed']['type']}] — {t['menu']}\n    slots: {', '.join(slot_specs)}")
+    return "\n".join(lines)
+
+
 def select_by_tags(text: str, limit: int | None = None) -> list:
     """요청 텍스트에 태그가 매칭되는 템플릿을 점수 내림차순으로 반환한다(#4 검색층).
     매칭 0건이면 빈 리스트(호출측에서 상위집합/폴백 처리)."""
@@ -188,10 +224,27 @@ def resolve_template_for_node(node: dict) -> dict | None:
         for tpl in templates.values():
             if tpl["node_type"] == "AI" and tpl["tool_key"] and tpl["tool_key"] in tool_names:
                 return tpl
-        # 도구 없는 AI(능력 기반/단순 추론) → tool_key null인 AI 템플릿
-        for tpl in templates.values():
-            if tpl["node_type"] == "AI" and tpl["tool_key"] is None and not tool_names:
+        # MCP 노드: tool_key가 없는 'mcp' 동적 센티넬을 가지므로 위 매칭에 안 잡힌다.
+        # ai.mcp 의사 템플릿으로 직접 해석해 dehydrate(MODIFY 역변환) 시 누락되지 않게 한다.
+        if "mcp" in tool_names:
+            tpl = templates.get("ai.mcp")
+            if tpl is not None:
                 return tpl
+        # 도구 없는 AI → tool_key null인 AI 템플릿. 후보가 여럿(예: github 서브에이전트 vs 순수 추론)이면
+        # fixed.config.agentType로 판별한다(github=react, ai.reasoning=simple). 일치 없으면 simple(추론) 우선.
+        if not tool_names:
+            candidates = [t for t in templates.values()
+                          if t["node_type"] == "AI" and t["tool_key"] is None]
+            if not candidates:
+                return None
+            node_agent = config.get("agentType")
+            for tpl in candidates:
+                if (tpl["fixed"].get("config") or {}).get("agentType") == node_agent:
+                    return tpl
+            for tpl in candidates:
+                if (tpl["fixed"].get("config") or {}).get("agentType") == "simple":
+                    return tpl
+            return candidates[0]
         return None
 
     # TRIGGER: triggerType로 정확히 매칭(schedule/manual/webhook)
@@ -210,118 +263,160 @@ def resolve_template_for_node(node: dict) -> dict | None:
     return None
 
 
-def resolve_tool_key_by_intent(text: str) -> str | None:
-    """의도 텍스트(role/description/label/prompt)를 태그 매칭해 가장 적합한 AI 템플릿의
-    tool_key를 반환한다. 매칭 없거나, 최상위 AI 템플릿이 서브에이전트형(tool_key=None,
-    예: ai.github_query)이면 None을 반환한다(빈 tools 유지 = 실행 시 서브에이전트 처리)."""
+def subagent_service_for_node(node: dict) -> str | None:
+    """tool 없는 AI 노드의 동적 서브에이전트 서비스명을 intent(라벨+프롬프트) 태그 매칭으로 도출한다.
+
+    select_by_tags 최상위 AI 템플릿이 서브에이전트형(tool_key=None)이고 service 필드가 있으면
+    그 service를, 그렇지 않으면 None을 반환한다. select_by_tags 태그 매칭 신호를 써서
+    '생성 시 github로 분류된 노드'와 'github brand를 받는 노드'가 정확히 일치하도록 한다.
+    brand 도출(tools.registry.brand_for_node)이 tool_key 없는 github 노드를 식별하는 데 쓴다."""
+    if not isinstance(node, dict) or (node.get("type") or "").upper() != "AI":
+        return None
+    cfg = node.get("config")
+    if not isinstance(cfg, dict) or cfg.get("tools"):
+        return None  # 도구가 있으면 tool_key 기반으로 brand가 도출된다
+    text = f"{node.get('label', '')} {cfg.get('prompt', '')}"
     for tpl in select_by_tags(text):  # score 내림차순
         if tpl["node_type"] == "AI":
-            return tpl["tool_key"]  # 명시도구형은 키, 서브에이전트형은 None
+            return tpl.get("service") if tpl["tool_key"] is None else None
     return None
 
 
-def tool_key_to_config_tool(key: str) -> dict:
-    """plan/도구키 문자열을 노드 config.tools 항목 형식으로 변환한다.
-    'mcp:<catalogId>' 또는 'mcp'는 실행 주입 형식으로, 그 외는 {"name": key}로 변환."""
-    if key == "mcp" or (isinstance(key, str) and key.startswith("mcp:")):
-        catalog_id = key[len("mcp:"):] if key.startswith("mcp:") else ""
-        return {"name": "mcp", "config": {"catalogId": catalog_id}}
-    return {"name": key}
+def _set_by_path(obj: dict, path: str, value) -> None:
+    """dotted path 위치에 value를 설정한다(in-place). 숫자 세그먼트는 list 인덱스로 처리한다.
+    예: "label" → obj["label"], "config.prompt" → obj["config"]["prompt"],
+        "config.tools.0.config.catalogId" → obj["config"]["tools"][0]["config"]["catalogId"].
+    중간 컨테이너가 없으면 다음 세그먼트 종류(숫자=list, 그 외=dict)에 맞춰 생성한다."""
+    parts = path.split(".")
+    cur = obj
+    for i, raw in enumerate(parts[:-1]):
+        nxt_is_idx = parts[i + 1].isdigit()
+        if raw.isdigit():
+            idx = int(raw)
+            while len(cur) <= idx:
+                cur.append({})
+            if not isinstance(cur[idx], (dict, list)):
+                cur[idx] = [] if nxt_is_idx else {}
+            cur = cur[idx]
+        else:
+            if raw not in cur or not isinstance(cur[raw], (dict, list)):
+                cur[raw] = [] if nxt_is_idx else {}
+            cur = cur[raw]
+    last = parts[-1]
+    if last.isdigit():
+        idx = int(last)
+        while len(cur) <= idx:
+            cur.append(None)
+        cur[idx] = value
+    else:
+        cur[last] = value
 
 
-def backfill_empty_ai_tools(nodes: list) -> None:
-    """빈 tools를 가진 react AI 노드에 한해, 라벨+프롬프트 의도로 명시도구형 템플릿을
-    해석해 tool_key를 결정론적으로 주입한다(in-place).
+def hydrate_node(draft: dict, provider: str | None = None) -> dict:
+    """draft({id, templateId, slots})를 템플릿으로 완성된 노드로 변환한다.
 
-    - react + 빈 tools만 대상: simple(순수 추론)은 건드리지 않는다.
-    - 서브에이전트형(github 등, tool_key=None) 또는 매칭 없음이면 빈 채로 둔다.
-    plan이 없는 chat 경로의 결정론 보강용(plan 경로는 plan tools 강제 주입으로 처리)."""
-    if not isinstance(nodes, list):
-        return
-    for node in nodes:
-        if not isinstance(node, dict) or (node.get("type") or "").upper() != "AI":
-            continue
-        cfg = node.get("config")
-        if not isinstance(cfg, dict):
-            continue
-        if cfg.get("agentType") != "react" or cfg.get("tools"):
-            continue
-        text = f"{node.get('label', '')} {cfg.get('prompt', '')}"
-        key = resolve_tool_key_by_intent(text)
-        if key:
-            cfg["tools"] = [tool_key_to_config_tool(key)]
+    구조(type/fixed.config)는 템플릿이 결정론적으로 제공하고, 가변값만 slots에서 채운다.
+    - templateId가 레지스트리에 없으면 SlotFillError(노드 날조 차단).
+    - 템플릿에 없는 슬롯 키, 필수 슬롯 누락이면 SlotFillError(필드 날조 차단).
+    - provider 슬롯(kind=provider)은 인자 provider로 자동 주입한다(LLM이 채우지 않음).
+    의미 검증(llmProvider/cron/tool/참조 등)은 호출부의 WorkflowValidator가 담당한다."""
+    if not isinstance(draft, dict):
+        raise SlotFillError("노드 draft는 객체여야 합니다.")
+    templates = load_templates()
+    tid = draft.get("templateId")
+    tpl = templates.get(tid)
+    if tpl is None:
+        raise SlotFillError(f"존재하지 않는 templateId '{tid}'. 사용 가능: {sorted(templates)}")
+    slots_in = draft.get("slots")
+    if slots_in is None:
+        slots_in = {}
+    if not isinstance(slots_in, dict):
+        raise SlotFillError(f"'{tid}'의 slots는 객체(dict)여야 합니다.")
 
+    node = {
+        "id": draft.get("id"),
+        "type": tpl["fixed"]["type"],
+        "config": copy.deepcopy(tpl["fixed"].get("config") or {}),
+    }
 
-def _tool_identity(tool) -> tuple:
-    """도구 항목의 동일성 키. mcp는 catalogId까지 구분한다."""
-    if isinstance(tool, dict):
-        cfg = tool.get("config") or {}
-        return (tool.get("name"), cfg.get("catalogId"))
-    return (tool, None)
+    slot_by_name = {s["name"]: s for s in tpl["slots"]}
+    unknown = set(slots_in) - set(slot_by_name)
+    if unknown:
+        raise SlotFillError(f"'{tid}'에 없는 슬롯: {sorted(unknown)}. 허용: {sorted(slot_by_name)}")
 
-
-def _merge_fixed_tools(fixed_tools: list, existing: list | None) -> list:
-    """템플릿 fixed 도구를 보장하되, 동일 도구가 이미 있으면 기존 항목을 우선한다.
-
-    기존 항목은 런타임 config(slack/discord의 webhookCredentialId, mcp의 catalogId 등)를
-    담고 있으므로 템플릿의 bare fixed 도구로 덮어쓰면 안 된다. fixed 도구가 누락된 경우에만
-    주입하고, 기존의 추가 도구(mcp 등)도 보존한다."""
-    existing = existing or []
-    existing_by_key: dict = {}
-    for tool in existing:
-        existing_by_key.setdefault(_tool_identity(tool), tool)
-
-    result: list = []
-    seen: set = set()
-    for tool in (fixed_tools or []):
-        key = _tool_identity(tool)
-        if key in seen:
-            continue
-        seen.add(key)
-        # 동일 도구가 이미 있으면 런타임 config 보존을 위해 기존 항목을 사용
-        result.append(existing_by_key.get(key, copy.deepcopy(tool)))
-    for tool in existing:
-        key = _tool_identity(tool)
-        if key not in seen:
-            seen.add(key)
-            result.append(tool)
-    return result
-
-
-def apply_template_fixed(nodes: list) -> None:
-    """각 노드에 매칭되는 템플릿의 fixed.config를 결정론적으로 강제 적용한다(in-place).
-
-    LLM이 빠뜨리거나 잘못 채운 '보장값'(tools, agentType, credentialId, triggerType 등)을
-    템플릿 SSOT로 덮어써 비결정론을 제거한다. tools는 fixed 도구를 보장하되 기존 추가 도구
-    (mcp 등)는 보존하는 병합 방식을 쓴다. prompt·llmProvider 등 slot(가변값)은 fixed.config에
-    없으므로 건드리지 않는다. 매칭 템플릿이 없으면 건너뛴다(검증 게이트가 별도 차단)."""
-    if not isinstance(nodes, list):
-        return
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        # 빈 tools AI 노드는 실행 시 서브에이전트(web/github/transform 등)가 자동 처리하는
-        # 정상 패턴이다. tool_key로 결정론 매칭이 불가하고(빈 tools는 tool_key=None 템플릿으로
-        # 폴백되어 오매칭됨), 강제할 fixed 도구도 없으므로 건너뛴다.
-        if (node.get("type") or "").upper() == "AI":
-            cfg = node.get("config")
-            if not (isinstance(cfg, dict) and cfg.get("tools")):
-                continue
-        tpl = resolve_template_for_node(node)
-        if tpl is None:
-            continue
-        fixed_config = (tpl.get("fixed") or {}).get("config") or {}
-        if not fixed_config:
-            continue
-        config = node.get("config")
-        if not isinstance(config, dict):
-            config = {}
-            node["config"] = config
-        for key, val in fixed_config.items():
-            if key == "tools":
-                config["tools"] = _merge_fixed_tools(val, config.get("tools"))
+    for name, slot in slot_by_name.items():
+        if slot["kind"] == "provider":
+            if provider is not None:
+                value = provider  # 시스템 자동 주입(요청 provider 계승)
+            elif name in slots_in:
+                value = slots_in[name]
             else:
-                config[key] = copy.deepcopy(val)
+                raise SlotFillError(f"'{tid}'의 provider 슬롯 '{name}' 주입 실패: provider 미지정")
+        elif name in slots_in:
+            value = slots_in[name]
+        elif slot["required"]:
+            raise SlotFillError(f"'{tid}'의 필수 슬롯 '{name}'이(가) 누락되었습니다.")
+        else:
+            continue  # optional 미제공 → fixed.config 기본값 유지
+        _set_by_path(node, slot["path"], value)
+
+    return node
+
+
+def hydrate_nodes(drafts: list, provider: str | None = None) -> list:
+    """draft 리스트를 하이드레이션한다. id 누락 시 node-N 순차 부여한다."""
+    if not isinstance(drafts, list):
+        raise SlotFillError("nodes는 리스트여야 합니다.")
+    nodes = []
+    for idx, draft in enumerate(drafts):
+        node = hydrate_node(draft, provider=provider)
+        if not node.get("id"):
+            node["id"] = f"node-{idx + 1}"
+        nodes.append(node)
+    return nodes
+
+
+def _get_by_path(obj, path: str):
+    """dotted path(숫자=list 인덱스) 위치의 값을 읽는다. 없으면 None."""
+    cur = obj
+    for raw in path.split("."):
+        if raw.isdigit():
+            idx = int(raw)
+            if not isinstance(cur, list) or idx >= len(cur):
+                return None
+            cur = cur[idx]
+        else:
+            if not isinstance(cur, dict) or raw not in cur:
+                return None
+            cur = cur[raw]
+    return cur
+
+
+def dehydrate_node(node: dict) -> dict | None:
+    """완성된 노드(full-node)를 draft({id, templateId, slots})로 역변환한다(MODIFY 편집용).
+
+    resolve_template_for_node로 templateId를 찾고, 각 슬롯의 path에서 현재 값을 읽어 slots를 구성한다.
+    provider 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 None(역변환 불가)."""
+    if not isinstance(node, dict):
+        return None
+    tpl = resolve_template_for_node(node)
+    if tpl is None:
+        return None
+    slots = {}
+    for s in tpl["slots"]:
+        if s["kind"] == "provider":
+            continue
+        val = _get_by_path(node, s["path"])
+        if val not in (None, ""):
+            slots[s["name"]] = val
+    return {"id": node.get("id"), "templateId": tpl["id"], "slots": slots}
+
+
+def dehydrate_nodes(nodes: list) -> list:
+    """노드 리스트를 draft 리스트로 역변환한다. 매칭 실패 노드는 건너뛴다."""
+    if not isinstance(nodes, list):
+        return []
+    return [d for d in (dehydrate_node(n) for n in nodes) if d is not None]
 
 
 def allowed_config_fields_for_node(node: dict) -> set | None:
