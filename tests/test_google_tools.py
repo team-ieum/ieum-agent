@@ -19,7 +19,7 @@ def _make_mock_response(status_code: int, json_data: dict) -> MagicMock:
     return mock
 
 
-def _make_async_client(get_mock=None, post_mock=None, put_mock=None):
+def _make_async_client(get_mock=None, post_mock=None, put_mock=None, patch_mock=None):
     mock_client = AsyncMock()
     if get_mock:
         mock_client.get = get_mock
@@ -27,6 +27,8 @@ def _make_async_client(get_mock=None, post_mock=None, put_mock=None):
         mock_client.post = post_mock
     if put_mock:
         mock_client.put = put_mock
+    if patch_mock:
+        mock_client.patch = patch_mock
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
     return mock_client
@@ -303,3 +305,167 @@ async def test_google_drive_upload_exception():
     parsed = json.loads(result)
     assert "error" in parsed
     assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
+
+
+# ---------------------------------------------------------------------------
+# Google Calendar Update
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_google_calendar_update_success():
+    from tools.google_calendar import google_calendar_update
+
+    resp = _make_mock_response(200, {
+        "id": "event-123",
+        "htmlLink": "https://calendar.google.com/event?eid=abc",
+    })
+    patch_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(patch_mock=patch_mock)
+
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        result = await google_calendar_update(
+            access_token="token",
+            event_id="event-123",
+            summary="변경된 회의",
+            start_datetime="2026-06-11T15:00:00+09:00",
+            end_datetime="2026-06-11T16:00:00+09:00",
+        )
+
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    assert parsed["eventId"] == "event-123"
+    # 전달하지 않은 description은 payload에 포함되지 않아야 함
+    sent_payload = patch_mock.call_args.kwargs["json"]
+    assert "description" not in sent_payload
+    assert sent_payload["summary"] == "변경된 회의"
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_update_skips_empty_datetime():
+    """빈 문자열 start/end는 payload에서 제외되어야 한다(빈 dateTime → 400 방지)."""
+    from tools.google_calendar import google_calendar_update
+
+    resp = _make_mock_response(200, {"id": "event-123", "htmlLink": "x"})
+    patch_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(patch_mock=patch_mock)
+
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        await google_calendar_update(
+            access_token="token",
+            event_id="event-123",
+            summary="제목만 변경",
+            start_datetime="",
+            end_datetime="   ",
+        )
+
+    sent_payload = patch_mock.call_args.kwargs["json"]
+    assert "start" not in sent_payload
+    assert "end" not in sent_payload
+    assert sent_payload["summary"] == "제목만 변경"
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_update_error():
+    from tools.google_calendar import google_calendar_update
+
+    resp = _make_mock_response(404, {"error": {"message": "Not Found"}})
+    client = _make_async_client(patch_mock=AsyncMock(return_value=resp))
+
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        result = await google_calendar_update(
+            access_token="token",
+            event_id="missing",
+            summary="x",
+        )
+
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "404" in parsed["error"]
+
+
+# ---------------------------------------------------------------------------
+# Google Sheets Append
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_google_sheets_append_success():
+    from tools.google_sheets import google_sheets_append
+
+    resp = _make_mock_response(200, {
+        "updates": {"updatedRange": "Sheet1!A2:B2", "updatedRows": 1}
+    })
+    post_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(post_mock=post_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        result = await google_sheets_append(
+            access_token="token",
+            spreadsheet_id="spread-1",
+            cell_range="Sheet1!A:B",
+            values='[["홍길동","100"]]',
+        )
+
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    assert parsed["updatedRows"] == 1
+    # append 엔드포인트로 호출되었는지 확인
+    called_url = post_mock.call_args.args[0]
+    assert called_url.endswith(":append")
+
+
+@pytest.mark.asyncio
+async def test_google_sheets_append_accepts_list_values():
+    """values가 이미 list로 전달되어도 TypeError 없이 그대로 전송된다."""
+    from tools.google_sheets import google_sheets_append
+
+    resp = _make_mock_response(200, {"updates": {"updatedRange": "Sheet1!A2:B2", "updatedRows": 1}})
+    post_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(post_mock=post_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        result = await google_sheets_append(
+            access_token="token",
+            spreadsheet_id="spread-1",
+            cell_range="Sheet1!A:B",
+            values=[["홍길동", "100"]],
+        )
+
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    assert post_mock.call_args.kwargs["json"]["values"] == [["홍길동", "100"]]
+
+
+@pytest.mark.asyncio
+async def test_google_sheets_append_invalid_json():
+    from tools.google_sheets import google_sheets_append
+
+    result = await google_sheets_append(
+        access_token="token",
+        spreadsheet_id="spread-1",
+        cell_range="Sheet1!A:B",
+        values="not-valid-json",
+    )
+
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
+
+
+@pytest.mark.asyncio
+async def test_google_sheets_append_error():
+    from tools.google_sheets import google_sheets_append
+
+    resp = _make_mock_response(403, {"error": {"message": "Permission denied"}})
+    client = _make_async_client(post_mock=AsyncMock(return_value=resp))
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        result = await google_sheets_append(
+            access_token="token",
+            spreadsheet_id="spread-1",
+            cell_range="Sheet1!A:B",
+            values='[["x"]]',
+        )
+
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "403" in parsed["error"]

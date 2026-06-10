@@ -1,5 +1,6 @@
 import json
 import re
+from typing import Optional
 import httpx
 from common.error_code import ToolErrorCode
 from tools.http_client import get_http_client
@@ -514,6 +515,101 @@ async def notion_update_page(
     except Exception as e:
         return json.dumps({
             "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (notion_update_page: {str(e)})"
+        }, ensure_ascii=False)
+
+
+def _simplify_property(prop: dict) -> object:
+    """Notion DB 행의 property 값을 LLM이 다루기 쉬운 plain 값으로 단순화한다.
+
+    주요 타입만 추출하고 미지원 타입은 None으로 반환한다."""
+    if not isinstance(prop, dict):
+        return None
+    ptype = prop.get("type")
+    value = prop.get(ptype)
+    if ptype in ("title", "rich_text"):
+        return "".join(rt.get("plain_text", "") for rt in (value or []))
+    if ptype == "number":
+        return value
+    if ptype in ("select", "status"):
+        return value.get("name") if value else None
+    if ptype == "multi_select":
+        return [v.get("name", "") for v in (value or [])]
+    if ptype == "date":
+        return value.get("start") if value else None
+    if ptype == "checkbox":
+        return bool(value)
+    if ptype in ("url", "email", "phone_number"):
+        return value
+    if ptype == "people":
+        return [p.get("name", "") for p in (value or [])]
+    return None
+
+
+async def notion_query_database(
+    token: str,
+    database_id: str,
+    filter_json: Optional[str] = None,
+    page_size: int = 10,
+) -> str:
+    """
+    Notion 데이터베이스의 행(페이지)을 필터 조건으로 조회합니다.
+
+    Args:
+        token: Notion Integration Token (secret_xxx 형태)
+        database_id: 조회할 데이터베이스 ID
+        filter_json: Notion 필터 객체 JSON 문자열 (optional, 예: '{"property":"상태","status":{"equals":"진행중"}}')
+        page_size: 최대 결과 수 (기본값: 10)
+
+    Returns:
+        행 목록(id, url, 단순화된 properties)을 포함한 JSON 문자열
+    """
+    payload = {"page_size": page_size}
+    # filter_json은 dict로 바로 오거나(일부 프레임워크), JSON 문자열로 올 수 있다. 빈/공백 문자열은 무시.
+    if isinstance(filter_json, dict):
+        payload["filter"] = filter_json
+    elif isinstance(filter_json, str) and filter_json.strip():
+        try:
+            payload["filter"] = json.loads(filter_json)
+        except json.JSONDecodeError as e:
+            return json.dumps({
+                "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (notion_query_database: filter_json 파싱 오류 - {str(e)})"
+            }, ensure_ascii=False)
+
+    try:
+        client = get_http_client()
+        response = await client.post(
+            f"{_NOTION_API_BASE}/databases/{database_id}/query",
+            headers=_headers(token),
+            json=payload,
+            timeout=_TIMEOUT,
+        )
+        data = response.json()
+        if response.status_code != 200:
+            return json.dumps({
+                "error": f"Notion API 오류 ({response.status_code}): {data.get('message', '알 수 없는 오류')}"
+            }, ensure_ascii=False)
+
+        rows = []
+        for item in data.get("results", []):
+            props = {
+                name: _simplify_property(prop)
+                for name, prop in item.get("properties", {}).items()
+            }
+            rows.append({
+                "id": item.get("id", ""),
+                "url": item.get("url", ""),
+                "properties": props,
+            })
+
+        return json.dumps({
+            "success": True,
+            "rows": rows,
+            "total": len(rows),
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (notion_query_database: {str(e)})"
         }, ensure_ascii=False)
 
 

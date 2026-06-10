@@ -57,6 +57,69 @@ async def google_sheets_read(
         }, ensure_ascii=False)
 
 
+async def google_sheets_append(
+    access_token: str,
+    spreadsheet_id: str,
+    cell_range: str,
+    values: str,
+) -> str:
+    """
+    Google Sheets의 기존 데이터 마지막 행 뒤에 새 행을 추가합니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID (URL에서 추출)
+        cell_range: 추가 대상 범위 (A1 표기법, 예: "Sheet1!A:B")
+        values: JSON 배열 문자열 (2차원, 예: '[["홍길동","100"]]')
+
+    Returns:
+        추가 결과를 포함한 JSON 문자열
+    """
+    # values는 JSON 배열 문자열이 기본이나, 프레임워크/LLM이 이미 list로 넘길 수도 있어 둘 다 허용한다.
+    if isinstance(values, list):
+        parsed_values = values
+    else:
+        try:
+            parsed_values = json.loads(values)
+        except (json.JSONDecodeError, TypeError) as e:
+            return json.dumps({
+                "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_append: values JSON 파싱 오류 - {str(e)})"
+            }, ensure_ascii=False)
+
+    payload = {
+        "range": cell_range,
+        "majorDimension": "ROWS",
+        "values": parsed_values,
+    }
+
+    try:
+        client = get_http_client()
+        response = await client.post(
+            f"{_SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}/values/{cell_range}:append",
+            headers=_headers(access_token),
+            params={"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"},
+            json=payload,
+            timeout=_TIMEOUT,
+        )
+        data = response.json()
+        if not response.is_success:
+            return json.dumps({
+                "error": f"Google Sheets API 오류 ({response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
+            }, ensure_ascii=False)
+
+        updates = data.get("updates", {})
+        return json.dumps({
+            "success": True,
+            "updatedRange": updates.get("updatedRange", cell_range),
+            "updatedRows": updates.get("updatedRows", 0),
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_append: {str(e)})"
+        }, ensure_ascii=False)
+
+
 async def google_sheets_write(
     access_token: str,
     spreadsheet_id: str,

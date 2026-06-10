@@ -131,6 +131,76 @@ def _service_of(name: str) -> str:
     return base
 
 
+# 서비스 → 프론트 UI brand 키 매핑. _service_of() 반환값을 프론트가 렌더하는 brand로 변환한다.
+# 이 맵이 brand의 단일 출처(SSOT)다. 도구를 추가하면 _service_of가 새 서비스를 추출하고,
+# 브랜드 표시가 필요하면 여기 한 줄만 추가한다(매핑에 없으면 _DEFAULT_BRAND로 폴백).
+SERVICE_BRAND: dict[str, str] = {
+    "notion": "notion",
+    "slack": "slack",
+    "discord": "discord",
+    "gmail": "gmail",
+    "github": "github",
+    "google_sheets": "sheets",
+    "google_calendar": "google",
+    "google_drive": "google",
+}
+
+# tool_key가 없는 노드(트리거/구조 노드, 도구 없는 AI 노드)의 node_type별 기본 brand.
+_NODE_TYPE_BRAND: dict[str, str] = {
+    "TRIGGER": "webhook",
+    "CONDITION": "filter",
+    "TRANSFORM": "filter",
+    "HTTP": "webhook",
+    "AI": "openai",
+}
+
+_DEFAULT_BRAND = "webhook"
+
+
+def brand_for_node(node: dict) -> str:
+    """노드의 UI brand 키를 도출한다.
+
+    우선순위: 노드 tools의 tool_key에서 추출한 서비스(SERVICE_BRAND) → node_type 기본값.
+    동적 서브에이전트 서비스(github 등)는 노드 tools가 비어([]) tool_key가 없으므로,
+    intent(라벨+프롬프트) 태그 매칭으로 서비스를 식별한다(생성 시 분류와 동일 신호)."""
+    config = node.get("config") if isinstance(node, dict) else None
+    tools = config.get("tools") if isinstance(config, dict) else None
+    if isinstance(tools, list):
+        for t in tools:
+            name = t.get("name") if isinstance(t, dict) else t
+            if not name or name == "mcp":
+                continue
+            brand = SERVICE_BRAND.get(_service_of(name))
+            if brand:
+                return brand
+    ntype = (node.get("type") or "").upper() if isinstance(node, dict) else ""
+    # tool_key 없는 AI 노드: intent 기반으로 동적 서브에이전트 서비스(github 등) 식별.
+    # template_registry는 tools 패키지를 lazy import하므로 함수 내부에서 import한다.
+    if ntype == "AI":
+        from core.template_registry import subagent_service_for_node
+        service = subagent_service_for_node(node)
+        if service and SERVICE_BRAND.get(service):
+            return SERVICE_BRAND[service]
+    return _NODE_TYPE_BRAND.get(ntype, _DEFAULT_BRAND)
+
+
+def apply_service_brand(nodes: list) -> None:
+    """각 노드 config["brand"]를 도출 값으로 주입한다(in-place).
+
+    프론트가 노드 헤더에 서비스 라벨/아이콘을 렌더하는 데 쓴다. config["brand"]는
+    UNIVERSAL_CONFIG_FIELDS에 포함되어 검증 화이트리스트를 통과한다."""
+    if not isinstance(nodes, list):
+        return
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        config = node.get("config")
+        if not isinstance(config, dict):
+            config = {}
+            node["config"] = config
+        config["brand"] = brand_for_node(node)
+
+
 def service_blueprint(service: str) -> dict:
     """서비스별 블루프린트를 합성한다: 시그니처 자동 파생 + 수동 정책.
 

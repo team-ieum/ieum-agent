@@ -1,0 +1,33 @@
+{
+  "id": "ai.reasoning",
+  "node_type": "AI",
+  "tool_key": null,
+  "tags": ["요약", "정리", "추론", "분석", "판단", "분류", "재작성", "생성", "작성", "summarize", "reasoning", "analyze"],
+  "menu": "순수 LLM 추론 노드(도구 없음): 선행 노드 결과를 요약·분석·판단·재작성. 외부 연동/조회 없음",
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "simple",
+      "credentialId": "",
+      "tools": []
+    }
+  },
+  "slots": [
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
+    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "추론 지시. 선행 노드 결과는 {{nodes.<id>.output.<field>}}로 참조. 출력 형식 명시."}
+  ],
+  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage"],
+  "golden_snippet": {
+    "id": "node-3",
+    "type": "AI",
+    "label": "결과 요약",
+    "config": {
+      "llmProvider": "CLAUDE",
+      "credentialId": "",
+      "prompt": "{{nodes.node-2.output.output}}를 3문장 이내로 요약해줘.",
+      "agentType": "simple",
+      "tools": []
+    }
+  }
+}
