@@ -1,5 +1,6 @@
 import json
 import re
+from typing import Optional
 import httpx
 from common.error_code import ToolErrorCode
 from tools.http_client import get_http_client
@@ -521,6 +522,8 @@ def _simplify_property(prop: dict) -> object:
     """Notion DB 행의 property 값을 LLM이 다루기 쉬운 plain 값으로 단순화한다.
 
     주요 타입만 추출하고 미지원 타입은 None으로 반환한다."""
+    if not isinstance(prop, dict):
+        return None
     ptype = prop.get("type")
     value = prop.get(ptype)
     if ptype in ("title", "rich_text"):
@@ -545,7 +548,7 @@ def _simplify_property(prop: dict) -> object:
 async def notion_query_database(
     token: str,
     database_id: str,
-    filter_json: str = None,
+    filter_json: Optional[str] = None,
     page_size: int = 10,
 ) -> str:
     """
@@ -561,7 +564,10 @@ async def notion_query_database(
         행 목록(id, url, 단순화된 properties)을 포함한 JSON 문자열
     """
     payload = {"page_size": page_size}
-    if filter_json:
+    # filter_json은 dict로 바로 오거나(일부 프레임워크), JSON 문자열로 올 수 있다. 빈/공백 문자열은 무시.
+    if isinstance(filter_json, dict):
+        payload["filter"] = filter_json
+    elif isinstance(filter_json, str) and filter_json.strip():
         try:
             payload["filter"] = json.loads(filter_json)
         except json.JSONDecodeError as e:

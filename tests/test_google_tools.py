@@ -341,6 +341,30 @@ async def test_google_calendar_update_success():
 
 
 @pytest.mark.asyncio
+async def test_google_calendar_update_skips_empty_datetime():
+    """빈 문자열 start/end는 payload에서 제외되어야 한다(빈 dateTime → 400 방지)."""
+    from tools.google_calendar import google_calendar_update
+
+    resp = _make_mock_response(200, {"id": "event-123", "htmlLink": "x"})
+    patch_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(patch_mock=patch_mock)
+
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        await google_calendar_update(
+            access_token="token",
+            event_id="event-123",
+            summary="제목만 변경",
+            start_datetime="",
+            end_datetime="   ",
+        )
+
+    sent_payload = patch_mock.call_args.kwargs["json"]
+    assert "start" not in sent_payload
+    assert "end" not in sent_payload
+    assert sent_payload["summary"] == "제목만 변경"
+
+
+@pytest.mark.asyncio
 async def test_google_calendar_update_error():
     from tools.google_calendar import google_calendar_update
 
@@ -387,6 +411,28 @@ async def test_google_sheets_append_success():
     # append 엔드포인트로 호출되었는지 확인
     called_url = post_mock.call_args.args[0]
     assert called_url.endswith(":append")
+
+
+@pytest.mark.asyncio
+async def test_google_sheets_append_accepts_list_values():
+    """values가 이미 list로 전달되어도 TypeError 없이 그대로 전송된다."""
+    from tools.google_sheets import google_sheets_append
+
+    resp = _make_mock_response(200, {"updates": {"updatedRange": "Sheet1!A2:B2", "updatedRows": 1}})
+    post_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(post_mock=post_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        result = await google_sheets_append(
+            access_token="token",
+            spreadsheet_id="spread-1",
+            cell_range="Sheet1!A:B",
+            values=[["홍길동", "100"]],
+        )
+
+    parsed = json.loads(result)
+    assert parsed["success"] is True
+    assert post_mock.call_args.kwargs["json"]["values"] == [["홍길동", "100"]]
 
 
 @pytest.mark.asyncio
