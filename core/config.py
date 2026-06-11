@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     # 지원 프로바이더 목록
     SUPPORTED_PROVIDERS: list[str] = ["CLAUDE", "OPENAI", "GEMINI"]
 
+    # 자체 호스팅 LLM 분기 (개발/테스트 계정용)
+    # 이 role 집합에 속한 유저가 API 키를 등록하지 않았을 때, 자체 파인튜닝 LLM(OpenAI 호환 엔드포인트)으로 라우팅된다.
+    # SELF_HOSTED_LLM_BASE_URL이 비어 있으면 비활성화되어 전원 등록 API 키 경로로 동작한다(모델 준비 전 안전 기본값).
+    SELF_HOSTED_ALLOWED_ROLES: set[str] = {"ROLE_ADMIN", "ROLE_TESTER"}
+    SELF_HOSTED_LLM_BASE_URL: str = ""   # 예: http://localhost:8001/v1 (vLLM/Ollama 등 OpenAI 호환). 비어 있으면 비활성.
+    SELF_HOSTED_LLM_MODEL: str = ""      # 서빙 중인 모델명
+    SELF_HOSTED_LLM_API_KEY: str = ""    # 엔드포인트 인증 키 (불필요하면 빈 값)
+
     # 에이전트 실행 가드
     # react 도구 호출 루프 상한 (ADK max_llm_calls). 광범위 조회로 무한 페이징하는 것을 차단한다.
     AGENT_MAX_LLM_CALLS: int = 50

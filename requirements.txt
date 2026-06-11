@@ -5,6 +5,7 @@ sse-starlette>=2.1.0
 
 # AI Agent
 google-adk>=1.0.0
+litellm>=1.40.0  # ADK LiteLlm 래퍼 (자체 호스팅 OpenAI 호환 LLM 호출용)
 
 # Database
 motor>=3.5.1

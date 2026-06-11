@@ -1,0 +1,114 @@
+"""core/model_factory.py 단위 테스트.
+
+provider/role/api_key + 자체 LLM 엔드포인트 설정 여부에 따른 model 파라미터 분기를 검증한다.
+핵심 규칙:
+- 자체 LLM은 SELF_HOSTED_LLM_BASE_URL이 설정되어 활성일 때만 동작(미설정 시 전원 키 경로).
+- 활성 + 허용 role(ROLE_ADMIN/ROLE_TESTER) + 등록 API 키 없음 → 자체 LLM(OpenAI 호환 LiteLlm).
+- 자격이 있어도 키를 등록하면 그 키를 우선한다(키 우선, 없으면 자체 LLM).
+LiteLlm 경로는 litellm 미설치 환경에서도 돌도록 sys.modules에 가짜 모듈을 주입해 검증한다.
+"""
+import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from core.config import settings
+from core.model_factory import build_model_param, uses_env_key, is_self_hosted_eligible
+
+
+def _patch_litellm():
+    """`from google.adk.models.lite_llm import LiteLlm`가 가짜를 가져오도록 모듈을 주입한다."""
+    fake_module = MagicMock()
+    return patch.dict(sys.modules, {"google.adk.models.lite_llm": fake_module}), fake_module
+
+
+@pytest.fixture
+def active(monkeypatch):
+    """자체 LLM 엔드포인트가 설정된 활성 상태를 만든다."""
+    monkeypatch.setattr(settings, "SELF_HOSTED_LLM_BASE_URL", "http://llm:8001/v1")
+    monkeypatch.setattr(settings, "SELF_HOSTED_LLM_MODEL", "ieum-ft-1")
+    monkeypatch.setattr(settings, "SELF_HOSTED_LLM_API_KEY", "")
+
+
+# ---------- 활성 + 허용 role + 키 없음 → 자체 LLM ----------
+
+@pytest.mark.parametrize("role", ["ROLE_TESTER", "ROLE_ADMIN"])
+@pytest.mark.parametrize("api_key", [None, ""])
+def test_self_hosted_for_eligible_role_without_key(active, role, api_key):
+    ctx, fake_module = _patch_litellm()
+    with ctx:
+        build_model_param("CLAUDE", "claude-sonnet-4-20250514", api_key, role)
+    fake_module.LiteLlm.assert_called_once()
+    _, kwargs = fake_module.LiteLlm.call_args
+    assert kwargs["model"] == "openai/ieum-ft-1"
+    assert kwargs["api_base"] == "http://llm:8001/v1"
+
+
+def test_self_hosted_regardless_of_provider(active):
+    # provider와 무관하게 허용 role + 키 없음이면 자체 LLM (OPENAI provider 노드도)
+    ctx, fake_module = _patch_litellm()
+    with ctx:
+        build_model_param("OPENAI", "gpt-4o", None, "ROLE_TESTER")
+    fake_module.LiteLlm.assert_called_once()
+
+
+# ---------- 비활성(엔드포인트 미설정) → 키 경로 ----------
+
+def test_inactive_when_not_configured_returns_model_string():
+    # SELF_HOSTED_LLM_BASE_URL 기본 "" → 비활성 → 모델명 문자열
+    assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", None, "ROLE_TESTER") == "claude-sonnet-4-20250514"
+
+
+# ---------- 키 우선 (자격 있어도 키 등록 시 키 사용) ----------
+
+@pytest.mark.parametrize("role", ["ROLE_TESTER", "ROLE_ADMIN"])
+def test_eligible_role_with_key_uses_key(active, role):
+    assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", "my-key", role) == "claude-sonnet-4-20250514"
+
+
+# ---------- 기존(API 키) 경로 보존 ----------
+
+def test_user_role_returns_model_string(active):
+    assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", "key", "ROLE_USER") == "claude-sonnet-4-20250514"
+
+
+def test_no_role_returns_model_string(active):
+    assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", "key", None) == "claude-sonnet-4-20250514"
+
+
+def test_gemini_returns_custom_gemini():
+    from core.custom_gemini import CustomGemini
+    result = build_model_param("GEMINI", "gemini-2.5-pro", "key", "ROLE_TESTER")
+    assert isinstance(result, CustomGemini)
+
+
+# ---------- uses_env_key ----------
+
+def test_uses_env_key_self_hosted_active(active):
+    assert uses_env_key("CLAUDE", None, "ROLE_TESTER") is False   # 자체 LLM → 주입 불필요
+    assert uses_env_key("CLAUDE", "key", "ROLE_TESTER") is True    # 키 등록 → 키 경로 → 주입 필요
+    assert uses_env_key("CLAUDE", "key", "ROLE_USER") is True
+
+
+def test_uses_env_key_inactive():
+    # 미설정 → ROLE_TESTER도 키 경로(주입 필요)
+    assert uses_env_key("CLAUDE", None, "ROLE_TESTER") is True
+
+
+@pytest.mark.parametrize("api_key,role", [("key", None), (None, "ROLE_TESTER")])
+def test_uses_env_key_gemini(api_key, role):
+    assert uses_env_key("GEMINI", api_key, role) is False
+
+
+# ---------- is_self_hosted_eligible ----------
+
+def test_eligible_when_active(active):
+    assert is_self_hosted_eligible("ROLE_TESTER") is True
+    assert is_self_hosted_eligible("ROLE_ADMIN") is True
+    assert is_self_hosted_eligible("ROLE_USER") is False
+    assert is_self_hosted_eligible(None) is False
+
+
+def test_eligible_false_when_not_configured():
+    # 엔드포인트 미설정 시 자격 role이어도 False (키 필수 유지)
+    assert is_self_hosted_eligible("ROLE_TESTER") is False
