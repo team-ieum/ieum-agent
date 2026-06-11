@@ -377,7 +377,7 @@ def _emit_stage(on_stage: Callable[[str], None] | None, stage: str) -> None:
 async def chat_workflow(
     prompt: str,
     provider: str,
-    api_key: str,
+    api_key: str | None,
     user_id: str,
     available_integrations: list[dict],
     unavailable_integrations: list[dict],

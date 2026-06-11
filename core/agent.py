@@ -59,7 +59,7 @@ async def save_execution_log(
 async def run_agent(
     request: AgentNodeRequest,
     provider: str,
-    api_key: str,
+    api_key: str | None,
     user_id: str,
     user_role: str | None = None,
     google_access_token: str | None = None,

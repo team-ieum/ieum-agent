@@ -90,7 +90,7 @@ async def _safe_delete_session(session_service: BaseSessionService, user_id: str
 async def run_simple_agent(
     model: str,
     request: AgentNodeRequest,
-    api_key: str,
+    api_key: str | None,
     env_key: str | None,
     user_id: str,
     provider: str,
@@ -174,7 +174,7 @@ async def run_simple_agent(
 async def run_react_agent(
     model: str,
     request: AgentNodeRequest,
-    api_key: str,
+    api_key: str | None,
     env_key: str | None,
     user_id: str,
     provider: str,

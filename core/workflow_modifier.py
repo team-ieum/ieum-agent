@@ -159,7 +159,7 @@ async def modify_workflow(
     current_nodes: list,
     current_edges: list,
     provider: str,
-    api_key: str,
+    api_key: str | None,
     user_role: str | None = None,
 ) -> ModifyWorkflowResponse:
     start = time.monotonic()

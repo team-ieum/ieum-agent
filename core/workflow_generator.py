@@ -168,7 +168,7 @@ def _parse_and_validate(raw_output: str, original_prompt: str, provider: str | N
 async def generate_workflow(
     prompt: str,
     provider: str,
-    api_key: str,
+    api_key: str | None,
     available_mcp_servers: list | None = None,
     user_role: str | None = None,
 ) -> GenerateWorkflowResponse:

@@ -125,7 +125,7 @@ async def run_generate_agent(
     prompt: str,
     model: str,
     provider: str,
-    api_key: str,
+    api_key: str | None,
     env_key: str | None,
     user_role: str | None = None,
     validate_fn: ValidateFn | None = None,
