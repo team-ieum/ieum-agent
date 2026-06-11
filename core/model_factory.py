@@ -14,8 +14,9 @@ from core.custom_gemini import CustomGemini
 
 
 def _self_hosted_configured() -> bool:
-    """자체 LLM 엔드포인트가 설정되어 활성 상태인지."""
-    return bool(settings.SELF_HOSTED_LLM_BASE_URL)
+    """자체 LLM 엔드포인트가 설정되어 활성 상태인지. BASE_URL과 MODEL이 모두 있어야 활성으로 본다.
+    (MODEL이 비면 LiteLlm이 "openai/"로 생성돼 호출이 실패하므로 둘 다 요구한다.)"""
+    return bool(settings.SELF_HOSTED_LLM_BASE_URL) and bool(settings.SELF_HOSTED_LLM_MODEL)
 
 
 def is_self_hosted_eligible(user_role: str | None) -> bool:
@@ -45,16 +46,18 @@ def build_model_param(provider: str, model: str, api_key: str | None, user_role:
 
     기존 동작 보존: 자체 LLM 분기 밖(role 미해당/None, 키 등록됨, 엔드포인트 미설정)에서는 기존과 동일하게 모델명 문자열을 반환한다.
     """
-    if provider.upper() == "GEMINI":
-        return CustomGemini(model=model, api_key=api_key)
+    # self-hosted 분기를 GEMINI보다 먼저 둔다. GEMINI provider + 자체 LLM 자격 + 키 없음일 때
+    # CustomGemini(api_key=None)으로 빠지지 않고 provider 무관하게 자체 LLM으로 라우팅하기 위함이다.
     if _use_self_hosted(api_key, user_role):
-        # lazy import: 기본(API 키) 경로에 litellm 의존성이 영향을 주지 않도록 분기 내부에서 import한다.
+        # lazy import: self-hosted 경로에서만 LiteLlm(litellm)을 로드해 기본 경로의 import 부담을 줄인다.
         from google.adk.models.lite_llm import LiteLlm
         return LiteLlm(
             model=f"openai/{settings.SELF_HOSTED_LLM_MODEL}",
             api_base=settings.SELF_HOSTED_LLM_BASE_URL,
             api_key=settings.SELF_HOSTED_LLM_API_KEY or "not-needed",
         )
+    if provider.upper() == "GEMINI":
+        return CustomGemini(model=model, api_key=api_key)
     return model
 
 
@@ -63,6 +66,9 @@ def uses_env_key(provider: str, api_key: str | None, user_role: str | None = Non
 
     Gemini(CustomGemini 직접 주입)와 자체 LLM(엔드포인트 자격증명 사용)은 환경변수 주입이 불필요하다.
     """
+    if not api_key:
+        # 주입할 키가 없으면 os.environ에 None을 넣어 TypeError가 나는 것을 방어한다.
+        return False
     if provider.upper() == "GEMINI":
         return False
     if _use_self_hosted(api_key, user_role):

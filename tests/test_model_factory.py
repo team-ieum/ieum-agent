@@ -52,10 +52,26 @@ def test_self_hosted_regardless_of_provider(active):
     fake_module.LiteLlm.assert_called_once()
 
 
+def test_self_hosted_overrides_gemini(active):
+    # GEMINI provider여도 자격+무키면 자체 LLM (CustomGemini(api_key=None)으로 빠지지 않음)
+    ctx, fake_module = _patch_litellm()
+    with ctx:
+        build_model_param("GEMINI", "gemini-2.5-pro", None, "ROLE_TESTER")
+    fake_module.LiteLlm.assert_called_once()
+
+
 # ---------- 비활성(엔드포인트 미설정) → 키 경로 ----------
 
 def test_inactive_when_not_configured_returns_model_string():
     # SELF_HOSTED_LLM_BASE_URL 기본 "" → 비활성 → 모델명 문자열
+    assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", None, "ROLE_TESTER") == "claude-sonnet-4-20250514"
+
+
+def test_inactive_when_model_missing(monkeypatch):
+    # BASE_URL만 있고 MODEL이 비면 비활성 → 키 경로 (openai/ 빈 모델명 방지)
+    monkeypatch.setattr(settings, "SELF_HOSTED_LLM_BASE_URL", "http://llm:8001/v1")
+    monkeypatch.setattr(settings, "SELF_HOSTED_LLM_MODEL", "")
+    assert is_self_hosted_eligible("ROLE_TESTER") is False
     assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", None, "ROLE_TESTER") == "claude-sonnet-4-20250514"
 
 
@@ -91,8 +107,10 @@ def test_uses_env_key_self_hosted_active(active):
 
 
 def test_uses_env_key_inactive():
-    # 미설정 → ROLE_TESTER도 키 경로(주입 필요)
-    assert uses_env_key("CLAUDE", None, "ROLE_TESTER") is True
+    # 미설정 + 키 있음 → 키 경로(주입 필요)
+    assert uses_env_key("CLAUDE", "key", "ROLE_TESTER") is True
+    # 키 없음 → 주입할 키가 없으므로 False (TypeError 방어)
+    assert uses_env_key("CLAUDE", None, "ROLE_TESTER") is False
 
 
 @pytest.mark.parametrize("api_key,role", [("key", None), (None, "ROLE_TESTER")])
