@@ -14,6 +14,7 @@ from api.schemas.modify_workflow import ModifyWorkflowResponse
 from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
+from core.model_factory import build_model_param, uses_env_key
 from db.mongodb import modify_workflow_logs
 
 logger = logging.getLogger(__name__)
@@ -159,11 +160,14 @@ async def modify_workflow(
     current_edges: list,
     provider: str,
     api_key: str,
+    user_role: str | None = None,
 ) -> ModifyWorkflowResponse:
     start = time.monotonic()
     model = resolve_model(provider)
     env_key = resolve_env_key(provider)
-    lock = get_env_lock(env_key) if env_key else None
+    inject_env = uses_env_key(provider, api_key, user_role)
+    lock = get_env_lock(env_key) if (env_key and inject_env) else None
+    model_param = build_model_param(provider, model, api_key, user_role)
 
     current_workflow_json = json.dumps(
         {"nodes": current_nodes, "edges": current_edges},
@@ -173,14 +177,14 @@ async def modify_workflow(
     instruction = _MODIFY_SYSTEM_PROMPT.format(current_workflow_json=current_workflow_json)
 
     async def _execute() -> str:
-        prev_value = os.environ.get(env_key) if env_key else None
+        prev_value = os.environ.get(env_key) if (env_key and inject_env) else None
         try:
-            if env_key:
+            if env_key and inject_env:
                 os.environ[env_key] = api_key
 
             agent = LlmAgent(
                 name="workflow_modifier",
-                model=model,
+                model=model_param,
                 instruction=instruction,
             )
 
@@ -215,7 +219,7 @@ async def modify_workflow(
             return "\n".join(output_parts) if output_parts else ""
 
         finally:
-            if env_key:
+            if env_key and inject_env:
                 if prev_value is None:
                     os.environ.pop(env_key, None)
                 else:

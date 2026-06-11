@@ -25,6 +25,7 @@ async def modify_workflow_endpoint(
             current_edges=[e.model_dump() for e in request.currentEdges],
             provider=credentials["provider"],
             api_key=credentials["api_key"],
+            user_role=credentials.get("user_role"),
         )
     except ValueError:
         raise HTTPException(status_code=ErrorCode.WORKFLOW_MODIFY_PARSE_FAILED.status_code,

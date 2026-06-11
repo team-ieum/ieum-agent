@@ -27,7 +27,7 @@ from common.error_code import ErrorCode
 from core.config import get_current_time_info
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
-from core.custom_gemini import CustomGemini
+from core.model_factory import build_model_param, uses_env_key
 from db.mongodb import chat_logs
 from tools.notion import notion_search
 from tools.github import github_list_orgs, github_list_repos, github_list_issues, github_list_pull_requests
@@ -381,6 +381,7 @@ async def chat_workflow(
     user_id: str,
     available_integrations: list[dict],
     unavailable_integrations: list[dict],
+    user_role: str | None = None,
     workflow_id: str | None = None,
     current_nodes: list | None = None,
     current_edges: list | None = None,
@@ -410,8 +411,8 @@ async def chat_workflow(
     allowed_webhook_credential_ids.discard(None)
     model = resolve_model(provider)
     env_key = resolve_env_key(provider)
-    is_gemini = (env_key == "GOOGLE_API_KEY") or (not env_key and "gemini" in model.lower())
-    lock = get_env_lock(env_key) if (env_key and not is_gemini) else None
+    inject_env = uses_env_key(provider, api_key, user_role)
+    lock = get_env_lock(env_key) if (env_key and inject_env) else None
 
     # 동적 주입 — 연동 현황
     available_text = ""
@@ -525,7 +526,7 @@ async def chat_workflow(
 
     async def _execute() -> str:
         prev_value = None
-        if env_key and not is_gemini:
+        if env_key and inject_env:
             prev_value = os.environ.get(env_key)
             os.environ[env_key] = api_key
 
@@ -559,7 +560,7 @@ async def chat_workflow(
                         stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
                         browse_tools.extend(mcp_tools)
 
-                model_param = CustomGemini(model=model, api_key=api_key) if is_gemini else model
+                model_param = build_model_param(provider, model, api_key, user_role)
 
                 session_service = _get_session_service()
 
@@ -790,7 +791,7 @@ async def chat_workflow(
                 return candidate
 
         finally:
-            if env_key and not is_gemini:
+            if env_key and inject_env:
                 if prev_value is None:
                     os.environ.pop(env_key, None)
                 else:

@@ -12,6 +12,7 @@ from agents.generate.sub.planner_agent import build_planner_agent
 from agents.generate.sub.builder_agent import build_builder_agent
 from api.schemas.generate_workflow import WorkflowPlanSchema
 from core.validators.plan_validator import PlanValidator
+from core.model_factory import build_model_param, uses_env_key
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,7 @@ async def run_generate_agent(
     provider: str,
     api_key: str,
     env_key: str | None,
+    user_role: str | None = None,
     validate_fn: ValidateFn | None = None,
     max_builder_retries: int = _MAX_BUILDER_RETRIES,
     available_mcp_servers: list | None = None,
@@ -137,12 +139,14 @@ async def run_generate_agent(
     Builder에게만 결함 JSON과 검증 오류를 재투입하는 Reflexion 루프를 수행한다.
     (Planner는 재실행하지 않는다 — config·도구이름 등 Builder 책임 오류를 재기획으로 고칠 수 없기 때문)
     """
-    prev_value = os.environ.get(env_key) if env_key else None
+    inject_env = uses_env_key(provider, api_key, user_role)
+    model_param = build_model_param(provider, model, api_key, user_role)
+    prev_value = os.environ.get(env_key) if (env_key and inject_env) else None
     try:
-        if env_key:
+        if env_key and inject_env:
             os.environ[env_key] = api_key
 
-        planner_agent = build_planner_agent(model, prompt, provider, available_mcp_servers)
+        planner_agent = build_planner_agent(model_param, prompt, provider, available_mcp_servers)
 
         # 1. 계획(Plan) 생성 1차 시도
         plan_raw = await _run_single_agent(planner_agent, prompt, _GENERATE_USER_ID)
@@ -163,7 +167,7 @@ async def run_generate_agent(
         logger.info("성공적으로 워크플로우 계획(Plan)이 검증 통과했습니다. Justification: %s", plan.justification)
 
         # 2. 최종 워크플로우 빌드 (+ Builder 대상 Reflexion 루프)
-        builder_agent = build_builder_agent(model, prompt, provider, available_mcp_servers)
+        builder_agent = build_builder_agent(model_param, prompt, provider, available_mcp_servers)
         builder_prompt = (
             f"사용자 원래 요청: {prompt}\n\n"
             f"현재 요청 컨텍스트:\n- provider: {provider.upper()}\n"
@@ -206,7 +210,7 @@ async def run_generate_agent(
         raise last_err
 
     finally:
-        if env_key:
+        if env_key and inject_env:
             if prev_value is None:
                 os.environ.pop(env_key, None)
             else:

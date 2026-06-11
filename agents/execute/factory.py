@@ -18,7 +18,7 @@ from agents.execute.sub.communication_agent import build_communication_agent
 from agents.execute.sub.transform_agent import build_transform_agent
 from agents.execute.sub.mcp_agent import build_mcp_agent
 from agents.base import _bind_workflow_context, _bind_google_token, _bind_notion_token
-from core.custom_gemini import CustomGemini
+from core.model_factory import build_model_param, uses_env_key
 from core.config import get_current_time_info
 from db.session_service import MongoSessionService
 from tools import get_tools_for_request
@@ -93,15 +93,17 @@ async def run_simple_agent(
     api_key: str,
     env_key: str | None,
     user_id: str,
+    provider: str,
+    user_role: str | None = None,
     session_service: BaseSessionService | None = None,
 ) -> tuple[str, int, int, int]:
     """simple 타입: 단일 LlmAgent로 실행. 도구 없이 빠른 LLM 호출."""
     prev_value = None
     cleanup_session_id = None
-    is_gemini = (env_key == "GOOGLE_API_KEY") or (not env_key and "gemini" in model.lower())
+    inject_env = uses_env_key(provider, api_key, user_role)
 
-    # Gemini가 아닌 경우에만 os.environ 조작 (Lock 대상)
-    if env_key and not is_gemini:
+    # Gemini/자체 LLM이 아닌 경우에만 os.environ 조작 (Lock 대상)
+    if env_key and inject_env:
         prev_value = os.environ.get(env_key)
         os.environ[env_key] = api_key
 
@@ -109,8 +111,8 @@ async def run_simple_agent(
         builtin_tools = get_tools_for_request(request.tools or [])
         builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
 
-        # Gemini 모델인 경우 CustomGemini를 사용하여 API Key를 직접 주입
-        model_param = CustomGemini(model=model, api_key=api_key) if is_gemini else model
+        # provider/role에 따라 model 결정 (Gemini→CustomGemini, 자체 LLM→LiteLlm, 그 외→모델명 문자열)
+        model_param = build_model_param(provider, model, api_key, user_role)
 
         agent = LlmAgent(
             name="ieum_agent",
@@ -162,7 +164,7 @@ async def run_simple_agent(
     finally:
         if cleanup_session_id is not None:
             await _safe_delete_session(session_service, user_id, cleanup_session_id)
-        if env_key and not is_gemini:
+        if env_key and inject_env:
             if prev_value is None:
                 os.environ.pop(env_key, None)
             else:
@@ -175,21 +177,23 @@ async def run_react_agent(
     api_key: str,
     env_key: str | None,
     user_id: str,
+    provider: str,
     google_access_token: str | None = None,
     notion_token: str | None = None,
     github_token: str | None = None,
+    user_role: str | None = None,
     session_service: BaseSessionService | None = None,
     use_single_agent: bool = True,
 ) -> tuple[str, int, int, int]:
     """react 타입: Main Agent + Sub-Agent 멀티 에이전트 실행. AsyncExitStack으로 MCPToolset 관리."""
     prev_value = None
-    is_gemini = (env_key == "GOOGLE_API_KEY") or (not env_key and "gemini" in model.lower())
+    inject_env = uses_env_key(provider, api_key, user_role)
 
     if session_service is None:
         session_service = MongoSessionService()
 
-    # Gemini가 아닌 경우에만 os.environ 조작
-    if env_key and not is_gemini:
+    # Gemini/자체 LLM이 아닌 경우에만 os.environ 조작
+    if env_key and inject_env:
         prev_value = os.environ.get(env_key)
         os.environ[env_key] = api_key
 
@@ -198,7 +202,7 @@ async def run_react_agent(
         has_custom_mcp = bool(request.mcp_servers)
         webhook_configs = _extract_webhook_configs(request.tools)
 
-        model_param = CustomGemini(model=model, api_key=api_key) if is_gemini else model
+        model_param = build_model_param(provider, model, api_key, user_role)
 
         # [최적화] 외부 연동 크레덴셜이 1개 이하이고 커스텀 MCP가 정의되지 않은 경우
         # 메인-서브 멀티에이전트 오케스트레이션을 우회하고 단일 ReAct Agent로 다이렉트 실행하여 Latency 감소
@@ -398,7 +402,7 @@ async def run_react_agent(
             return "\n".join(output_parts), total_input, total_output, total_count
 
     finally:
-        if env_key and not is_gemini:
+        if env_key and inject_env:
             if prev_value is None:
                 os.environ.pop(env_key, None)
             else:
