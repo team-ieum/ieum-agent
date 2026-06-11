@@ -53,6 +53,7 @@ async def test_run_simple_agent_returns_output():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         output, _, _, _ = await run_simple_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=_make_request(agent_type="simple"),
             api_key="test-key",
             env_key=None,
@@ -82,6 +83,7 @@ async def test_run_simple_agent_creates_agent_with_no_tools():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_simple_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=_make_request(agent_type="simple"),
             api_key="test-key",
             env_key=None,
@@ -112,6 +114,7 @@ async def test_run_simple_agent_deletes_session_after_run():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_simple_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=_make_request(agent_type="simple"),
             api_key="test-key",
             env_key=None,
@@ -176,6 +179,7 @@ async def test_run_react_agent_raises_when_tool_never_called():
         with pytest.raises(ToolNotCalledError):
             await run_react_agent(
                 model="gemini-2.5-flash",
+                provider="GEMINI",
                 request=req,
                 api_key="test-key",
                 env_key=None,
@@ -209,6 +213,7 @@ async def test_run_react_agent_succeeds_when_tool_called():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         output, _, _, _ = await run_react_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=req,
             api_key="test-key",
             env_key=None,
@@ -247,6 +252,7 @@ async def test_run_react_agent_returns_output():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         output, _, _, _ = await run_react_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
             env_key=None,
@@ -280,6 +286,7 @@ async def test_run_react_agent_deletes_session_single_path():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
             env_key=None,
@@ -320,6 +327,7 @@ async def test_run_react_agent_deletes_session_multi_path():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
             env_key=None,
@@ -366,6 +374,7 @@ async def test_run_react_agent_builds_helpers_for_toolless_node():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
             env_key=None,
@@ -420,6 +429,7 @@ async def test_run_react_agent_builds_conditional_agents_with_tokens():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=request_with_mcp,
             api_key="test-key",
             env_key=None,
@@ -468,6 +478,7 @@ async def test_run_react_agent_skips_helpers_for_explicit_tool_node():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=req,
             api_key="test-key",
             env_key=None,
@@ -510,6 +521,7 @@ async def test_run_react_agent_passes_tokens_to_sub_agents():
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
+            provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
             env_key=None,

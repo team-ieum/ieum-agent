@@ -7,6 +7,7 @@ from api.schemas.generate_workflow import GenerateWorkflowResponse, WorkflowNode
 from common.error_code import ErrorCode
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
+from core.model_factory import uses_env_key
 from db.mongodb import generate_workflow_logs
 from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
 
@@ -167,13 +168,14 @@ def _parse_and_validate(raw_output: str, original_prompt: str, provider: str | N
 async def generate_workflow(
     prompt: str,
     provider: str,
-    api_key: str,
+    api_key: str | None,
     available_mcp_servers: list | None = None,
+    user_role: str | None = None,
 ) -> GenerateWorkflowResponse:
     start = time.monotonic()
     model = resolve_model(provider)
     env_key = resolve_env_key(provider)
-    lock = get_env_lock(env_key) if env_key else None
+    lock = get_env_lock(env_key) if (env_key and uses_env_key(provider, api_key, user_role)) else None
 
     # 생성 단계에서 허용되는 MCP 카탈로그 ID 집합. 카탈로그가 없으면 MCP는 전면 차단된다.
     allowed_mcp_catalog_ids = {
@@ -194,6 +196,7 @@ async def generate_workflow(
             provider=provider,
             api_key=api_key,
             env_key=env_key,
+            user_role=user_role,
             validate_fn=_validate,
             available_mcp_servers=available_mcp_servers,
             allowed_mcp_catalog_ids=allowed_mcp_catalog_ids,

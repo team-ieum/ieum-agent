@@ -11,6 +11,7 @@ from common.exception import is_rate_limit_error
 from core.config import settings
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
+from core.model_factory import uses_env_key
 from db.mongodb import execution_logs
 from google.adk.sessions import BaseSessionService
 from agents.execute.factory import run_simple_agent, run_react_agent, ToolNotCalledError
@@ -58,8 +59,9 @@ async def save_execution_log(
 async def run_agent(
     request: AgentNodeRequest,
     provider: str,
-    api_key: str,
+    api_key: str | None,
     user_id: str,
+    user_role: str | None = None,
     google_access_token: str | None = None,
     notion_token: str | None = None,
     github_token: str | None = None,
@@ -107,8 +109,8 @@ async def run_agent(
         return result
 
     env_key = resolve_env_key(provider)
-    # Gemini인 경우 os.environ을 통한 임시 주입 대신 CustomGemini를 통해 API Key를 직접 주입하므로 Lock을 잡지 않습니다.
-    lock = get_env_lock(env_key) if (env_key and provider.upper() != "GEMINI") else None
+    # Gemini(CustomGemini 직접 주입) 및 자체 LLM(엔드포인트 자격증명 사용)은 os.environ을 건드리지 않으므로 Lock을 잡지 않습니다.
+    lock = get_env_lock(env_key) if (env_key and uses_env_key(provider, api_key, user_role)) else None
 
     model = resolve_model(provider, request.model)
 
@@ -121,6 +123,8 @@ async def run_agent(
                     api_key=api_key,
                     env_key=env_key,
                     user_id=user_id,
+                    provider=provider,
+                    user_role=user_role,
                     google_access_token=google_access_token,
                     notion_token=notion_token,
                     github_token=github_token,
@@ -133,6 +137,8 @@ async def run_agent(
                     api_key=api_key,
                     env_key=env_key,
                     user_id=user_id,
+                    provider=provider,
+                    user_role=user_role,
                     session_service=session_service,
                 )
 
