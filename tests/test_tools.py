@@ -366,24 +366,16 @@ def test_get_tools_for_request_mcp_sse():
     assert toolset.tool_name_prefix == "prefix:"
 
 
-def test_get_tools_for_request_mcp_stdio():
-    """get_tools_for_request가 Stdio 기반의 McpToolset을 올바르게 반환한다."""
-    result = get_tools_for_request([
-        {
-            "name": "mcp",
-            "config": {
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+def test_get_tools_for_request_mcp_stdio_raises():
+    """stdio(command) 기반 MCP는 미지원이므로 ValueError를 던진다.
+    실행 컨테이너에 npx/uvx 런타임이 없어 조용한 FileNotFoundError로 죽는 것을 차단한다."""
+    with pytest.raises(ValueError, match="stdio"):
+        get_tools_for_request([
+            {
+                "name": "mcp",
+                "config": {
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+                }
             }
-        }
-    ])
-    assert len(result) == 1
-    toolset = result[0]
-    
-    from google.adk.tools import McpToolset
-    from mcp import StdioServerParameters
-    
-    assert isinstance(toolset, McpToolset)
-    assert isinstance(toolset._connection_params, StdioServerParameters)
-    assert toolset._connection_params.command == "npx"
-    assert toolset._connection_params.args == ["-y", "@modelcontextprotocol/server-filesystem"]
+        ])
