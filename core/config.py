@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # stdio(npx) 방식은 컨테이너에 Node가 없어 실패하므로 HTTP 연결로 전환했다.
     # 유저별 토큰은 매 요청 Notion-Token 헤더로 passthrough 되며, 이 URL은 MCP 서버 위치만 가리킨다.
     NOTION_MCP_URL: str = "http://localhost:3000/mcp"
+    # notion-mcp-server의 게이트웨이 Bearer 인증 토큰. 서버(AUTH_TOKEN env)와 동일 값을 공유하며,
+    # MCP 요청 시 Authorization: Bearer 헤더로 전송한다. 비어 있으면 헤더를 붙이지 않는다.
+    NOTION_MCP_AUTH_TOKEN: str = ""
 
     # 자체 호스팅 LLM 분기 (개발/테스트 계정용)
     # 이 role 집합에 속한 유저가 API 키를 등록하지 않았을 때, 자체 파인튜닝 LLM(OpenAI 호환 엔드포인트)으로 라우팅된다.

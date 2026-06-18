@@ -40,6 +40,7 @@ jobs:
           OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
           GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
           NOTION_MCP_URL: ${{ secrets.AGENT_NOTION_MCP_URL }}
+          NOTION_MCP_AUTH_TOKEN: ${{ secrets.AGENT_NOTION_MCP_AUTH_TOKEN }}
         run: |
           missing_vars=()
           [ -n "$MONGODB_URL" ] || missing_vars+=("AGENT_MONGODB_URL")
@@ -65,8 +66,9 @@ jobs:
             printf 'CLAUDE_DEFAULT_MODEL=%s\n' "$CLAUDE_DEFAULT_MODEL"
             printf 'OPENAI_DEFAULT_MODEL=%s\n' "$OPENAI_DEFAULT_MODEL"
             printf 'GEMINI_DEFAULT_MODEL=%s\n' "$GEMINI_DEFAULT_MODEL"
-            # NOTION_MCP_URL은 선택값. 미설정 시 config.py 기본값을 사용한다.
+            # NOTION_MCP_URL / NOTION_MCP_AUTH_TOKEN은 선택값. 미설정 시 config.py 기본값을 사용한다.
             if [ -n "$NOTION_MCP_URL" ]; then printf 'NOTION_MCP_URL=%s\n' "$NOTION_MCP_URL"; fi
+            if [ -n "$NOTION_MCP_AUTH_TOKEN" ]; then printf 'NOTION_MCP_AUTH_TOKEN=%s\n' "$NOTION_MCP_AUTH_TOKEN"; fi
           } > "$tmp_env"
 
           mv "$tmp_env" "$ENV_FILE"
