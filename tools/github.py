@@ -153,12 +153,15 @@ async def github_list_pull_requests(token: str, owner: str, repo: str, state: st
         owner: 레포지토리 소유자 (조직 또는 사용자 이름)
         repo: 레포지토리 이름
         state: PR 상태 (open | closed | all, 기본값: closed)
-        per_page: 페이지당 가져올 개수 (기본값: 30)
+        per_page: 페이지당 가져올 개수 (기본값: 30, 최대: 30)
 
     Returns:
         PR 목록 (number, title, state, html_url, merged_at, created_at)을 포함한 JSON 문자열
     """
     try:
+        # 대량 조회 시 LLM 요약 단계에서 토큰/처리시간이 폭증해 타임아웃이 발생하므로,
+        # LLM이 큰 값을 넘겨도 코드가 강제로 상한을 적용한다.
+        per_page = max(1, min(per_page, 30))
         client = get_http_client()
         response = await client.get(
             f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls",
@@ -183,7 +186,10 @@ async def github_list_pull_requests(token: str, owner: str, repo: str, state: st
             }
             for p in pulls
         ]
-        return json.dumps({"success": True, "pulls": results, "total": len(results)}, ensure_ascii=False)
+        return json.dumps(
+            {"success": True, "pulls": results, "total": len(results), "truncated": len(results) >= per_page},
+            ensure_ascii=False,
+        )
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
