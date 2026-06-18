@@ -1,13 +1,11 @@
 import contextlib
 import inspect
-import json
 import logging
-import os
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionParams
-from mcp import StdioServerParameters
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPConnectionParams
 
 from agents.base import _safe_close_mcp
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +31,19 @@ async def build_notion_agent(
         ), []
 
     token_prefix = notion_oauth_token[:10] + "..." if len(notion_oauth_token) > 10 else "(short)"
-    logger.info("[notion_agent] @notionhq/notion-mcp-server 연결 시도 — token_prefix=%s", token_prefix)
+    logger.info(
+        "[notion_agent] Notion MCP(HTTP) 연결 시도 — url=%s, token_prefix=%s",
+        settings.NOTION_MCP_URL, token_prefix,
+    )
 
-    mcp_headers = json.dumps({
-        "Authorization": f"Bearer {notion_oauth_token}",
-        "Notion-Version": "2022-06-28",
-    })
-    params = StdioConnectionParams(
-        server_params=StdioServerParameters(
-            command="npx",
-            args=["--no-install", "@notionhq/notion-mcp-server"],
-            env={**os.environ, "OPENAPI_MCP_HEADERS": mcp_headers},
-        ),
+    # self-host한 notion-mcp-server(--transport http --enable-token-passthrough)에 연결한다.
+    # 유저별 토큰은 매 요청 Notion-Token 헤더로 전달되며, 서버가 이를 Notion API 호출에 사용한다.
+    params = StreamableHTTPConnectionParams(
+        url=settings.NOTION_MCP_URL,
+        headers={
+            "Notion-Token": notion_oauth_token,
+            "Notion-Version": "2022-06-28",
+        },
     )
 
     mcp = MCPToolset(connection_params=params)

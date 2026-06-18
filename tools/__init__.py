@@ -101,8 +101,6 @@ def get_tools_for_request(tool_names: list) -> list:
             config = item.get("config") if isinstance(item, dict) else {}
             server_url = config.get("server_url") or config.get("serverUrl")
             command = config.get("command")
-            args = config.get("args") or []
-            env = config.get("env")
             prefix = config.get("tool_name_prefix") or config.get("toolNamePrefix")
             
             if server_url:
@@ -118,18 +116,13 @@ def get_tools_for_request(tool_names: list) -> list:
                 )
                 result.append(toolset)
             elif command:
-                from google.adk.tools import McpToolset
-                from mcp import StdioServerParameters
-                
-                toolset = McpToolset(
-                    connection_params=StdioServerParameters(
-                        command=command,
-                        args=args,
-                        env=env,
-                    ),
-                    tool_name_prefix=prefix
+                # stdio(command) 기반 MCP는 미지원이다. 실행 컨테이너(python:slim)에는
+                # npx/uvx 등 런타임이 없어 조용히 FileNotFoundError로 죽는다.
+                # 커스텀 MCP는 server_url(HTTP/SSE) 방식으로만 구성한다.
+                raise ValueError(
+                    f"stdio 기반 MCP는 지원하지 않습니다 (command={command!r}). "
+                    "server_url(HTTP/SSE) 방식으로 MCP를 구성하세요."
                 )
-                result.append(toolset)
         elif name in _TOOL_MAP:
             config = item.get("config") if isinstance(item, dict) else None
             configured_fn = _bind_config(_TOOL_MAP[name], config)

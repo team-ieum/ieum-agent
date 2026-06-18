@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     # 지원 프로바이더 목록
     SUPPORTED_PROVIDERS: list[str] = ["CLAUDE", "OPENAI", "GEMINI"]
 
+    # Notion MCP (Streamable HTTP 모드로 self-host한 @notionhq/notion-mcp-server 엔드포인트)
+    # stdio(npx) 방식은 컨테이너에 Node가 없어 실패하므로 HTTP 연결로 전환했다.
+    # 유저별 토큰은 매 요청 Notion-Token 헤더로 passthrough 되며, 이 URL은 MCP 서버 위치만 가리킨다.
+    NOTION_MCP_URL: str = "http://localhost:3000/mcp"
+
     # 자체 호스팅 LLM 분기 (개발/테스트 계정용)
     # 이 role 집합에 속한 유저가 API 키를 등록하지 않았을 때, 자체 파인튜닝 LLM(OpenAI 호환 엔드포인트)으로 라우팅된다.
     # SELF_HOSTED_LLM_BASE_URL이 비어 있으면 비활성화되어 전원 등록 API 키 경로로 동작한다(모델 준비 전 안전 기본값).
