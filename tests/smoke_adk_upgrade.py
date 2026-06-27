@@ -162,3 +162,55 @@ async def test_smoke_structured_output():
     data = json.loads(raw)
     parsed = WorkflowPlanSchema(**data)  # 스키마 검증
     assert parsed.nodes, "nodes 비어있음 — structured output 파싱 실패"
+
+
+async def test_smoke_tool_with_additional_properties():
+    """R1a 영구 회귀 가드 — additionalProperties 유발 도구가 (CustomGemini의 _clean_tools
+    제거 후에도) 동작하는지. ADK 2.3이 _gemini_schema_util로 additionalProperties를 자체
+    discard하므로 통과해야 한다. 실패(400 INVALID_ARGUMENT)면 ADK가 더는 self-sanitize 안
+    한다는 뜻 → _clean_tools 재도입 또는 다른 대응 필요."""
+    from google.adk.agents import LlmAgent
+    from google.adk.tools.function_tool import FunctionTool
+
+    def save_config(name: str, config: dict[str, str]) -> dict:
+        """자유형 설정 dict를 저장한다. dict[str, str] 파라미터가 JSON 스키마에서
+        additionalProperties를 유발한다(과거 Gemini 거부 케이스)."""
+        return {"saved": name, "keys": list(config.keys())}
+
+    agent = LlmAgent(name="smoke", model=_model(),
+                     instruction="save_config로 설정을 저장하라.",
+                     tools=[FunctionTool(save_config)])
+    text, calls, _, _ = await _run(
+        agent, "이름 'prod', 설정 {env: production, region: seoul}으로 save_config 호출해줘.")
+    assert calls >= 1, "tool 미호출 — additionalProperties 도구가 거부됐을 수 있음"
+    assert text, "빈 응답"
+
+
+async def test_smoke_thinking_budget_path():
+    """R1d 사전 검증 — thinking 예산 경로의 baseline. 현재 _limit_thinking(monkeypatch)이
+    적용된 상태에서 호출이 성공하고, thoughts 토큰 집계가 어떻게 나오는지 출력한다.
+    (R1d에서 callback/config로 이관 후 같은 케이스로 동일 강도가 유지되는지 비교할 기준선.)"""
+    from google.adk.agents import LlmAgent
+    from google.adk.runners import Runner
+    from google.adk.agents.run_config import RunConfig
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types
+
+    agent = LlmAgent(name="smoke", model=_model(),
+                     instruction="간결히 답하라.")
+    svc = InMemorySessionService()
+    runner = Runner(agent=agent, app_name="smoke", session_service=svc)
+    s = await svc.create_session(app_name="smoke", user_id="u1")
+    msg = types.Content(role="user", parts=[types.Part(text="3+4는? 숫자만.")])
+
+    thoughts, answered = 0, False
+    async for ev in runner.run_async(user_id="u1", session_id=s.id, new_message=msg,
+                                     run_config=RunConfig(max_llm_calls=4)):
+        um = getattr(ev, "usage_metadata", None)
+        if um:
+            # genai 2.x: thinking 모델이면 thoughts_token_count 존재(없으면 None/0)
+            thoughts += getattr(um, "thoughts_token_count", 0) or 0
+        if ev.is_final_response() and ev.content and ev.content.parts:
+            answered = any(getattr(p, "text", None) for p in ev.content.parts)
+    print(f"[thinking-baseline] model={MODEL} thoughts_token_count 합계={thoughts}")
+    assert answered, "응답 없음 — thinking 경로 호출 실패"

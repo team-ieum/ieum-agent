@@ -4,49 +4,11 @@ from google.genai import Client
 from google.genai import types
 from google.adk.models.google_llm import Gemini
 
-def _clean_schema(schema: Any):
-    if schema is None:
-        return
-        
-    # Pydantic models or objects
-    if hasattr(schema, "__dict__"):
-        for key in ["additional_properties", "additionalProperties"]:
-            if key in schema.__dict__:
-                schema.__dict__[key] = None
-        try:
-            if hasattr(schema, "additional_properties"):
-                schema.additional_properties = None
-            if hasattr(schema, "additionalProperties"):
-                schema.additionalProperties = None
-        except Exception:
-            pass
-
-    # Standard dicts
-    if isinstance(schema, dict):
-        for key in ["additional_properties", "additionalProperties"]:
-            schema.pop(key, None)
-        for v in schema.values():
-            _clean_schema(v)
-            
-    # Recursive field traversals for Schema types
-    if hasattr(schema, "properties") and schema.properties:
-        if isinstance(schema.properties, dict):
-            for v in schema.properties.values():
-                _clean_schema(v)
-    if hasattr(schema, "items") and schema.items:
-        _clean_schema(schema.items)
-    if hasattr(schema, "any_of") and schema.any_of:
-        for item in schema.any_of:
-            _clean_schema(item)
-
-def _clean_tools(tools: Any):
-    if not tools:
-        return
-    for tool in tools:
-        if hasattr(tool, "function_declarations") and tool.function_declarations:
-            for fd in tool.function_declarations:
-                if hasattr(fd, "parameters") and fd.parameters:
-                    _clean_schema(fd.parameters)
+# NOTE(R1a): 과거 _clean_schema/_clean_tools로 도구 스키마의 additionalProperties를
+# 직접 제거했으나(genai/Gemini가 거부하므로), ADK 2.3은 google/adk/tools/
+# _gemini_schema_util.py에서 genai 호출 전에 additional_properties를 자체 discard한다.
+# 따라서 genai 호출 시점엔 청소할 게 남지 않아 해당 로직은 죽은 코드 → 제거했다.
+# (영구 회귀 가드는 tests/smoke_adk_upgrade.py의 additionalProperties 도구 케이스가 담당.)
 
 
 # Gemini 2.5 thinking 예산(토큰). 0=완전 비활성이나 도구 호출 판단까지 생략되어 에이전트가
@@ -96,8 +58,9 @@ class CustomGemini(Gemini):
         client = Client(**kwargs)
 
         # Wrap generate_content + generate_content_stream (sync/async 모두).
-        # ADK가 스트리밍 경로(generate_content_stream)를 사용할 때도 _clean_tools가
-        # 적용되도록 하여 Gemini의 additionalProperties 스키마 거부 재발을 막는다.
+        # 스트리밍 경로에서도 thinking 예산이 적용되도록 4종 모두 감싼다.
+        # TODO(R1d): _limit_thinking을 before_model_callback/generate_content_config로
+        # 이관하면 이 몽키패치 전체를 제거하고 api_client 오버라이드를 api_key 주입만으로 슬림화한다.
         orig_generate_content = client.models.generate_content
         orig_generate_content_async = client.aio.models.generate_content
         orig_generate_content_stream = client.models.generate_content_stream
@@ -105,8 +68,6 @@ class CustomGemini(Gemini):
 
         def _clean_config(args, kwargs):
             config = kwargs.get("config") or (args[2] if len(args) > 2 else None)
-            if config and hasattr(config, "tools") and config.tools:
-                _clean_tools(config.tools)
             _limit_thinking(config)
 
         def wrapped_generate_content(*args, **kwargs):

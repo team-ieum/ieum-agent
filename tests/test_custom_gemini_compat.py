@@ -54,27 +54,14 @@ def test_monkeypatch_targets_exist():
         assert callable(fn), "genai Client의 generate_content 계열 경로가 바뀜 — 몽키패치 깨짐"
 
 
-def test_clean_schema_strips_additional_properties():
-    """_clean_schema가 additionalProperties를 재귀 제거한다."""
+def test_clean_tools_removed():
+    """R1a: additionalProperties 청소 로직은 ADK 2.3가 자체 처리(_gemini_schema_util)하므로
+    죽은 코드로 제거됐다. 다시 추가되면(중복/혼란) 잡는다. 실제 회귀 가드는 smoke의
+    additionalProperties 도구 케이스가 담당한다."""
     from core import custom_gemini
 
-    schema = {"additionalProperties": True, "properties": {"x": {"additionalProperties": True}}}
-    custom_gemini._clean_schema(schema)
-    assert "additionalProperties" not in schema
-    assert "additionalProperties" not in schema["properties"]["x"]
-
-
-def test_clean_tools_applies_to_function_declarations():
-    """_clean_tools가 tool의 function_declarations 파라미터까지 정리한다.
-    (R1에서 이 로직을 before_model_callback으로 이관할 때의 회귀 가드 — 거짓 커버리지 방지로
-    헬퍼를 실제 호출한다.)"""
-    from types import SimpleNamespace
-    from core import custom_gemini
-
-    fd = SimpleNamespace(parameters={"additionalProperties": True, "properties": {}})
-    tool = SimpleNamespace(function_declarations=[fd])
-    custom_gemini._clean_tools([tool])
-    assert "additionalProperties" not in fd.parameters
+    assert not hasattr(custom_gemini, "_clean_tools"), "_clean_tools가 되살아남 — ADK 2.3가 이미 처리(중복)"
+    assert not hasattr(custom_gemini, "_clean_schema"), "_clean_schema가 되살아남"
 
 
 def test_limit_thinking_sets_budget_on_config():
