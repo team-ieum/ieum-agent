@@ -134,3 +134,17 @@ class MongoSessionService(BaseSessionService):
             "app_name": app_name,
             "user_id": user_id
         })
+
+    async def get_user_state(
+        self, *, app_name: str, user_id: str
+    ) -> dict[str, Any]:
+        """유저 범위(`user:` prefix) 상태를 반환한다. IEUM은 유저 스코프 상태를
+        쓰지 않으므로(노드는 output_key/state 쓰기 없이 단발성 세션을 실행 후 폐기)
+        항상 빈 dict다. 이는 규약상 "저장된 유저 상태 없음"의 올바른 응답이다.
+
+        ADK 2.x가 추가한 메서드로, 기본 구현은 NotImplementedError를 던진다.
+        현재 runner 실행 경로(run_async)는 이를 호출하지 않으므로 순수 forward-safe
+        보험이다. 향후 유저 스코프 상태가 필요해지면, 세션 문서 스캔이 아니라
+        별도 user-states 컬렉션을 단일 소스로 두고 구현해야 한다(세션 스캔은
+        ephemeral 세션 만료 시 유실 + 키 충돌 시 비결정적이라 부적합)."""
+        return {}

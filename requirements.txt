@@ -4,7 +4,8 @@ uvicorn[standard]>=0.34.0
 sse-starlette>=2.1.0
 
 # AI Agent
-google-adk>=1.0.0
+google-adk>=2.3.0,<3.0.0
+google-genai>=2.8,<3  # ADK 2.3이 genai 2.x 강제
 litellm>=1.40.0  # ADK LiteLlm 래퍼 (자체 호스팅 OpenAI 호환 LLM 호출용)
 
 # Database

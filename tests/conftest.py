@@ -5,6 +5,16 @@ import os
 # .env 파일보다 우선하므로, 어떤 테스트도 실 운영 DB(ieum)에 쓰지 않는다.
 os.environ["MONGODB_DB_NAME"] = "ieum_test"
 
+# 자체 호스팅 LLM 환경 격리: 테스트는 "자체 LLM 미설정" 상태를 가정하는데(예:
+# test_model_factory의 is_self_hosted_eligible False 케이스), 개발자 .env에
+# SELF_HOSTED_LLM_BASE_URL/MODEL이 설정돼 있으면(IEUM-AI-35 작업) 오염된다.
+# os.environ을 ""로 덮어 .env 파일 값을 무력화한다(env가 .env보다 우선). 설정이
+# 필요한 테스트는 monkeypatch.setattr(settings, ...)로 각자 켠다.
+# NOTE(부채): 근본 원인은 "테스트가 개발자 .env를 로드한다"는 것. 여기 격리는 증상
+# 처치이며, 테스트에서 .env 자동 로드를 끄는 것이 정답 — 별도 이슈로 추적할 것.
+for _k in ("SELF_HOSTED_LLM_BASE_URL", "SELF_HOSTED_LLM_MODEL", "SELF_HOSTED_LLM_API_KEY"):
+    os.environ[_k] = ""
+
 import pytest
 from unittest.mock import AsyncMock
 
