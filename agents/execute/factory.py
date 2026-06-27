@@ -216,6 +216,11 @@ async def run_react_agent(
                     builtin_tools = _bind_notion_token(builtin_tools, notion_token)
                 builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
 
+                # 행동규칙(behavioral rule)을 instruction에 담은 서브에이전트는 .tools만
+                # 추출하면 그 규칙이 증발한다(R2 버그). 이런 서브는 AgentTool로 감싸 instruction을
+                # 보존한다. notion/google/web/comm은 능력 서술만 담아 .tools 추출로 충분하다.
+                behavioral_agent_tools = []
+
                 mcp_tools = []
                 if notion_token:
                     notion_agent, _ = await build_notion_agent(model_param, notion_token, stack)
@@ -225,7 +230,9 @@ async def run_react_agent(
                     mcp_tools.extend(google_agent.tools)
                 elif github_token:
                     github_agent, _ = await build_github_agent(model_param, github_token, stack)
-                    mcp_tools.extend(github_agent.tools)
+                    # github_agent.instruction = PR 조회 규칙(search 금지·merged_at 필터·JSON 포맷).
+                    # .tools만 뽑으면 이 규칙이 사라져 github-only 노드가 규칙을 못 받는다 → AgentTool로 보존.
+                    behavioral_agent_tools.append(AgentTool(agent=github_agent))
 
                 # 헬퍼 서브에이전트는 필요할 때만 마운트한다. 명시 도구가 있는 노드(예: 발송 노드)에
                 # web/transform 헬퍼까지 붙이면 ReAct 에이전트가 곁길(예: discord 발송 대신 web_search)로
@@ -238,12 +245,15 @@ async def run_react_agent(
                     web_agent, _ = await build_web_agent(model_param)
                     transform_agent, _ = await build_transform_agent(model_param)
                     helper_tools.extend(web_agent.tools or [])
-                    helper_tools.extend(transform_agent.tools or [])
+                    # transform_agent.instruction = 출력 규칙(인사말 없이 정제된 결과만, 구조화 보고서).
+                    # web_agent는 능력 서술만이라 .tools 추출 유지. transform은 AgentTool로 instruction 보존.
+                    behavioral_agent_tools.append(AgentTool(agent=transform_agent))
 
                 raw_direct_tools = [
                     *builtin_tools,
                     *mcp_tools,
                     *helper_tools,
+                    *behavioral_agent_tools,
                 ]
                 seen_names = set()
                 direct_tools = []
