@@ -29,3 +29,14 @@ async def test_append_event_uses_push_not_full_dump():
     assert "state" in update["$set"]
     # events 전체를 $set으로 재기록하지 않아야 한다
     assert "events" not in update["$set"]
+
+
+@pytest.mark.asyncio
+async def test_get_user_state_returns_empty_dict():
+    """IEUM은 유저 스코프 상태를 쓰지 않으므로 get_user_state는 빈 dict를 반환한다.
+    (ADK 2.x 기본 구현의 NotImplementedError를 던지지 않는 forward-safe stub)"""
+    svc = MongoSessionService()
+    # DB를 건드리지 않는 순수 stub이어야 한다 — collection 접근이 없어야 함
+    svc.collection = MagicMock(side_effect=AssertionError("get_user_state must not touch DB"))
+
+    assert await svc.get_user_state(app_name="ieum-agent", user_id="u1") == {}
