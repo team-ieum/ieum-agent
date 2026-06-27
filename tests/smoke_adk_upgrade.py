@@ -154,6 +154,11 @@ async def test_smoke_structured_output():
                      instruction="사용자 요청을 nodes/edges/justification JSON Plan으로 출력하라.",
                      output_schema=WorkflowPlanSchema)
     text, _, _, _ = await _run(agent, "매일 아침 뉴스를 검색해 요약하는 워크플로를 계획해줘.", max_calls=6)
-    data = json.loads(text)
+    # output_schema 경로는 순수 JSON을 보장하지만, 모델이 ```json 펜스로 감싸는
+    # 플레이크를 방어해 파싱한다.
+    import re
+    m = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.S)
+    raw = m.group(1) if m else text
+    data = json.loads(raw)
     parsed = WorkflowPlanSchema(**data)  # 스키마 검증
     assert parsed.nodes, "nodes 비어있음 — structured output 파싱 실패"

@@ -54,12 +54,33 @@ def test_monkeypatch_targets_exist():
         assert callable(fn), "genai Client의 generate_content 계열 경로가 바뀜 — 몽키패치 깨짐"
 
 
-def test_clean_config_helpers_callable():
-    """_clean_tools / _limit_thinking 헬퍼가 존재하고 호출 가능하다 (R1 이관 시 회귀 가드)."""
+def test_clean_schema_strips_additional_properties():
+    """_clean_schema가 additionalProperties를 재귀 제거한다."""
     from core import custom_gemini
 
-    # additionalProperties 제거: dict 입력이 정리되는지
     schema = {"additionalProperties": True, "properties": {"x": {"additionalProperties": True}}}
     custom_gemini._clean_schema(schema)
     assert "additionalProperties" not in schema
     assert "additionalProperties" not in schema["properties"]["x"]
+
+
+def test_clean_tools_applies_to_function_declarations():
+    """_clean_tools가 tool의 function_declarations 파라미터까지 정리한다.
+    (R1에서 이 로직을 before_model_callback으로 이관할 때의 회귀 가드 — 거짓 커버리지 방지로
+    헬퍼를 실제 호출한다.)"""
+    from types import SimpleNamespace
+    from core import custom_gemini
+
+    fd = SimpleNamespace(parameters={"additionalProperties": True, "properties": {}})
+    tool = SimpleNamespace(function_declarations=[fd])
+    custom_gemini._clean_tools([tool])
+    assert "additionalProperties" not in fd.parameters
+
+
+def test_limit_thinking_sets_budget_on_config():
+    """_limit_thinking이 thinking_config 미지정 시 예산을 주입한다 (호출 가능 + 동작 가드)."""
+    from core import custom_gemini
+
+    cfg: dict = {}
+    custom_gemini._limit_thinking(cfg)
+    assert "thinking_config" in cfg
