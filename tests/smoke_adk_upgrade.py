@@ -6,7 +6,17 @@
 "genai 2.x 요청/응답 스키마로 실제 유효 출력이 나온다"는 실콜로만 증명된다.
 
 실행 방법 (기본 pytest에서는 제외됨 — pytest.ini의 `-m "not smoke"`):
-    GOOGLE_API_KEY=... pytest tests/smoke_adk_upgrade.py -m smoke -v
+
+  권장 A) gitignore된 .env.smoke 파일에 키를 두고 source (키가 셸 히스토리에 안 남음):
+      echo 'export GOOGLE_API_KEY=...' > .env.smoke   # .gitignore 처리됨
+      source .env.smoke && pytest tests/smoke_adk_upgrade.py -m smoke -v && unset GOOGLE_API_KEY
+
+  권장 B) read -s로 입력 (키가 커맨드라인/로그에 절대 안 뜸):
+      read -rs GOOGLE_API_KEY && export GOOGLE_API_KEY
+      pytest tests/smoke_adk_upgrade.py -m smoke -v; unset GOOGLE_API_KEY
+
+  ⚠️ 금지: `GOOGLE_API_KEY=... pytest ...` 인라인 — 그 줄이 셸 히스토리/프로세스 로그에
+  통째로 남아 키가 노출된다. 위 A/B로 키가 커맨드라인에 뜨지 않게 하라.
 
 주의:
 - 실 API 호출이라 비용/네트워크/플레이크가 있다. CI 기본 실행에서 빼고 수동/별도 job만.
