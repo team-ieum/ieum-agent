@@ -4,49 +4,11 @@ from google.genai import Client
 from google.genai import types
 from google.adk.models.google_llm import Gemini
 
-def _clean_schema(schema: Any):
-    if schema is None:
-        return
-        
-    # Pydantic models or objects
-    if hasattr(schema, "__dict__"):
-        for key in ["additional_properties", "additionalProperties"]:
-            if key in schema.__dict__:
-                schema.__dict__[key] = None
-        try:
-            if hasattr(schema, "additional_properties"):
-                schema.additional_properties = None
-            if hasattr(schema, "additionalProperties"):
-                schema.additionalProperties = None
-        except Exception:
-            pass
-
-    # Standard dicts
-    if isinstance(schema, dict):
-        for key in ["additional_properties", "additionalProperties"]:
-            schema.pop(key, None)
-        for v in schema.values():
-            _clean_schema(v)
-            
-    # Recursive field traversals for Schema types
-    if hasattr(schema, "properties") and schema.properties:
-        if isinstance(schema.properties, dict):
-            for v in schema.properties.values():
-                _clean_schema(v)
-    if hasattr(schema, "items") and schema.items:
-        _clean_schema(schema.items)
-    if hasattr(schema, "any_of") and schema.any_of:
-        for item in schema.any_of:
-            _clean_schema(item)
-
-def _clean_tools(tools: Any):
-    if not tools:
-        return
-    for tool in tools:
-        if hasattr(tool, "function_declarations") and tool.function_declarations:
-            for fd in tool.function_declarations:
-                if hasattr(fd, "parameters") and fd.parameters:
-                    _clean_schema(fd.parameters)
+# NOTE(R1a): 과거 _clean_schema/_clean_tools로 도구 스키마의 additionalProperties를
+# 직접 제거했으나(genai/Gemini가 거부하므로), ADK 2.3은 google/adk/tools/
+# _gemini_schema_util.py에서 genai 호출 전에 additional_properties를 자체 discard한다.
+# 따라서 genai 호출 시점엔 청소할 게 남지 않아 해당 로직은 죽은 코드 → 제거했다.
+# (영구 회귀 가드는 tests/smoke_adk_upgrade.py의 additionalProperties 도구 케이스가 담당.)
 
 
 # Gemini 2.5 thinking 예산(토큰). 0=완전 비활성이나 도구 호출 판단까지 생략되어 에이전트가
@@ -56,10 +18,9 @@ _THINKING_BUDGET = 512
 
 
 def _limit_thinking(config: Any):
-    """Gemini 2.5 계열의 thinking(사고) 예산을 작은 값으로 제한해 호출당 지연을 줄인다.
-
-    완전 비활성(0)이 아니라 작은 예산을 주어 도구 호출 판단 등 최소한의 추론은 유지한다.
-    호출자가 명시적으로 thinking_config를 지정하지 않은 경우에만 적용한다."""
+    """thinking(사고) 예산을 작은 값으로 제한해 호출당 지연을 줄인다.
+    호출자가 thinking_config를 지정하지 않은 경우에만 적용한다.
+    config는 genai `GenerateContentConfig`(객체) 또는 dict 둘 다 지원한다."""
     if config is None:
         return
     tc = types.ThinkingConfig(thinking_budget=_THINKING_BUDGET)
@@ -89,45 +50,20 @@ class CustomGemini(Gemini):
         if self.model.startswith('projects/'):
             kwargs['vertexai'] = True
 
-        # os.environ 대신 생성자에서 전달받은 api_key 주입
+        # os.environ 대신 생성자에서 전달받은 api_key 주입.
+        # (R1d) 이 오버라이드의 유일한 책임은 api_key 동적 주입이다. ADK 2.3 Gemini에
+        # api_key 필드가 없고 preconfigured Client 주입도 미지원(adk-python#2560)이라 유지 필수.
         if self.api_key:
             kwargs['api_key'] = self.api_key
 
-        client = Client(**kwargs)
+        return Client(**kwargs)
 
-        # Wrap generate_content + generate_content_stream (sync/async 모두).
-        # ADK가 스트리밍 경로(generate_content_stream)를 사용할 때도 _clean_tools가
-        # 적용되도록 하여 Gemini의 additionalProperties 스키마 거부 재발을 막는다.
-        orig_generate_content = client.models.generate_content
-        orig_generate_content_async = client.aio.models.generate_content
-        orig_generate_content_stream = client.models.generate_content_stream
-        orig_generate_content_stream_async = client.aio.models.generate_content_stream
+    async def generate_content_async(self, llm_request, stream: bool = False):
+        """(R1d) thinking 예산을 ADK `LlmRequest.config`에 주입한 뒤 상위 구현에 위임한다.
 
-        def _clean_config(args, kwargs):
-            config = kwargs.get("config") or (args[2] if len(args) > 2 else None)
-            if config and hasattr(config, "tools") and config.tools:
-                _clean_tools(config.tools)
-            _limit_thinking(config)
-
-        def wrapped_generate_content(*args, **kwargs):
-            _clean_config(args, kwargs)
-            return orig_generate_content(*args, **kwargs)
-
-        async def wrapped_generate_content_async(*args, **kwargs):
-            _clean_config(args, kwargs)
-            return await orig_generate_content_async(*args, **kwargs)
-
-        def wrapped_generate_content_stream(*args, **kwargs):
-            _clean_config(args, kwargs)
-            return orig_generate_content_stream(*args, **kwargs)
-
-        async def wrapped_generate_content_stream_async(*args, **kwargs):
-            _clean_config(args, kwargs)
-            return await orig_generate_content_stream_async(*args, **kwargs)
-
-        client.models.generate_content = wrapped_generate_content
-        client.aio.models.generate_content = wrapped_generate_content_async
-        client.models.generate_content_stream = wrapped_generate_content_stream
-        client.aio.models.generate_content_stream = wrapped_generate_content_stream_async
-
-        return client
+        과거엔 genai Client의 generate_content 4종을 몽키패치했으나, 그건 genai 내부에
+        강결합돼 SDK 업그레이드 때 깨지기 쉬웠다. ADK 레벨 진입점(LlmRequest.config)에서
+        처리하면 genai client 구조와 무관해진다. 스트리밍/단발 모두 이 경로를 거친다."""
+        _limit_thinking(llm_request.config)
+        async for response in super().generate_content_async(llm_request, stream):
+            yield response

@@ -162,3 +162,109 @@ async def test_smoke_structured_output():
     data = json.loads(raw)
     parsed = WorkflowPlanSchema(**data)  # 스키마 검증
     assert parsed.nodes, "nodes 비어있음 — structured output 파싱 실패"
+
+
+async def test_smoke_tool_with_additional_properties():
+    """R1a 영구 회귀 가드 — additionalProperties 유발 도구가 (CustomGemini의 _clean_tools
+    제거 후에도) 동작하는지. ADK 2.3이 _gemini_schema_util로 additionalProperties를 자체
+    discard하므로 통과해야 한다. 실패(400 INVALID_ARGUMENT)면 ADK가 더는 self-sanitize 안
+    한다는 뜻 → _clean_tools 재도입 또는 다른 대응 필요."""
+    from google.adk.agents import LlmAgent
+    from google.adk.tools.function_tool import FunctionTool
+
+    def save_config(name: str, config: dict[str, str]) -> dict:
+        """자유형 설정 dict를 저장한다. dict[str, str] 파라미터가 JSON 스키마에서
+        additionalProperties를 유발한다(과거 Gemini 거부 케이스)."""
+        return {"saved": name, "keys": list(config.keys())}
+
+    agent = LlmAgent(name="smoke", model=_model(),
+                     instruction="save_config로 설정을 저장하라.",
+                     tools=[FunctionTool(save_config)])
+    text, calls, _, _ = await _run(
+        agent, "이름 'prod', 설정 {env: production, region: seoul}으로 save_config 호출해줘.")
+    assert calls >= 1, "tool 미호출 — additionalProperties 도구가 거부됐을 수 있음"
+    assert text, "빈 응답"
+
+
+async def test_smoke_thinking_budget_path():
+    """R1d 회귀 가드 — thinking 예산 경로. thinking 주입은 generate_content_async
+    오버라이드로 이관됐고(monkeypatch 제거 완료), 이 경로로 실 호출이 성공하는지와
+    thoughts 토큰 집계가 어떻게 나오는지 출력한다."""
+    from google.adk.agents import LlmAgent
+    from google.adk.runners import Runner
+    from google.adk.agents.run_config import RunConfig
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types
+
+    agent = LlmAgent(name="smoke", model=_model(),
+                     instruction="간결히 답하라.")
+    svc = InMemorySessionService()
+    runner = Runner(agent=agent, app_name="smoke", session_service=svc)
+    s = await svc.create_session(app_name="smoke", user_id="u1")
+    msg = types.Content(role="user", parts=[types.Part(text="3+4는? 숫자만.")])
+
+    thoughts, answered = 0, False
+    async for ev in runner.run_async(user_id="u1", session_id=s.id, new_message=msg,
+                                     run_config=RunConfig(max_llm_calls=4)):
+        um = getattr(ev, "usage_metadata", None)
+        if um:
+            # genai 2.x: thinking 모델이면 thoughts_token_count 존재(없으면 None/0)
+            thoughts += getattr(um, "thoughts_token_count", 0) or 0
+        if ev.is_final_response() and ev.content and ev.content.parts:
+            answered = any(getattr(p, "text", None) for p in ev.content.parts)
+    print(f"[thinking-baseline] model={MODEL} thoughts_token_count 합계={thoughts}")
+    assert answered, "응답 없음 — thinking 경로 호출 실패"
+
+
+async def test_smoke_r2_behavioral_instruction_honored_via_agent_tool():
+    """R2 행동 레벨 가드 — AgentTool로 위임된 서브의 행동규칙 instruction이 런타임에 실제로
+    준수되는지. github_agent의 'search 금지·list 써라·JSON' 규칙을 일반화한 케이스다.
+    회귀 테스트(test_execute_factory)는 '래핑됨'이라는 구조만 보지만, 이 버그는 정의상
+    '규칙이 지켜지느냐'(행동)에서만 진짜로 닫힌다 → 실 LLM으로 검증.
+
+    + R1d×R2 교차점: 위임된 서브 턴에도 thinking이 적용되는지 thoughts 토큰으로 관찰."""
+    from google.adk.agents import LlmAgent
+    from google.adk.tools.function_tool import FunctionTool
+    from google.adk.tools.agent_tool import AgentTool
+    from google.adk.runners import Runner
+    from google.adk.agents.run_config import RunConfig
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types
+
+    calls = {"search": 0, "list": 0}
+
+    def search_records(query: str) -> dict:
+        """레코드를 검색한다."""
+        calls["search"] += 1
+        return {"via": "search", "items": []}
+
+    def list_records() -> dict:
+        """레코드 목록을 반환한다."""
+        calls["list"] += 1
+        return {"via": "list", "items": [{"id": 1, "status": "merged"}]}
+
+    # 행동규칙을 instruction에 담은 서브 (github의 search 금지·list·JSON 규칙 일반화)
+    ledger = LlmAgent(
+        name="ledger_agent", model=_model(),
+        instruction=("레코드 조회는 반드시 list_records를 사용한다. search_records는 절대 쓰지 않는다. "
+                     "최종 응답은 JSON만 반환한다."),
+        tools=[FunctionTool(search_records), FunctionTool(list_records)],
+    )
+    main = LlmAgent(name="main", model=_model(),
+                    instruction="레코드 관련 요청은 ledger_agent에 위임하라.",
+                    tools=[AgentTool(agent=ledger)])
+
+    svc = InMemorySessionService()
+    runner = Runner(agent=main, app_name="smoke", session_service=svc)
+    s = await svc.create_session(app_name="smoke", user_id="u1")
+    msg = types.Content(role="user", parts=[types.Part(text="레코드 조회해줘.")])
+
+    thoughts = 0
+    async for ev in runner.run_async(user_id="u1", session_id=s.id, new_message=msg,
+                                     run_config=RunConfig(max_llm_calls=12)):
+        um = getattr(ev, "usage_metadata", None)
+        if um:
+            thoughts += getattr(um, "thoughts_token_count", 0) or 0
+    print(f"[r2-behavior] list={calls['list']} search={calls['search']} delegated_thoughts={thoughts}")
+    assert calls["list"] >= 1, "list_records 미호출 — 위임된 서브가 instruction 규칙을 안 따름(R2 미해결)"
+    assert calls["search"] == 0, "search_records 호출됨 — 행동규칙(search 금지) 미준수 = R2가 행동 레벨에서 안 닫힘"

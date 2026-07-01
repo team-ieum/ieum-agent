@@ -539,3 +539,63 @@ async def test_run_react_agent_passes_tokens_to_sub_agents():
     # github_agent 빌드 호출 시 github_token이 전달되었는지 검증
     call_args = github_mock.call_args
     assert "github-token-value" in call_args.args or call_args.kwargs.get("github_token") == "github-token-value"
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_wraps_behavioral_subagents_as_agent_tool():
+    """R2 회귀: 단일 ReAct 경로(크레덴셜 ≤1)에서 행동규칙 보유 서브(github·transform)는
+    AgentTool로 감싸 instruction을 보존해야 한다. .tools만 평탄화하면 github의 PR 조회 규칙·
+    transform의 출력 규칙이 단일 크레덴셜 노드에서 증발한다(버그)."""
+    from agents.execute.factory import run_react_agent
+
+    gh_raw = MagicMock(); gh_raw.name = "github_raw_tool"
+    gh_agent = MagicMock(); gh_agent.tools = [gh_raw]
+    tf_raw = MagicMock(); tf_raw.name = "transform_raw_tool"
+    tf_agent = MagicMock(); tf_agent.tools = [tf_raw]
+
+    wrapped = []
+
+    def _agent_tool(agent):
+        wrapped.append(agent)
+        m = MagicMock(); m.name = f"agenttool:{id(agent)}"
+        return m
+
+    captured = {}
+
+    def _llm_agent(**kwargs):
+        captured["tools"] = kwargs.get("tools", [])
+        return MagicMock()
+
+    async def _fake_run_async(**kwargs):
+        yield _make_final_event("ok")
+
+    mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock(); mock_session.id = "s-r2"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(tools=[]), []))), \
+         patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(tf_agent, []))), \
+         patch("agents.execute.factory.build_github_agent", new=AsyncMock(return_value=(gh_agent, []))), \
+         patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
+         patch("agents.execute.factory.AgentTool", side_effect=_agent_tool), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            provider="GEMINI",
+            request=_make_request(),  # tools 없음 → 능력형 노드(web/transform 마운트) + github 단일 크레덴셜
+            api_key="test-key",
+            env_key=None,
+            user_id="u1",
+            github_token="gh-token",
+            session_service=mock_ss,
+        )
+
+    # github·transform이 AgentTool로 감싸졌는가 (instruction 보존)
+    assert gh_agent in wrapped, "github_agent가 AgentTool로 안 감싸짐 — PR 규칙 증발"
+    assert tf_agent in wrapped, "transform_agent가 AgentTool로 안 감싸짐 — 출력 규칙 증발"
+    # raw 도구가 단일 에이전트 tools에 직접 평탄화되면 안 됨(AgentTool 뒤에 있어야 instruction 적용)
+    tool_names = [getattr(t, "name", None) for t in captured["tools"]]
+    assert "github_raw_tool" not in tool_names, "github raw tool 평탄화 — instruction 우회됨"
+    assert "transform_raw_tool" not in tool_names, "transform raw tool 평탄화 — instruction 우회됨"
