@@ -81,14 +81,78 @@ async def test_generate_content_async_injects_thinking():
     assert captured["stream"] is True, "stream 인자 전달 안 됨"
 
 
+@pytest.mark.asyncio
+async def test_thinking_config_reaches_genai_client():
+    """R1d 실 forwarding 가드 — 위 테스트는 super()를 stub해 '주입'만 본다. 이 테스트는
+    ADK Gemini.generate_content_async를 실제로 태우고 genai client 경계
+    (`api_client.aio.models.generate_content`)만 stub해, 주입한 thinking_config가 ADK를
+    관통해 genai 호출의 config로 전달되는지 검증한다. ADK 업그레이드가 llm_request.config
+    forwarding을 바꾸면(예: config를 안 넘김) thinking 예산이 조용히 무력화되는데, 그때
+    captured config에 thinking_config가 없어 이 테스트가 실패한다."""
+    from unittest.mock import patch
+    from google.genai import types as genai_types
+    from google.adk.models.llm_request import LlmRequest
+    from core.custom_gemini import CustomGemini, _THINKING_BUDGET
+
+    g = CustomGemini(model="gemini-3.5-flash", api_key="test-key")
+    req = LlmRequest(
+        model="gemini-3.5-flash",
+        contents=[genai_types.Content(role="user", parts=[genai_types.Part(text="hi")])],
+        config=genai_types.GenerateContentConfig(),
+    )
+
+    captured = {}
+    fake_resp = genai_types.GenerateContentResponse(candidates=[])
+
+    async def fake_generate_content(self, **kwargs):
+        captured["config"] = kwargs.get("config")
+        return fake_resp
+
+    with patch.object(
+        type(g.api_client.aio.models), "generate_content", new=fake_generate_content
+    ):
+        async for _ in g.generate_content_async(req, stream=False):
+            pass
+
+    cfg = captured.get("config")
+    assert cfg is not None, "ADK가 genai client에 config를 전달하지 않음 — forwarding 경로 변경"
+    assert cfg.thinking_config is not None, "thinking_config가 genai 호출까지 전달 안 됨"
+    assert cfg.thinking_config.thinking_budget == _THINKING_BUDGET
+
+
 def test_clean_tools_removed():
     """R1a: additionalProperties 청소 로직은 ADK 2.3가 자체 처리(_gemini_schema_util)하므로
-    죽은 코드로 제거됐다. 다시 추가되면(중복/혼란) 잡는다. 실제 회귀 가드는 smoke의
-    additionalProperties 도구 케이스가 담당한다."""
+    죽은 코드로 제거됐다. 다시 추가되면(중복/혼란) 잡는다. self-sanitize 전제의 회귀 가드는
+    test_adk_strips_additional_properties_offline(offline, CI 포함)와 smoke 도구 케이스가 담당한다."""
     from core import custom_gemini
 
     assert not hasattr(custom_gemini, "_clean_tools"), "_clean_tools가 되살아남 — ADK 2.3가 이미 처리(중복)"
     assert not hasattr(custom_gemini, "_clean_schema"), "_clean_schema가 되살아남"
+
+
+def test_adk_strips_additional_properties_offline():
+    """R1a 회귀 가드(offline, 네트워크 불필요) — _clean_tools 제거의 근거는 'ADK 2.3가
+    _gemini_schema_util에서 additionalProperties를 자체 discard한다'는 전제다. 그 전제를
+    CI에서 검증한다. genai Schema에는 additional_properties 필드가 실제로 존재하므로, ADK
+    업그레이드가 self-sanitize를 멈추면 변환 결과에 값이 남아 이 테스트가 실패한다 →
+    _clean_tools 재도입 또는 다른 대응 필요 신호. (실 API 왕복 가드는 smoke가 보완한다.)"""
+    import json
+    from google.adk.tools._gemini_schema_util import _to_gemini_schema
+
+    # dict[str, str] 파라미터가 JSON 스키마에서 유발하는 additionalProperties 케이스.
+    openapi = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "config": {"type": "object", "additionalProperties": {"type": "string"}},
+        },
+        "required": ["name", "config"],
+    }
+    schema = _to_gemini_schema(openapi)
+    dumped = json.dumps(schema.model_dump(exclude_none=True), default=str)
+    assert (
+        "additional_properties" not in dumped and "additionalProperties" not in dumped
+    ), "ADK 2.3가 additionalProperties를 더 이상 제거하지 않음 — Gemini 400 위험, 대응 필요"
 
 
 def test_limit_thinking_sets_budget_on_config():

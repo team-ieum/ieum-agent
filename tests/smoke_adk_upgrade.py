@@ -187,9 +187,9 @@ async def test_smoke_tool_with_additional_properties():
 
 
 async def test_smoke_thinking_budget_path():
-    """R1d 사전 검증 — thinking 예산 경로의 baseline. 현재 _limit_thinking(monkeypatch)이
-    적용된 상태에서 호출이 성공하고, thoughts 토큰 집계가 어떻게 나오는지 출력한다.
-    (R1d에서 callback/config로 이관 후 같은 케이스로 동일 강도가 유지되는지 비교할 기준선.)"""
+    """R1d 회귀 가드 — thinking 예산 경로. thinking 주입은 generate_content_async
+    오버라이드로 이관됐고(monkeypatch 제거 완료), 이 경로로 실 호출이 성공하는지와
+    thoughts 토큰 집계가 어떻게 나오는지 출력한다."""
     from google.adk.agents import LlmAgent
     from google.adk.runners import Runner
     from google.adk.agents.run_config import RunConfig
