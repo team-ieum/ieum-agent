@@ -8,11 +8,15 @@ from agents.base import _safe_close_mcp
 
 logger = logging.getLogger(__name__)
 
-_INSTRUCTION = (
+_CAPABILITY = (
     "GitHub MCP 서버를 통해 리포지토리·이슈·Pull Request·GitHub Actions를 관리한다. "
-    "코드 검색, 파일 조회, PR 생성·리뷰, 이슈 트래킹, 워크플로우 실행 등을 담당한다.\n"
-    "\n"
-    "## PR 목록 조회 규칙\n"
+    "코드 검색, 파일 조회, PR 생성·리뷰, 이슈 트래킹, 워크플로우 실행 등을 담당한다."
+)
+
+# fast-path(단일 에이전트)에서 github_agent를 AgentTool로 감싸지 않고 도구만 평탄화할 때,
+# instruction 손실 없이 이 규칙 텍스트를 단일 에이전트 instruction에 직접 병합하기 위해 export한다.
+GITHUB_PR_RULES = (
+    "\n\n## PR 목록 조회 규칙\n"
     "- 특정 리포지토리의 PR 목록을 조회할 때는 검색(search) 도구 대신 PR 목록(list pull requests) "
     "도구를 사용한다. (owner/repo 지정, state=closed, 최신순). 검색 도구는 인덱싱·날짜 경계로 "
     "결과가 누락될 수 있어 신뢰하지 않는다.\n"
@@ -21,6 +25,8 @@ _INSTRUCTION = (
     "- 최종 응답은 HTTP 헤더·상태코드 등 부가 메타를 제외하고, 각 PR의 number·title·merged_at·html_url만 "
     "담은 간결한 JSON 목록으로 반환한다. (조회된 PR이 없으면 빈 목록을 반환한다.)"
 )
+
+_INSTRUCTION = _CAPABILITY + GITHUB_PR_RULES
 
 
 async def build_github_agent(

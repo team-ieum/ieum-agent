@@ -13,7 +13,7 @@ from agents.execute.main_agent import MAIN_INSTRUCTION
 from agents.execute.sub.web_agent import build_web_agent
 from agents.execute.sub.notion_agent import build_notion_agent
 from agents.execute.sub.google_agent import build_google_agent
-from agents.execute.sub.github_agent import build_github_agent
+from agents.execute.sub.github_agent import build_github_agent, GITHUB_PR_RULES
 from agents.execute.sub.communication_agent import build_communication_agent
 from agents.execute.sub.transform_agent import build_transform_agent
 from agents.execute.sub.mcp_agent import build_mcp_agent
@@ -214,10 +214,11 @@ async def run_react_agent(
                     builtin_tools = _bind_notion_token(builtin_tools, notion_token)
                 builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
 
-                # 행동규칙(behavioral rule)을 instruction에 담은 서브에이전트는 .tools만
-                # 추출하면 그 규칙이 증발한다(R2 버그). 이런 서브는 AgentTool로 감싸 instruction을
-                # 보존한다. notion/google/web/comm은 능력 서술만 담아 .tools 추출로 충분하다.
-                behavioral_agent_tools = []
+                # notion/google/web/comm/github/transform 모두 능력 서술만 남기고 .tools를
+                # 평탄화한다(nested LLM hop 제거). github는 원격 MCP라 도구 description을 바꿀 수
+                # 없으므로, PR 조회 행동규칙(GITHUB_PR_RULES)은 아래에서 단일 에이전트 instruction에
+                # 직접 병합한다. transform은 로컬 도구라 규칙을 tools/utils.py docstring으로 이관했다.
+                github_rules = ""
 
                 mcp_tools = []
                 if notion_token:
@@ -228,9 +229,8 @@ async def run_react_agent(
                     mcp_tools.extend(google_agent.tools)
                 elif github_token:
                     github_agent, _ = await build_github_agent(model_param, github_token, stack)
-                    # github_agent.instruction = PR 조회 규칙(search 금지·merged_at 필터·JSON 포맷).
-                    # .tools만 뽑으면 이 규칙이 사라져 github-only 노드가 규칙을 못 받는다 → AgentTool로 보존.
-                    behavioral_agent_tools.append(AgentTool(agent=github_agent))
+                    mcp_tools.extend(github_agent.tools)
+                    github_rules = GITHUB_PR_RULES
 
                 # 헬퍼 서브에이전트는 필요할 때만 마운트한다. 명시 도구가 있는 노드(예: 발송 노드)에
                 # web/transform 헬퍼까지 붙이면 ReAct 에이전트가 곁길(예: discord 발송 대신 web_search)로
@@ -243,15 +243,12 @@ async def run_react_agent(
                     web_agent, _ = await build_web_agent(model_param)
                     transform_agent, _ = await build_transform_agent(model_param)
                     helper_tools.extend(web_agent.tools or [])
-                    # transform_agent.instruction = 출력 규칙(인사말 없이 정제된 결과만, 구조화 보고서).
-                    # web_agent는 능력 서술만이라 .tools 추출 유지. transform은 AgentTool로 instruction 보존.
-                    behavioral_agent_tools.append(AgentTool(agent=transform_agent))
+                    helper_tools.extend(transform_agent.tools or [])
 
                 raw_direct_tools = [
                     *builtin_tools,
                     *mcp_tools,
                     *helper_tools,
-                    *behavioral_agent_tools,
                 ]
                 seen_names = set()
                 direct_tools = []
@@ -264,8 +261,9 @@ async def run_react_agent(
                     name="ieum_single_agent",
                     model=model_param,
                     instruction=(
-                        "당신은 IEUM 워크플로우 실행 에이전트입니다. 주어진 도구들을 사용하여 사용자의 요청을 직접 처리하세요.\n"
-                        f"\n## 사용자 지시\n{request.systemMessage or ''}"
+                        "당신은 IEUM 워크플로우 실행 에이전트입니다. 주어진 도구들을 사용하여 사용자의 요청을 직접 처리하세요."
+                        + github_rules
+                        + f"\n\n## 사용자 지시\n{request.systemMessage or ''}"
                         + get_current_time_info()
                     ),
                     tools=direct_tools,

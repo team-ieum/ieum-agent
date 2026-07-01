@@ -542,35 +542,30 @@ async def test_run_react_agent_passes_tokens_to_sub_agents():
 
 
 @pytest.mark.asyncio
-async def test_run_react_agent_wraps_behavioral_subagents_as_agent_tool():
-    """R2 회귀: 단일 ReAct 경로(크레덴셜 ≤1)에서 행동규칙 보유 서브(github·transform)는
-    AgentTool로 감싸 instruction을 보존해야 한다. .tools만 평탄화하면 github의 PR 조회 규칙·
-    transform의 출력 규칙이 단일 크레덴셜 노드에서 증발한다(버그)."""
+async def test_run_react_agent_flattens_behavioral_subagents_and_merges_github_rules():
+    """IEUM-AI-39: 단일 ReAct 경로(크레덴셜 ≤1)에서 github·transform은 더 이상 AgentTool로 감싸지
+    않고 .tools로 평탄화한다(nested LLM hop 제거). github의 PR 조회 규칙은 instruction 손실 없이
+    단일 에이전트 instruction에 직접 병합되어야 한다."""
     from agents.execute.factory import run_react_agent
+    from agents.execute.sub.github_agent import GITHUB_PR_RULES
 
     gh_raw = MagicMock(); gh_raw.name = "github_raw_tool"
     gh_agent = MagicMock(); gh_agent.tools = [gh_raw]
     tf_raw = MagicMock(); tf_raw.name = "transform_raw_tool"
     tf_agent = MagicMock(); tf_agent.tools = [tf_raw]
 
-    wrapped = []
-
-    def _agent_tool(agent):
-        wrapped.append(agent)
-        m = MagicMock(); m.name = f"agenttool:{id(agent)}"
-        return m
-
     captured = {}
 
     def _llm_agent(**kwargs):
         captured["tools"] = kwargs.get("tools", [])
+        captured["instruction"] = kwargs.get("instruction", "")
         return MagicMock()
 
     async def _fake_run_async(**kwargs):
         yield _make_final_event("ok")
 
     mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
-    mock_session = MagicMock(); mock_session.id = "s-r2"
+    mock_session = MagicMock(); mock_session.id = "s-r3"
     mock_ss = MagicMock()
     mock_ss.create_session = AsyncMock(return_value=mock_session)
     mock_ss.delete_session = AsyncMock()
@@ -579,7 +574,7 @@ async def test_run_react_agent_wraps_behavioral_subagents_as_agent_tool():
          patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(tf_agent, []))), \
          patch("agents.execute.factory.build_github_agent", new=AsyncMock(return_value=(gh_agent, []))), \
          patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
-         patch("agents.execute.factory.AgentTool", side_effect=_agent_tool), \
+         patch("agents.execute.factory.AgentTool") as mock_agent_tool, \
          patch("agents.execute.factory.Runner", return_value=mock_runner):
         await run_react_agent(
             model="gemini-2.5-flash",
@@ -592,10 +587,64 @@ async def test_run_react_agent_wraps_behavioral_subagents_as_agent_tool():
             session_service=mock_ss,
         )
 
-    # github·transform이 AgentTool로 감싸졌는가 (instruction 보존)
-    assert gh_agent in wrapped, "github_agent가 AgentTool로 안 감싸짐 — PR 규칙 증발"
-    assert tf_agent in wrapped, "transform_agent가 AgentTool로 안 감싸짐 — 출력 규칙 증발"
-    # raw 도구가 단일 에이전트 tools에 직접 평탄화되면 안 됨(AgentTool 뒤에 있어야 instruction 적용)
+    # nested hop 제거: AgentTool이 아예 호출되지 않아야 한다
+    mock_agent_tool.assert_not_called()
+    # raw 도구가 단일 에이전트 tools에 직접 평탄화되어야 한다
     tool_names = [getattr(t, "name", None) for t in captured["tools"]]
-    assert "github_raw_tool" not in tool_names, "github raw tool 평탄화 — instruction 우회됨"
-    assert "transform_raw_tool" not in tool_names, "transform raw tool 평탄화 — instruction 우회됨"
+    assert "github_raw_tool" in tool_names, "github raw tool이 평탄화되지 않음"
+    assert "transform_raw_tool" in tool_names, "transform raw tool이 평탄화되지 않음"
+    # github PR 규칙이 단일 에이전트 instruction에 직접 병합되어야 한다
+    assert GITHUB_PR_RULES in captured["instruction"], "github PR 규칙이 단일 에이전트 instruction에 병합되지 않음"
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_github_only_credential_merges_rules_and_flattens_tools():
+    """github-only 단일 크레덴셜 노드(request.tools=None + github_token만) 회귀 테스트.
+    규칙 문자열(merged_at 필터, search 금지 등 핵심 토큰)이 최종 단일 에이전트 instruction에
+    존재하고, raw github 도구가 평탄화되어 직접 노출되어야 한다."""
+    from agents.execute.factory import run_react_agent
+
+    gh_list_prs = MagicMock(); gh_list_prs.name = "github_list_pull_requests"
+    gh_agent = MagicMock(); gh_agent.tools = [gh_list_prs]
+
+    captured = {}
+
+    def _llm_agent(**kwargs):
+        captured["tools"] = kwargs.get("tools", [])
+        captured["instruction"] = kwargs.get("instruction", "")
+        return MagicMock()
+
+    async def _fake_run_async(**kwargs):
+        yield _make_final_event("ok")
+
+    mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock(); mock_session.id = "s-gh-only"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=None)
+
+    with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(tools=[]), []))), \
+         patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(MagicMock(tools=[]), []))), \
+         patch("agents.execute.factory.build_github_agent", new=AsyncMock(return_value=(gh_agent, []))), \
+         patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
+         patch("agents.execute.factory.AgentTool") as mock_agent_tool, \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            provider="GEMINI",
+            request=req,
+            api_key="test-key",
+            env_key=None,
+            user_id="u1",
+            github_token="gh-token-only",
+            session_service=mock_ss,
+        )
+
+    mock_agent_tool.assert_not_called()
+    tool_names = [getattr(t, "name", None) for t in captured["tools"]]
+    assert "github_list_pull_requests" in tool_names, "raw github 도구가 평탄화되지 않음"
+    instr = captured["instruction"]
+    assert "merged_at" in instr, "merged_at 필터 규칙이 instruction에 없음"
+    assert "search" in instr, "검색 도구 금지 규칙이 instruction에 없음"
