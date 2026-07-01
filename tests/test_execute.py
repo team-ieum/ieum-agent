@@ -104,15 +104,28 @@ def _make_event(is_final=False, text=None, usage_metadata=None):
 
 
 async def _run_with_events(events, agent_type="simple"):
-    """공통 패치 설정 후 run_agent()를 직접 호출하고 결과를 반환한다."""
-    def _run_async_side_effect(*args, **kwargs):
-        async def _gen():
-            for e in events:
-                yield e
-        return _gen()
+    """공통 패치 설정 후 run_agent()를 직접 호출하고 결과를 반환한다.
 
-    mock_runner = MagicMock()
-    mock_runner.run_async.side_effect = _run_async_side_effect
+    실제 ADK에서는 usage_metadata 집계가 이벤트 루프가 아니라 `UsageTrackingPlugin`
+    (Runner(plugins=[...])로 전달)의 after_model_callback에서 일어난다. Runner 자체를
+    mock하는 이 테스트에서는 그 콜백이 자동으로 호출되지 않으므로, Runner 생성 시 전달된
+    plugins를 붙잡아 이벤트가 흘러갈 때 직접 콜백을 호출해 실제 동작을 흉내낸다.
+    """
+    def _make_runner(*args, **kwargs):
+        plugins = kwargs.get("plugins") or []
+        usage_plugin = plugins[0] if plugins else None
+
+        async def _run_async(*a, **kw):
+            for e in events:
+                if usage_plugin is not None and getattr(e, "usage_metadata", None):
+                    await usage_plugin.after_model_callback(
+                        callback_context=None, llm_response=e
+                    )
+                yield e
+
+        runner = MagicMock()
+        runner.run_async = _run_async
+        return runner
 
     mock_session = MagicMock()
     mock_session.id = "session-123"
@@ -122,7 +135,7 @@ async def _run_with_events(events, agent_type="simple"):
     with patch("core.agent.resolve_env_key", return_value=None), \
          patch("core.agent.resolve_model", return_value="gemini-2.5-flash"), \
          patch("agents.execute.factory.LlmAgent"), \
-         patch("agents.execute.factory.Runner", return_value=mock_runner), \
+         patch("agents.execute.factory.Runner", side_effect=_make_runner), \
          patch("core.agent.execution_logs") as mock_logs:
 
         mock_logs.insert_one = AsyncMock()

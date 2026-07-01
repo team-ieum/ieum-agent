@@ -20,6 +20,7 @@ from agents.execute.sub.mcp_agent import build_mcp_agent
 from agents.base import _bind_workflow_context, _bind_google_token, _bind_notion_token
 from core.model_factory import build_model_param, uses_env_key
 from core.config import get_current_time_info
+from core.usage_plugin import UsageTrackingPlugin
 from db.session_service import MongoSessionService
 from tools import get_tools_for_request
 from api.schemas.request import AgentNodeRequest
@@ -123,10 +124,12 @@ async def run_simple_agent(
 
         if session_service is None:
             session_service = MongoSessionService()
+        usage = UsageTrackingPlugin()
         runner = Runner(
             agent=agent,
             app_name="ieum-agent",
-            session_service=session_service
+            session_service=session_service,
+            plugins=[usage],
         )
         session = await session_service.create_session(
             app_name="ieum-agent",
@@ -143,7 +146,6 @@ async def run_simple_agent(
         )
 
         output_parts = []
-        total_input = total_output = total_count = 0
 
         async for event in runner.run_async(
                 user_id=user_id,
@@ -154,12 +156,8 @@ async def run_simple_agent(
                 for part in event.content.parts:
                     if hasattr(part, "text") and part.text:
                         output_parts.append(part.text)
-            if hasattr(event, "usage_metadata") and event.usage_metadata:
-                total_input += event.usage_metadata.prompt_token_count or 0
-                total_output += event.usage_metadata.candidates_token_count or 0
-                total_count += event.usage_metadata.total_token_count or 0
 
-        return "\n".join(output_parts), total_input, total_output, total_count
+        return "\n".join(output_parts), usage.total_input, usage.total_output, usage.total_count
 
     finally:
         if cleanup_session_id is not None:
@@ -273,10 +271,12 @@ async def run_react_agent(
                     tools=direct_tools,
                 )
 
+                usage = UsageTrackingPlugin()
                 runner = Runner(
                     agent=single_agent,
                     app_name="ieum-agent",
-                    session_service=session_service
+                    session_service=session_service,
+                    plugins=[usage],
                 )
                 session = await session_service.create_session(
                     app_name="ieum-agent",
@@ -293,7 +293,6 @@ async def run_react_agent(
                 )
 
                 output_parts = []
-                total_input = total_output = total_count = 0
                 tool_call_count = 0
 
                 async for event in runner.run_async(
@@ -307,14 +306,9 @@ async def run_react_agent(
                         for part in event.content.parts:
                             if hasattr(part, "text") and part.text:
                                 output_parts.append(part.text)
-                    if hasattr(event, "usage_metadata") and event.usage_metadata:
-                        um = event.usage_metadata
-                        total_input += um.prompt_token_count or 0
-                        total_output += um.candidates_token_count or 0
-                        total_count += um.total_token_count or 0
 
                 _assert_tool_called(request.tools, tool_call_count)
-                return "\n".join(output_parts), total_input, total_output, total_count
+                return "\n".join(output_parts), usage.total_input, usage.total_output, usage.total_count
 
         # [기본 흐름] 복수 크레덴셜 또는 커스텀 MCP가 있는 경우 오케스트레이터(Main) + 전문 서브에이전트 구조로 실행
         async with contextlib.AsyncExitStack() as stack:
@@ -369,10 +363,12 @@ async def run_react_agent(
                 ],
             )
 
+            usage = UsageTrackingPlugin()
             runner = Runner(
                 agent=main_agent,
                 app_name="ieum-agent",
-                session_service=session_service)
+                session_service=session_service,
+                plugins=[usage])
             session = await session_service.create_session(
                 app_name="ieum-agent",
                 user_id=user_id
@@ -388,7 +384,6 @@ async def run_react_agent(
             )
 
             output_parts = []
-            total_input = total_output = total_count = 0
             tool_call_count = 0
 
             async for event in runner.run_async(
@@ -402,14 +397,9 @@ async def run_react_agent(
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
                             output_parts.append(part.text)
-                if hasattr(event, "usage_metadata") and event.usage_metadata:
-                    um = event.usage_metadata
-                    total_input += um.prompt_token_count or 0
-                    total_output += um.candidates_token_count or 0
-                    total_count += um.total_token_count or 0
 
             _assert_tool_called(request.tools, tool_call_count)
-            return "\n".join(output_parts), total_input, total_output, total_count
+            return "\n".join(output_parts), usage.total_input, usage.total_output, usage.total_count
 
     finally:
         if env_key and inject_env:
