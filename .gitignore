@@ -231,3 +231,6 @@ openapi.json
 
 # 로컬 디버그용 스크래치 스크립트 (하드코딩된 로컬 자격증명·절대경로 포함)
 scratch/
+
+# graphify 지식그래프 산출물
+graphify-out/
