@@ -15,7 +15,7 @@ from agents.execute.sub.notion_agent import build_notion_agent
 from agents.execute.sub.google_agent import build_google_agent
 from agents.execute.sub.github_agent import build_github_agent, GITHUB_PR_RULES
 from agents.execute.sub.communication_agent import build_communication_agent
-from agents.execute.sub.transform_agent import build_transform_agent
+from agents.execute.sub.transform_agent import build_transform_agent, TRANSFORM_OUTPUT_RULES
 from agents.execute.sub.mcp_agent import build_mcp_agent
 from agents.base import _bind_workflow_context, _bind_google_token, _bind_notion_token
 from core.model_factory import build_model_param, uses_env_key
@@ -217,8 +217,10 @@ async def run_react_agent(
                 # notion/google/web/comm/github/transform 모두 능력 서술만 남기고 .tools를
                 # 평탄화한다(nested LLM hop 제거). github는 원격 MCP라 도구 description을 바꿀 수
                 # 없으므로, PR 조회 행동규칙(GITHUB_PR_RULES)은 아래에서 단일 에이전트 instruction에
-                # 직접 병합한다. transform은 로컬 도구라 규칙을 tools/utils.py docstring으로 이관했다.
+                # 직접 병합한다. transform은 도구 docstring에 규칙이 있으나, 도구를 호출하지 않고
+                # 직접 생성하는 경우 docstring이 도달하지 않으므로 규칙(TRANSFORM_OUTPUT_RULES)도 병합한다.
                 github_rules = ""
+                transform_rules = ""
 
                 mcp_tools = []
                 if notion_token:
@@ -229,7 +231,7 @@ async def run_react_agent(
                     mcp_tools.extend(google_agent.tools)
                 elif github_token:
                     github_agent, _ = await build_github_agent(model_param, github_token, stack)
-                    mcp_tools.extend(github_agent.tools)
+                    mcp_tools.extend(github_agent.tools or [])
                     github_rules = GITHUB_PR_RULES
 
                 # 헬퍼 서브에이전트는 필요할 때만 마운트한다. 명시 도구가 있는 노드(예: 발송 노드)에
@@ -244,6 +246,7 @@ async def run_react_agent(
                     transform_agent, _ = await build_transform_agent(model_param)
                     helper_tools.extend(web_agent.tools or [])
                     helper_tools.extend(transform_agent.tools or [])
+                    transform_rules = TRANSFORM_OUTPUT_RULES
 
                 raw_direct_tools = [
                     *builtin_tools,
@@ -263,7 +266,8 @@ async def run_react_agent(
                     instruction=(
                         "당신은 IEUM 워크플로우 실행 에이전트입니다. 주어진 도구들을 사용하여 사용자의 요청을 직접 처리하세요."
                         + github_rules
-                        + f"\n\n## 사용자 지시\n{request.systemMessage or ''}"
+                        + transform_rules
+                        + (f"\n\n## 사용자 지시\n{request.systemMessage}" if request.systemMessage else "")
                         + get_current_time_info()
                     ),
                     tools=direct_tools,

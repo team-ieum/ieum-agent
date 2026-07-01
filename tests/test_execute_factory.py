@@ -548,6 +548,7 @@ async def test_run_react_agent_flattens_behavioral_subagents_and_merges_github_r
     단일 에이전트 instruction에 직접 병합되어야 한다."""
     from agents.execute.factory import run_react_agent
     from agents.execute.sub.github_agent import GITHUB_PR_RULES
+    from agents.execute.sub.transform_agent import TRANSFORM_OUTPUT_RULES
 
     gh_raw = MagicMock(); gh_raw.name = "github_raw_tool"
     gh_agent = MagicMock(); gh_agent.tools = [gh_raw]
@@ -595,6 +596,8 @@ async def test_run_react_agent_flattens_behavioral_subagents_and_merges_github_r
     assert "transform_raw_tool" in tool_names, "transform raw tool이 평탄화되지 않음"
     # github PR 규칙이 단일 에이전트 instruction에 직접 병합되어야 한다
     assert GITHUB_PR_RULES in captured["instruction"], "github PR 규칙이 단일 에이전트 instruction에 병합되지 않음"
+    # transform 출력 규칙도 도구 호출 없이 직접 생성하는 경우를 위해 instruction에 병합되어야 한다
+    assert TRANSFORM_OUTPUT_RULES in captured["instruction"], "transform 출력 규칙이 단일 에이전트 instruction에 병합되지 않음"
 
 
 @pytest.mark.asyncio
@@ -648,3 +651,5 @@ async def test_run_react_agent_github_only_credential_merges_rules_and_flattens_
     instr = captured["instruction"]
     assert "merged_at" in instr, "merged_at 필터 규칙이 instruction에 없음"
     assert "search" in instr, "검색 도구 금지 규칙이 instruction에 없음"
+    # systemMessage가 없으면 빈 '## 사용자 지시' 헤더가 남지 않아야 한다
+    assert "## 사용자 지시" not in instr, "systemMessage 없는데 빈 사용자 지시 헤더가 남음"
