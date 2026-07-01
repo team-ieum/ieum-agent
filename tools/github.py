@@ -146,7 +146,8 @@ async def github_list_repos(token: str, owner: str = None) -> str:
 
 async def github_list_pull_requests(token: str, owner: str, repo: str, state: str = "closed", per_page: int = 30) -> str:
     """
-    GitHub 레포지토리의 Pull Request(PR) 목록을 조회합니다.
+    GitHub 레포지토리의 Pull Request(PR) 목록을 조회합니다. PR 목록 조회에는 이 도구를 사용하고
+    검색(search) 도구는 인덱싱·날짜 경계로 결과가 누락될 수 있으므로 사용하지 않습니다.
 
     Args:
         token: GitHub access token
@@ -156,7 +157,9 @@ async def github_list_pull_requests(token: str, owner: str, repo: str, state: st
         per_page: 페이지당 가져올 개수 (기본값: 30, 최대: 30)
 
     Returns:
-        PR 목록 (number, title, state, html_url, merged_at, created_at)을 포함한 JSON 문자열
+        PR 목록 (number, title, state, html_url, merged_at, created_at)을 포함한 JSON 문자열.
+        '머지된 PR'을 요구받으면 merged_at이 null이 아닌 항목만, 기간 조건이 있으면 merged_at
+        날짜로 직접 필터링해 최종 응답에는 number·title·merged_at·html_url만 간결히 반환하세요.
     """
     try:
         # 대량 조회 시 LLM 요약 단계에서 토큰/처리시간이 폭증해 타임아웃이 발생하므로,
