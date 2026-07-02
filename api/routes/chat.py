@@ -25,6 +25,7 @@ def _build_chat_kwargs(request: ChatRequest, credentials: dict) -> dict:
         api_key=credentials["api_key"],
         user_id=credentials["user_id"],
         user_role=credentials.get("user_role"),
+        key_mode=credentials.get("key_mode"),
         workflow_id=request.workflowId,
         available_integrations=[a.model_dump() for a in request.availableIntegrations],
         unavailable_integrations=[u.model_dump() for u in request.unavailableIntegrations],
