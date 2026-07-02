@@ -221,3 +221,41 @@ async def test_execute_without_key_mode_and_key_still_400():
             headers={"X-LLM-Provider": "CLAUDE", "X-User-Id": "u1"},
         )
     assert resp.status_code == 400
+
+
+# ---- PR #40 리뷰 반영: 미들웨어 방어·진단 로그 ----
+
+@pytest.mark.asyncio
+async def test_platform_mode_self_hosted_priority_wins():
+    # self-hosted 자격(허용 role + 엔드포인트 활성) 계정에는 platform 위임이 와도 스왑하지 않는다.
+    # 우선순위: BYOK > self-hosted > platform — 미들웨어 자체 방어 (BE 계약과 별개).
+    with patch.object(settings, "PLATFORM_GEMINI_API_KEY", "pk-test"), \
+         patch.object(settings, "SELF_HOSTED_LLM_BASE_URL", "http://localhost:8001/v1"), \
+         patch.object(settings, "SELF_HOSTED_LLM_MODEL", "test-model"):
+        creds = await _call_middleware(x_key_mode="platform", x_user_role="ROLE_TESTER")
+    assert creds["provider"] == "CLAUDE"
+    assert creds["api_key"] is None
+    assert creds["key_mode"] is None
+
+
+@pytest.mark.asyncio
+async def test_unrecognized_key_mode_warns_and_ignores(caplog):
+    # 미인식 X-Key-Mode 값은 무시하되, keyMode 감사필드 오염 추적을 위해 warning을 남긴다.
+    import logging
+    with caplog.at_level(logging.WARNING, logger="api.middleware.credential"):
+        creds = await _call_middleware(x_key_mode="Platform", x_llm_api_key="sk-user")
+    assert creds["key_mode"] is None
+    assert creds["api_key"] == "sk-user"
+    assert any("X-Key-Mode" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_platform_mode_unconfigured_logs_operator_error(caplog):
+    # 플랫폼 키 미프로비저닝은 유저 400과 byte 동일 — 운영자 추적용 error 로그가 남아야 한다.
+    import logging
+    with patch.object(settings, "PLATFORM_GEMINI_API_KEY", ""), \
+         caplog.at_level(logging.ERROR, logger="api.middleware.credential"):
+        with pytest.raises(HTTPException) as exc:
+            await _call_middleware(x_key_mode="platform")
+    assert exc.value.status_code == 400
+    assert any("PLATFORM_GEMINI_API_KEY" in r.getMessage() for r in caplog.records)

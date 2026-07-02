@@ -73,9 +73,12 @@ async def run_agent(
     start = time.monotonic()
     result = AgentExecutionResult(success=False)
 
-    # platform 모드는 노드의 모델 지정을 무시하고 provider 기본모델(gemini-3.5-flash)로 강제한다.
+    # platform 모드는 노드의 모델 지정을 무시하고 provider 기본모델로 강제한다.
     # (베타 비용 통제 — 고가 모델 우회 차단. BE가 provider를 GEMINI로 강제해 보냄)
     model_override = None if key_mode == "platform" else request.model
+    if key_mode == "platform" and request.model:
+        # 강등이 조용히 일어나면 "왜 내 모델이 바뀌었나" CS 추적이 불가하므로 흔적을 남긴다.
+        logger.debug("platform 모드: 노드 지정 모델 %s 를 provider 기본모델로 강등", request.model)
 
     # 1. Execution Guard (사전 무결성/보안 필터)
     # SSRF 검사의 DNS 조회(socket.gethostbyname)가 동기 블로킹이므로
@@ -113,7 +116,8 @@ async def run_agent(
                 key_mode=key_mode,
             )
         except Exception:
-            pass
+            # keyMode가 빌링 귀속 감사필드가 되면서 이 경로의 로그 유실도 흔적이 필요하다 (정상 경로와 동일 패턴).
+            logger.warning("Failed to save execution log for node %s", request.nodeId, exc_info=True)
         return result
 
     env_key = resolve_env_key(provider)
