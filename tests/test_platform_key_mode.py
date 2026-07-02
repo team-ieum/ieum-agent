@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
 
 from api.middleware.credential import get_llm_credentials
 from api.routes.chat import _build_chat_kwargs
@@ -14,6 +15,7 @@ from core.config import settings
 from core.workflow_chat import _save_chat_log
 from core.workflow_generator import _save_generate_workflow_log
 from core.workflow_modifier import _save_modify_workflow_log
+from main import app
 
 
 def test_platform_gemini_api_key_setting_exists():
@@ -178,3 +180,44 @@ async def test_chat_log_records_key_mode():
             user_id="u1", success=True, duration_ms=10, key_mode="platform",
         )
     assert mock_logs.insert_one.call_args.args[0]["keyMode"] == "platform"
+
+
+# ---------------------------------------------------------------------------
+# Task 5: HTTP 통합 테스트 — platform 모드 E2E + usage 회귀 가드
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_execute_platform_mode_end_to_end():
+    """X-Key-Mode: platform + 키 헤더 없음 → 200, GEMINI 스왑, usage 포함(BE 토큰 차감 입력), keyMode 로깅."""
+    mock_simple = AsyncMock(return_value=("결과", 100, 50, 150))
+    with patch.object(settings, "PLATFORM_GEMINI_API_KEY", "pk-test"), \
+         patch("core.agent.run_simple_agent", mock_simple), \
+         patch("core.agent.execution_logs") as mock_logs:
+        mock_logs.insert_one = AsyncMock()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/v1/execute",
+                json={"nodeId": "n1", "renderedPrompt": "안녕", "agentType": "simple"},
+                headers={"X-LLM-Provider": "CLAUDE", "X-User-Id": "u1", "X-Key-Mode": "platform"},
+            )
+    assert resp.status_code == 200
+    body = resp.json()
+    # usage는 BE 총량 토큰 차감의 입력값 — 회귀 금지 (IEUM-BE-43 계약)
+    assert body["usage"]["totalTokens"] == 150
+    doc = mock_logs.insert_one.call_args.args[0]
+    assert doc["keyMode"] == "platform"
+    assert doc["provider"] == "GEMINI"
+
+
+@pytest.mark.asyncio
+async def test_execute_without_key_mode_and_key_still_400():
+    """회귀 가드: 헤더도 키도 없으면 기존 400 유지."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/execute",
+            json={"nodeId": "n1", "renderedPrompt": "안녕"},
+            headers={"X-LLM-Provider": "CLAUDE", "X-User-Id": "u1"},
+        )
+    assert resp.status_code == 400
