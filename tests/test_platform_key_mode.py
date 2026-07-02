@@ -1,10 +1,13 @@
 """베타 플랫폼 키 모드 (X-Key-Mode: platform) 테스트."""
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
 
 from api.middleware.credential import get_llm_credentials
+from api.schemas.request import AgentNodeRequest
+from api.schemas.response import AgentExecutionResult
+from core.agent import run_agent, save_execution_log
 from core.config import settings
 
 
@@ -72,3 +75,57 @@ async def test_no_key_mode_header_with_user_key_unchanged():
     assert creds["provider"] == "CLAUDE"
     assert creds["api_key"] == "sk-user"
     assert creds["key_mode"] is None
+
+
+# ---------------------------------------------------------------------------
+# Task 3: run_agent + save_execution_log 테스트
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_save_execution_log_records_key_mode():
+    mock_insert = AsyncMock()
+    with patch("core.agent.execution_logs") as mock_logs:
+        mock_logs.insert_one = mock_insert
+        await save_execution_log(
+            user_id="user-1",
+            node_id="n1",
+            workflow_execution_id=None,
+            provider="GEMINI",
+            model="gemini-3.5-flash",
+            agent_type="simple",
+            result=AgentExecutionResult(success=True, status="COMPLETED", output="ok"),
+            duration_ms=10,
+            key_mode="platform",
+        )
+    doc = mock_insert.call_args.args[0]
+    assert doc["keyMode"] == "platform"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_platform_mode_forces_default_model():
+    # platform 모드에서는 노드가 gemini-3.5-pro를 지정해도 기본모델(flash)로 강제된다
+    mock_simple = AsyncMock(return_value=("결과", 100, 50, 150))
+    request = AgentNodeRequest(nodeId="n1", renderedPrompt="안녕", model="gemini-3.5-pro")
+    with patch("core.agent.run_simple_agent", mock_simple), \
+         patch("core.agent.execution_logs") as mock_logs:
+        mock_logs.insert_one = AsyncMock()
+        result = await run_agent(
+            request, "GEMINI", "pk-test", "user-1", key_mode="platform",
+        )
+    assert result.success is True
+    assert mock_simple.call_args.kwargs["model"] == settings.GEMINI_DEFAULT_MODEL
+    # 로그에도 keyMode가 남는다
+    assert mock_logs.insert_one.call_args.args[0]["keyMode"] == "platform"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_byok_mode_respects_model_override():
+    # 회귀 가드: key_mode 없으면 기존처럼 노드 지정 모델(gemini-3.x)을 존중한다
+    mock_simple = AsyncMock(return_value=("결과", 100, 50, 150))
+    request = AgentNodeRequest(nodeId="n1", renderedPrompt="안녕", model="gemini-3.5-pro")
+    with patch("core.agent.run_simple_agent", mock_simple), \
+         patch("core.agent.execution_logs") as mock_logs:
+        mock_logs.insert_one = AsyncMock()
+        await run_agent(request, "GEMINI", "sk-user", "user-1")
+    assert mock_simple.call_args.kwargs["model"] == "gemini-3.5-pro"
+    assert mock_logs.insert_one.call_args.args[0]["keyMode"] is None
