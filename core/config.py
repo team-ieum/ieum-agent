@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     SELF_HOSTED_LLM_MODEL: str = ""      # 서빙 중인 모델명
     SELF_HOSTED_LLM_API_KEY: str = ""    # 엔드포인트 인증 키 (불필요하면 빈 값)
 
+    # 베타 플랫폼 키 (BE가 X-Key-Mode: platform으로 위임한 요청에서 사용하는 IEUM 소유 Gemini 키)
+    # 비어 있으면 platform 모드 전체 비활성 — 해당 요청은 기존대로 MISSING_CREDENTIAL 400 (self-hosted와 동일한 안전 기본값)
+    PLATFORM_GEMINI_API_KEY: str = ""
+
     # 에이전트 실행 가드
     # react 도구 호출 루프 상한 (ADK max_llm_calls). 광범위 조회로 무한 페이징하는 것을 차단한다.
     AGENT_MAX_LLM_CALLS: int = 50
