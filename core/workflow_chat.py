@@ -326,6 +326,7 @@ async def _save_chat_log(
     nodes: list | None = None,
     edges: list | None = None,
     error_message: str | None = None,
+    key_mode: str | None = None,
 ) -> None:
     try:
         await chat_logs.insert_one({
@@ -339,6 +340,7 @@ async def _save_chat_log(
             "edgeCount": len(edges) if edges else None,
             "rawOutput": raw_output,
             "errorMessage": error_message,
+            "keyMode": key_mode,
             "durationMs": duration_ms,
             "createdAt": datetime.now(timezone.utc),
         })
@@ -392,6 +394,7 @@ async def chat_workflow(
     available_mcp_servers: list | None = None,
     available_webhooks: list | None = None,
     preserve_id: bool | None = None,
+    key_mode: str | None = None,
     on_stage: Callable[[str], None] | None = None,
 ) -> ChatResponse:
     start = time.monotonic()
@@ -839,6 +842,7 @@ async def chat_workflow(
                 duration_ms=duration_ms,
                 raw_output=raw_output,
                 data={"type": "CLARIFICATION_NEEDED", "message": cleaned},
+                key_mode=key_mode,
             )
             return response
 
@@ -892,6 +896,7 @@ async def chat_workflow(
             data=data,
             nodes=raw_nodes,
             edges=raw_edges,
+            key_mode=key_mode,
         )
 
         return response
@@ -907,13 +912,14 @@ async def chat_workflow(
             duration_ms=duration_ms,
             raw_output=raw_output,
             error_message=str(e),
+            key_mode=key_mode,
         )
 
         logger.error("채팅 워크플로우 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
         raise ValueError(ErrorCode.CHAT_PARSE_FAILED.message)
 
 
-async def chat_workflow_stream(**kwargs):
+async def chat_workflow_stream(key_mode: str | None = None, **kwargs):
     """chat_workflow를 실행하며 진행 단계를 SSE용 이벤트로 yield한다.
 
     yield 형식은 ``(event, data)`` 튜플이다.
@@ -932,7 +938,7 @@ async def chat_workflow_stream(**kwargs):
 
     async def _run() -> None:
         try:
-            response = await chat_workflow(on_stage=on_stage, **kwargs)
+            response = await chat_workflow(on_stage=on_stage, key_mode=key_mode, **kwargs)
             await queue.put(("done", response))
         except ValueError as e:
             await queue.put(("error", {"message": str(e)}))

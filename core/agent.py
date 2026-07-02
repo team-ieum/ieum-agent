@@ -30,6 +30,7 @@ async def save_execution_log(
     agent_type: str,
     result: AgentExecutionResult,
     duration_ms: int,
+    key_mode: str | None = None,
 ):
     # 민감 정보가 포함되어 누출되는 것을 차단하기 위해 로그 저장 시 엄격한 마스킹 수행
     masked_output = OutputValidator.mask_log_content(result.output)
@@ -51,6 +52,7 @@ async def save_execution_log(
         "errorMessage": masked_err,
         "toolCalls": masked_tools,
         "usage": result.usage.model_dump() if result.usage else None,
+        "keyMode": key_mode,
         "durationMs": duration_ms,
         "createdAt": datetime.now(timezone.utc),
     })
@@ -62,6 +64,7 @@ async def run_agent(
     api_key: str | None,
     user_id: str,
     user_role: str | None = None,
+    key_mode: str | None = None,
     google_access_token: str | None = None,
     notion_token: str | None = None,
     github_token: str | None = None,
@@ -69,6 +72,13 @@ async def run_agent(
 ) -> AgentExecutionResult:
     start = time.monotonic()
     result = AgentExecutionResult(success=False)
+
+    # platform 모드는 노드의 모델 지정을 무시하고 provider 기본모델로 강제한다.
+    # (베타 비용 통제 — 고가 모델 우회 차단. BE가 provider를 GEMINI로 강제해 보냄)
+    model_override = None if key_mode == "platform" else request.model
+    if key_mode == "platform" and request.model:
+        # 강등이 조용히 일어나면 "왜 내 모델이 바뀌었나" CS 추적이 불가하므로 흔적을 남긴다.
+        logger.debug("platform 모드: 노드 지정 모델 %s 를 provider 기본모델로 강등", request.model)
 
     # 1. Execution Guard (사전 무결성/보안 필터)
     # SSRF 검사의 DNS 조회(socket.gethostbyname)가 동기 블로킹이므로
@@ -99,20 +109,22 @@ async def run_agent(
                 node_id=request.nodeId,
                 workflow_execution_id=request.workflowExecutionId,
                 provider=provider,
-                model=resolve_model(provider, request.model),
+                model=resolve_model(provider, model_override),
                 agent_type=request.agentType,
                 result=result,
                 duration_ms=duration_ms,
+                key_mode=key_mode,
             )
         except Exception:
-            pass
+            # keyMode가 빌링 귀속 감사필드가 되면서 이 경로의 로그 유실도 흔적이 필요하다 (정상 경로와 동일 패턴).
+            logger.warning("Failed to save execution log for node %s", request.nodeId, exc_info=True)
         return result
 
     env_key = resolve_env_key(provider)
     # Gemini(CustomGemini 직접 주입) 및 자체 LLM(엔드포인트 자격증명 사용)은 os.environ을 건드리지 않으므로 Lock을 잡지 않습니다.
     lock = get_env_lock(env_key) if (env_key and uses_env_key(provider, api_key, user_role)) else None
 
-    model = resolve_model(provider, request.model)
+    model = resolve_model(provider, model_override)
 
     try:
         async def _execute() -> tuple[str, int, int, int]:
@@ -212,6 +224,7 @@ async def run_agent(
             agent_type=request.agentType,
             result=result,
             duration_ms=duration_ms,
+            key_mode=key_mode,
         )
     except Exception:
         logger.warning("Failed to save execution log for node %s", request.nodeId, exc_info=True)

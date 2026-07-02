@@ -68,6 +68,7 @@ async def _save_generate_workflow_log(
     node_count: int | None = None,
     edge_count: int | None = None,
     error_message: str | None = None,
+    key_mode: str | None = None,
 ) -> None:
     """generate_workflow 실행 결과를 MongoDB에 저장한다. 실패 시 경고 로그만 남긴다."""
     try:
@@ -79,6 +80,7 @@ async def _save_generate_workflow_log(
             "nodeCount": node_count,
             "edgeCount": edge_count,
             "errorMessage": error_message,
+            "keyMode": key_mode,
             "durationMs": duration_ms,
             "createdAt": datetime.now(timezone.utc),
         })
@@ -171,6 +173,7 @@ async def generate_workflow(
     api_key: str | None,
     available_mcp_servers: list | None = None,
     user_role: str | None = None,
+    key_mode: str | None = None,
 ) -> GenerateWorkflowResponse:
     start = time.monotonic()
     model = resolve_model(provider)
@@ -221,6 +224,7 @@ async def generate_workflow(
             success=False,
             duration_ms=duration_ms,
             error_message=f"워크플로우 생성/검증 최종 실패: {str(err)}",
+            key_mode=key_mode,
         )
         logger.error("워크플로우 생성/검증 최종 실패: %s", str(err), exc_info=True)
         raise ValueError(f"{ErrorCode.AGENT_EXECUTION_FAILED.message} (JSON 파싱 실패: {str(err)})")
@@ -235,5 +239,6 @@ async def generate_workflow(
         duration_ms=duration_ms,
         node_count=len(response.nodes),
         edge_count=len(response.edges),
+        key_mode=key_mode,
     )
     return response

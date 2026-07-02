@@ -26,6 +26,7 @@ async def modify_workflow_endpoint(
             provider=credentials["provider"],
             api_key=credentials["api_key"],
             user_role=credentials.get("user_role"),
+            key_mode=credentials.get("key_mode"),
         )
     except ValueError:
         raise HTTPException(status_code=ErrorCode.WORKFLOW_MODIFY_PARSE_FAILED.status_code,

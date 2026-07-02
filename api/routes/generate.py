@@ -25,6 +25,7 @@ async def generate_workflow_endpoint(
             api_key=credentials["api_key"],
             available_mcp_servers=request.available_mcp_servers,
             user_role=credentials.get("user_role"),
+            key_mode=credentials.get("key_mode"),
         )
     except ValueError:
         # LLM 빈 응답 또는 JSON 파싱 실패 — 내부 메시지 노출 없이 일반화된 메시지 반환

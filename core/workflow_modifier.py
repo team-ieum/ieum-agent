@@ -136,6 +136,7 @@ async def _save_modify_workflow_log(
     node_count: int | None = None,
     edge_count: int | None = None,
     error_message: str | None = None,
+    key_mode: str | None = None,
 ) -> None:
     """modify_workflow 실행 결과를 MongoDB에 저장한다. 실패 시 경고 로그만 남긴다."""
     try:
@@ -147,6 +148,7 @@ async def _save_modify_workflow_log(
             "nodeCount": node_count,
             "edgeCount": edge_count,
             "errorMessage": error_message,
+            "keyMode": key_mode,
             "durationMs": duration_ms,
             "createdAt": datetime.now(timezone.utc),
         })
@@ -161,6 +163,7 @@ async def modify_workflow(
     provider: str,
     api_key: str | None,
     user_role: str | None = None,
+    key_mode: str | None = None,
 ) -> ModifyWorkflowResponse:
     start = time.monotonic()
     model = resolve_model(provider)
@@ -269,6 +272,7 @@ async def modify_workflow(
             duration_ms=duration_ms,
             node_count=len(nodes),
             edge_count=len(edges),
+            key_mode=key_mode,
         )
 
         return response
@@ -283,6 +287,7 @@ async def modify_workflow(
             success=False,
             duration_ms=duration_ms,
             error_message=str(e),
+            key_mode=key_mode,
         )
 
         logger.error("워크플로우 수정 JSON 파싱 실패: %s\nraw_output: %s", str(e), raw_output)
