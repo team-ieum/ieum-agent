@@ -34,6 +34,22 @@ def test_setup_registers_when_endpoint_set(monkeypatch):
         assert setup_telemetry() is True
 
 
+def test_setup_hides_input_output_content(monkeypatch):
+    # LLM 입출력 전문이 OTLP로 유출되면 output_validator 마스킹을 우회해 시크릿이 노출된다.
+    # TraceConfig(hide_inputs/hide_outputs)로 메시지 '내용'만 숨기고 메타데이터는 유지해야 한다.
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:6006/v1/traces")
+    with _fake_otel_modules():
+        fake_instrumentor_cls = sys.modules["openinference.instrumentation.google_adk"].GoogleADKInstrumentor
+        assert setup_telemetry() is True
+
+    instance = fake_instrumentor_cls.return_value
+    instance.instrument.assert_called_once()
+    _, kwargs = instance.instrument.call_args
+    config = kwargs["config"]
+    assert config.hide_inputs is True
+    assert config.hide_outputs is True
+
+
 def test_main_calls_setup_before_routes(monkeypatch):
     # main import 시 setup_telemetry가 호출되는지(부트 훅) 검증
     called = {"v": False}

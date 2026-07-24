@@ -44,12 +44,19 @@ def setup_telemetry() -> bool:
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from openinference.instrumentation import TraceConfig
         from openinference.instrumentation.google_adk import GoogleADKInstrumentor
 
         provider = TracerProvider()
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
         trace.set_tracer_provider(provider)
-        GoogleADKInstrumentor().instrument(tracer_provider=provider)
+        # LLM 입출력 메시지 '내용'은 OTLP export에서 숨긴다. output_validator의 시크릿 마스킹은
+        # 이 경로(OTel span attribute)를 거치지 않으므로, 내용을 그대로 캡처하면 GITHUB_TOKEN 등
+        # 시크릿이 평문으로 외부 OTLP 엔드포인트에 유출된다. 메타데이터(토큰 수·cost·trace_id)는 유지.
+        GoogleADKInstrumentor().instrument(
+            tracer_provider=provider,
+            config=TraceConfig(hide_inputs=True, hide_outputs=True),
+        )
         _initialized = True
         logger.info("OpenTelemetry 트레이싱 활성화 → %s", endpoint)
         return True
