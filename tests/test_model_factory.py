@@ -75,21 +75,42 @@ def test_inactive_when_model_missing(monkeypatch):
     assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", None, "ROLE_TESTER") == "claude-sonnet-4-20250514"
 
 
-# ---------- 키 우선 (자격 있어도 키 등록 시 키 사용) ----------
+# ---------- 키 우선 (자격 있어도 키 등록 시 키 사용) — Task 2: 이제는 LiteLlm 직접 주입 ----------
 
 @pytest.mark.parametrize("role", ["ROLE_TESTER", "ROLE_ADMIN"])
 def test_eligible_role_with_key_uses_key(active, role):
-    assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", "my-key", role) == "claude-sonnet-4-20250514"
+    # Task 2: 자격 있어도 키 있으면 LiteLlm으로 직접 주입(env 미오염)
+    ctx, fake_module = _patch_litellm()
+    with ctx:
+        build_model_param("CLAUDE", "claude-sonnet-4-20250514", "my-key", role)
+    fake_module.LiteLlm.assert_called_once()
+    _, kwargs = fake_module.LiteLlm.call_args
+    assert kwargs["model"] == "anthropic/claude-sonnet-4-20250514"
+    assert kwargs["api_key"] == "my-key"
 
 
-# ---------- 기존(API 키) 경로 보존 ----------
+# ---------- 기존(API 키) 경로 보존 — Task 2: api_key 있으면 LiteLlm 직접 주입 ----------
 
-def test_user_role_returns_model_string(active):
-    assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", "key", "ROLE_USER") == "claude-sonnet-4-20250514"
+def test_user_role_returns_litellm_when_has_key(active):
+    # ROLE_USER는 자체 LLM 자격 없음 + api_key 있음 → Task 2: LiteLlm 직접 주입
+    ctx, fake_module = _patch_litellm()
+    with ctx:
+        build_model_param("CLAUDE", "claude-sonnet-4-20250514", "key", "ROLE_USER")
+    fake_module.LiteLlm.assert_called_once()
+    _, kwargs = fake_module.LiteLlm.call_args
+    assert kwargs["model"] == "anthropic/claude-sonnet-4-20250514"
+    assert kwargs["api_key"] == "key"
 
 
-def test_no_role_returns_model_string(active):
-    assert build_model_param("CLAUDE", "claude-sonnet-4-20250514", "key", None) == "claude-sonnet-4-20250514"
+def test_no_role_returns_litellm_when_has_key(active):
+    # role=None은 자체 LLM 자격 없음 + api_key 있음 → Task 2: LiteLlm 직접 주입
+    ctx, fake_module = _patch_litellm()
+    with ctx:
+        build_model_param("CLAUDE", "claude-sonnet-4-20250514", "key", None)
+    fake_module.LiteLlm.assert_called_once()
+    _, kwargs = fake_module.LiteLlm.call_args
+    assert kwargs["model"] == "anthropic/claude-sonnet-4-20250514"
+    assert kwargs["api_key"] == "key"
 
 
 def test_gemini_returns_custom_gemini():
@@ -102,13 +123,13 @@ def test_gemini_returns_custom_gemini():
 
 def test_uses_env_key_self_hosted_active(active):
     assert uses_env_key("CLAUDE", None, "ROLE_TESTER") is False   # 자체 LLM → 주입 불필요
-    assert uses_env_key("CLAUDE", "key", "ROLE_TESTER") is True    # 키 등록 → 키 경로 → 주입 필요
-    assert uses_env_key("CLAUDE", "key", "ROLE_USER") is True
+    assert uses_env_key("CLAUDE", "key", "ROLE_TESTER") is False  # LiteLlm 직접 주입 → 주입 불필요
+    assert uses_env_key("CLAUDE", "key", "ROLE_USER") is False    # LiteLlm 직접 주입 → 주입 불필요
 
 
 def test_uses_env_key_inactive():
-    # 미설정 + 키 있음 → 키 경로(주입 필요)
-    assert uses_env_key("CLAUDE", "key", "ROLE_TESTER") is True
+    # 미설정 + 키 있음 → LiteLlm 직접 주입(주입 불필요)
+    assert uses_env_key("CLAUDE", "key", "ROLE_TESTER") is False
     # 키 없음 → 주입할 키가 없으므로 False (TypeError 방어)
     assert uses_env_key("CLAUDE", None, "ROLE_TESTER") is False
 
@@ -116,6 +137,12 @@ def test_uses_env_key_inactive():
 @pytest.mark.parametrize("api_key,role", [("key", None), (None, "ROLE_TESTER")])
 def test_uses_env_key_gemini(api_key, role):
     assert uses_env_key("GEMINI", api_key, role) is False
+
+
+def test_commercial_with_key_no_env_injection():
+    # LiteLlm 인스턴스 주입으로 바뀌었으므로 env 주입 불필요
+    assert uses_env_key("CLAUDE", "sk-user-key", "ROLE_USER") is False
+    assert uses_env_key("OPENAI", "sk-user-key", "ROLE_USER") is False
 
 
 # ---------- is_self_hosted_eligible ----------
@@ -130,3 +157,49 @@ def test_eligible_when_active(active):
 def test_eligible_false_when_not_configured():
     # 엔드포인트 미설정 시 자격 role이어도 False (키 필수 유지)
     assert is_self_hosted_eligible("ROLE_TESTER") is False
+
+
+# ---------- _litellm_model_name ----------
+
+from core.model_factory import _litellm_model_name
+
+
+@pytest.mark.parametrize("provider,model,expected", [
+    ("CLAUDE", "claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"),
+    ("OPENAI", "gpt-4o", "openai/gpt-4o"),
+    ("CLAUDE", "anthropic/claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"),  # 중복 prefix 방지
+    ("UNKNOWN", "some-model", "some-model"),  # 매핑 없음 → 원본
+])
+def test_litellm_model_name(provider, model, expected):
+    assert _litellm_model_name(provider, model) == expected
+
+
+# ---------- Claude/OpenAI + 키 있음 → LiteLlm 인스턴스 주입 ----------
+
+@pytest.mark.parametrize("provider,model,expected_model", [
+    ("CLAUDE", "claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"),
+    ("OPENAI", "gpt-4o", "openai/gpt-4o"),
+])
+def test_commercial_with_key_uses_litellm_instance(provider, model, expected_model):
+    ctx, fake_module = _patch_litellm()
+    with ctx:
+        build_model_param(provider, model, "sk-user-key", "ROLE_USER")
+    fake_module.LiteLlm.assert_called_once()
+    _, kwargs = fake_module.LiteLlm.call_args
+    assert kwargs["model"] == expected_model
+    assert kwargs["api_key"] == "sk-user-key"
+    assert "api_base" not in kwargs  # 상용은 api_base 없음(self-hosted와 구분)
+
+
+@pytest.mark.parametrize("api_key", [None, ""])
+def test_commercial_without_key_falls_back_to_string(api_key):
+    # 키 없으면 LiteLlm 인스턴스가 아니라 모델명 문자열(env fallback) 반환
+    result = build_model_param("CLAUDE", "claude-sonnet-4-5", api_key, "ROLE_USER")
+    assert result == "claude-sonnet-4-5"
+
+
+def test_gemini_still_customgemini():
+    # GEMINI는 변경 없음 — CustomGemini 유지
+    result = build_model_param("GEMINI", "gemini-3.5-flash", "gkey", "ROLE_USER")
+    from core.custom_gemini import CustomGemini
+    assert isinstance(result, CustomGemini)

@@ -13,6 +13,23 @@ from core.config import settings
 from core.custom_gemini import CustomGemini
 
 
+_LITELLM_PREFIX = {"CLAUDE": "anthropic", "OPENAI": "openai"}
+
+
+def _litellm_model_name(provider: str, model: str) -> str:
+    """provider를 LiteLlm 라우팅용 prefix가 붙은 모델명으로 변환한다.
+
+    ADK registry가 'anthropic/'·'openai/' prefix로 LiteLlm을 선택하므로 필수.
+    이미 prefix가 붙어있으면 그대로 두고, 매핑 없는 provider는 원본을 반환한다.
+    """
+    prefix = _LITELLM_PREFIX.get(provider.upper())
+    if not prefix:
+        return model
+    if model.startswith(f"{prefix}/"):
+        return model
+    return f"{prefix}/{model}"
+
+
 def _self_hosted_configured() -> bool:
     """자체 LLM 엔드포인트가 설정되어 활성 상태인지. BASE_URL과 MODEL이 모두 있어야 활성으로 본다.
     (MODEL이 비면 LiteLlm이 "openai/"로 생성돼 호출이 실패하므로 둘 다 요구한다.)"""
@@ -58,6 +75,11 @@ def build_model_param(provider: str, model: str, api_key: str | None, user_role:
         )
     if provider.upper() == "GEMINI":
         return CustomGemini(model=model, api_key=api_key)
+    # 신규: Claude/OpenAI + 키 있음 → LiteLlm 인스턴스(요청별 api_key 격리, os.environ 미오염)
+    if api_key and provider.upper() in _LITELLM_PREFIX:
+        from google.adk.models.lite_llm import LiteLlm
+        return LiteLlm(model=_litellm_model_name(provider, model), api_key=api_key)
+    # 키 없음/미매핑 → 기존 문자열 경로(ADK env 키 fallback) 보존
     return model
 
 
@@ -72,5 +94,8 @@ def uses_env_key(provider: str, api_key: str | None, user_role: str | None = Non
     if provider.upper() == "GEMINI":
         return False
     if _use_self_hosted(api_key, user_role):
+        return False
+    # 신규: Claude/OpenAI + 키 있음은 LiteLlm 인스턴스가 키를 주입받으므로 env 불필요
+    if provider.upper() in _LITELLM_PREFIX:
         return False
     return True
