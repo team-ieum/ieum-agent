@@ -275,3 +275,32 @@ def test_execute_no_notion_token_header_passes_none():
             headers=HEADERS,  # X-Notion-Token 없음
         )
     assert mock_run.call_args.kwargs.get("notion_token") is None
+
+
+# ---------------------------------------------------------------------------
+# 회귀 가드: HTTP 응답에 usage 필드 포함 (LiteLlm 배선 후 유지)
+# ---------------------------------------------------------------------------
+
+def test_execute_response_includes_usage():
+    """HTTP 응답에 usage 필드가 포함되고 LiteLlm 배선 후에도 토큰 정보가 유지된다 (회귀 가드)."""
+    from api.schemas.response import UsageRecord
+
+    usage = UsageRecord(
+        promptTokens=100,
+        completionTokens=50,
+        totalTokens=150
+    )
+    mock_result = AgentExecutionResult(
+        success=True,
+        output="test result",
+        usage=usage
+    )
+    with patch("api.routes.execute.run_agent", new=AsyncMock(return_value=mock_result)):
+        response = client.post("/v1/execute", json=PAYLOAD, headers=HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "usage" in data
+    assert data["usage"]["promptTokens"] == 100
+    assert data["usage"]["completionTokens"] == 50
+    assert data["usage"]["totalTokens"] == 150
