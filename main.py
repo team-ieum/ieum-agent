@@ -1,6 +1,10 @@
 import contextlib
 import logging
 
+# OpenTelemetry는 google.adk를 끌어오는 어떤 import보다 먼저 배선해야 한다.
+from core.telemetry import setup_telemetry
+setup_telemetry()
+
 from fastapi import FastAPI
 from api.routes import execute, generate, modify, chat
 from db.mongodb import ensure_indexes, seed_node_templates
@@ -29,6 +33,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ieum-agent", lifespan=lifespan)
+
+from api.middleware.tracing import TraceIdMiddleware
+app.add_middleware(TraceIdMiddleware)
+
 app.include_router(execute.router, prefix="/v1")
 app.include_router(generate.router, prefix="/v1")
 app.include_router(modify.router, prefix="/v1")

@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from core.usage_plugin import UsageTrackingPlugin
 
@@ -97,3 +97,43 @@ async def test_plugin_ignores_response_without_usage_metadata_attribute():
     assert plugin.total_input == 0
     assert plugin.total_output == 0
     assert plugin.total_count == 0
+
+
+@pytest.mark.asyncio
+async def test_plugin_attaches_cost_to_active_span():
+    plugin = UsageTrackingPlugin(model="anthropic/claude-sonnet-4-5")
+    resp = _make_llm_response(prompt=100, candidates=50, total=150)
+    fake_span = MagicMock()
+    fake_span.is_recording.return_value = True
+    with (
+        patch("core.usage_plugin._span_cost_usd", return_value=0.0042),
+        patch("core.usage_plugin.trace.get_current_span", return_value=fake_span),
+    ):
+        await plugin.after_model_callback(callback_context=MagicMock(), llm_response=resp)
+    assert plugin.total_cost_usd == 0.0042
+    fake_span.set_attribute.assert_called_once_with("ieum.cost_usd", 0.0042)
+
+
+@pytest.mark.asyncio
+async def test_plugin_skips_cost_when_no_model():
+    plugin = UsageTrackingPlugin(model=None)
+    resp = _make_llm_response(prompt=100, candidates=50, total=150)
+    with patch("core.usage_plugin.trace.get_current_span") as gcs:
+        await plugin.after_model_callback(callback_context=MagicMock(), llm_response=resp)
+    assert plugin.total_cost_usd == 0.0
+    gcs.assert_not_called()          # 모델 없으면 span 접근도 안 함
+    assert plugin.total_input == 100  # usage 집계는 정상
+
+
+@pytest.mark.asyncio
+async def test_plugin_cost_none_does_not_attach():
+    plugin = UsageTrackingPlugin(model="mystery-model")
+    resp = _make_llm_response(prompt=1, candidates=1, total=2)
+    fake_span = MagicMock()
+    with (
+        patch("core.usage_plugin._span_cost_usd", return_value=None),
+        patch("core.usage_plugin.trace.get_current_span", return_value=fake_span),
+    ):
+        await plugin.after_model_callback(callback_context=MagicMock(), llm_response=resp)
+    assert plugin.total_cost_usd == 0.0
+    fake_span.set_attribute.assert_not_called()

@@ -247,8 +247,11 @@ async def test_run_agent_success_non_final_events_ignored():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_run_agent_env_key_set_and_restored():
-    """run_agent 실행 후 os.environ에서 API 키가 복원(제거)된다."""
+async def test_run_agent_commercial_no_env_injection():
+    """CLAUDE/OPENAI + api_key는 LiteLlm(api_key=...) 인스턴스로 키를 전달받으므로
+    os.environ에는 전혀 주입되지 않는다(uses_env_key()가 False를 반환).
+    os.environ 오염 제거가 목적이므로 실행 전/도중/후 모두 env에 키가 없어야 한다.
+    """
     request = _make_request()
     env_key = _ENV_KEY_MAP["CLAUDE"]
 
@@ -282,9 +285,9 @@ async def test_run_agent_env_key_set_and_restored():
             session_service=mock_session_service
         )
 
-    # 실행 도중에는 환경변수가 설정되어 있어야 한다
-    assert captured_env_values["during"] == "sk-test"
-    # 실행 후에는 환경변수가 원복(없어야)되어야 한다
+    # LiteLlm 인스턴스가 키를 직접 받으므로 실행 도중에도 env에는 주입되지 않는다
+    assert captured_env_values["during"] is None
+    # 실행 후에도 여전히 env에는 키가 없어야 한다
     assert env_key not in os.environ
     assert result.success is True
 
@@ -438,8 +441,12 @@ async def test_run_agent_exception_metadata_not_exposed():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_run_agent_known_provider_uses_env_lock():
-    """env_key가 있는 provider(CLAUDE)는 _env_locks[env_key] Lock을 사용한다."""
+async def test_run_agent_commercial_skips_env_lock():
+    """CLAUDE/OPENAI + api_key는 LiteLlm 인스턴스로 키를 주입받아 os.environ을
+    건드리지 않으므로(uses_env_key()=False), env_lock도 획득할 필요가 없다.
+    env_key 매핑 자체는 존재하지만(_ENV_KEY_MAP["CLAUDE"]), run_agent는
+    uses_env_key() 결과에 따라 Lock 획득을 건너뛰어야 한다.
+    """
     request = _make_request()
     env_key = _ENV_KEY_MAP["CLAUDE"]
 
@@ -477,7 +484,7 @@ async def test_run_agent_known_provider_uses_env_lock():
         )
 
     assert result.success is True
-    assert acquired_count["value"] == 1, "Lock이 정확히 한 번 획득되어야 한다"
+    assert acquired_count["value"] == 0, "LiteLlm 인스턴스 주입 방식이라 env_lock을 획득하지 않아야 한다"
 
 
 @pytest.mark.asyncio

@@ -81,11 +81,18 @@ mmh3==5.2.1
 motor==3.7.1
 multidict==6.7.1
 openai==2.33.0
+openinference-instrumentation==0.1.54
+openinference-instrumentation-google-adk==0.1.17
+openinference-semantic-conventions==0.1.30
 opentelemetry-api==1.42.1
 opentelemetry-exporter-gcp-monitoring==1.11.0a0
 opentelemetry-exporter-gcp-trace==1.11.0
-opentelemetry-exporter-otlp-proto-common==1.38.0
-opentelemetry-proto==1.38.0
+opentelemetry-exporter-otlp==1.42.1
+opentelemetry-exporter-otlp-proto-common==1.42.1
+opentelemetry-exporter-otlp-proto-grpc==1.42.1
+opentelemetry-exporter-otlp-proto-http==1.42.1
+opentelemetry-instrumentation==0.63b1
+opentelemetry-proto==1.42.1
 opentelemetry-resourcedetector-gcp==1.11.0a0
 opentelemetry-sdk==1.42.1
 opentelemetry-semantic-conventions==0.63b1
@@ -140,5 +147,6 @@ uvloop==0.22.1
 watchdog==6.0.0
 watchfiles==1.2.0
 websockets==15.0.1
+wrapt==2.2.2
 yarl==1.23.0
 zipp==3.23.1
