@@ -7,6 +7,8 @@ sse-starlette>=2.1.0
 google-adk>=2.3.0,<3.0.0
 google-genai>=2.8,<3  # ADK 2.3이 genai 2.x 강제
 litellm>=1.40.0  # ADK LiteLlm 래퍼 (자체 호스팅 OpenAI 호환 LLM 호출용)
+openinference-instrumentation-google-adk  # ADK span을 OpenInference 규약으로 (Phoenix 연동)
+opentelemetry-exporter-otlp               # OTLP exporter (→ Phoenix)
 
 # Database
 motor>=3.5.1
