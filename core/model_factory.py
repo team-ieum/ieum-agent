@@ -90,6 +90,11 @@ def cost_model_name(provider: str, model: str, api_key: str | None, user_role: s
     """
     if _use_self_hosted(api_key, user_role):
         return None
+    # GEMINI는 라우팅(CustomGemini)에는 prefix가 필요 없지만, litellm cost 조회는
+    # "gemini/" prefix가 있어야 정확히 매칭된다. 라우팅용 _litellm_model_name/_LITELLM_PREFIX는
+    # 건드리지 않고 cost 계산 전용으로만 분리 처리한다.
+    if provider.upper() == "GEMINI":
+        return model if model.startswith("gemini/") else f"gemini/{model}"
     return _litellm_model_name(provider, model)
 
 
