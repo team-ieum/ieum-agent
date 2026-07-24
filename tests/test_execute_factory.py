@@ -653,3 +653,121 @@ async def test_run_react_agent_github_only_credential_merges_rules_and_flattens_
     assert "search" in instr, "검색 도구 금지 규칙이 instruction에 없음"
     # systemMessage가 없으면 빈 '## 사용자 지시' 헤더가 남지 않아야 한다
     assert "## 사용자 지시" not in instr, "systemMessage 없는데 빈 사용자 지시 헤더가 남음"
+
+
+# ---------- UsageTrackingPlugin model wiring (cost 관측 커버리지, IEUM-AI-46) ----------
+# 지금까지는 UsageTrackingPlugin(model=cost_model_name(...))가 실제로 올바른 model을
+# 넘기는지 직접 검증하는 테스트가 없었다(간접 커버만 존재). factory.py의 3개 생성 지점
+# (run_simple_agent / run_react_agent 명시 도구 분기 / run_react_agent 멀티 에이전트 분기)을
+# 각각 직접 검증한다.
+
+@pytest.mark.asyncio
+async def test_run_simple_agent_passes_cost_model_to_usage_plugin():
+    """run_simple_agent가 UsageTrackingPlugin에 cost_model_name(provider, model, ...) 결과를 넘긴다."""
+    from agents.execute.factory import run_simple_agent
+    from core.model_factory import cost_model_name
+
+    async def _fake_run_async(**kwargs):
+        yield _make_final_event("ok")
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock()
+    mock_session.id = "s1"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+
+    with patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner) as mock_runner_cls:
+        await run_simple_agent(
+            model="claude-sonnet-4-5",
+            provider="CLAUDE",
+            request=_make_request(agent_type="simple"),
+            api_key="sk-test",
+            env_key=None,
+            user_id="user-1",
+            session_service=mock_ss,
+        )
+
+    _, kwargs = mock_runner_cls.call_args
+    usage = kwargs["plugins"][0]
+    assert usage.model == cost_model_name("CLAUDE", "claude-sonnet-4-5", "sk-test", None)
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_explicit_tool_node_passes_cost_model_to_usage_plugin():
+    """run_react_agent의 명시 도구(single_agent) 분기가 올바른 cost model을 넘긴다."""
+    from agents.execute.factory import run_react_agent
+    from core.model_factory import cost_model_name
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(1, final_text="발송 완료")
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock()
+    mock_session.id = "s-call"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=[{"name": "discord", "config": {}}])
+
+    with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner) as mock_runner_cls:
+        await run_react_agent(
+            model="claude-sonnet-4-5",
+            provider="CLAUDE",
+            request=req,
+            api_key="sk-test",
+            env_key=None,
+            user_id="user-1",
+            session_service=mock_ss,
+        )
+
+    _, kwargs = mock_runner_cls.call_args
+    usage = kwargs["plugins"][0]
+    assert usage.model == cost_model_name("CLAUDE", "claude-sonnet-4-5", "sk-test", None)
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_multi_agent_passes_cost_model_to_usage_plugin():
+    """run_react_agent의 멀티 에이전트(main_agent) 분기가 올바른 cost model을 넘긴다."""
+    from agents.execute.factory import run_react_agent
+    from core.model_factory import cost_model_name
+
+    async def _fake_run_async(**kwargs):
+        yield _make_final_event("react response")
+
+    mock_runner = MagicMock()
+    mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock()
+    mock_session.id = "s2"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+
+    with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_google_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_github_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.build_mcp_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
+         patch("agents.execute.factory.LlmAgent"), \
+         patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner) as mock_runner_cls:
+        await run_react_agent(
+            model="claude-sonnet-4-5",
+            provider="CLAUDE",
+            request=_make_request(),
+            api_key="sk-test",
+            env_key=None,
+            user_id="user-1",
+            session_service=mock_ss,
+        )
+
+    _, kwargs = mock_runner_cls.call_args
+    usage = kwargs["plugins"][0]
+    assert usage.model == cost_model_name("CLAUDE", "claude-sonnet-4-5", "sk-test", None)

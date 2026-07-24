@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from core import telemetry
 from core.usage_plugin import UsageTrackingPlugin
 
 
@@ -100,7 +101,8 @@ async def test_plugin_ignores_response_without_usage_metadata_attribute():
 
 
 @pytest.mark.asyncio
-async def test_plugin_attaches_cost_to_active_span():
+async def test_plugin_attaches_cost_to_active_span(monkeypatch):
+    monkeypatch.setattr(telemetry, "_initialized", True)  # OTEL 활성 상태를 가정
     plugin = UsageTrackingPlugin(model="anthropic/claude-sonnet-4-5")
     resp = _make_llm_response(prompt=100, candidates=50, total=150)
     fake_span = MagicMock()
@@ -115,7 +117,8 @@ async def test_plugin_attaches_cost_to_active_span():
 
 
 @pytest.mark.asyncio
-async def test_plugin_skips_cost_when_no_model():
+async def test_plugin_skips_cost_when_no_model(monkeypatch):
+    monkeypatch.setattr(telemetry, "_initialized", True)
     plugin = UsageTrackingPlugin(model=None)
     resp = _make_llm_response(prompt=100, candidates=50, total=150)
     with patch("core.usage_plugin.trace.get_current_span") as gcs:
@@ -126,7 +129,8 @@ async def test_plugin_skips_cost_when_no_model():
 
 
 @pytest.mark.asyncio
-async def test_plugin_cost_none_does_not_attach():
+async def test_plugin_cost_none_does_not_attach(monkeypatch):
+    monkeypatch.setattr(telemetry, "_initialized", True)
     plugin = UsageTrackingPlugin(model="mystery-model")
     resp = _make_llm_response(prompt=1, candidates=1, total=2)
     fake_span = MagicMock()
@@ -137,3 +141,24 @@ async def test_plugin_cost_none_does_not_attach():
         await plugin.after_model_callback(callback_context=MagicMock(), llm_response=resp)
     assert plugin.total_cost_usd == 0.0
     fake_span.set_attribute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_plugin_skips_cost_when_otel_inactive(monkeypatch):
+    """OTEL이 비활성(setup_telemetry 미실행/엔드포인트 미설정)이면 cost 계산·span 부착을
+    건너뛴다 — 안 나가는 span에 cost를 계산해 litellm 호출 비용만 낭비하지 않도록. 토큰
+    집계(total_input/output/count)는 계속 이뤄져야 한다."""
+    monkeypatch.setattr(telemetry, "_initialized", False)
+    plugin = UsageTrackingPlugin(model="anthropic/claude-sonnet-4-5")
+    resp = _make_llm_response(prompt=100, candidates=50, total=150)
+    with (
+        patch("core.usage_plugin._span_cost_usd") as span_cost,
+        patch("core.usage_plugin.trace.get_current_span") as gcs,
+    ):
+        await plugin.after_model_callback(callback_context=MagicMock(), llm_response=resp)
+    span_cost.assert_not_called()
+    gcs.assert_not_called()
+    assert plugin.total_cost_usd == 0.0
+    assert plugin.total_input == 100   # 토큰 집계는 게이팅 대상 아님
+    assert plugin.total_output == 50
+    assert plugin.total_count == 150

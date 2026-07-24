@@ -67,11 +67,12 @@ def test_main_calls_setup_before_routes(monkeypatch):
 
 def test_compute_cost_known_model(monkeypatch):
     from core import telemetry
-    monkeypatch.setattr(telemetry, "_completion_cost", lambda **kw: 0.0042)
+    # litellm.cost_per_token은 (prompt_cost, completion_cost) 튜플을 반환한다.
+    monkeypatch.setattr(telemetry, "_cost_per_token", lambda **kw: (0.0012, 0.003))
     cost = telemetry._span_cost_usd(
         model="anthropic/claude-sonnet-4-5", prompt_tokens=100, completion_tokens=50
     )
-    assert cost == 0.0042
+    assert cost == pytest.approx(0.0042)
 
 
 def test_compute_cost_unknown_model_returns_none(monkeypatch):
@@ -80,6 +81,28 @@ def test_compute_cost_unknown_model_returns_none(monkeypatch):
     def _raise(**kw):
         raise ValueError("unknown model")
 
-    monkeypatch.setattr(telemetry, "_completion_cost", _raise)
+    monkeypatch.setattr(telemetry, "_cost_per_token", _raise)
     cost = telemetry._span_cost_usd(model="mystery", prompt_tokens=1, completion_tokens=1)
     assert cost is None  # 계산 실패는 삼키고 None(span은 유지)
+
+
+# ---------- 실 litellm 회귀 가드 (몽키패치 없음) ----------
+# _completion_cost(prompt_tokens=...) 잘못된 kwargs로 litellm.completion_cost를 호출하던 버그가
+# 몽키패치 테스트로는 잡히지 않았다(위 두 테스트는 _cost_per_token 자체를 대체함). 실제 litellm을
+# 호출해 TypeError 없이 양수 cost가 나오는지 확인해야 이런 시그니처 회귀를 잡는다.
+
+def test_span_cost_usd_real_litellm_claude():
+    cost = telemetry._span_cost_usd("anthropic/claude-sonnet-4-5", 1000, 500)
+    assert cost is not None and cost > 0
+
+
+def test_span_cost_usd_real_litellm_gemini():
+    from core.model_factory import cost_model_name
+    model = cost_model_name("GEMINI", "gemini-3.5-flash", "test-key", None)
+    cost = telemetry._span_cost_usd(model, 1000, 500)
+    assert cost is not None and cost > 0
+
+
+def test_span_cost_usd_real_litellm_openai():
+    cost = telemetry._span_cost_usd("openai/gpt-4o", 1000, 500)
+    assert cost is not None and cost > 0

@@ -223,3 +223,13 @@ def test_cost_model_name_commercial_when_key_present(active):
 def test_cost_model_name_commercial_when_not_eligible():
     # 자체 LLM 미설정/미자격 → 상용 라우팅
     assert cost_model_name("CLAUDE", "claude-sonnet-4-20250514", None, "ROLE_USER") == "anthropic/claude-sonnet-4-20250514"
+
+
+def test_cost_model_name_gemini_adds_prefix():
+    # 라우팅(_litellm_model_name/CustomGemini)은 prefix 없이 그대로 두지만, cost 계산은
+    # litellm 조회를 위해 "gemini/" prefix를 붙인다.
+    assert cost_model_name("GEMINI", "gemini-3.5-flash", "gkey", "ROLE_USER") == "gemini/gemini-3.5-flash"
+
+
+def test_cost_model_name_gemini_prefix_idempotent():
+    assert cost_model_name("GEMINI", "gemini/gemini-3.5-flash", "gkey", "ROLE_USER") == "gemini/gemini-3.5-flash"

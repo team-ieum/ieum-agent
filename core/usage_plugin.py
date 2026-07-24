@@ -3,6 +3,7 @@ from typing import Optional
 from google.adk.plugins.base_plugin import BasePlugin
 from opentelemetry import trace
 
+from core import telemetry
 from core.telemetry import _span_cost_usd
 
 
@@ -39,8 +40,10 @@ class UsageTrackingPlugin(BasePlugin):
             self.total_input += prompt
             self.total_output += completion
             self.total_count += um.total_token_count or 0
-            # cost: 모델명이 있을 때만. 계산 실패는 None(무시). 관측이 실행을 깨지 않는다.
-            if self.model:
+            # cost: 모델명이 있고 OTEL이 활성일 때만(telemetry._initialized 재사용 — 안 나가는
+            # span에 붙일 cost를 계산해 litellm 호출 비용만 낭비하지 않도록). 계산 실패는
+            # None(무시). 관측이 실행을 깨지 않는다.
+            if self.model and telemetry._initialized:
                 cost = _span_cost_usd(self.model, prompt, completion)
                 if cost is not None:
                     self.total_cost_usd += cost

@@ -10,20 +10,26 @@ logger = logging.getLogger(__name__)
 _initialized = False
 
 
-def _completion_cost(**kwargs):
-    """litellm.completion_cost 얇은 래퍼(테스트에서 monkeypatch 지점)."""
+def _cost_per_token(**kwargs):
+    """litellm.cost_per_token 얇은 래퍼(테스트에서 monkeypatch 지점).
+
+    litellm.completion_cost는 prompt_tokens/completion_tokens kwargs를 받지 않는다
+    (completion_response/messages 등 응답 객체 형태만 받음). 토큰 개수로 직접 비용을
+    구하려면 cost_per_token(model, prompt_tokens, completion_tokens)을 써야 한다.
+    """
     import litellm
-    return litellm.completion_cost(**kwargs)
+    return litellm.cost_per_token(**kwargs)
 
 
 def _span_cost_usd(model: str, prompt_tokens: int, completion_tokens: int):
     """token→USD cost. 계산 실패(미지 모델 등)는 None 반환(span은 유지)."""
     try:
-        return _completion_cost(
+        prompt_cost, completion_cost = _cost_per_token(
             model=model,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
         )
+        return prompt_cost + completion_cost
     except Exception:
         return None
 
