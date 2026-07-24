@@ -18,7 +18,7 @@ from agents.execute.sub.communication_agent import build_communication_agent
 from agents.execute.sub.transform_agent import build_transform_agent, TRANSFORM_OUTPUT_RULES
 from agents.execute.sub.mcp_agent import build_mcp_agent
 from agents.base import _bind_workflow_context, _bind_google_token, _bind_notion_token
-from core.model_factory import build_model_param, uses_env_key, _litellm_model_name
+from core.model_factory import build_model_param, uses_env_key, cost_model_name
 from core.config import get_current_time_info
 from core.usage_plugin import UsageTrackingPlugin
 from db.session_service import MongoSessionService
@@ -124,7 +124,7 @@ async def run_simple_agent(
 
         if session_service is None:
             session_service = MongoSessionService()
-        usage = UsageTrackingPlugin(model=_litellm_model_name(provider, model))
+        usage = UsageTrackingPlugin(model=cost_model_name(provider, model, api_key, user_role))
         runner = Runner(
             agent=agent,
             app_name="ieum-agent",
@@ -273,7 +273,7 @@ async def run_react_agent(
                     tools=direct_tools,
                 )
 
-                usage = UsageTrackingPlugin(model=_litellm_model_name(provider, model))
+                usage = UsageTrackingPlugin(model=cost_model_name(provider, model, api_key, user_role))
                 runner = Runner(
                     agent=single_agent,
                     app_name="ieum-agent",
@@ -365,7 +365,7 @@ async def run_react_agent(
                 ],
             )
 
-            usage = UsageTrackingPlugin(model=_litellm_model_name(provider, model))
+            usage = UsageTrackingPlugin(model=cost_model_name(provider, model, api_key, user_role))
             runner = Runner(
                 agent=main_agent,
                 app_name="ieum-agent",

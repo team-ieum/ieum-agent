@@ -203,3 +203,23 @@ def test_gemini_still_customgemini():
     result = build_model_param("GEMINI", "gemini-3.5-flash", "gkey", "ROLE_USER")
     from core.custom_gemini import CustomGemini
     assert isinstance(result, CustomGemini)
+
+
+# ---------- cost_model_name: build_model_param의 실제 라우팅을 cost 계산에 반영 ----------
+
+from core.model_factory import cost_model_name
+
+
+def test_cost_model_name_none_when_self_hosted(active):
+    # 자체 LLM으로 라우팅되면(자격+키없음) 상용 단가가 아니므로 cost 생략
+    assert cost_model_name("CLAUDE", "claude-sonnet-4-20250514", None, "ROLE_TESTER") is None
+
+
+def test_cost_model_name_commercial_when_key_present(active):
+    # 자격이 있어도 키를 등록하면 상용 라우팅이므로 실제 provider 단가를 반환
+    assert cost_model_name("CLAUDE", "claude-sonnet-4-20250514", "my-key", "ROLE_TESTER") == "anthropic/claude-sonnet-4-20250514"
+
+
+def test_cost_model_name_commercial_when_not_eligible():
+    # 자체 LLM 미설정/미자격 → 상용 라우팅
+    assert cost_model_name("CLAUDE", "claude-sonnet-4-20250514", None, "ROLE_USER") == "anthropic/claude-sonnet-4-20250514"

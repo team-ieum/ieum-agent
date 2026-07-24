@@ -83,6 +83,16 @@ def build_model_param(provider: str, model: str, api_key: str | None, user_role:
     return model
 
 
+def cost_model_name(provider: str, model: str, api_key: str | None, user_role: str | None = None) -> str | None:
+    """cost 계산용 모델명. build_model_param의 실제 라우팅을 반영한다.
+
+    self-hosted로 라우팅되면 상용 단가가 아니므로 None(cost 생략, self-hosted는 미과금).
+    """
+    if _use_self_hosted(api_key, user_role):
+        return None
+    return _litellm_model_name(provider, model)
+
+
 def uses_env_key(provider: str, api_key: str | None, user_role: str | None = None) -> bool:
     """os.environ에 API Key 주입이 필요한지 여부.
 
