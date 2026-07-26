@@ -834,3 +834,110 @@ def test_format_webhook_catalog():
         {"webhookCredentialId": "wh-1", "provider": "SLACK", "displayName": "팀채널"},
     ])
     assert "wh-1" in text and "SLACK" in text and "webhookCredentialId" in text
+
+
+# ── usage 집계 (IEUM-AI-48) ──────────────────────────────────────────────
+
+def _make_patches_with_usage(text_output: str, token_pairs: list | None = None):
+    """Runner에 전달된 plugins를 캡처하고, run_async마다 after_model_callback을 호출해
+    실제 누적 경로를 태우는 패치 셋.
+
+    Runner를 통째로 mock하면 ADK가 플러그인 콜백을 부르지 않으므로, 여기서 직접 부른다.
+    token_pairs는 run_async 호출 순서대로 (prompt, completion) 토큰을 준다.
+    반환된 captured["plugins"]로 designer/reviewer가 같은 인스턴스를 공유하는지 검증한다.
+    """
+    captured = {"plugins": []}
+    pairs = token_pairs or []
+    state = {"i": 0}
+
+    def _runner_factory(**kwargs):
+        plugins = kwargs.get("plugins") or []
+        captured["plugins"].append(plugins)
+
+        async def mock_run_async(**_kw):
+            i = state["i"]
+            state["i"] += 1
+            if i < len(pairs):
+                prompt_t, completion_t = pairs[i]
+                for plugin in plugins:
+                    um = MagicMock()
+                    um.prompt_token_count = prompt_t
+                    um.candidates_token_count = completion_t
+                    um.total_token_count = prompt_t + completion_t
+                    llm_response = MagicMock()
+                    llm_response.usage_metadata = um
+                    await plugin.after_model_callback(
+                        callback_context=MagicMock(), llm_response=llm_response
+                    )
+            ev = MagicMock()
+            ev.is_final_response.return_value = True
+            ev.content.parts = [type("Part", (), {"text": text_output})()]
+            yield ev
+
+        runner = MagicMock()
+        runner.run_async = mock_run_async
+        return runner
+
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.get_session = AsyncMock(return_value=None)
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+    mock_session_service.delete_session = AsyncMock(return_value=None)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    patches = (
+        patch("core.workflow_chat.Runner", side_effect=_runner_factory),
+        patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
+        patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
+        patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
+    )
+    return patches, captured
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_usage_응답에_채워진다():
+    """LLM 호출의 토큰이 ChatResponse.usage에 실린다."""
+    (p1, p2, p3, p4), _ = _make_patches_with_usage(
+        WORKFLOW_GENERATED_JSON, token_pairs=[(100, 30)]
+    )
+    with p1, p2, p3, p4:
+        result = await _call("워크플로우 만들어줘")
+
+    assert result.usage is not None
+    assert result.usage.promptTokens == 100
+    assert result.usage.completionTokens == 30
+    assert result.usage.totalTokens == 130
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_usage_designer_reviewer_합산():
+    """designer와 reviewer가 같은 플러그인 인스턴스를 공유해 토큰이 합산된다."""
+    (p1, p2, p3, p4), captured = _make_patches_with_usage(
+        WORKFLOW_GENERATED_JSON, token_pairs=[(100, 30), (50, 20)]
+    )
+    with p1, p2, p3, p4:
+        result = await _call("워크플로우 만들어줘")
+
+    # Runner가 2개(designer/reviewer) 생성되고 둘 다 같은 플러그인 인스턴스를 받아야 한다
+    assert len(captured["plugins"]) >= 2
+    first = captured["plugins"][0][0]
+    assert all(plugins[0] is first for plugins in captured["plugins"])
+
+    # run_async가 2회 이상 돌았다면 합산돼야 한다
+    assert result.usage is not None
+    assert result.usage.promptTokens >= 100
+    assert result.usage.totalTokens >= 130
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_usage_토큰없으면_None():
+    """LLM이 토큰을 보고하지 않으면 usage는 None이다(execute 경로와 동일)."""
+    (p1, p2, p3, p4), _ = _make_patches_with_usage(WORKFLOW_GENERATED_JSON, token_pairs=[])
+    with p1, p2, p3, p4:
+        result = await _call("워크플로우 만들어줘")
+
+    assert result.usage is None

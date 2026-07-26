@@ -22,12 +22,14 @@ from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParam
 from google.genai import types
 
 from api.schemas.chat import ChatResponse, ChatResponseType, ChatAction, ClarificationOption
+from api.schemas.response import UsageRecord
+from core.usage_plugin import UsageTrackingPlugin
 from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge
 from common.error_code import ErrorCode
 from core.config import get_current_time_info
 from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
-from core.model_factory import build_model_param, uses_env_key
+from core.model_factory import build_model_param, uses_env_key, cost_model_name
 from db.mongodb import chat_logs
 from tools.notion import notion_search
 from tools.github import github_list_orgs, github_list_repos, github_list_issues, github_list_pull_requests
@@ -363,6 +365,18 @@ def _bind_token(fn, **bound_args):
     return p
 
 
+def _to_usage_record(plugin: UsageTrackingPlugin) -> UsageRecord | None:
+    """플러그인 누적값을 응답 스키마로 변환한다. 토큰이 하나도 안 잡히면 None
+    (core.agent.run_agent의 execute 경로와 동일 규약)."""
+    if not (plugin.total_input or plugin.total_output):
+        return None
+    return UsageRecord(
+        promptTokens=plugin.total_input,
+        completionTokens=plugin.total_output,
+        totalTokens=plugin.total_count or (plugin.total_input + plugin.total_output),
+    )
+
+
 def _emit_stage(on_stage: Callable[[str], None] | None, stage: str) -> None:
     """진행 단계 콜백을 안전하게 호출한다.
 
@@ -416,6 +430,10 @@ async def chat_workflow(
     env_key = resolve_env_key(provider)
     inject_env = uses_env_key(provider, api_key, user_role)
     lock = get_env_lock(env_key) if (env_key and inject_env) else None
+
+    # designer·reviewer·재생성 루프의 모든 LLM 호출을 한 인스턴스에 누적한다.
+    # 두 Runner가 같은 플러그인을 공유해야 합산이 성립한다(각자 만들면 마지막 것만 남는다).
+    usage_plugin = UsageTrackingPlugin(model=cost_model_name(provider, model, api_key, user_role))
 
     # 동적 주입 — 연동 현황
     available_text = ""
@@ -602,6 +620,7 @@ async def chat_workflow(
                     agent=designer_agent,
                     app_name="ieum-agent",
                     session_service=session_service,
+                    plugins=[usage_plugin],
                 )
 
                 # reviewer 실행을 위한 runner
@@ -609,6 +628,7 @@ async def chat_workflow(
                     agent=reviewer_agent,
                     app_name="ieum-agent",
                     session_service=session_service,
+                    plugins=[usage_plugin],
                 )
 
                 # 세션 격리: workflow_id가 있으면 워크플로우별 멀티턴 세션을 이어가고,
@@ -831,6 +851,7 @@ async def chat_workflow(
                 nodes=None,
                 edges=None,
                 rawPrompt=prompt,
+                usage=_to_usage_record(usage_plugin),
             )
             duration_ms = int((time.monotonic() - start) * 1000)
             await _save_chat_log(
@@ -882,6 +903,7 @@ async def chat_workflow(
             edges=edges,
             rawPrompt=prompt,
             workflowName=data.get("workflowName"),
+            usage=_to_usage_record(usage_plugin),
         )
 
         duration_ms = int((time.monotonic() - start) * 1000)

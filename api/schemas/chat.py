@@ -3,6 +3,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge, McpServerMeta, WebhookMeta
 from api.schemas.request import McpServerConfig
+from api.schemas.response import UsageRecord
 
 
 class ChatResponseType(str, Enum):
@@ -77,3 +78,6 @@ class ChatResponse(BaseModel):
     edges: Optional[List[WorkflowEdge]] = None
     rawPrompt: str
     workflowName: Optional[str] = None
+    # designer·reviewer의 모든 LLM 호출을 합산한 토큰 사용량. backend의 베타 토큰 쿼터 차감에 쓰인다.
+    # 모델이 토큰을 보고하지 않으면 None (/v1/execute의 AgentExecutionResult.usage와 동일 규약).
+    usage: Optional[UsageRecord] = None
