@@ -1,0 +1,136 @@
+name: Agent Main Server Deploy
+
+on:
+  push:
+    branches: [IEUM-SRV-26 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent_main_server
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.11'
+  IMAGE_NAME: ieum-agent-main
+  CONTAINER_NAME: ieum-agent
+  DOCKER_NETWORK: ieum_net_green
+  AGENT_IP: 10.10.10.14
+  ENV_FILE: /home/kwung/deploy/ieum-agent/.env
+
+jobs:
+  deploy:
+    name: Deploy Agent Main to Self Hosted Server
+    runs-on:
+      group: ieum_dev_server
+      labels: [self-hosted, linux, x64, ieum-agent]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Render server env file from GitHub Secrets
+        env:
+          MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
+          MONGODB_DB_NAME: ${{ secrets.AGENT_MONGODB_DB_NAME }}
+          PORT: ${{ secrets.AGENT_PORT }}
+          CLAUDE_DEFAULT_MODEL: ${{ secrets.AGENT_CLAUDE_DEFAULT_MODEL }}
+          OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
+          GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
+          NOTION_MCP_URL: ${{ secrets.AGENT_NOTION_MCP_URL }}
+          NOTION_MCP_AUTH_TOKEN: ${{ secrets.AGENT_NOTION_MCP_AUTH_TOKEN }}
+          PLATFORM_GEMINI_API_KEY: ${{ secrets.PLATFORM_GEMINI_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+        run: |
+          missing_vars=()
+          [ -n "$MONGODB_URL" ] || missing_vars+=("AGENT_MONGODB_URL")
+          [ -n "$MONGODB_DB_NAME" ] || missing_vars+=("AGENT_MONGODB_DB_NAME")
+          [ -n "$PORT" ] || missing_vars+=("AGENT_PORT")
+          [ -n "$CLAUDE_DEFAULT_MODEL" ] || missing_vars+=("AGENT_CLAUDE_DEFAULT_MODEL")
+          [ -n "$OPENAI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_OPENAI_DEFAULT_MODEL")
+          [ -n "$GEMINI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_GEMINI_DEFAULT_MODEL")
+
+          if [ ${#missing_vars[@]} -gt 0 ]; then
+            echo "::error::Missing GitHub Secrets for: ${missing_vars[*]}"
+            exit 1
+          fi
+
+          mkdir -p "$(dirname "$ENV_FILE")"
+          umask 077
+          tmp_env="$(mktemp)"
+
+          {
+            printf 'MONGODB_URL=%s\n' "$MONGODB_URL"
+            printf 'MONGODB_DB_NAME=%s\n' "$MONGODB_DB_NAME"
+            printf 'PORT=%s\n' "$PORT"
+            printf 'CLAUDE_DEFAULT_MODEL=%s\n' "$CLAUDE_DEFAULT_MODEL"
+            printf 'OPENAI_DEFAULT_MODEL=%s\n' "$OPENAI_DEFAULT_MODEL"
+            printf 'GEMINI_DEFAULT_MODEL=%s\n' "$GEMINI_DEFAULT_MODEL"
+
+            if [ -n "$NOTION_MCP_URL" ]; then printf 'NOTION_MCP_URL=%s\n' "$NOTION_MCP_URL"; fi
+            if [ -n "$NOTION_MCP_AUTH_TOKEN" ]; then printf 'NOTION_MCP_AUTH_TOKEN=%s\n' "$NOTION_MCP_AUTH_TOKEN"; fi
+            if [ -n "$PLATFORM_GEMINI_API_KEY" ]; then printf 'PLATFORM_GEMINI_API_KEY=%s\n' "$PLATFORM_GEMINI_API_KEY"; fi
+            if [ -n "$TAVILY_API_KEY" ]; then printf 'TAVILY_API_KEY=%s\n' "$TAVILY_API_KEY"; fi
+            if [ -n "$OTEL_EXPORTER_OTLP_ENDPOINT" ]; then printf 'OTEL_EXPORTER_OTLP_ENDPOINT=%s\n' "$OTEL_EXPORTER_OTLP_ENDPOINT"; fi
+          } > "$tmp_env"
+
+          mv "$tmp_env" "$ENV_FILE"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Test
+        env:
+          APP_MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
+          TEST_MONGODB_URL: ${{ secrets.AGENT_TEST_MONGODB_URL }}
+          TEST_MONGODB_DB_NAME: ${{ secrets.AGENT_TEST_MONGODB_DB_NAME }}
+        run: |
+          export MONGODB_URL="${TEST_MONGODB_URL:-$APP_MONGODB_URL}"
+          export MONGODB_DB_NAME="${TEST_MONGODB_DB_NAME:-ieum_test}"
+
+          pytest tests/
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t $IMAGE_NAME:${{ github.sha }} \
+            -t $IMAGE_NAME:latest .
+
+      - name: Restart agent container
+        run: |
+          docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1 \
+            || docker network create --subnet 10.10.10.0/24 "$DOCKER_NETWORK"
+
+          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+
+          docker run -d \
+            --name "$CONTAINER_NAME" \
+            --restart unless-stopped \
+            --network "$DOCKER_NETWORK" \
+            --ip "$AGENT_IP" \
+            --env-file "$ENV_FILE" \
+            "$IMAGE_NAME:latest"
+
+      - name: Health check
+        env:
+          PORT: ${{ secrets.AGENT_PORT }}
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "http://$AGENT_IP:$PORT/health" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs --tail 100 "$CONTAINER_NAME"
+          exit 1
