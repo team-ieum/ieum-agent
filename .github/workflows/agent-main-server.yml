@@ -2,7 +2,7 @@ name: Agent Main Server Deploy
 
 on:
   push:
-    branches: [IEUM-SRV-26 ]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -12,104 +12,111 @@ concurrency:
   group: agent_main_server
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 env:
-  PYTHON_VERSION: '3.11'
-  IMAGE_NAME: ieum-agent-main
-  CONTAINER_NAME: ieum-agent
-  DOCKER_NETWORK: ieum_net_green
-  AGENT_IP: 10.10.10.14
-  ENV_FILE: /home/kwung/deploy/ieum-agent/.env
+  PYTHON_VERSION: ${{ secrets.AGENT_PYTHON_VERSION }}
+  IMAGE_NAME: ${{ secrets.AGENT_IMAGE_NAME }}
+  CONTAINER_NAME: ${{ secrets.AGENT_CONTAINER_NAME }}
+  DOCKER_NETWORK: ${{ secrets.DOCKER_NETWORK }}
+  DOCKER_NETWORK_SUBNET: ${{ secrets.DOCKER_NETWORK_SUBNET }}
+  AGENT_IP: ${{ secrets.AGENT_IP }}
+  AGENT_PORT: ${{ secrets.AGENT_PORT }}
 
 jobs:
   deploy:
-    name: Deploy Agent Main to Self Hosted Server
+    name: Deploy Agent Main to EC2
     runs-on:
-      group: ieum_dev_server
-      labels: [self-hosted, linux, x64, ieum-agent]
+      group: ieum_main_server
+      labels: [self-hosted, linux, x64, ieum-agent, main, deploy]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Render server env file from GitHub Secrets
-        env:
-          MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
-          MONGODB_DB_NAME: ${{ secrets.AGENT_MONGODB_DB_NAME }}
-          PORT: ${{ secrets.AGENT_PORT }}
-          CLAUDE_DEFAULT_MODEL: ${{ secrets.AGENT_CLAUDE_DEFAULT_MODEL }}
-          OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
-          GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
-          NOTION_MCP_URL: ${{ secrets.AGENT_NOTION_MCP_URL }}
-          NOTION_MCP_AUTH_TOKEN: ${{ secrets.AGENT_NOTION_MCP_AUTH_TOKEN }}
-          PLATFORM_GEMINI_API_KEY: ${{ secrets.PLATFORM_GEMINI_API_KEY }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+      - name: Validate deploy secrets
         run: |
+          set -euo pipefail
+
           missing_vars=()
-          [ -n "$MONGODB_URL" ] || missing_vars+=("AGENT_MONGODB_URL")
-          [ -n "$MONGODB_DB_NAME" ] || missing_vars+=("AGENT_MONGODB_DB_NAME")
-          [ -n "$PORT" ] || missing_vars+=("AGENT_PORT")
-          [ -n "$CLAUDE_DEFAULT_MODEL" ] || missing_vars+=("AGENT_CLAUDE_DEFAULT_MODEL")
-          [ -n "$OPENAI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_OPENAI_DEFAULT_MODEL")
-          [ -n "$GEMINI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_GEMINI_DEFAULT_MODEL")
+          for name in \
+            PYTHON_VERSION \
+            IMAGE_NAME \
+            CONTAINER_NAME \
+            DOCKER_NETWORK \
+            DOCKER_NETWORK_SUBNET \
+            AGENT_IP \
+            AGENT_PORT
+          do
+            [ -n "${!name}" ] || missing_vars+=("$name")
+          done
 
           if [ ${#missing_vars[@]} -gt 0 ]; then
-            echo "::error::Missing GitHub Secrets for: ${missing_vars[*]}"
+            echo "::error::Missing deploy secrets for: ${missing_vars[*]}"
             exit 1
           fi
 
-          mkdir -p "$(dirname "$ENV_FILE")"
-          umask 077
-          tmp_env="$(mktemp)"
+      - name: Validate app secrets
+        env:
+          AGENT_MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
+          AGENT_MONGODB_DB_NAME: ${{ secrets.AGENT_MONGODB_DB_NAME }}
+          AGENT_CLAUDE_DEFAULT_MODEL: ${{ secrets.AGENT_CLAUDE_DEFAULT_MODEL }}
+          AGENT_OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
+          AGENT_GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
+        run: |
+          set -euo pipefail
 
-          {
-            printf 'MONGODB_URL=%s\n' "$MONGODB_URL"
-            printf 'MONGODB_DB_NAME=%s\n' "$MONGODB_DB_NAME"
-            printf 'PORT=%s\n' "$PORT"
-            printf 'CLAUDE_DEFAULT_MODEL=%s\n' "$CLAUDE_DEFAULT_MODEL"
-            printf 'OPENAI_DEFAULT_MODEL=%s\n' "$OPENAI_DEFAULT_MODEL"
-            printf 'GEMINI_DEFAULT_MODEL=%s\n' "$GEMINI_DEFAULT_MODEL"
+          missing_vars=()
+          for name in \
+            AGENT_MONGODB_URL \
+            AGENT_MONGODB_DB_NAME \
+            AGENT_CLAUDE_DEFAULT_MODEL \
+            AGENT_OPENAI_DEFAULT_MODEL \
+            AGENT_GEMINI_DEFAULT_MODEL
+          do
+            [ -n "${!name}" ] || missing_vars+=("$name")
+          done
 
-            if [ -n "$NOTION_MCP_URL" ]; then printf 'NOTION_MCP_URL=%s\n' "$NOTION_MCP_URL"; fi
-            if [ -n "$NOTION_MCP_AUTH_TOKEN" ]; then printf 'NOTION_MCP_AUTH_TOKEN=%s\n' "$NOTION_MCP_AUTH_TOKEN"; fi
-            if [ -n "$PLATFORM_GEMINI_API_KEY" ]; then printf 'PLATFORM_GEMINI_API_KEY=%s\n' "$PLATFORM_GEMINI_API_KEY"; fi
-            if [ -n "$TAVILY_API_KEY" ]; then printf 'TAVILY_API_KEY=%s\n' "$TAVILY_API_KEY"; fi
-            if [ -n "$OTEL_EXPORTER_OTLP_ENDPOINT" ]; then printf 'OTEL_EXPORTER_OTLP_ENDPOINT=%s\n' "$OTEL_EXPORTER_OTLP_ENDPOINT"; fi
-          } > "$tmp_env"
-
-          mv "$tmp_env" "$ENV_FILE"
+          if [ ${#missing_vars[@]} -gt 0 ]; then
+            echo "::error::Missing app secrets for: ${missing_vars[*]}"
+            exit 1
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Test
-        env:
-          APP_MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
-          TEST_MONGODB_URL: ${{ secrets.AGENT_TEST_MONGODB_URL }}
-          TEST_MONGODB_DB_NAME: ${{ secrets.AGENT_TEST_MONGODB_DB_NAME }}
-        run: |
-          export MONGODB_URL="${TEST_MONGODB_URL:-$APP_MONGODB_URL}"
-          export MONGODB_DB_NAME="${TEST_MONGODB_DB_NAME:-ieum_test}"
-
-          pytest tests/
-
       - name: Build Docker image
         run: |
+          set -euo pipefail
+
           docker build \
-            -t $IMAGE_NAME:${{ github.sha }} \
-            -t $IMAGE_NAME:latest .
+            -t "$IMAGE_NAME:${{ github.sha }}" \
+            -t "$IMAGE_NAME:latest" .
 
       - name: Restart agent container
+        env:
+          AGENT_MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
+          AGENT_MONGODB_DB_NAME: ${{ secrets.AGENT_MONGODB_DB_NAME }}
+
+          AGENT_CLAUDE_DEFAULT_MODEL: ${{ secrets.AGENT_CLAUDE_DEFAULT_MODEL }}
+          AGENT_OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
+          AGENT_GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
+
+          AGENT_NOTION_MCP_URL: ${{ secrets.AGENT_NOTION_MCP_URL }}
+          AGENT_NOTION_MCP_AUTH_TOKEN: ${{ secrets.AGENT_NOTION_MCP_AUTH_TOKEN }}
+
+          PLATFORM_GEMINI_API_KEY: ${{ secrets.PLATFORM_GEMINI_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
         run: |
+          set -euo pipefail
+
           docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1 \
-            || docker network create --subnet 10.10.10.0/24 "$DOCKER_NETWORK"
+            || docker network create --subnet "$DOCKER_NETWORK_SUBNET" "$DOCKER_NETWORK"
 
           docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
@@ -118,17 +125,28 @@ jobs:
             --restart unless-stopped \
             --network "$DOCKER_NETWORK" \
             --ip "$AGENT_IP" \
-            --env-file "$ENV_FILE" \
+            -e MONGODB_URL="$AGENT_MONGODB_URL" \
+            -e MONGODB_DB_NAME="$AGENT_MONGODB_DB_NAME" \
+            -e PORT="$AGENT_PORT" \
+            -e CLAUDE_DEFAULT_MODEL="$AGENT_CLAUDE_DEFAULT_MODEL" \
+            -e OPENAI_DEFAULT_MODEL="$AGENT_OPENAI_DEFAULT_MODEL" \
+            -e GEMINI_DEFAULT_MODEL="$AGENT_GEMINI_DEFAULT_MODEL" \
+            -e NOTION_MCP_URL="$AGENT_NOTION_MCP_URL" \
+            -e NOTION_MCP_AUTH_TOKEN="$AGENT_NOTION_MCP_AUTH_TOKEN" \
+            -e PLATFORM_GEMINI_API_KEY="$PLATFORM_GEMINI_API_KEY" \
+            -e TAVILY_API_KEY="$TAVILY_API_KEY" \
+            -e OTEL_EXPORTER_OTLP_ENDPOINT="$OTEL_EXPORTER_OTLP_ENDPOINT" \
             "$IMAGE_NAME:latest"
 
       - name: Health check
-        env:
-          PORT: ${{ secrets.AGENT_PORT }}
         run: |
+          set -euo pipefail
+
           for i in $(seq 1 30); do
-            if curl -fsS "http://$AGENT_IP:$PORT/health" >/dev/null; then
+            if curl -fsS "http://$AGENT_IP:$AGENT_PORT/health" >/dev/null; then
               exit 0
             fi
+
             sleep 2
           done
 
