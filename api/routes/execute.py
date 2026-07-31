@@ -39,7 +39,12 @@ async def execute(
         # asyncio.CancelledError(BaseException 직속)뿐이다. 그 원천은 주로 프로세스 종료
         # (uvicorn SIGTERM) 계열이다 — 비스트리밍 POST는 클라이언트가 끊어도 자동 취소되지 않는다.
         # shield로 감싸는 이유: 취소된 태스크에서 그냥 await하면 재취소가 걸릴 때 release가
-        # 중간에 끊겨 레코드가 그대로 남는다(실측 확인). shield는 내부 실행을 끝까지 보장한다.
+        # 중간에 끊겨 레코드가 그대로 남는다(실측 확인).
+        # 단 shield가 막는 건 "이 await의 취소"뿐이라 내부 태스크를 직접 .cancel()하면 죽는다.
+        # asyncio.run()이 종료 시 도는 _cancel_all_tasks가 정확히 그 일을 하므로, 이 보호는
+        # 내부 태스크가 그 스냅샷 이후에 생성될 때만 성립한다 — uvicorn을
+        # --timeout-graceful-shutdown과 함께 띄우면 깨질 수 있다(현재 Dockerfile은 미지정).
+        # 그때의 백스톱은 IN_FLIGHT TTL(10분)이며, 최악은 그동안의 재시도 차단이다.
         if claimed:
             await asyncio.shield(idempotency.release(x_idempotency_key))
         raise
