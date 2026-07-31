@@ -5,6 +5,12 @@ BE는 재시도 대상 노드에 sha256(executionId+nodeId) 앞 32자를 X-Idemp
 
 동시성은 _id 유니크 제약을 이용한 insert 경합으로 처리한다("조회 후 없으면 insert"는 깨진다).
 Mongo 장애 시에는 가드를 건너뛰고 정상 실행한다(중복 위험 < 전면 장애).
+
+**받아들인 트레이드오프**: 앞선 요청이 실행 중일 때 들어온 재시도는 DUPLICATE_REQUEST(재시도
+대상 아님)를 받는다. BE가 타임아웃이 아닌 사유(커넥션 리셋 등)로 즉시 재시도하면, 원 실행이
+곧이어 성공해 캐시를 채워도 BE는 이미 그 노드를 실패로 확정한 뒤다 — 캐시를 다시 읽으러 오는
+경로는 없다. 즉 "부작용은 났는데 실패로 기록"이 가능하다. 중복 부작용(메일 재발송 등)을 막는
+것이 이 실패 모드보다 낫다고 보고 택했다.
 """
 import logging
 from datetime import datetime, timedelta, timezone
@@ -13,7 +19,6 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from api.schemas.response import AgentExecutionResult
 from common.error_code import ErrorCode
-from core.output_validator import OutputValidator
 from db.mongodb import idempotency_records
 
 logger = logging.getLogger(__name__)
@@ -88,15 +93,19 @@ async def claim(key: str | None) -> tuple[bool, AgentExecutionResult | None]:
 async def complete(key: str, result: AgentExecutionResult) -> None:
     """성공 응답을 저장해 이후 같은 키의 요청이 재실행 없이 받아가게 한다.
 
-    저장 전 strict 마스킹을 건다. run_agent()가 반환 직전 적용하는 것은 soft 마스킹이라
-    JSON 구조 보존을 위해 {"api_key": "..."} 같은 key-value 값을 그대로 남긴다 —
-    execution_logs가 mask_log_content로 지우는 값이 여기엔 평문으로 남으면 안 된다."""
+    **여기에 추가 마스킹을 걸지 말 것.** 저장값은 최초 요청이 받은 응답과 바이트 단위로
+    같아야 한다 — 다르면 "같은 키 = 같은 응답"이라는 멱등 계약이 깨진다. execution_logs가
+    쓰는 strict 마스킹(mask_log_content)은 키 이름 휴리스틱이라 `token: "..."` 같은 정상
+    페이로드까지 [MASKED_KEY]로 바꾸고, 치환 따옴표 때문에 JSON도 깨진다. 그러면 재시도로
+    캐시를 받은 실행만 {{nodes.uuid.output.*}} 값이 조용히 손상된다.
+    응답은 run_agent()가 이미 soft 마스킹을 걸어 반환하며, 같은 바이트가 BE에도 전달돼
+    node_runs에 남는다 — 이 캐시가 새로 만드는 노출면은 1시간 보관뿐이다."""
     try:
         await idempotency_records.update_one(
             {"_id": key},
             {"$set": {
                 "status": "COMPLETED",
-                "response": OutputValidator.mask_log_content(result.model_dump()),
+                "response": result.model_dump(),
                 "expiresAt": _expires_at(COMPLETED_TTL_SECONDS),
             }},
         )

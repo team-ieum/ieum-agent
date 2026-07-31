@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, Header
 from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
@@ -34,10 +36,12 @@ async def execute(
         # 예외로 빠져도 IN_PROGRESS 레코드가 남으면 그 노드의 재시도가 전부 막힌다.
         # Exception이 아니라 BaseException을 잡는다 — run_agent()는 모든 Exception을
         # 내부에서 처리하고 AgentExecutionResult를 반환하므로, 여기 도달하는 실질적 경로는
-        # asyncio.CancelledError(BaseException 직속)뿐이다. 클라이언트 연결 끊김이나
-        # 상위 태스크 취소가 그 경로이며, Exception만 잡으면 정작 그때 해제가 안 된다.
+        # asyncio.CancelledError(BaseException 직속)뿐이다. 그 원천은 주로 프로세스 종료
+        # (uvicorn SIGTERM) 계열이다 — 비스트리밍 POST는 클라이언트가 끊어도 자동 취소되지 않는다.
+        # shield로 감싸는 이유: 취소된 태스크에서 그냥 await하면 재취소가 걸릴 때 release가
+        # 중간에 끊겨 레코드가 그대로 남는다(실측 확인). shield는 내부 실행을 끝까지 보장한다.
         if claimed:
-            await idempotency.release(x_idempotency_key)
+            await asyncio.shield(idempotency.release(x_idempotency_key))
         raise
 
     if claimed:

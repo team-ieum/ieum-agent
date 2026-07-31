@@ -8,6 +8,7 @@ Mongo는 인메모리 fake 컬렉션으로 대체한다(실 DB/실 API 키 불�
 """
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -230,14 +231,55 @@ async def test_취소되면_IN_PROGRESS_레코드가_해제된다(fake_records):
 
 
 @pytest.mark.asyncio
-async def test_완료_응답은_strict_마스킹되어_저장된다(fake_records):
-    """run_agent가 거는 soft 마스킹은 JSON 구조 보존을 위해 key-value 값을 남긴다.
+async def test_캐시_응답은_원_응답과_동일하다(fake_records):
+    """멱등 계약은 "같은 키 = 같은 응답"이다.
 
-    execution_logs가 mask_log_content로 지우는 값이 idempotency_records엔 평문으로
-    1시간 남으면 안 된다."""
-    leaked = '{"api_key": "superSecretKey123"}'
+    저장 시 추가 마스킹을 걸면 재시도로 캐시를 받은 실행만 값이 달라진다. strict 마스킹은
+    token/api_key 같은 키 이름 휴리스틱이라 정상 페이로드도 바꾸고 JSON도 깨뜨린다."""
+    original = AgentExecutionResult(
+        success=True,
+        status="COMPLETED",
+        output='{"access_token": "eyJhbGciOiJIUzI1NiJ9.abcdefgh", "expires_in": 3600}',
+    )
     await idempotency.claim(KEY)
-    await idempotency.complete(KEY, AgentExecutionResult(success=True, output=leaked))
+    await idempotency.complete(KEY, original)
 
-    stored = fake_records.docs[KEY]["response"]["output"]
-    assert "superSecretKey123" not in stored
+    _, cached = await idempotency.claim(KEY)
+    assert cached is not None
+    assert cached.output == original.output
+    assert json.loads(cached.output)["access_token"] == "eyJhbGciOiJIUzI1NiJ9.abcdefgh"
+
+
+@pytest.mark.asyncio
+async def test_재취소돼도_레코드가_해제된다(fake_records):
+    """취소된 태스크에서 그냥 await하면 재취소가 걸릴 때 release가 중간에 끊긴다.
+
+    그러면 이 가드가 고치려던 레코드 누수가 그대로 재현되므로 shield가 필요하다."""
+    from api.routes.execute import execute
+    from api.schemas.request import AgentNodeRequest
+
+    original_delete = fake_records.delete_one
+
+    async def slow_delete(filt):
+        await asyncio.sleep(0.05)
+        await original_delete(filt)
+
+    fake_records.delete_one = slow_delete
+    credentials = {"provider": "CLAUDE", "api_key": "test-key", "user_id": "test-user"}
+
+    async def _never_finishes(*args, **kwargs):
+        await asyncio.sleep(10)
+
+    with patch("api.routes.execute.run_agent", new=_never_finishes):
+        task = asyncio.create_task(
+            execute(AgentNodeRequest(**PAYLOAD), credentials=credentials, x_idempotency_key=KEY)
+        )
+        await asyncio.sleep(0.01)
+        task.cancel()          # 1차 — run_agent 대기 중
+        await asyncio.sleep(0.01)
+        task.cancel()          # 2차 — release 진행 중
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    await asyncio.sleep(0.2)   # shield된 release가 끝날 시간
+    assert fake_records.docs == {}
