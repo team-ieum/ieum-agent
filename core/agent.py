@@ -50,6 +50,8 @@ async def save_execution_log(
         "success": result.success,
         "output": masked_output,
         "errorMessage": masked_err,
+        # ErrorCode enum 이름. 왜 이 실행이 재시도됐는지/안 됐는지를 로그만으로 추적하려면 필요하다.
+        "errorCode": result.errorCode,
         "toolCalls": masked_tools,
         "usage": result.usage.model_dump() if result.usage else None,
         "keyMode": key_mode,

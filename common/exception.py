@@ -27,8 +27,18 @@ class CodedHTTPException(HTTPException):
 
 # rate limit을 나타내는 예외 타입명(litellm/openai/anthropic/google 계열 공통).
 _RATE_LIMIT_TYPE_NAMES = {"RateLimitError", "ResourceExhausted", "TooManyRequests"}
-# 상태 속성이 없는 래핑 예외를 위한 메시지 신호. 오탐을 막기 위해 429/RESOURCE_EXHAUSTED만 본다.
-_RATE_LIMIT_TEXT = re.compile(r"\b429\b|RESOURCE_EXHAUSTED")
+# 상태 속성이 없는 래핑 예외를 위한 메시지 신호.
+# 체인의 모든 예외 문자열에 대해 돌기 때문에 맨 숫자 429는 쓰지 않는다 —
+# "retry 429 times"·'"count": 429' 같은 무관한 메시지가 rate limit으로 오분류되면
+# BE가 헛재시도한다. 429는 상태코드 문맥이 붙은 경우에만 신호로 인정한다.
+_RATE_LIMIT_TEXT = re.compile(
+    r"RESOURCE_EXHAUSTED"
+    r"|rate[ _-]?limit"
+    r"|too many requests"
+    r"|quota (?:exceeded|exhausted)|exceeded your current quota"
+    r"|(?:status|status_code|code|http|error)[\s=:]*429\b",
+    re.IGNORECASE,
+)
 
 
 def _iter_chain(e: BaseException | None, seen: set[int] | None = None) -> Iterator[BaseException]:

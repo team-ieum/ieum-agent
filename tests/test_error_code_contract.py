@@ -83,6 +83,22 @@ def test_is_rate_limit_error_무관한_예외는_False():
     assert is_rate_limit_error(ExceptionGroup("g", [ValueError("무관")])) is False
 
 
+def test_is_rate_limit_error_숫자_429만으로는_False():
+    """체인의 모든 예외 문자열을 훑기 때문에, 문맥 없는 429는 rate limit이 아니다.
+
+    여기서 True가 되면 BE가 무관한 실패를 재시도 대상으로 잘못 분류한다."""
+    assert is_rate_limit_error(RuntimeError("Executed 429 retry attempts")) is False
+    assert is_rate_limit_error(ValueError('{"count": 429}')) is False
+    assert is_rate_limit_error(ExceptionGroup("g", [OSError("bind failed on port 429")])) is False
+
+
+def test_is_rate_limit_error_상태코드_문맥이_붙은_429는_True():
+    """속성이 소실된 래핑 예외라도 상태코드 문맥이 있으면 판별돼야 한다."""
+    assert is_rate_limit_error(RuntimeError("Error code: 429 - Too Many Requests")) is True
+    assert is_rate_limit_error(RuntimeError("429 RESOURCE_EXHAUSTED")) is True
+    assert is_rate_limit_error(RuntimeError("You exceeded your current quota")) is True
+
+
 # ---------------------------------------------------------------------------
 # run_agent() 실패 경로별 errorCode
 # ---------------------------------------------------------------------------
@@ -102,6 +118,29 @@ async def _run_with_side_effect(side_effect) -> "object":
             request, provider="GEMINI", api_key="test-key", user_id="test-user",
             session_service=mock_session_service,
         )
+
+
+@pytest.mark.asyncio
+async def test_실행로그에_errorCode가_저장된다():
+    """감사로그에 errorCode가 없으면 '왜 재시도가 안 걸렸나'를 로그만으로 추적할 수 없다."""
+    request = AgentNodeRequest(nodeId="node-1", renderedPrompt="Hello", tools=[])
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(side_effect=_LiteLlmRateLimit())
+    insert_one = AsyncMock()
+
+    with (
+        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
+        patch("agents.execute.factory.Runner", return_value=MagicMock()),
+        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
+        patch("core.agent.execution_logs.insert_one", new=insert_one),
+    ):
+        await run_agent(
+            request, provider="GEMINI", api_key="test-key", user_id="test-user",
+            session_service=mock_session_service,
+        )
+
+    insert_one.assert_awaited_once()
+    assert insert_one.await_args.args[0]["errorCode"] == "RATE_LIMITED"
 
 
 @pytest.mark.asyncio
