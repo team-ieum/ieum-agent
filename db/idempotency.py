@@ -13,12 +13,15 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from api.schemas.response import AgentExecutionResult
 from common.error_code import ErrorCode
+from core.output_validator import OutputValidator
 from db.mongodb import idempotency_records
 
 logger = logging.getLogger(__name__)
 
 # 진행중 레코드는 짧게 잡는다. 프로세스가 죽으면 레코드를 지울 주체가 없어
-# 만료 전까지 그 노드의 재시도가 전부 막히기 때문이다(BE 호출 타임아웃 120초 기준).
+# 만료 전까지 그 노드의 재시도가 전부 막히기 때문이다.
+# (agent 자체 타임아웃 150초 < BE 호출 타임아웃 180초 — 정상 경로에선 agent가 먼저
+#  실패를 반환해 release()가 레코드를 지우므로, 이 TTL은 프로세스 사망 대비용이다.)
 IN_FLIGHT_TTL_SECONDS = 10 * 60
 # 완료 응답 캐시는 재시도 창을 덮을 만큼만 보관한다.
 COMPLETED_TTL_SECONDS = 60 * 60
@@ -83,13 +86,17 @@ async def claim(key: str | None) -> tuple[bool, AgentExecutionResult | None]:
 
 
 async def complete(key: str, result: AgentExecutionResult) -> None:
-    """성공 응답을 저장해 이후 같은 키의 요청이 재실행 없이 받아가게 한다."""
+    """성공 응답을 저장해 이후 같은 키의 요청이 재실행 없이 받아가게 한다.
+
+    저장 전 strict 마스킹을 건다. run_agent()가 반환 직전 적용하는 것은 soft 마스킹이라
+    JSON 구조 보존을 위해 {"api_key": "..."} 같은 key-value 값을 그대로 남긴다 —
+    execution_logs가 mask_log_content로 지우는 값이 여기엔 평문으로 남으면 안 된다."""
     try:
         await idempotency_records.update_one(
             {"_id": key},
             {"$set": {
                 "status": "COMPLETED",
-                "response": result.model_dump(),
+                "response": OutputValidator.mask_log_content(result.model_dump()),
                 "expiresAt": _expires_at(COMPLETED_TTL_SECONDS),
             }},
         )

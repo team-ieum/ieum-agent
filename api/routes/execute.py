@@ -30,8 +30,12 @@ async def execute(
             notion_token=credentials.get("notion_token"),
             github_token=credentials.get("github_token"),
         )
-    except Exception:
+    except BaseException:
         # 예외로 빠져도 IN_PROGRESS 레코드가 남으면 그 노드의 재시도가 전부 막힌다.
+        # Exception이 아니라 BaseException을 잡는다 — run_agent()는 모든 Exception을
+        # 내부에서 처리하고 AgentExecutionResult를 반환하므로, 여기 도달하는 실질적 경로는
+        # asyncio.CancelledError(BaseException 직속)뿐이다. 클라이언트 연결 끊김이나
+        # 상위 태스크 취소가 그 경로이며, Exception만 잡으면 정작 그때 해제가 안 된다.
         if claimed:
             await idempotency.release(x_idempotency_key)
         raise

@@ -7,6 +7,7 @@ IEUM-AI-52 회귀 테스트. X-Idempotency-Key가 붙은 재요청이 도구를 
 Mongo는 인메모리 fake 컬렉션으로 대체한다(실 DB/실 API 키 불필요).
 """
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -205,3 +206,38 @@ def test_저장_문서에_크레덴셜이_없다(fake_records):
 async def test_진행중_TTL이_완료_캐시보다_짧다():
     """프로세스가 죽으면 TTL 만료까지 재시도가 막히므로 in-flight는 짧아야 한다."""
     assert idempotency.IN_FLIGHT_TTL_SECONDS < idempotency.COMPLETED_TTL_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_취소되면_IN_PROGRESS_레코드가_해제된다(fake_records):
+    """CancelledError는 BaseException이라 except Exception으로는 안 잡힌다.
+
+    run_agent()가 모든 Exception을 내부 처리하므로 라우터 except에 도달하는 실질 경로는
+    취소뿐이다. 여기서 해제가 안 되면 TTL 10분간 그 노드의 재시도가 전부 막힌다."""
+    from api.routes.execute import execute
+    from api.schemas.request import AgentNodeRequest
+
+    credentials = {"provider": "CLAUDE", "api_key": "test-key", "user_id": "test-user"}
+    with patch("api.routes.execute.run_agent", new=AsyncMock(side_effect=asyncio.CancelledError())):
+        with pytest.raises(asyncio.CancelledError):
+            await execute(
+                AgentNodeRequest(**PAYLOAD),
+                credentials=credentials,
+                x_idempotency_key=KEY,
+            )
+
+    assert fake_records.docs == {}
+
+
+@pytest.mark.asyncio
+async def test_완료_응답은_strict_마스킹되어_저장된다(fake_records):
+    """run_agent가 거는 soft 마스킹은 JSON 구조 보존을 위해 key-value 값을 남긴다.
+
+    execution_logs가 mask_log_content로 지우는 값이 idempotency_records엔 평문으로
+    1시간 남으면 안 된다."""
+    leaked = '{"api_key": "superSecretKey123"}'
+    await idempotency.claim(KEY)
+    await idempotency.complete(KEY, AgentExecutionResult(success=True, output=leaked))
+
+    stored = fake_records.docs[KEY]["response"]["output"]
+    assert "superSecretKey123" not in stored
