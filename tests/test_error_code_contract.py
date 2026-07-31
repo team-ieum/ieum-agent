@@ -92,6 +92,20 @@ def test_is_rate_limit_error_숫자_429만으로는_False():
     assert is_rate_limit_error(ExceptionGroup("g", [OSError("bind failed on port 429")])) is False
 
 
+def test_is_rate_limit_error_provider_예외의_맨_429는_True():
+    """MCP는 upstream 429를 McpError(message="...429...")로만 넘긴다.
+
+    .code/.status_code도 없고 타입명도 rate limit 계열이 아니라 문자열이 유일한 단서라,
+    provider/MCP 모듈 예외에 한해 문맥 없는 429도 인정한다. 같은 문자열이라도
+    무관한 모듈의 예외면 여전히 False여야 한다."""
+    class McpError(Exception):
+        pass
+
+    McpError.__module__ = "mcp.shared.exceptions"
+    assert is_rate_limit_error(McpError("upstream responded 429")) is True
+    assert is_rate_limit_error(RuntimeError("upstream responded 429")) is False
+
+
 def test_is_rate_limit_error_상태코드_문맥이_붙은_429는_True():
     """속성이 소실된 래핑 예외라도 상태코드 문맥이 있으면 판별돼야 한다."""
     assert is_rate_limit_error(RuntimeError("Error code: 429 - Too Many Requests")) is True

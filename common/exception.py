@@ -39,6 +39,16 @@ _RATE_LIMIT_TEXT = re.compile(
     r"|(?:status|status_code|code|http|error)[\s=:]*429\b",
     re.IGNORECASE,
 )
+# provider/MCP 계열 예외에 한해 인정하는 느슨한 신호.
+# MCP는 upstream 429를 McpError(message="...429...")로만 넘긴다 — .code/.status_code도 없고
+# 타입명도 rate limit 계열이 아니라 문자열이 유일한 단서다. 그렇다고 모든 예외에 맨 429를
+# 허용하면 무관한 메시지가 걸리므로, 예외가 선언된 모듈로 대상을 좁힌다.
+_BARE_429 = re.compile(r"\b429\b")
+_PROVIDER_MODULES = ("litellm", "google.genai", "google.api_core", "anthropic", "openai", "mcp")
+
+
+def _from_provider_module(exc: BaseException) -> bool:
+    return (type(exc).__module__ or "").startswith(_PROVIDER_MODULES)
 
 
 def _iter_chain(e: BaseException | None, seen: set[int] | None = None) -> Iterator[BaseException]:
@@ -72,6 +82,8 @@ def is_rate_limit_error(e: Exception) -> bool:
         if type(exc).__name__ in _RATE_LIMIT_TYPE_NAMES:
             return True
         if _RATE_LIMIT_TEXT.search(str(exc)):
+            return True
+        if _from_provider_module(exc) and _BARE_429.search(str(exc)):
             return True
     return False
 
