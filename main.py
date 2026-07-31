@@ -5,8 +5,10 @@ import logging
 from core.telemetry import setup_telemetry
 setup_telemetry()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from api.routes import execute, generate, modify, chat
+from common.exception import CodedHTTPException
 from db.mongodb import ensure_indexes, seed_node_templates
 from tools.http_client import close_http_client
 
@@ -33,6 +35,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ieum-agent", lifespan=lifespan)
+
+
+@app.exception_handler(CodedHTTPException)
+async def coded_http_exception_handler(request: Request, exc: CodedHTTPException):
+    """HTTP 에러 본문에도 errorCode를 싣는다. BE는 본문의 errorCode를 우선 보고
+    재시도 여부를 판정하므로, 상태코드만 던지면 실패가 UNKNOWN으로 뭉개진다."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "errorCode": exc.error_code},
+        headers=exc.headers,
+    )
 
 from api.middleware.tracing import TraceIdMiddleware
 app.add_middleware(TraceIdMiddleware)

@@ -39,6 +39,7 @@ class ExecutionLog(BaseModel):
     success: bool
     output: Optional[str] = None
     errorMessage: Optional[str] = None
+    errorCode: Optional[str] = None              # ErrorCode enum 이름. BE 실패 분류/재시도 판정 근거
     toolCalls: List[ToolCallLog] = []
     usage: Optional[TokenUsage] = None           # UsageRecord 구조와 동일
     durationMs: int
