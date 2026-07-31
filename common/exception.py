@@ -40,9 +40,14 @@ _RATE_LIMIT_TEXT = re.compile(
     re.IGNORECASE,
 )
 # provider/MCP 계열 예외에 한해 인정하는 느슨한 신호.
-# MCP는 upstream 429를 McpError(message="...429...")로만 넘긴다 — .code/.status_code도 없고
-# 타입명도 rate limit 계열이 아니라 문자열이 유일한 단서다. 그렇다고 모든 예외에 맨 429를
-# 허용하면 무관한 메시지가 걸리므로, 예외가 선언된 모듈로 대상을 좁힌다.
+# 상태 속성도 타입명도 없이 문자열에만 429가 남는 예외가 있다 — McpError가 그렇고
+# (.code는 JSON-RPC 코드지 HTTP status가 아니다), SDK가 원본을 문자열로 요약해 재포장하는
+# 경우도 그렇다. 모든 예외에 맨 429를 허용하면 무관한 메시지가 걸리므로 선언 모듈로 좁힌다.
+#
+# 주의: ADK 2.3의 _MCP_GRACEFUL_ERROR_HANDLING(현재 default_on)이 켜져 있으면 **도구 호출**
+# 중의 McpError는 예외로 안 올라오고 {"error": ...} 반환값으로 흡수된다(mcp_tool.py). 이 분기가
+# 실제로 잡는 건 MCP 세션 수립 실패(ConnectionError의 __cause__에 원본 보존)와 SDK bare 429다.
+# 그 플래그는 EXPERIMENTAL이라 꺼지면 도구 호출 경로도 이 분기로 돌아온다.
 _BARE_429 = re.compile(r"\b429\b")
 _PROVIDER_MODULES = ("litellm", "google.genai", "google.api_core", "anthropic", "openai", "mcp")
 

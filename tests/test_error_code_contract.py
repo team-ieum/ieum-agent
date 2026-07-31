@@ -104,6 +104,8 @@ def test_is_rate_limit_error_provider_예외의_맨_429는_True():
     McpError.__module__ = "mcp.shared.exceptions"
     assert is_rate_limit_error(McpError("upstream responded 429")) is True
     assert is_rate_limit_error(RuntimeError("upstream responded 429")) is False
+    # provider 모듈이라도 429가 다른 숫자에 붙어 있으면 상태코드가 아니다.
+    assert is_rate_limit_error(McpError("upstream code 14290")) is False
 
 
 def test_is_rate_limit_error_상태코드_문맥이_붙은_429는_True():
