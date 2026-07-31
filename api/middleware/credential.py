@@ -1,8 +1,9 @@
 import logging
 
-from fastapi import Header, HTTPException
+from fastapi import Header
 
 from common.error_code import ErrorCode
+from common.exception import CodedHTTPException
 from core.config import settings
 from core.model_factory import is_self_hosted_eligible
 
@@ -47,7 +48,7 @@ async def get_llm_credentials(
     # (엔드포인트 미설정 시 is_self_hosted_eligible은 False이므로 키가 필수로 유지된다.)
     api_key_optional = self_hosted_eligible
     if not provider or (not api_key and not api_key_optional):
-        raise HTTPException(status_code=ErrorCode.MISSING_CREDENTIAL.status_code, detail=ErrorCode.MISSING_CREDENTIAL.message)
+        raise CodedHTTPException(ErrorCode.MISSING_CREDENTIAL)
     return {
         "provider": provider,
         "api_key": api_key,

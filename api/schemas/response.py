@@ -20,5 +20,6 @@ class AgentExecutionResult(BaseModel):
     output: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     errorMessage: Optional[str] = None
+    errorCode: Optional[str] = None              # ErrorCode enum 이름. BE 실패 분류/재시도 판정용
     toolCalls: Optional[List[ToolCallRecord]] = None
     usage: Optional[UsageRecord] = None

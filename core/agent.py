@@ -101,6 +101,8 @@ async def run_agent(
             success=False,
             status="ERROR",
             errorMessage=str(e),
+            # 가드 차단은 요청 자체가 잘못된 것이라 재시도해도 동일하게 막힌다(BE: UNKNOWN → 재시도 안 함).
+            errorCode=ErrorCode.AGENT_EXECUTION_FAILED.name,
         )
         # 차단에 따른 히스토리 로그 저장
         try:
@@ -193,6 +195,7 @@ async def run_agent(
             success=False,
             status="ERROR",
             errorMessage=ErrorCode.AGENT_TIMEOUT.message,
+            errorCode=ErrorCode.AGENT_TIMEOUT.name,
         )
 
     except ToolNotCalledError as e:
@@ -201,6 +204,7 @@ async def run_agent(
             success=False,
             status="ERROR",
             errorMessage=ErrorCode.AGENT_TOOL_NOT_CALLED.message,
+            errorCode=ErrorCode.AGENT_TOOL_NOT_CALLED.name,
         )
 
     except Exception as e:
@@ -210,6 +214,7 @@ async def run_agent(
             success=False,
             status="ERROR",
             errorMessage=error_code.message,
+            errorCode=error_code.name,
         )
 
     duration_ms = int((time.monotonic() - start) * 1000)
