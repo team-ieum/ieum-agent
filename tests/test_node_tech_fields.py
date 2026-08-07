@@ -282,3 +282,66 @@ async def test_modify_workflow_overwrites_hallucinated_tech_fields():
     assert "serviceType" not in result.nodes[1].config
     assert result.nodes[2].config["model"] == resolve_model("CLAUDE")
     assert result.nodes[2].config["serviceType"] == "SLACK"
+
+
+@pytest.mark.asyncio
+async def test_modify_workflow_tool_less_react_node_gets_no_service_type():
+    """도구 없는 react AI 노드에 앱 종류를 찍지 않는다.
+
+    resolve_template_for_node는 도구 없는 AI를 agentType으로 판별하는데 react 후보가
+    ai.github_query 하나뿐이라, 도구를 보지 않고 추정하면 무관한 추론 노드에 GITHUB가 박힌다."""
+    from tests.test_modify import VALID_MODIFY_JSON, CURRENT_NODES, CURRENT_EDGES, _make_patches
+    from core.workflow_modifier import modify_workflow
+
+    payload = json.loads(VALID_MODIFY_JSON)
+    payload["nodes"][1]["config"]["agentType"] = "react"   # 도구는 그대로 []
+    payload["nodes"][1]["config"]["tools"] = []
+
+    p1, p2, p3, p4 = _make_patches(json.dumps(payload))
+    with p1, p2, p3, p4:
+        result = await modify_workflow(
+            "수정해줘", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
+        )
+
+    assert "serviceType" not in result.nodes[1].config
+
+
+@pytest.mark.asyncio
+async def test_modify_workflow_keeps_service_type_when_tools_unmatched():
+    """도구가 어느 템플릿과도 매칭되지 않으면 기존 serviceType을 지우지 않는다."""
+    from tests.test_modify import VALID_MODIFY_JSON, CURRENT_NODES, CURRENT_EDGES, _make_patches
+    from core.workflow_modifier import modify_workflow
+
+    payload = json.loads(VALID_MODIFY_JSON)
+    payload["nodes"][2]["config"]["tools"] = [{"name": "unknown_tool"}]
+    payload["nodes"][2]["config"]["serviceType"] = "SLACK"
+
+    p1, p2, p3, p4 = _make_patches(json.dumps(payload))
+    with p1, p2, p3, p4:
+        result = await modify_workflow(
+            "수정해줘", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
+        )
+
+    assert result.nodes[2].config["serviceType"] == "SLACK"
+
+
+@pytest.mark.asyncio
+async def test_modify_workflow_model_follows_request_provider():
+    """model은 노드에 복사된 llmProvider가 아니라 요청 provider에서 뽑는다.
+
+    노드의 llmProvider는 LLM이 기존 워크플로우에서 옮겨온 값이라, 비면 resolve_model이
+    GEMINI 기본값으로 폴백해 실제 실행 프로바이더와 다른 모델 id가 박힌다."""
+    from tests.test_modify import VALID_MODIFY_JSON, CURRENT_NODES, CURRENT_EDGES, _make_patches
+    from core.workflow_modifier import modify_workflow
+
+    payload = json.loads(VALID_MODIFY_JSON)
+    payload["nodes"][2]["config"]["llmProvider"] = ""   # 복사 과정에서 깨진 값
+
+    p1, p2, p3, p4 = _make_patches(json.dumps(payload))
+    with p1, p2, p3, p4:
+        result = await modify_workflow(
+            "수정해줘", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
+        )
+
+    assert result.nodes[2].config["model"] == resolve_model("CLAUDE")
+    assert result.nodes[2].config["model"] != resolve_model("")

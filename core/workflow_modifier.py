@@ -16,6 +16,7 @@ from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from core.model_factory import build_model_param, uses_env_key
 from db.mongodb import modify_workflow_logs
+from tools.registry import apply_service_brand
 
 logger = logging.getLogger(__name__)
 
@@ -145,16 +146,28 @@ def _preserve_descriptions(new_nodes: list, current_nodes: list | None) -> None:
         if not isinstance(node, dict) or node.get("description"):
             continue
         desc = prev.get(node.get("id"))
+        if not desc:
+            # description 도입 이전 저장분은 기존 값도 비어 있다. 그대로 두면 BE NodeDto의
+            # @NotBlank에 걸려 사용자가 그 워크플로우를 저장할 수 없으므로 label로 채운다
+            # (/v1/chat의 _backfill_legacy_description과 같은 폴백).
+            label = node.get("label")
+            desc = label.strip() if isinstance(label, str) else None
         if desc:
             node["description"] = desc
 
 
-def _apply_tech_fields(new_nodes: list) -> None:
+def _apply_tech_fields(new_nodes: list, model: str) -> None:
     """AI 노드의 표시용 기술정보(model·serviceType)를 결정론적으로 다시 채운다(in-place).
 
     이 경로는 템플릿 하이드레이션을 거치지 않아 두 필드가 LLM 응답에만 의존한다. 값을 LLM에게
-    맡기면 모델명 날조·앱 오분류가 그대로 저장되므로, 노드의 llmProvider와 매칭 템플릿에서
-    다시 계산해 덮어쓴다. 앱 노드가 아니면 serviceType은 제거한다."""
+    맡기면 모델명 날조·앱 오분류가 그대로 저장되므로 시스템이 다시 계산해 덮어쓴다.
+
+    model은 **요청 크레덴셜의 provider**에서 뽑은 값을 쓴다. 노드 config의 llmProvider는 LLM이
+    기존 워크플로우에서 복사해 온 값이라, 비거나 어긋나면 resolve_model이 GEMINI 기본값으로
+    폴백해 실제 실행 프로바이더와 다른 모델 id가 박힌다(생성 경로도 요청 provider로 주입한다).
+
+    serviceType은 도구로만 판별한다. 도구 없는 AI 노드에 service_type_for_node를 태우면
+    agentType 폴백이 react 후보(ai.github_query) 하나로 수렴해 무관한 노드에 GITHUB가 찍힌다."""
     from core.template_registry import service_type_for_node
 
     for node in new_nodes:
@@ -163,12 +176,14 @@ def _apply_tech_fields(new_nodes: list) -> None:
         cfg = node.get("config")
         if not isinstance(cfg, dict):
             continue
-        cfg["model"] = resolve_model(str(cfg.get("llmProvider") or ""))
+        cfg["model"] = model
+        if not cfg.get("tools"):
+            cfg.pop("serviceType", None)
+            continue
         service_type = service_type_for_node(node)
         if service_type:
             cfg["serviceType"] = service_type
-        else:
-            cfg.pop("serviceType", None)
+        # 매칭 실패(미지의 도구)면 기존 값을 지우지 않는다 — FE가 설정해 둔 앱 표시가 사라진다.
 
 
 async def _save_modify_workflow_log(
@@ -297,7 +312,11 @@ async def modify_workflow(
 
         raw_nodes = data.get("nodes", [])
         _preserve_descriptions(raw_nodes, current_nodes)
-        _apply_tech_fields(raw_nodes)
+        _apply_tech_fields(raw_nodes, model)
+        # 생성 경로(workflow_chat·workflow_generator)와 동일하게 표시용 brand를 주입한다.
+        # 수정 프롬프트의 config 스키마엔 brand가 없어 LLM이 떨어뜨리면 FE 노드 헤더의
+        # 서비스 라벨·아이콘이 사라지고 BE integration의 brand 조회에서도 빠진다.
+        apply_service_brand(raw_nodes)
         nodes = [WorkflowNode(**n) for n in raw_nodes]
         edges = [WorkflowEdge(**e) for e in data.get("edges", [])]
         change_description = data.get("changeDescription", "")

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from typing import Optional, List, Dict, Any
 
 
@@ -48,6 +48,16 @@ class WorkflowNode(BaseModel):
     # description 도입 이전에 저장된 워크플로우가 수정/채팅 요청으로 되돌아오므로 기본값을 둔다.
     description: str = ""
     config: Dict[str, Any]
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _null_description_to_empty(cls, v: Any) -> Any:
+        """명시적 null을 빈 문자열로 받는다.
+
+        기본값은 '키 부재'만 막는다. BE `NodeView`는 @JsonInclude(NON_NULL)이 아니라서 레거시
+        노드의 조회 응답에 "description": null이 실려 나가고, FE가 그대로 currentNodes로
+        되보내므로 기본값만으로는 이 PR 이전 저장분의 수정이 전부 422가 된다."""
+        return "" if v is None else v
 
     @model_validator(mode='after')
     def validate_config_by_type(self) -> 'WorkflowNode':

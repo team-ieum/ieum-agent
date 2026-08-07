@@ -97,3 +97,13 @@ def test_workflow_node_description_defaults_for_legacy_payload():
     node = WorkflowNode(id="node-1", type="TRIGGER", label="시작",
                         config={"triggerType": "MANUAL"})
     assert node.description == ""
+
+
+def test_workflow_node_accepts_explicit_null_description():
+    """BE 조회 응답은 레거시 노드에 "description": null을 실어 보낸다.
+
+    NodeView에 @JsonInclude(NON_NULL)이 없어 키가 빠지지 않으므로, 기본값만으로는
+    이 PR 이전 저장분의 수정 요청(currentNodes)이 전부 422가 된다."""
+    node = WorkflowNode(id="node-1", type="TRIGGER", label="시작",
+                        description=None, config={"triggerType": "MANUAL"})
+    assert node.description == ""
