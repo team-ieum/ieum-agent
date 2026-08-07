@@ -14,6 +14,7 @@
   },
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
     {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
     {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "검색 지시. query와 목적 명시. 결과에서 page_id/title만 추출하도록 지시."}
   ],
@@ -22,6 +23,7 @@
     "id": "node-2",
     "type": "AI",
     "label": "Notion 페이지 검색",
+    "description": "노션에서 찾고 있는 페이지를 검색해요.",
     "config": {
       "llmProvider": "CLAUDE",
       "credentialId": "",

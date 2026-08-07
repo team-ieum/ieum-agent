@@ -23,8 +23,10 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 
 {
   "nodes": [
-    {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "매일 9시", "cron": "0 9 * * *"}},
-    {"id": "node-2", "templateId": "ai.notion_search", "slots": {"label": "검색", "prompt": "..."}}
+    {"id": "node-1", "templateId": "trigger.schedule",
+     "slots": {"label": "매일 9시", "description": "정해둔 시각이 되면 자동으로 시작돼요.", "cron": "0 9 * * *"}},
+    {"id": "node-2", "templateId": "ai.notion_search",
+     "slots": {"label": "검색", "description": "노션에서 찾고 있는 페이지를 검색해요.", "prompt": "..."}}
   ],
   "edges": [
     {"source": "node-1", "target": "node-2", "conditionType": null}
@@ -48,7 +50,11 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
    보낼 내용 참조를 함께 쓴다. (예: "다음 내용을 디스코드로 보내줘: {{nodes.node-3.output.output}}")
 8. CONDITION 노드의 true/false 분기는 edges의 conditionType: "true" | "false" 로 표현한다.
 9. edges의 source/target은 반드시 nodes에 존재하는 id를 참조한다.
-10. label/prompt는 반드시 사용자 요청과 동일한 언어로 작성한다.
+10. label/prompt/description은 반드시 사용자 요청과 동일한 언어로 작성한다.
+10-1. description 슬롯(모든 템플릿 필수)은 워크플로우 화면에서 사용자에게 그대로 보여줄 안내 문장이다.
+    - 그 노드가 무슨 일을 하는지 1문장으로 쉽게 쓴다. (예: "AI가 문의 내용을 읽고 알맞은 유형으로 나눠요.")
+    - 도구 키·templateId·필드명·변수 참조식({{nodes...}})·JSON 등 기술 용어를 넣지 않는다.
+    - 계획(plan)의 description을 그대로 복사하지 말고, 사용자가 읽을 문장으로 다시 쓴다.
 11. 사용자가 명시하지 않은 식별값(page_id 등)에 플레이스홀더(YOUR_XXX_HERE, <값>)를 쓰지 않는다.
 12. JSON 외 어떤 텍스트도 출력하지 않는다.
 13. 조회 노드 prompt 경량화 (필수):

@@ -37,6 +37,9 @@ class WorkflowNode(BaseModel):
     id: str
     type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM
     label: str
+    # 노드 카드에 표시할 사용자용 자연어 설명. 템플릿의 description 슬롯이 필수로 채우지만,
+    # description 도입 이전에 저장된 워크플로우가 수정/채팅 요청으로 되돌아오므로 기본값을 둔다.
+    description: str = ""
     config: Dict[str, Any]
 
     @model_validator(mode='after')

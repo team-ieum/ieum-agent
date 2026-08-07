@@ -11,13 +11,15 @@
     }
   },
   "slots": [
-    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "트리거 라벨 (예: '수동 실행')"}
+    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "트리거 라벨 (예: '수동 실행')"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."}
   ],
   "allowed_config_fields": ["triggerType"],
   "golden_snippet": {
     "id": "node-1",
     "type": "TRIGGER",
     "label": "수동 실행",
+    "description": "버튼을 누르면 이 워크플로우가 시작돼요.",
     "config": {"triggerType": "MANUAL"}
   }
 }

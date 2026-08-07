@@ -33,7 +33,7 @@ def test_set_by_path_list_index():
 
 def test_hydrate_service_ai_node():
     draft = {"id": "node-2", "templateId": "ai.notion_search",
-             "slots": {"label": "검색", "prompt": "트렌드 검색"}}
+             "slots": {"label": "검색", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "트렌드 검색"}}
     node = hydrate_node(draft, provider="CLAUDE")
     assert node["type"] == "AI"
     assert node["label"] == "검색"
@@ -46,14 +46,14 @@ def test_hydrate_service_ai_node():
 
 def test_hydrate_provider_auto_injected_overrides_slot():
     draft = {"templateId": "ai.notion_search",
-             "slots": {"label": "x", "prompt": "y", "llmProvider": "OPENAI"}}
+             "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "y", "llmProvider": "OPENAI"}}
     node = hydrate_node(draft, provider="CLAUDE")
     assert node["config"]["llmProvider"] == "CLAUDE"  # 인자 provider가 우선
 
 
 def test_hydrate_condition_node():
     draft = {"templateId": "condition",
-             "slots": {"label": "분기", "operator": "gt",
+             "slots": {"label": "분기", "description": "이 노드가 하는 일을 쉽게 설명해요.", "operator": "gt",
                        "leftValue": "{{nodes.node-1.output.count}}", "rightValue": "0"}}
     node = hydrate_node(draft)
     assert node["type"] == "CONDITION"
@@ -64,7 +64,7 @@ def test_hydrate_condition_node():
 
 def test_hydrate_http_optional_slot_skipped():
     draft = {"templateId": "http",
-             "slots": {"label": "호출", "method": "GET", "url": "https://api.example.com"}}
+             "slots": {"label": "호출", "description": "이 노드가 하는 일을 쉽게 설명해요.", "method": "GET", "url": "https://api.example.com"}}
     node = hydrate_node(draft)
     assert node["config"]["method"] == "GET"
     assert "headers" not in node["config"]  # optional 미제공 → 스킵
@@ -73,7 +73,7 @@ def test_hydrate_http_optional_slot_skipped():
 
 def test_hydrate_schedule_trigger():
     draft = {"templateId": "trigger.schedule",
-             "slots": {"label": "매일 9시", "cron": "0 9 * * *"}}
+             "slots": {"label": "매일 9시", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}}
     node = hydrate_node(draft)
     assert node["type"] == "TRIGGER"
     assert node["config"]["triggerType"] == "SCHEDULE"  # fixed
@@ -81,7 +81,7 @@ def test_hydrate_schedule_trigger():
 
 
 def test_hydrate_reasoning_node():
-    draft = {"templateId": "ai.reasoning", "slots": {"label": "요약", "prompt": "결과를 요약해줘"}}
+    draft = {"templateId": "ai.reasoning", "slots": {"label": "요약", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "결과를 요약해줘"}}
     node = hydrate_node(draft, provider="CLAUDE")
     assert node["type"] == "AI"
     assert node["config"]["agentType"] == "simple"
@@ -111,7 +111,7 @@ def test_dehydrate_reasoning_round_trip():
 
 def test_hydrate_mcp_pseudo_template_nested_catalog_id():
     draft = {"templateId": "ai.mcp",
-             "slots": {"label": "MCP", "prompt": "도구 호출", "catalogId": "srv-1"}}
+             "slots": {"label": "MCP", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "도구 호출", "catalogId": "srv-1"}}
     node = hydrate_node(draft, provider="CLAUDE")
     tool = node["config"]["tools"][0]
     assert tool["name"] == "mcp"
@@ -141,29 +141,29 @@ def test_hydrate_unknown_template_rejected():
 
 def test_hydrate_missing_required_slot_rejected():
     with pytest.raises(SlotFillError):
-        hydrate_node({"templateId": "ai.notion_search", "slots": {"label": "x"}},
+        hydrate_node({"templateId": "ai.notion_search", "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
                      provider="CLAUDE")  # prompt 누락
 
 
 def test_hydrate_unknown_slot_rejected():
     with pytest.raises(SlotFillError):
         hydrate_node({"templateId": "ai.notion_search",
-                      "slots": {"label": "x", "prompt": "y", "hacked": "z"}},
+                      "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "y", "hacked": "z"}},
                      provider="CLAUDE")
 
 
 def test_hydrate_provider_required_without_provider():
     with pytest.raises(SlotFillError):
         hydrate_node({"templateId": "ai.notion_search",
-                      "slots": {"label": "x", "prompt": "y"}})  # provider 미지정
+                      "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "y"}})  # provider 미지정
 
 
 # --- hydrate_nodes + 통합 검증 ------------------------------------------------
 
 def test_hydrate_nodes_assigns_sequential_ids():
     drafts = [
-        {"templateId": "trigger.manual", "slots": {"label": "시작"}},
-        {"templateId": "ai.notion_search", "slots": {"label": "검색", "prompt": "p"}},
+        {"templateId": "trigger.manual", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"templateId": "ai.notion_search", "slots": {"label": "검색", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "p"}},
     ]
     nodes = hydrate_nodes(drafts, provider="CLAUDE")
     assert [n["id"] for n in nodes] == ["node-1", "node-2"]
@@ -171,8 +171,8 @@ def test_hydrate_nodes_assigns_sequential_ids():
 
 def test_hydrated_workflow_passes_validator():
     drafts = [
-        {"templateId": "trigger.manual", "slots": {"label": "시작"}},
-        {"templateId": "ai.notion_search", "slots": {"label": "검색", "prompt": "노션 검색"}},
+        {"templateId": "trigger.manual", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"templateId": "ai.notion_search", "slots": {"label": "검색", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "노션 검색"}},
     ]
     nodes = hydrate_nodes(drafts, provider="CLAUDE")
     edges = [{"source": "node-1", "target": "node-2"}]

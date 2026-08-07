@@ -195,6 +195,10 @@ provider 슬롯(llmProvider 등 '자동주입' 표기)은 시스템이 채우므
    - [데이터 보존·출력 최소화] 조회 노드 prompt는 후속 노드가 실제 쓰는 필드만 추출하도록 지시합니다. 전체 raw JSON 덤프 금지(타임아웃 유발), 임의 요약/왜곡 금지. 목록 조회(깃허브 PR/이슈, 노션 검색 등)는 반드시 단일 페이지·개수 상한을 명시합니다("최신순 1페이지(per_page=30, page=1)만 조회"). 날짜 필터는 그 1페이지 결과에 적용합니다.
    - [데이터 가공 위임] 요약·날짜 포맷·JSON 파싱 등 변환은 transform 템플릿 또는 별도 AI 노드 prompt에 위임합니다(실행 시 서브 에이전트 자동 처리).
 3. prompt 슬롯은 핵심 지시(동작·입력 참조·출력 형식) 위주 2~3문장 이내로 간결히 작성합니다.
+3-1. [description 슬롯] 모든 템플릿의 description 슬롯은 필수이며, 워크플로우 화면에서 사용자에게 그대로
+   보여줄 안내 문장입니다. 그 노드가 무슨 일을 하는지 쉬운 1문장으로 씁니다
+   (예: "AI가 문의 내용을 읽고 알맞은 유형으로 나눠요."). 도구 키·templateId·필드명·변수 참조식·JSON 등
+   기술 용어는 넣지 않으며, prompt를 그대로 복사하지 않습니다. 사용자 요청과 같은 언어로 씁니다.
 4. 서로 다른 외부 서비스 작업은 항상 별도 노드(별도 templateId)로 분리합니다.
 4-1. [요약·가공과 발송·저장 분리] 발송/저장 노드(ai.slack_send / ai.discord_send / ai.gmail_send /
    ai.notion_create_page 등)에서 콘텐츠를 직접 요약·분석·포맷하지 마십시오. 요약/판단/정리가 필요하면
@@ -266,6 +270,8 @@ _OUTPUT_FORMAT_SPEC = """\
 }
 - nodes 각 항목은 draft 형식이다: {"id": "node-1", "templateId": "<카탈로그의 templateId>", "slots": { ... }}.
   슬롯은 해당 templateId가 정의한 것만 채우고(없는 슬롯 키 금지), provider 슬롯('자동주입')은 작성하지 않는다.
+  slots에는 label과 함께 description(사용자에게 보여줄 쉬운 설명 1문장)을 반드시 채운다.
+  예: "slots": {"label": "문의 분류", "description": "AI가 문의 내용을 읽고 알맞은 유형으로 나눠요.", ...}
 - actions: OAuth 연동이 추가로 필요할 때(INTEGRATION_REQUIRED)만 채우고, 그 외에는 빈 배열([]).
 - options: CLARIFICATION_NEEDED로 사용자에게 선택을 요청할 때만 채운다(예: GitHub repo 후보, 웹훅 후보).
   각 항목은 {"value": "선택 시 사용할 값", "label": "사용자에게 보일 이름", "description": null} 형식이다.
@@ -465,6 +471,8 @@ async def chat_workflow(
 1. 기존 노드 id 체계 유지. 새 노드는 가장 큰 번호 + 1로 부여
 2. 수정되지 않은 노드는 그대로 유지(같은 templateId·slots)
 3. type은 반드시 WORKFLOW_MODIFIED
+4. description 슬롯이 없는 기존 노드가 있으면(이전 버전에서 만들어진 워크플로우) 그 노드의 label과
+   prompt를 보고 사용자에게 보여줄 설명 1문장을 새로 채운다. description은 모든 노드에 필수다.
 """
 
     from core.skill_loader import format_mcp_catalog, format_webhook_catalog

@@ -10,6 +10,7 @@
   },
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
     {"name": "mappings", "path": "config.mappings", "required": true, "kind": "mapping", "description": "출력 키 → 값(참조식 가능) dict. 예: {\"prSummary\": \"{{nodes.node-2.output.output}}\"}"}
   ],
   "allowed_config_fields": ["mappings"],
@@ -17,6 +18,7 @@
     "id": "node-3",
     "type": "TRANSFORM",
     "label": "PR 데이터 정리",
+    "description": "앞에서 받은 정보를 필요한 형태로 정리해요.",
     "config": {
       "mappings": {"prSummary": "{{nodes.node-2.output.output}}"}
     }

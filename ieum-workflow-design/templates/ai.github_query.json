@@ -15,6 +15,7 @@
   },
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
     {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
     {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "GitHub 작업 지시(owner/repo 명시). 목록 조회는 단일 페이지·개수 상한 못박고 후속 노드가 쓰는 필드만 추출하도록 지시."}
   ],
@@ -23,6 +24,7 @@
     "id": "node-2",
     "type": "AI",
     "label": "GitHub PR 목록 조회",
+    "description": "깃허브에서 필요한 정보를 찾아와요.",
     "config": {
       "llmProvider": "CLAUDE",
       "credentialId": "",

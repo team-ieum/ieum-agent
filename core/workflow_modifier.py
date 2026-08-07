@@ -122,9 +122,31 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 10. changeDescription은 반드시 사용자 요청과 동일한 언어로 작성한다.
     한국어로 요청하면 한국어로, 영어로 요청하면 영어로 작성한다.
 11. 서로 다른 외부 서비스를 호출하는 작업은 반드시 별도의 AI 노드로 분리한다.
+11-1. 각 노드는 config 외에 label과 description 최상위 필드를 가진다. description은 워크플로우 화면에서
+    사용자에게 그대로 보여줄 쉬운 안내 1문장이다(예: "AI가 문의 내용을 읽고 알맞은 유형으로 나눠요.").
+    수정하지 않는 노드의 description은 원본 그대로 유지하고, 새로 추가하는 노드에는 반드시 새로 작성하며,
+    기존 노드의 description이 비어 있으면 그 노드의 label과 prompt를 보고 채운다.
+    도구 키·필드명·변수 참조식 등 기술 용어는 넣지 않는다.
 12. Google 빌트인 도구(builtin:google_sheets_*, builtin:google_calendar_*, builtin:google_drive_*)의
     access_token 파라미터는 빈 문자열("")로 설정한다. Spring Boot에서 실행 시 주입한다.
 """
+
+
+def _preserve_descriptions(new_nodes: list, current_nodes: list | None) -> None:
+    """LLM 응답에서 빠진 노드 description을 기존 노드 값으로 되살린다(in-place).
+
+    이 경로는 재검증·재시도 루프가 없어 한 번 누락되면 그대로 저장된다. 수정 대상이 아닌 노드의
+    사용자용 설명이 조용히 사라지지 않도록 코드로 보존한다(같은 노드 id 기준)."""
+    prev = {
+        n.get("id"): n.get("description")
+        for n in (current_nodes or []) if isinstance(n, dict)
+    }
+    for node in new_nodes:
+        if not isinstance(node, dict) or node.get("description"):
+            continue
+        desc = prev.get(node.get("id"))
+        if desc:
+            node["description"] = desc
 
 
 async def _save_modify_workflow_log(
@@ -251,7 +273,9 @@ async def modify_workflow(
 
         data = json.loads(cleaned)
 
-        nodes = [WorkflowNode(**n) for n in data.get("nodes", [])]
+        raw_nodes = data.get("nodes", [])
+        _preserve_descriptions(raw_nodes, current_nodes)
+        nodes = [WorkflowNode(**n) for n in raw_nodes]
         edges = [WorkflowEdge(**e) for e in data.get("edges", [])]
         change_description = data.get("changeDescription", "")
 

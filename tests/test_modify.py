@@ -137,3 +137,40 @@ async def test_modify_workflow_잘못된_json_에러():
             await modify_workflow(
                 "테스트", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
             )
+
+
+@pytest.mark.asyncio
+async def test_modify_workflow_description_보존():
+    """LLM이 응답에서 description을 빠뜨려도 기존 노드의 설명이 보존된다.
+
+    이 경로는 재검증·재시도 루프가 없어 한 번 누락되면 그대로 저장된다(사용자용 설명 소실).
+    새로 추가된 노드의 description은 LLM이 준 값을 그대로 쓴다."""
+    described_nodes = [
+        {**n, "description": f"{n['label']} 노드가 하는 일을 쉽게 설명해요."}
+        for n in CURRENT_NODES
+    ]
+    p1, p2, p3, p4 = _make_patches(VALID_MODIFY_JSON)  # description 없는 응답
+    with p1, p2, p3, p4:
+        result = await modify_workflow(
+            "Slack 알림 노드를 추가해줘", described_nodes, CURRENT_EDGES, "CLAUDE", "test-key",
+        )
+
+    assert result.nodes[0].description == "매일 오전 9시 노드가 하는 일을 쉽게 설명해요."
+    assert result.nodes[1].description == "뉴스 요약 노드가 하는 일을 쉽게 설명해요."
+    assert result.nodes[2].description == ""  # 신규 노드는 되살릴 원본이 없다
+
+
+@pytest.mark.asyncio
+async def test_modify_workflow_llm_description_우선():
+    """LLM이 description을 새로 써 보내면 그 값이 우선한다(설명 수정 요청 반영)."""
+    payload = json.loads(VALID_MODIFY_JSON)
+    payload["nodes"][0]["description"] = "정해둔 시각이 되면 자동으로 시작돼요."
+    described_nodes = [{**n, "description": "예전 설명"} for n in CURRENT_NODES]
+
+    p1, p2, p3, p4 = _make_patches(json.dumps(payload))
+    with p1, p2, p3, p4:
+        result = await modify_workflow(
+            "설명을 다시 써줘", described_nodes, CURRENT_EDGES, "CLAUDE", "test-key",
+        )
+
+    assert result.nodes[0].description == "정해둔 시각이 되면 자동으로 시작돼요."

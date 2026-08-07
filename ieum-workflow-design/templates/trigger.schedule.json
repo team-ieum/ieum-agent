@@ -12,6 +12,7 @@
   },
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "트리거 라벨 (예: '매일 아침 9시 트리거')"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
     {"name": "cron", "path": "config.cron", "required": true, "kind": "cron", "description": "표준 5필드 크론식. 예: 매일 9시='0 9 * * *', 매주 금 17시='0 17 * * 5'"}
   ],
   "allowed_config_fields": ["triggerType", "cron"],
@@ -19,6 +20,7 @@
     "id": "node-1",
     "type": "TRIGGER",
     "label": "매일 아침 9시 트리거",
+    "description": "정해둔 시각이 되면 자동으로 시작돼요.",
     "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}
   }
 }

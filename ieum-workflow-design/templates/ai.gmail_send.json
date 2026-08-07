@@ -14,6 +14,7 @@
   },
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
     {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
     {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "발송 지시문 + 수신자/제목/본문 명시(참조식 단독 금지). 본문의 AI 결과는 {{nodes.<id>.output.output}}로 참조. 예: '아래 내용을 이메일로 보내줘. 수신자 X, 제목 Y, 본문: {{nodes.node-3.output.output}}'."}
   ],
@@ -22,6 +23,7 @@
     "id": "node-4",
     "type": "AI",
     "label": "긴급 알림 메일 발송",
+    "description": "작성된 내용을 이메일로 보내드려요.",
     "config": {
       "llmProvider": "CLAUDE",
       "credentialId": "",

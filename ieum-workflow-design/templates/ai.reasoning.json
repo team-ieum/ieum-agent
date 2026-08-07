@@ -14,6 +14,7 @@
   },
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
     {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
     {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "추론 지시. 선행 노드 결과는 {{nodes.<id>.output.<field>}}로 참조. 출력 형식 명시."}
   ],
@@ -22,6 +23,7 @@
     "id": "node-3",
     "type": "AI",
     "label": "결과 요약",
+    "description": "AI가 앞에서 모은 내용을 읽고 보기 좋게 요약해요.",
     "config": {
       "llmProvider": "CLAUDE",
       "credentialId": "",

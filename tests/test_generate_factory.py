@@ -17,7 +17,7 @@ VALID_PLAN_JSON = """{
 # Builder는 draft({id, templateId, slots})를 출력한다.
 VALID_WORKFLOW_JSON = """{
   "nodes": [
-    {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "cron": "0 9 * * *"}}
+    {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}}
   ],
   "edges": []
 }"""

@@ -20,9 +20,9 @@ VALID_PLAN_JSON = """{
 VALID_WORKFLOW_JSON = json.dumps({
     "nodes": [
         {"id": "node-1", "templateId": "trigger.schedule",
-         "slots": {"label": "매일 오전 9시", "cron": "0 9 * * *"}},
+         "slots": {"label": "매일 오전 9시", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}},
         {"id": "node-2", "templateId": "ai.web_search",
-         "slots": {"label": "경제 뉴스 검색", "prompt": "경제 뉴스를 검색해 핵심만 반환해줘"}}
+         "slots": {"label": "경제 뉴스 검색", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "경제 뉴스를 검색해 핵심만 반환해줘"}}
     ],
     "edges": [
         {"source": "node-1", "target": "node-2"}
@@ -85,6 +85,47 @@ async def test_generate_workflow_정상_json_파싱(mock_adk):
 
 
 @pytest.mark.asyncio
+async def test_generate_workflow_모든_노드에_description(mock_adk):
+    """생성 응답의 모든 노드는 비어 있지 않은 description을 갖는다(FE 노드 카드용)."""
+    result = await generate_workflow("매일 9시에 경제뉴스 정리해줘", "CLAUDE", "test-key")
+
+    assert all(n.description.strip() for n in result.nodes)
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_description_누락시_실패():
+    """Builder가 description을 빠뜨리면 하이드레이션이 거부해 생성이 실패한다.
+    (실서비스에서는 이 오류가 Builder Reflexion 루프로 되먹여져 재작성된다.)"""
+    broken = json.dumps({
+        "nodes": [
+            {"id": "node-1", "templateId": "trigger.schedule",
+             "slots": {"label": "매일 오전 9시", "cron": "0 9 * * *"}},
+            {"id": "node-2", "templateId": "ai.web_search",
+             "slots": {"label": "검색", "prompt": "경제 뉴스를 검색해줘"}},
+        ],
+        "edges": [{"source": "node-1", "target": "node-2"}],
+    })
+    # Builder 재시도(2회)까지 모두 동일한 결함 출력을 반환시켜 최종 실패를 확인한다.
+    outputs = [VALID_PLAN_JSON, broken, broken, broken]
+
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
+         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
+         patch("core.workflow_generator.get_env_lock", return_value=mock_lock), \
+         patch("core.workflow_generator.generate_workflow_logs.insert_one", AsyncMock()):
+        with pytest.raises(ValueError, match="description"):
+            await generate_workflow("테스트", "CLAUDE", "test-key")
+
+
+@pytest.mark.asyncio
 async def test_generate_workflow_코드펜스_제거():
     """LLM이 마크다운 코드 펜스로 감싸 반환해도 정상 파싱된다."""
     fenced_output = f"```json\n{VALID_WORKFLOW_JSON}\n```"
@@ -135,9 +176,9 @@ async def test_generate_workflow_프롬프트_내_중괄호_보존():
     """노드 프롬프트의 변수참조({{...}})로 중괄호가 섞여도 JSON 추출이 깨지지 않는다 (A1)."""
     workflow_with_braces = json.dumps({
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "수동"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "수동", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.web_search",
-             "slots": {"label": "요약", "prompt": "이전 결과 {{nodes.node-1.output.triggeredAt}}를 요약"}},
+             "slots": {"label": "요약", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "이전 결과 {{nodes.node-1.output.triggeredAt}}를 요약"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2"}],
     })

@@ -10,7 +10,10 @@ LLM이 노드를 자유 생성하며 도구 키·config 필드를 환각하는 �
 템플릿은 **FIXED(불변)** 영역과 **SLOT(LLM이 채움)** 영역을 분리한다.
 
 - FIXED: `type`, 도구 키(`tools`), `agentType`, `credentialId=""` 등 → 템플릿이 고정 → 환각 클래스 제거
-- SLOT: `prompt`, `cron`, `label`, `llmProvider`, 리소스 ID 등 → LLM이 채움
+- SLOT: `prompt`, `cron`, `label`, `description`, `llmProvider`, 리소스 ID 등 → LLM이 채움
+
+`description`은 모든 템플릿의 필수 슬롯이며, 개발자용 메모가 아니라 워크플로우 화면에서
+사용자에게 그대로 보여줄 자연어 1문장이다(예: "AI가 문의 내용을 읽고 알맞은 유형으로 나눠요.").
 
 ## 템플릿 필드
 
@@ -31,7 +34,7 @@ LLM이 노드를 자유 생성하며 도구 키·config 필드를 환각하는 �
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
 | `name` | string | ✅ | 슬롯 이름 |
-| `path` | string | ✅ | 노드 JSON 내 위치. `label` 또는 `config.<key>` (점 표기) |
+| `path` | string | ✅ | 노드 JSON 내 위치. `label` / `description` 또는 `config.<key>` (점 표기) |
 | `required` | bool | ✅ | 필수 여부 |
 | `kind` | string | ✅ | `string` \| `enum` \| `provider` \| `cron` \| `expr` \| `mapping` \| `http_method` |
 | `enum` | string[] | ⬜ | `kind=enum`일 때 허용 값 |

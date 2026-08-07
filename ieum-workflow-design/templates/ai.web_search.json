@@ -14,6 +14,7 @@
   },
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
     {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
     {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "검색 지시. 각 항목의 제목/URL/요지를 임의 누락 없이 정리해 반환하도록 명시."}
   ],
@@ -22,6 +23,7 @@
     "id": "node-2",
     "type": "AI",
     "label": "IT 뉴스 검색",
+    "description": "웹에서 관련된 최신 소식을 찾아봐요.",
     "config": {
       "llmProvider": "CLAUDE",
       "credentialId": "",
