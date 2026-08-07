@@ -34,9 +34,10 @@ def test_every_template_has_required_description_slot():
 def test_description_slot_appears_in_slot_catalog_as_required():
     """Builder/Designer에 주입되는 슬롯 카탈로그에 description(필수)이 노출된다."""
     catalog = tr.slot_catalog_text()
-    for line in catalog.split("\n"):
-        if not line.strip().startswith("slots:"):
-            continue
+    slot_lines = [ln for ln in catalog.split("\n") if ln.strip().startswith("slots:")]
+    # 카탈로그 포맷이 바뀌어 매칭 줄이 0개가 되면 아래 루프가 조용히 통과한다(공허한 참).
+    assert len(slot_lines) == len(tr.all_templates()), f"슬롯 줄 파싱 실패: {len(slot_lines)}개"
+    for line in slot_lines:
         assert "description(string,필수)" in line, f"카탈로그에 필수 description 누락: {line}"
 
 

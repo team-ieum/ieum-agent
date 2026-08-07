@@ -735,6 +735,91 @@ def test_dehydrate_nodes_round_trip():
     assert "llmProvider" not in drafts[1]["slots"]  # provider 슬롯은 제외
 
 
+# ── 레거시(description 없음) 워크플로우 수정 ────────────────────────────────
+
+# description 슬롯 도입 이전에 저장된 워크플로우. dehydrate하면 draft에 description 키가 없다.
+LEGACY_FULL_NODES = [
+    {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+    {"id": "node-2", "type": "AI", "label": "AI 처리",
+     "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리해줘",
+                "agentType": "react", "tools": [{"name": "builtin:web_search"}]}},
+]
+# Designer가 수정 규칙 2("그대로 유지")만 따라 레거시 draft를 그대로 복사한 출력(description 없음).
+LEGACY_COPIED_MODIFIED_JSON = json.dumps({
+    "message": "워크플로우를 수정했습니다.",
+    "type": "WORKFLOW_MODIFIED",
+    "actions": [],
+    "changeDescription": "node-2 프롬프트를 수정했습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+        {"id": "node-2", "templateId": "ai.web_search",
+         "slots": {"label": "AI 처리", "prompt": "다르게 처리해줘"}},
+    ],
+    "edges": VALID_EDGES,
+})
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_레거시_노드_수정_첫_시도_성공():
+    """description 없는 레거시 노드를 Designer가 그대로 복사해도 수정이 첫 시도에 성공한다.
+    (필수 슬롯 누락 → 자가 교정 → CLARIFICATION 폴백으로 새던 경로)"""
+    p1, p2, p3, p4 = _make_patches(LEGACY_COPIED_MODIFIED_JSON)
+    with p1, p2, p3, p4:
+        result = await _call("프롬프트 수정해줘",
+                             current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    assert len(result.nodes) == 2
+    # 보정값은 label. 빈 description으로 FE 노드 카드가 비지 않는다.
+    assert [n.description for n in result.nodes] == ["트리거", "AI 처리"]
+    assert result.nodes[1].config["prompt"] == "다르게 처리해줘"  # 요청한 수정은 반영
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_레거시_보정은_기존_노드에만_적용된다():
+    """레거시 보정은 현재 워크플로우에 있던 노드 id에만 걸린다.
+    새로 추가된 노드가 description을 빠뜨리면 기존대로 실패(→ CLARIFICATION)해야 한다."""
+    payload = json.dumps({
+        "message": "수정", "type": "WORKFLOW_MODIFIED", "actions": [],
+        "changeDescription": "노드 추가",
+        "nodes": [
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+            {"id": "node-2", "templateId": "ai.web_search",
+             "slots": {"label": "AI 처리", "prompt": "처리해줘"}},
+            {"id": "node-3", "templateId": "ai.reasoning", "slots": {"label": "요약", "prompt": "요약해줘"}},
+        ],
+        "edges": VALID_EDGES + [{"source": "node-2", "target": "node-3", "conditionType": None}],
+    })
+    p1, p2, p3, p4 = _make_patches(payload)
+    with p1, p2, p3, p4:
+        result = await _call("요약 노드 추가해줘",
+                             current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_레거시_수정규칙_프롬프트_주입():
+    """레거시 노드가 있을 때만 '규칙 2의 예외' 문구와 해당 노드 id가 Designer 프롬프트에 들어간다."""
+    captured = []
+
+    def _agent_factory(**kwargs):
+        captured.append(kwargs.get("instruction") or "")
+        return MagicMock()
+
+    p1, p2, p3, p4 = _make_patches(LEGACY_COPIED_MODIFIED_JSON)
+    with p1, p2, p3, p4, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
+        await _call("수정해줘", current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
+    designer_instruction = captured[0]
+    assert "2번의 예외" in designer_instruction
+    assert "node-1, node-2" in designer_instruction
+
+    captured.clear()
+    p1, p2, p3, p4 = _make_patches(WORKFLOW_MODIFIED_JSON)
+    with p1, p2, p3, p4, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
+        await _call("수정해줘", current_nodes=FULL_NODES, current_edges=VALID_EDGES)
+    # description이 이미 있는 워크플로우에는 예외 규칙 자체를 넣지 않는다(규칙 2와 충돌 방지).
+    assert "2번의 예외" not in captured[0]
+
+
 def test_strip_invalid_webhook_credentials():
     """보유 자격증명에 없는 webhookCredentialId는 제거되고, 유효한 것은 보존된다(도구 자체는 유지)."""
     from core.workflow_chat import _strip_invalid_webhook_credentials

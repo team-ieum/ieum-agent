@@ -294,6 +294,21 @@ _MAX_CLARIFICATION_OPTIONS = 8
 _MAX_VALIDATION_RETRIES = 2
 
 
+def _backfill_legacy_description(draft: dict) -> None:
+    """description 슬롯 도입 이전 노드를 Designer가 그대로 복사해 온 경우 label로 채운다(in-place).
+
+    수정 규칙 4로 새로 쓰게 유도하지만, 모델이 놓치면 필수 슬롯 누락 → 자가 교정 2회 →
+    CLARIFICATION 폴백으로 레거시 워크플로우의 정당한 수정 요청 자체가 실패한다.
+    라벨 복제는 좋은 설명이 아니지만 수정 실패보다 낫다. 신규 노드(legacy id 아님)에는 적용하지
+    않으므로 '새 노드는 반드시 description을 쓴다'는 강제는 그대로 유지된다."""
+    slots = draft.get("slots")
+    if not isinstance(slots, dict) or str(slots.get("description") or "").strip():
+        return
+    label = slots.get("label")
+    if isinstance(label, str) and label.strip():
+        slots["description"] = label.strip()
+
+
 _WEBHOOK_TOOL_NAMES = {"slack", "discord"}
 
 
@@ -460,19 +475,32 @@ async def chat_workflow(
 """
 
     workflow_section = ""
+    legacy_desc_ids: set = set()
     if current_nodes:
         # 저장된 full-node를 draft(templateId+slots)로 역변환해 주입한다. Designer는 draft로 편집한다.
         current_drafts = dehydrate_nodes(current_nodes)
+        # description 슬롯 도입(IEUM-AI-55) 이전에 저장된 노드는 값이 비어 draft에서 아예 빠진다.
+        # 이 id들만 "그대로 복사 금지"의 예외로 프롬프트에 못박고, LLM이 놓쳐도 하이드레이션 직전에 보정한다.
+        legacy_desc_ids = {
+            d["id"] for d in current_drafts
+            if d.get("id") and not str((d.get("slots") or {}).get("description") or "").strip()
+        }
+        legacy_rule = ""
+        if legacy_desc_ids:
+            legacy_rule = (
+                "\n4. 단, 위 JSON에 description 슬롯이 없는 노드({ids})는 2번의 예외다. 이 노드들은"
+                "\n   복사만 하면 안 되고, label과 prompt를 보고 사용자에게 보여줄 쉬운 설명 1문장을"
+                "\n   description 슬롯에 새로 채워야 한다(description은 모든 노드의 필수 슬롯이라"
+                "\n   빠진 채로 두면 수정이 실패한다). 이 노드들의 나머지 슬롯 값은 2번대로 그대로 둔다."
+            ).format(ids=", ".join(sorted(legacy_desc_ids)))
         workflow_section = f"""
 ## 현재 워크플로우 (수정 요청)
 {json.dumps({"nodes": current_drafts, "edges": current_edges}, ensure_ascii=False)}
 
 수정 규칙:
 1. 기존 노드 id 체계 유지. 새 노드는 가장 큰 번호 + 1로 부여
-2. 수정되지 않은 노드는 그대로 유지(같은 templateId·slots)
-3. type은 반드시 WORKFLOW_MODIFIED
-4. description 슬롯이 없는 기존 노드가 있으면(이전 버전에서 만들어진 워크플로우) 그 노드의 label과
-   prompt를 보고 사용자에게 보여줄 설명 1문장을 새로 채운다. description은 모든 노드에 필수다.
+2. 수정 요청과 무관한 노드는 위 JSON의 templateId·slots를 그대로 유지한다(값을 임의로 바꾸지 않는다)
+3. type은 반드시 WORKFLOW_MODIFIED{legacy_rule}
 """
 
     from core.skill_loader import format_mcp_catalog, format_webhook_catalog
@@ -504,6 +532,8 @@ async def chat_workflow(
         raw_nodes = []
         for idx, draft in enumerate(raw_drafts):
             old_id = draft.get("id") if isinstance(draft, dict) else None
+            if old_id in legacy_desc_ids:
+                _backfill_legacy_description(draft)
             node = hydrate_node(draft, provider=provider)
             new_id = old_id if (pid and old_id) else f"node-{idx + 1}"
             node["id"] = new_id
