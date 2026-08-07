@@ -68,8 +68,8 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 ### CONDITION
 {{
   "operator": "equals | notEquals | contains | notContains | greaterThan | lessThan | greaterThanOrEqual | lessThanOrEqual | isEmpty | isNotEmpty",
-  "leftValue": "{{{{nodes.<node-id>.output.<field>}}}}",
-  "rightValue": "비교값"
+  "left": "{{{{nodes.<node-id>.output.<field>}}}}",
+  "right": "비교값"
 }}
 
 ### TRANSFORM

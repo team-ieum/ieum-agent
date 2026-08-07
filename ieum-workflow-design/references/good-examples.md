@@ -142,8 +142,8 @@
       "label": "긴급 여부 분기",
       "config": {
         "operator": "equals",
-        "leftValue": "{{nodes.node-2.output.output}}",
-        "rightValue": "urgent"
+        "left": "{{nodes.node-2.output.output}}",
+        "right": "urgent"
       }
     },
     {

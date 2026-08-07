@@ -52,6 +52,31 @@ def test_chat_endpoint_서버오류_500_반환():
     assert ErrorCode.CHAT_EXECUTION_FAILED.message in response.json()["detail"]
 
 
+def test_chat_endpoint_레거시_condition_워크플로우_수정_요청_수용():
+    """구표기(leftValue/rightValue)로 저장된 워크플로우의 수정 요청이 422로 막히지 않고,
+    chat_workflow에는 표준 표기(left/right)로만 전달된다(IEUM-AI-55)."""
+    from api.schemas.chat import ChatResponse, ChatResponseType
+
+    captured = {}
+
+    async def _fake_chat(**kwargs):
+        captured.update(kwargs)
+        return ChatResponse(message="ok", type=ChatResponseType.WORKFLOW_MODIFIED, rawPrompt="수정")
+
+    payload = dict(CHAT_PAYLOAD, prompt="조건 바꿔줘", currentNodes=[
+        {"id": "node-1", "type": "TRIGGER", "label": "시작", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "CONDITION", "label": "분기", "config": {
+            "operator": "equals", "leftValue": "{{nodes.node-1.output.output}}", "rightValue": "urgent"}},
+    ], currentEdges=[{"source": "node-1", "target": "node-2", "conditionType": None}])
+
+    with patch("api.routes.chat.chat_workflow", side_effect=_fake_chat):
+        response = client.post("/v1/chat", json=payload)
+
+    assert response.status_code == 200
+    assert captured["current_nodes"][1]["config"] == {
+        "operator": "equals", "left": "{{nodes.node-1.output.output}}", "right": "urgent"}
+
+
 class _RateLimitError(Exception):
     def __init__(self):
         self.code = 429

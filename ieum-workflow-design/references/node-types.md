@@ -22,7 +22,7 @@
 
 ### CONDITION
 - 흐름 분기를 수행합니다.
-- `config.operator`, `config.leftValue` (참조 형식), `config.rightValue` 가 필수입니다.
+- `config.operator`, `config.left` (참조 형식), `config.right` 가 필수입니다.
 - 분기 경로는 edges에서 `conditionType: "true"` 또는 `"false"`로 처리합니다.
 
 ### TRANSFORM

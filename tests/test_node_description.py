@@ -68,7 +68,7 @@ def test_hydrate_sets_top_level_description():
 @pytest.mark.parametrize("template_id,slots", [
     ("trigger.manual", {"label": "시작"}),
     ("condition", {"label": "분기", "operator": "equals",
-                   "leftValue": "{{nodes.node-1.output.output}}", "rightValue": "x"}),
+                   "left": "{{nodes.node-1.output.output}}", "right": "x"}),
     ("ai.reasoning", {"label": "요약", "prompt": "요약해줘"}),
 ])
 def test_hydrate_rejects_draft_without_description(template_id, slots):

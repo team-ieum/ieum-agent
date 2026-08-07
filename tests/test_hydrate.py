@@ -54,12 +54,12 @@ def test_hydrate_provider_auto_injected_overrides_slot():
 def test_hydrate_condition_node():
     draft = {"templateId": "condition",
              "slots": {"label": "분기", "description": "이 노드가 하는 일을 쉽게 설명해요.", "operator": "gt",
-                       "leftValue": "{{nodes.node-1.output.count}}", "rightValue": "0"}}
+                       "left": "{{nodes.node-1.output.count}}", "right": "0"}}
     node = hydrate_node(draft)
     assert node["type"] == "CONDITION"
     assert node["config"]["operator"] == "gt"
-    assert node["config"]["leftValue"] == "{{nodes.node-1.output.count}}"
-    assert node["config"]["rightValue"] == "0"
+    assert node["config"]["left"] == "{{nodes.node-1.output.count}}"
+    assert node["config"]["right"] == "0"
 
 
 def test_hydrate_http_optional_slot_skipped():
