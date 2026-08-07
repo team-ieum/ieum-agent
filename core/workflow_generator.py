@@ -37,7 +37,7 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 1. 각 노드는 계획(plan)에 명시된 templateId를 그대로 사용한다. templateId를 임의로 바꾸거나 새로 만들지 않는다.
 2. slots에는 해당 templateId가 정의한 슬롯만 채운다(아래 '노드 템플릿 카탈로그' 참조).
    카탈로그에 없는 슬롯 키를 만들지 않는다.
-3. provider 슬롯(예: llmProvider)은 시스템이 자동 주입하므로 절대 작성하지 않는다.
+3. 카탈로그에 '자동주입(작성금지)'로 표기된 슬롯(llmProvider, model)은 시스템이 채우므로 작성하지 않는다.
 4. '필수' 슬롯은 모두 채운다. '선택' 슬롯은 실제로 필요할 때만 채운다.
 5. credentialId / access_token / tools / agentType / triggerType 등 구조·자격 값은
    템플릿과 런타임이 처리한다. slots에 넣지 않는다.

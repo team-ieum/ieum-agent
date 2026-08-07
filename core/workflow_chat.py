@@ -182,7 +182,7 @@ _SYSTEM_PROMPT_BASE = """\
 <workflow_design_rules>
 당신은 노드 구조를 직접 설계하지 않습니다. 아래 '노드 템플릿 카탈로그'에서 각 노드의 templateId를 고르고,
 그 템플릿이 정의한 슬롯(slots)만 채웁니다. 노드의 타입·도구·고정 설정은 템플릿이 결정합니다.
-provider 슬롯(llmProvider 등 '자동주입' 표기)은 시스템이 채우므로 작성하지 않습니다.
+'자동주입(작성금지)' 표기 슬롯(llmProvider, model)은 시스템이 채우므로 작성하지 않습니다.
 
 1. 외부 연동(Notion/Gmail/Slack/Discord/GitHub 등)은 해당 서비스의 ai.* 템플릿을 선택합니다. http 템플릿으로 직접 호출하지 않습니다.
 2. 노드 간 데이터 참조 및 무결성:

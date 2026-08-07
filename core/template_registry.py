@@ -14,6 +14,8 @@ import json
 import glob
 import logging
 
+from core.provider_config import resolve_model
+
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = os.path.abspath(
@@ -28,7 +30,13 @@ UNIVERSAL_CONFIG_FIELDS = {
 }
 
 _VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM"}
-_VALID_SLOT_KINDS = {"string", "enum", "provider", "cron", "expr", "mapping", "http_method"}
+_VALID_SLOT_KINDS = {"string", "enum", "provider", "model", "cron", "expr", "mapping", "http_method"}
+# LLM이 값을 쓰지 못하고 시스템이 요청 provider에서 계산해 주입하는 슬롯 kind.
+_SYSTEM_INJECTED_KINDS = {"provider", "model"}
+
+# FE 노드 카드가 앱 아이콘/라벨을 그릴 때 쓰는 표시용 메타. 실행 경로는 읽지 않는다.
+# 템플릿 fixed.config에 상수로 박히며, 앱과 무관한 AI 노드에는 아예 없다.
+VALID_SERVICE_TYPES = {"GOOGLE", "NOTION", "GITHUB", "SLACK", "DISCORD"}
 _REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "tags", "menu", "fixed", "slots", "allowed_config_fields"}
 
 # 모듈 캐시 (파일은 기동 중 불변)
@@ -114,6 +122,11 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
         if key not in allowed:
             raise TemplateSchemaError(f"{tid}: fixed.config.{key}가 allowed_config_fields에 없음")
 
+    service_type = fixed_config.get("serviceType")
+    if service_type is not None and service_type not in VALID_SERVICE_TYPES:
+        raise TemplateSchemaError(
+            f"{tid}: fixed.config.serviceType '{service_type}' 유효하지 않음 {sorted(VALID_SERVICE_TYPES)}")
+
 
 def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
     """모든 템플릿을 로드·검증해 {id: template} dict로 반환한다(캐시).
@@ -180,7 +193,7 @@ def slot_catalog_text() -> str:
     for t in load_templates().values():
         slot_specs = []
         for s in t["slots"]:
-            if s["kind"] == "provider":
+            if s["kind"] in _SYSTEM_INJECTED_KINDS:
                 tag = "자동주입(작성금지)"
             else:
                 tag = "필수" if s["required"] else "선택"
@@ -263,6 +276,16 @@ def resolve_template_for_node(node: dict) -> dict | None:
     return None
 
 
+def service_type_for_node(node: dict) -> str | None:
+    """노드가 어느 앱(serviceType)에 속하는지 템플릿 fixed.config에서 읽는다. 앱 노드가 아니면 None.
+
+    하이드레이션을 거치지 않는 경로(/v1/modify-workflow)에서 표시용 메타를 복원하는 데 쓴다."""
+    tpl = resolve_template_for_node(node)
+    if tpl is None:
+        return None
+    return ((tpl["fixed"].get("config") or {}).get("serviceType")) or None
+
+
 def subagent_service_for_node(node: dict) -> str | None:
     """tool 없는 AI 노드의 동적 서브에이전트 서비스명을 intent(라벨+프롬프트) 태그 매칭으로 도출한다.
 
@@ -318,7 +341,8 @@ def hydrate_node(draft: dict, provider: str | None = None) -> dict:
     구조(type/fixed.config)는 템플릿이 결정론적으로 제공하고, 가변값만 slots에서 채운다.
     - templateId가 레지스트리에 없으면 SlotFillError(노드 날조 차단).
     - 템플릿에 없는 슬롯 키, 필수 슬롯 누락이면 SlotFillError(필드 날조 차단).
-    - provider 슬롯(kind=provider)은 인자 provider로 자동 주입한다(LLM이 채우지 않음).
+    - provider/model 슬롯(kind=provider|model)은 인자 provider에서 계산해 자동 주입한다
+      (LLM이 채우지 않음. slots에 값이 있어도 무시하고 덮어쓴다 — 모델명 날조 차단).
     의미 검증(llmProvider/cron/tool/참조 등)은 호출부의 WorkflowValidator가 담당한다."""
     if not isinstance(draft, dict):
         raise SlotFillError("노드 draft는 객체여야 합니다.")
@@ -345,13 +369,14 @@ def hydrate_node(draft: dict, provider: str | None = None) -> dict:
         raise SlotFillError(f"'{tid}'에 없는 슬롯: {sorted(unknown)}. 허용: {sorted(slot_by_name)}")
 
     for name, slot in slot_by_name.items():
-        if slot["kind"] == "provider":
+        if slot["kind"] in _SYSTEM_INJECTED_KINDS:
             if provider is not None:
-                value = provider  # 시스템 자동 주입(요청 provider 계승)
-            elif name in slots_in:
+                # 시스템 자동 주입(요청 provider 계승). model은 그 provider의 기본 모델로 해석한다.
+                value = provider if slot["kind"] == "provider" else resolve_model(provider)
+            elif slot["kind"] == "provider" and name in slots_in:
                 value = slots_in[name]
             else:
-                raise SlotFillError(f"'{tid}'의 provider 슬롯 '{name}' 주입 실패: provider 미지정")
+                raise SlotFillError(f"'{tid}'의 {slot['kind']} 슬롯 '{name}' 주입 실패: provider 미지정")
         elif name in slots_in:
             value = slots_in[name]
         elif slot["required"]:
@@ -396,7 +421,7 @@ def dehydrate_node(node: dict) -> dict | None:
     """완성된 노드(full-node)를 draft({id, templateId, slots})로 역변환한다(MODIFY 편집용).
 
     resolve_template_for_node로 templateId를 찾고, 각 슬롯의 path에서 현재 값을 읽어 slots를 구성한다.
-    provider 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 None(역변환 불가)."""
+    provider/model 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 None(역변환 불가)."""
     if not isinstance(node, dict):
         return None
     tpl = resolve_template_for_node(node)
@@ -404,7 +429,7 @@ def dehydrate_node(node: dict) -> dict | None:
         return None
     slots = {}
     for s in tpl["slots"]:
-        if s["kind"] == "provider":
+        if s["kind"] in _SYSTEM_INJECTED_KINDS:
             continue
         val = _get_by_path(node, s["path"])
         if val not in (None, ""):

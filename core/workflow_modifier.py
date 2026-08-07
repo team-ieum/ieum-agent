@@ -49,7 +49,6 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
   "credentialId": "",
   "prompt": "프롬프트 텍스트. 이전 노드 결과 참조: {{{{nodes.<node-id>.output.<field>}}}}",
   "systemMessage": "시스템 메시지 (optional)",
-  "model": null,
   "agentType": "simple | react",   // 도구 사용이 필요하면 react, 아니면 simple
   "tools": [
     {{"name": "builtin:web_search"}},
@@ -129,6 +128,7 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
     도구 키·필드명·변수 참조식 등 기술 용어는 넣지 않는다.
 12. Google 빌트인 도구(builtin:google_sheets_*, builtin:google_calendar_*, builtin:google_drive_*)의
     access_token 파라미터는 빈 문자열("")로 설정한다. Spring Boot에서 실행 시 주입한다.
+13. AI 노드 config의 model, serviceType은 시스템이 자동으로 채우는 필드다. 작성하지 않는다.
 """
 
 
@@ -147,6 +147,28 @@ def _preserve_descriptions(new_nodes: list, current_nodes: list | None) -> None:
         desc = prev.get(node.get("id"))
         if desc:
             node["description"] = desc
+
+
+def _apply_tech_fields(new_nodes: list) -> None:
+    """AI 노드의 표시용 기술정보(model·serviceType)를 결정론적으로 다시 채운다(in-place).
+
+    이 경로는 템플릿 하이드레이션을 거치지 않아 두 필드가 LLM 응답에만 의존한다. 값을 LLM에게
+    맡기면 모델명 날조·앱 오분류가 그대로 저장되므로, 노드의 llmProvider와 매칭 템플릿에서
+    다시 계산해 덮어쓴다. 앱 노드가 아니면 serviceType은 제거한다."""
+    from core.template_registry import service_type_for_node
+
+    for node in new_nodes:
+        if not isinstance(node, dict) or (node.get("type") or "").upper() != "AI":
+            continue
+        cfg = node.get("config")
+        if not isinstance(cfg, dict):
+            continue
+        cfg["model"] = resolve_model(str(cfg.get("llmProvider") or ""))
+        service_type = service_type_for_node(node)
+        if service_type:
+            cfg["serviceType"] = service_type
+        else:
+            cfg.pop("serviceType", None)
 
 
 async def _save_modify_workflow_log(
@@ -275,6 +297,7 @@ async def modify_workflow(
 
         raw_nodes = data.get("nodes", [])
         _preserve_descriptions(raw_nodes, current_nodes)
+        _apply_tech_fields(raw_nodes)
         nodes = [WorkflowNode(**n) for n in raw_nodes]
         edges = [WorkflowEdge(**e) for e in data.get("edges", [])]
         change_description = data.get("changeDescription", "")

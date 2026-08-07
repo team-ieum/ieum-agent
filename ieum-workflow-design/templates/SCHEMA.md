@@ -10,7 +10,8 @@ LLM이 노드를 자유 생성하며 도구 키·config 필드를 환각하는 �
 템플릿은 **FIXED(불변)** 영역과 **SLOT(LLM이 채움)** 영역을 분리한다.
 
 - FIXED: `type`, 도구 키(`tools`), `agentType`, `credentialId=""` 등 → 템플릿이 고정 → 환각 클래스 제거
-- SLOT: `prompt`, `cron`, `label`, `description`, `llmProvider`, 리소스 ID 등 → LLM이 채움
+- SLOT: `prompt`, `cron`, `label`, `description`, 리소스 ID 등 → LLM이 채움
+- SLOT 중 `llmProvider`/`model`은 예외로 시스템이 주입한다(LLM 작성 금지)
 
 `description`은 모든 템플릿의 필수 슬롯이며, 개발자용 메모가 아니라 워크플로우 화면에서
 사용자에게 그대로 보여줄 자연어 1문장이다(예: "AI가 문의 내용을 읽고 알맞은 유형으로 나눠요.").
@@ -36,11 +37,22 @@ LLM이 노드를 자유 생성하며 도구 키·config 필드를 환각하는 �
 | `name` | string | ✅ | 슬롯 이름 |
 | `path` | string | ✅ | 노드 JSON 내 위치. `label` / `description` 또는 `config.<key>` (점 표기) |
 | `required` | bool | ✅ | 필수 여부 |
-| `kind` | string | ✅ | `string` \| `enum` \| `provider` \| `cron` \| `expr` \| `mapping` \| `http_method` |
+| `kind` | string | ✅ | `string` \| `enum` \| `provider` \| `model` \| `cron` \| `expr` \| `mapping` \| `http_method` |
 | `enum` | string[] | ⬜ | `kind=enum`일 때 허용 값 |
 | `description` | string | ⬜ | LLM 작성 가이드 |
 
 `kind=provider`: 요청자 LLM provider(CLAUDE\|OPENAI\|GEMINI)를 계승하는 특수 슬롯.
+`kind=model`: 그 provider의 기본 모델명(`provider_config.resolve_model`)을 계승하는 특수 슬롯.
+
+두 kind 모두 **시스템이 주입**한다. 카탈로그에 '자동주입(작성금지)'로 표기되고, 하이드레이션 시
+LLM이 보낸 값은 무시된다(모델명 날조 차단).
+
+### serviceType (FE 표시용 앱 메타)
+
+앱을 호출하는 AI 템플릿은 `fixed.config.serviceType`에 상수를 갖는다.
+허용값은 `GOOGLE` \| `NOTION` \| `GITHUB` \| `SLACK` \| `DISCORD`이며, 앱과 무관한 AI 노드
+(`ai.reasoning`, `ai.web_search`, `ai.http_fetch`, `ai.mcp`)와 구조 노드에는 두지 않는다.
+FE 노드 카드 표시 전용이며 실행 경로는 이 값을 읽지 않는다.
 
 ## 불변 규칙
 
