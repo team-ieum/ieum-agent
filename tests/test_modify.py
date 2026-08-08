@@ -192,24 +192,6 @@ async def test_modify_workflow_공백_description도_폴백():
     assert result.nodes[2].description == "Slack 알림"
 
 
-@pytest.mark.asyncio
-async def test_modify_workflow_label_바뀌면_옛_설명_복원안함():
-    """용도가 교체된 노드에 옛 설명을 되살리면 카드에 반대되는 안내가 남는다."""
-    described = [
-        {**n, "description": "슬랙으로 메시지를 보내드려요."} for n in CURRENT_NODES
-    ]
-    payload = json.loads(VALID_MODIFY_JSON)
-    payload["nodes"][1]["label"] = "노션에 저장"   # node-2의 용도 교체, description은 누락
-
-    p1, p2, p3, p4 = _make_patches(json.dumps(payload))
-    with p1, p2, p3, p4:
-        result = await modify_workflow(
-            "node-2를 노션 저장으로 바꿔줘", described, CURRENT_EDGES, "CLAUDE", "test-key",
-        )
-
-    assert result.nodes[1].description == "노션에 저장"   # label 폴백
-    assert result.nodes[0].description == "슬랙으로 메시지를 보내드려요."  # label 그대로면 복원
-
 
 @pytest.mark.asyncio
 async def test_modify_workflow_nodes_없으면_파싱_에러():
@@ -222,18 +204,6 @@ async def test_modify_workflow_nodes_없으면_파싱_에러():
                 "바꿔줘", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
             )
 
-
-@pytest.mark.asyncio
-async def test_modify_workflow_brand_주입():
-    """생성 경로와 동일하게 표시용 brand가 채워진다 — LLM이 config를 재작성하며 떨어뜨려도."""
-    p1, p2, p3, p4 = _make_patches(VALID_MODIFY_JSON)  # brand 없는 응답
-    with p1, p2, p3, p4:
-        result = await modify_workflow(
-            "Slack 알림 노드를 추가해줘", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
-        )
-
-    assert result.nodes[2].config["brand"] == "slack"
-    assert all("brand" in n.config for n in result.nodes)
 
 
 @pytest.mark.asyncio

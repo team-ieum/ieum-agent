@@ -16,7 +16,6 @@ from core.env_lock import get_env_lock
 from core.provider_config import resolve_model, resolve_env_key
 from core.model_factory import build_model_param, uses_env_key
 from db.mongodb import modify_workflow_logs
-from tools.registry import apply_service_brand
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +128,8 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
     도구 키·필드명·변수 참조식 등 기술 용어는 넣지 않는다.
 12. Google 빌트인 도구(builtin:google_sheets_*, builtin:google_calendar_*, builtin:google_drive_*)의
     access_token 파라미터는 빈 문자열("")로 설정한다. Spring Boot에서 실행 시 주입한다.
-13. AI 노드 config의 model, serviceType은 시스템이 자동으로 채우는 필드다. 작성하지 않는다.
+13. AI 노드 config의 model, serviceType은 작성하지 않는다. 노드가 어느 앱인지·어떤 모델로
+    돌지는 실행 시점에 결정되며, 지어낸 값을 쓰면 잘못된 앱 배지나 존재하지 않는 모델이 저장된다.
 """
 
 
@@ -137,64 +137,41 @@ def _preserve_descriptions(new_nodes: list, current_nodes: list | None) -> None:
     """LLM 응답에서 빠진 노드 description을 기존 노드 값으로 되살린다(in-place).
 
     이 경로는 재검증·재시도 루프가 없어 한 번 누락되면 그대로 저장된다. 수정 대상이 아닌 노드의
-    사용자용 설명이 조용히 사라지지 않도록 코드로 보존한다(같은 노드 id 기준)."""
+    사용자용 설명이 조용히 사라지지 않도록 코드로 보존한다(같은 노드 id 기준).
+
+    복원 순서는 **기존 값 → label**이다. label 복제는 되살릴 원본이 아예 없을 때만 쓰는 최후
+    수단이다 — 원본이 있는데 label로 덮으면 사용자가 쓴 안내 문장이 영구 소실된다.
+
+    label 변경 여부로 '용도가 교체된 노드'를 가리려던 판정은 뺐다. 개명(설명은 그대로여야 함)과
+    동작 교체(설명이 바뀌어야 함)를 label 동등성으로는 구분할 수 없어, 어느 쪽으로 두든 반대편이
+    틀린다. 설명을 갱신할지는 LLM이 판단할 몫이고 이 함수는 소실만 막는다."""
     prev = {
-        n.get("id"): (n.get("description"), n.get("label"))
+        n.get("id"): n.get("description")
         for n in (current_nodes or []) if isinstance(n, dict)
     }
     for node in new_nodes:
         if not isinstance(node, dict) or str(node.get("description") or "").strip():
             continue
-        desc, prev_label = prev.get(node.get("id"), (None, None))
-        # label이 바뀐 노드는 용도가 교체된 것이다. 옛 설명을 되살리면 카드에 실제 동작과
-        # 반대되는 안내가 남으므로 복원하지 않고 아래 label 폴백으로 넘긴다.
-        if prev_label != node.get("label"):
-            desc = None
+        desc = str(prev.get(node.get("id")) or "").strip()
         if not desc:
             # description 도입 이전 저장분은 기존 값도 비어 있다. 그대로 두면 BE NodeDto의
-            # @NotBlank에 걸려 사용자가 그 워크플로우를 저장할 수 없으므로 label로 채운다
-            # (/v1/chat의 _backfill_legacy_description과 같은 폴백).
+            # @NotBlank에 걸려 사용자가 그 워크플로우를 저장할 수 없으므로 label로 채운다.
             label = node.get("label")
-            desc = label.strip() if isinstance(label, str) else None
+            desc = label.strip() if isinstance(label, str) else ""
         if desc:
             node["description"] = desc
 
 
-def _apply_tech_fields(new_nodes: list) -> None:
-    """AI 노드의 표시용 기술정보(model·serviceType)를 결정론적으로 다시 채운다(in-place).
-
-    이 경로는 템플릿 하이드레이션을 거치지 않아 두 필드가 LLM 응답에만 의존한다. 값을 LLM에게
-    맡기면 모델명 날조·앱 오분류가 그대로 저장되므로 시스템이 다시 계산해 덮어쓴다.
-
-    model은 **노드의 llmProvider** 기준이다. config.model은 표시용이 아니라 실행 모델이고
-    (BE AgentNodeExecutor가 config.get("model")을 그대로 요청에 싣는다) 수정 프롬프트 규칙 8이
-    노드의 원래 llmProvider를 유지시키므로, 요청 크레덴셜 기준으로 찍으면 GEMINI 노드에
-    Claude 모델 id가 박혀 실행이 전부 죽는다. model 정책 자체는 IEUM-AI-57에서 다룬다.
-
-    serviceType은 템플릿 매칭 결과로 판정한다 — 매칭 실패만 보존 대상이고, '매칭됐지만 앱 노드가
-    아님'은 LLM이 지어낸 값이므로 지운다. 단 ai.github_query는 동적 서브에이전트라 tools가 항상
-    비어 있어 agentType만으론 순수 추론 노드와 구분되지 않으므로, 생성 시 분류와 같은 intent
-    신호(subagent_service_for_node)로 한 번 더 확인한다."""
-    from core.template_registry import resolve_template_for_node, subagent_service_for_node
-
-    for node in new_nodes:
-        if not isinstance(node, dict) or (node.get("type") or "").upper() != "AI":
-            continue
-        cfg = node.get("config")
-        if not isinstance(cfg, dict):
-            continue
-        cfg["model"] = resolve_model(str(cfg.get("llmProvider") or ""))
-
-        tpl = resolve_template_for_node(node)
-        if tpl is None:
-            continue  # 미지의 도구 → 판정 불가. FE가 설정해 둔 값을 지우지 않는다
-        service_type = ((tpl["fixed"].get("config") or {}).get("serviceType")) or None
-        if service_type and not cfg.get("tools") and not subagent_service_for_node(node):
-            service_type = None  # 도구 없는 앱 템플릿에 걸렸지만 intent가 그 서비스가 아니다
-        if service_type:
-            cfg["serviceType"] = service_type
-        else:
-            cfg.pop("serviceType", None)
+# modify 경로는 model·serviceType·brand를 손대지 않는다.
+#
+# 이 필드들을 응답 후처리로 되채우려던 시도가 리뷰 3라운드 내내 회귀를 만들었다 — 도구 유무로
+# 가드하면 tools가 항상 빈 ai.github_query의 앱 태그가 지워지고, intent로 재확인하면 태그 점수
+# 경합에 져서 또 지워지며, 도구가 여럿이면 템플릿 순회 순서가 serviceType을 정한다. 노드가 어느
+# 앱인지는 full-node JSON만 보고 결정론적으로 답할 수 없다.
+#
+# 정답은 생성 경로처럼 템플릿에서 복원하는 것(dehydrate→hydrate)이고, 그건 modify 경로 전체를
+# draft 방식으로 바꾸는 별도 작업이다(IEUM-AI-58). 그때까지 이 경로는 이 PR 이전과 동일하게
+# 두 필드를 비워 두고 BE·FE 폴백에 맡긴다. 잘못된 값을 결정론적으로 쓰는 것보다 낫다.
 
 
 async def _save_modify_workflow_log(
@@ -321,17 +298,15 @@ async def modify_workflow(
 
         data = json.loads(cleaned)
 
-        # nodes 부재를 빈 리스트로 흡수하면 "바꿨습니다" 메시지와 함께 노드 0개 워크플로우가
-        # 200으로 나가고, 사용자가 저장하는 순간 원본이 통째로 날아간다. 파싱 실패로 다룬다.
-        raw_nodes = data.get("nodes")
-        if not isinstance(raw_nodes, list) or not raw_nodes:
+        # nodes 키가 아예 없으면 "바꿨습니다" 메시지와 함께 노드 0개 워크플로우가 200으로 나가고,
+        # 사용자가 저장하는 순간 원본이 통째로 날아간다. 키 부재만 파싱 실패로 다룬다 — 빈 배열은
+        # "노드 다 지우고 다시 짤게" 같은 정당한 요청의 정확한 응답이다.
+        if "nodes" not in data:
             raise ValueError("LLM 응답에 nodes가 없습니다.")
+        raw_nodes = data["nodes"]
+        if not isinstance(raw_nodes, list):
+            raise ValueError("LLM 응답의 nodes가 리스트가 아닙니다.")
         _preserve_descriptions(raw_nodes, current_nodes)
-        _apply_tech_fields(raw_nodes)
-        # 생성 경로(workflow_chat·workflow_generator)와 동일하게 표시용 brand를 주입한다.
-        # 수정 프롬프트의 config 스키마엔 brand가 없어 LLM이 떨어뜨리면 FE 노드 헤더의
-        # 서비스 라벨·아이콘이 사라지고 BE integration의 brand 조회에서도 빠진다.
-        apply_service_brand(raw_nodes)
         nodes = [WorkflowNode(**n) for n in raw_nodes]
         edges = [WorkflowEdge(**e) for e in data.get("edges", [])]
         change_description = data.get("changeDescription", "")

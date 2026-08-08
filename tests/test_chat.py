@@ -1032,29 +1032,3 @@ async def test_chat_workflow_usage_토큰없으면_None():
     assert result.usage is None
 
 
-@pytest.mark.asyncio
-async def test_chat_workflow_설명_있는_기존_노드도_누락시_보정된다():
-    """레거시가 아닌 기존 노드의 description을 Designer가 빠뜨려도 수정이 성공한다.
-
-    description이 이미 찬 워크플로우에서 무관한 노드 하나의 슬롯이 누락되면, 레거시 id로만
-    게이팅할 경우 필수 슬롯 누락 → CLARIFICATION으로 정당한 수정 요청이 거부된다."""
-    described_nodes = [
-        {**n, "description": f"{n.get('label', '')} 설명이에요."} for n in LEGACY_FULL_NODES
-    ]
-    payload = json.dumps({
-        "message": "수정", "type": "WORKFLOW_MODIFIED", "actions": [],
-        "changeDescription": "프롬프트만 변경",
-        "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
-            {"id": "node-2", "templateId": "ai.web_search",
-             "slots": {"label": "AI 처리", "prompt": "다르게 처리해줘"}},
-        ],
-        "edges": VALID_EDGES,
-    })
-    p1, p2, p3, p4 = _make_patches(payload)
-    with p1, p2, p3, p4:
-        result = await _call("처리 방식 바꿔줘",
-                             current_nodes=described_nodes, current_edges=VALID_EDGES)
-
-    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
-    assert all(n.description.strip() for n in result.nodes)

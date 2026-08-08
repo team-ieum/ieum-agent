@@ -107,3 +107,16 @@ def test_workflow_node_accepts_explicit_null_description():
     node = WorkflowNode(id="node-1", type="TRIGGER", label="시작",
                         description=None, config={"triggerType": "MANUAL"})
     assert node.description == ""
+
+
+def test_blank_required_string_slot_is_rejected():
+    """필수 문자열 슬롯에 빈 값·공백을 넣은 것은 '채웠다'가 아니다.
+
+    키 존재만 보면 description=""가 하이드레이션을 통과해 응답이 200으로 나가고,
+    사용자가 저장하는 시점에 BE NodeDto의 @NotBlank로 400이 난다 — 원인을 알 수 없는
+    자리에서 실패하므로 만들어지는 시점에 막는다."""
+    for bad in ("", "   "):
+        with pytest.raises(SlotFillError):
+            hydrate_node({"id": "node-1", "templateId": "ai.reasoning",
+                          "slots": {"label": "요약", "description": bad, "prompt": "요약해줘"}},
+                         provider="CLAUDE")

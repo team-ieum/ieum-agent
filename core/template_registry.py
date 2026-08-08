@@ -274,16 +274,6 @@ def resolve_template_for_node(node: dict) -> dict | None:
     return None
 
 
-def service_type_for_node(node: dict) -> str | None:
-    """노드가 어느 앱(serviceType)에 속하는지 템플릿 fixed.config에서 읽는다. 앱 노드가 아니면 None.
-
-    하이드레이션을 거치지 않는 경로(/v1/modify-workflow)에서 표시용 메타를 복원하는 데 쓴다."""
-    tpl = resolve_template_for_node(node)
-    if tpl is None:
-        return None
-    return ((tpl["fixed"].get("config") or {}).get("serviceType")) or None
-
-
 def subagent_service_for_node(node: dict) -> str | None:
     """tool 없는 AI 노드의 동적 서브에이전트 서비스명을 intent(라벨+프롬프트) 태그 매칭으로 도출한다.
 
@@ -378,7 +368,13 @@ def hydrate_node(draft: dict, provider: str | None = None) -> dict:
                 value = slots_in[name]
             else:
                 raise SlotFillError(f"'{tid}'의 {slot['kind']} 슬롯 '{name}' 주입 실패: provider 미지정")
-        elif name in slots_in:
+        elif name in slots_in and not (
+            slot["kind"] == "string" and slot["required"]
+            and isinstance(slots_in[name], str) and not slots_in[name].strip()
+        ):
+            # 필수 문자열 슬롯에 빈 값/공백을 넣은 것은 '채웠다'가 아니다. 키 존재만 보면
+            # description=""가 통과해 응답은 200으로 나가고, 저장 시점에 BE NodeDto의
+            # @NotBlank로 400이 난다 — 사용자가 원인을 알 수 없는 자리에서 실패한다.
             value = slots_in[name]
         elif slot["required"]:
             raise SlotFillError(f"'{tid}'의 필수 슬롯 '{name}'이(가) 누락되었습니다.")
