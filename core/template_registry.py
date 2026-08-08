@@ -14,8 +14,6 @@ import json
 import glob
 import logging
 
-from core.provider_config import resolve_model
-
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = os.path.abspath(
@@ -372,6 +370,9 @@ def hydrate_node(draft: dict, provider: str | None = None) -> dict:
         if slot["kind"] in _SYSTEM_INJECTED_KINDS:
             if provider is not None:
                 # 시스템 자동 주입(요청 provider 계승). model은 그 provider의 기본 모델로 해석한다.
+                # core.provider_config는 settings(MONGODB_URL 필수)를 끌어오므로, 이 파일의
+                # lazy-import 관례대로 주입 분기 안에서만 import한다(env 없는 템플릿 로더 보호).
+                from core.provider_config import resolve_model
                 value = provider if slot["kind"] == "provider" else resolve_model(provider)
             elif slot["kind"] == "provider" and name in slots_in:
                 value = slots_in[name]

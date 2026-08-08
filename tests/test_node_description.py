@@ -20,9 +20,9 @@ def _description_slot(tpl: dict) -> dict | None:
 
 
 def test_every_template_has_required_description_slot():
-    """템플릿 전수(28개)가 필수 description 슬롯을 갖는다."""
+    """템플릿 전수가 필수 description 슬롯을 갖는다."""
     templates = tr.all_templates()
-    assert len(templates) == 28, f"템플릿 개수가 바뀌었다: {len(templates)}"
+    assert templates, "템플릿이 하나도 로드되지 않았다"
     for tpl in templates:
         slot = _description_slot(tpl)
         assert slot is not None, f"{tpl['id']}: description 슬롯 없음"

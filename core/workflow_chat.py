@@ -295,12 +295,16 @@ _MAX_VALIDATION_RETRIES = 2
 
 
 def _backfill_legacy_description(draft: dict) -> None:
-    """description 슬롯 도입 이전 노드를 Designer가 그대로 복사해 온 경우 label로 채운다(in-place).
+    """description 슬롯이 빈 draft를 label로 채운다(in-place).
 
-    수정 규칙 4로 새로 쓰게 유도하지만, 모델이 놓치면 필수 슬롯 누락 → 자가 교정 2회 →
-    CLARIFICATION 폴백으로 레거시 워크플로우의 정당한 수정 요청 자체가 실패한다.
-    라벨 복제는 좋은 설명이 아니지만 수정 실패보다 낫다. 신규 노드(legacy id 아님)에는 적용하지
-    않으므로 '새 노드는 반드시 description을 쓴다'는 강제는 그대로 유지된다."""
+    description은 28개 템플릿 전부의 required 슬롯이라 hydrate_node가 누락 시 하드 실패한다.
+    모델이 어느 노드 하나라도 빠뜨리면 자가 교정 2회 → CLARIFICATION 폴백으로 정당한 수정 요청
+    자체가 거부된다. 라벨 복제는 좋은 설명이 아니지만 수정 실패보다 낫다.
+
+    호출부는 **기존 워크플로우에 있던 노드**에만 적용한다(레거시 여부와 무관) — description이
+    이미 찬 워크플로우에서도 모델은 무관한 노드의 슬롯을 빠뜨리고, 그때가 오히려 사용자가
+    실패를 이해할 수 없는 경우다. 신규 노드에는 적용하지 않으므로 '새 노드는 반드시
+    description을 쓴다'는 강제는 그대로 유지된다."""
     slots = draft.get("slots")
     if not isinstance(slots, dict) or str(slots.get("description") or "").strip():
         return
@@ -476,6 +480,7 @@ async def chat_workflow(
 
     workflow_section = ""
     legacy_desc_ids: set = set()
+    current_draft_ids: set = set()
     if current_nodes:
         # 저장된 full-node를 draft(templateId+slots)로 역변환해 주입한다. Designer는 draft로 편집한다.
         current_drafts = dehydrate_nodes(current_nodes)
@@ -485,6 +490,10 @@ async def chat_workflow(
             d["id"] for d in current_drafts
             if d.get("id") and not str((d.get("slots") or {}).get("description") or "").strip()
         }
+        # 코드 폴백은 레거시가 아니라 '기존 노드 전체'에 건다. 설명이 이미 찬 워크플로우에서도
+        # 모델은 수정 대상이 아닌 노드의 슬롯을 빠뜨리고, 그러면 필수 슬롯 누락으로 수정 자체가
+        # 거부된다. 프롬프트 예외 안내(legacy_rule)는 레거시 id에만 붙인다.
+        current_draft_ids = {d["id"] for d in current_drafts if d.get("id")}
         legacy_rule = ""
         if legacy_desc_ids:
             legacy_rule = (
@@ -532,7 +541,7 @@ async def chat_workflow(
         raw_nodes = []
         for idx, draft in enumerate(raw_drafts):
             old_id = draft.get("id") if isinstance(draft, dict) else None
-            if old_id in legacy_desc_ids:
+            if old_id in current_draft_ids:
                 _backfill_legacy_description(draft)
             node = hydrate_node(draft, provider=provider)
             new_id = old_id if (pid and old_id) else f"node-{idx + 1}"

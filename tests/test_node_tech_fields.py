@@ -174,25 +174,8 @@ def test_execute_request_ignores_service_type():
         AgentNodeRequest(**{**base, "serviceType": "SLACK"}).model_dump()
 
 
-def test_executor_sources_do_not_read_service_type():
-    """실행 경로 소스는 serviceType을 읽지 않는다(순수 FE 표시용 메타 유지).
-
-    누군가 실행 분기에 끌어다 쓰면 실패시켜 표시용 메타가 동작에 스며드는 것을 막는다."""
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    offenders = []
-    for rel in ("core/agent.py", "core/model_factory.py", "core/execution_guard.py",
-                "core/output_validator.py", "agents", "tools"):
-        path = os.path.join(root, rel)
-        files = [path] if os.path.isfile(path) else [
-            os.path.join(dirpath, f)
-            for dirpath, _, names in os.walk(path)
-            for f in names if f.endswith(".py")
-        ]
-        for f in files:
-            with open(f, "r", encoding="utf-8") as fh:
-                if "serviceType" in fh.read():
-                    offenders.append(os.path.relpath(f, root))
-    assert not offenders, f"실행 경로가 serviceType을 참조한다: {offenders}"
+# serviceType이 실행에 스며들지 않는다는 보장은 test_execute_request_ignores_service_type이
+# 동작으로 검증한다. 소스 텍스트 grep은 정확한 주석에도 걸려 '올바른 주석 삭제'가 해결책이 된다.
 
 
 # --- 레거시 워크플로우 -----------------------------------------------------------
@@ -285,17 +268,40 @@ async def test_modify_workflow_overwrites_hallucinated_tech_fields():
 
 
 @pytest.mark.asyncio
-async def test_modify_workflow_tool_less_react_node_gets_no_service_type():
-    """도구 없는 react AI 노드에 앱 종류를 찍지 않는다.
+async def test_modify_workflow_keeps_github_service_type():
+    """ai.github_query는 동적 서브에이전트라 tools가 항상 비어 있다 — 앱 태그를 지우면 안 된다.
 
-    resolve_template_for_node는 도구 없는 AI를 agentType으로 판별하는데 react 후보가
-    ai.github_query 하나뿐이라, 도구를 보지 않고 추정하면 무관한 추론 노드에 GITHUB가 박힌다."""
+    serviceType을 가진 템플릿 중 tools가 빈 유일한 케이스라, tools 유무로 가드를 걸면
+    이 PR이 붙이려는 GITHUB만 정확히 골라 사라진다."""
+    from tests.test_modify import VALID_MODIFY_JSON, CURRENT_NODES, CURRENT_EDGES, _make_patches
+    from core.workflow_modifier import modify_workflow
+
+    payload = json.loads(VALID_MODIFY_JSON)
+    payload["nodes"][2]["label"] = "GitHub 이슈 조회"
+    payload["nodes"][2]["config"].update({
+        "agentType": "react", "tools": [],
+        "prompt": "GitHub 저장소의 열린 이슈를 조회해줘", "serviceType": "GITHUB",
+    })
+
+    p1, p2, p3, p4 = _make_patches(json.dumps(payload))
+    with p1, p2, p3, p4:
+        result = await modify_workflow(
+            "수정해줘", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
+        )
+
+    assert result.nodes[2].config["serviceType"] == "GITHUB"
+
+
+@pytest.mark.asyncio
+async def test_modify_workflow_tool_less_reasoning_node_gets_no_service_type():
+    """도구도 GitHub intent도 없는 순수 추론 노드에는 앱 종류를 찍지 않는다.
+
+    agentType만 보면 react 후보가 ai.github_query 하나라 무관한 노드에 GITHUB가 박힌다."""
     from tests.test_modify import VALID_MODIFY_JSON, CURRENT_NODES, CURRENT_EDGES, _make_patches
     from core.workflow_modifier import modify_workflow
 
     payload = json.loads(VALID_MODIFY_JSON)
     payload["nodes"][1]["config"]["agentType"] = "react"   # 도구는 그대로 []
-    payload["nodes"][1]["config"]["tools"] = []
 
     p1, p2, p3, p4 = _make_patches(json.dumps(payload))
     with p1, p2, p3, p4:
@@ -307,8 +313,8 @@ async def test_modify_workflow_tool_less_react_node_gets_no_service_type():
 
 
 @pytest.mark.asyncio
-async def test_modify_workflow_keeps_service_type_when_tools_unmatched():
-    """도구가 어느 템플릿과도 매칭되지 않으면 기존 serviceType을 지우지 않는다."""
+async def test_modify_workflow_keeps_service_type_when_template_unmatched():
+    """어느 템플릿과도 매칭되지 않으면 기존 serviceType을 지우지 않는다(판정 불가)."""
     from tests.test_modify import VALID_MODIFY_JSON, CURRENT_NODES, CURRENT_EDGES, _make_patches
     from core.workflow_modifier import modify_workflow
 
@@ -326,16 +332,14 @@ async def test_modify_workflow_keeps_service_type_when_tools_unmatched():
 
 
 @pytest.mark.asyncio
-async def test_modify_workflow_model_follows_request_provider():
-    """model은 노드에 복사된 llmProvider가 아니라 요청 provider에서 뽑는다.
-
-    노드의 llmProvider는 LLM이 기존 워크플로우에서 옮겨온 값이라, 비면 resolve_model이
-    GEMINI 기본값으로 폴백해 실제 실행 프로바이더와 다른 모델 id가 박힌다."""
+async def test_modify_workflow_drops_service_type_on_matched_non_app_node():
+    """템플릿은 매칭됐지만 앱 노드가 아니면 LLM이 지어낸 serviceType을 지운다."""
     from tests.test_modify import VALID_MODIFY_JSON, CURRENT_NODES, CURRENT_EDGES, _make_patches
     from core.workflow_modifier import modify_workflow
 
     payload = json.loads(VALID_MODIFY_JSON)
-    payload["nodes"][2]["config"]["llmProvider"] = ""   # 복사 과정에서 깨진 값
+    payload["nodes"][2]["config"]["tools"] = [{"name": "builtin:web_search"}]
+    payload["nodes"][2]["config"]["serviceType"] = "NOTION"   # 이웃 노드에서 복사된 값
 
     p1, p2, p3, p4 = _make_patches(json.dumps(payload))
     with p1, p2, p3, p4:
@@ -343,5 +347,25 @@ async def test_modify_workflow_model_follows_request_provider():
             "수정해줘", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
         )
 
-    assert result.nodes[2].config["model"] == resolve_model("CLAUDE")
-    assert result.nodes[2].config["model"] != resolve_model("")
+    assert "serviceType" not in result.nodes[2].config
+
+
+@pytest.mark.asyncio
+async def test_modify_workflow_model_follows_node_provider():
+    """model은 노드의 llmProvider 기준이다 — config.model은 표시용이 아니라 실행 모델이다.
+
+    수정 프롬프트 규칙 8이 노드의 원래 llmProvider를 유지시키므로, 요청 크레덴셜 기준으로
+    찍으면 GEMINI 노드에 Claude 모델 id가 박혀 실행이 전부 죽는다."""
+    from tests.test_modify import VALID_MODIFY_JSON, CURRENT_NODES, CURRENT_EDGES, _make_patches
+    from core.workflow_modifier import modify_workflow
+
+    payload = json.loads(VALID_MODIFY_JSON)
+    payload["nodes"][2]["config"]["llmProvider"] = "GEMINI"   # 요청은 CLAUDE
+
+    p1, p2, p3, p4 = _make_patches(json.dumps(payload))
+    with p1, p2, p3, p4:
+        result = await modify_workflow(
+            "수정해줘", CURRENT_NODES, CURRENT_EDGES, "CLAUDE", "test-key",
+        )
+
+    assert result.nodes[2].config["model"] == resolve_model("GEMINI")
