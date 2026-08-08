@@ -10,6 +10,7 @@
   },
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
     {"name": "method", "path": "config.method", "required": true, "kind": "http_method", "enum": ["GET", "POST", "PUT", "DELETE"], "description": "HTTP 메서드"},
     {"name": "url", "path": "config.url", "required": true, "kind": "string", "description": "요청 URL (내장 도구 지원 서비스 도메인 금지)"},
     {"name": "headers", "path": "config.headers", "required": false, "kind": "mapping", "description": "요청 헤더 dict"},
@@ -20,6 +21,7 @@
     "id": "node-2",
     "type": "HTTP",
     "label": "환율 API 조회",
+    "description": "지정한 주소로 요청을 보내 결과를 받아와요.",
     "config": {
       "method": "GET",
       "url": "https://open.er-api.com/v6/latest/USD",

@@ -182,7 +182,7 @@ _SYSTEM_PROMPT_BASE = """\
 <workflow_design_rules>
 당신은 노드 구조를 직접 설계하지 않습니다. 아래 '노드 템플릿 카탈로그'에서 각 노드의 templateId를 고르고,
 그 템플릿이 정의한 슬롯(slots)만 채웁니다. 노드의 타입·도구·고정 설정은 템플릿이 결정합니다.
-provider 슬롯(llmProvider 등 '자동주입' 표기)은 시스템이 채우므로 작성하지 않습니다.
+'자동주입(작성금지)' 표기 슬롯(llmProvider, model)은 시스템이 채우므로 작성하지 않습니다.
 
 1. 외부 연동(Notion/Gmail/Slack/Discord/GitHub 등)은 해당 서비스의 ai.* 템플릿을 선택합니다. http 템플릿으로 직접 호출하지 않습니다.
 2. 노드 간 데이터 참조 및 무결성:
@@ -195,6 +195,10 @@ provider 슬롯(llmProvider 등 '자동주입' 표기)은 시스템이 채우므
    - [데이터 보존·출력 최소화] 조회 노드 prompt는 후속 노드가 실제 쓰는 필드만 추출하도록 지시합니다. 전체 raw JSON 덤프 금지(타임아웃 유발), 임의 요약/왜곡 금지. 목록 조회(깃허브 PR/이슈, 노션 검색 등)는 반드시 단일 페이지·개수 상한을 명시합니다("최신순 1페이지(per_page=30, page=1)만 조회"). 날짜 필터는 그 1페이지 결과에 적용합니다.
    - [데이터 가공 위임] 요약·날짜 포맷·JSON 파싱 등 변환은 transform 템플릿 또는 별도 AI 노드 prompt에 위임합니다(실행 시 서브 에이전트 자동 처리).
 3. prompt 슬롯은 핵심 지시(동작·입력 참조·출력 형식) 위주 2~3문장 이내로 간결히 작성합니다.
+3-1. [description 슬롯] 모든 템플릿의 description 슬롯은 필수이며, 워크플로우 화면에서 사용자에게 그대로
+   보여줄 안내 문장입니다. 그 노드가 무슨 일을 하는지 쉬운 1문장으로 씁니다
+   (예: "AI가 문의 내용을 읽고 알맞은 유형으로 나눠요."). 도구 키·templateId·필드명·변수 참조식·JSON 등
+   기술 용어는 넣지 않으며, prompt를 그대로 복사하지 않습니다. 사용자 요청과 같은 언어로 씁니다.
 4. 서로 다른 외부 서비스 작업은 항상 별도 노드(별도 templateId)로 분리합니다.
 4-1. [요약·가공과 발송·저장 분리] 발송/저장 노드(ai.slack_send / ai.discord_send / ai.gmail_send /
    ai.notion_create_page 등)에서 콘텐츠를 직접 요약·분석·포맷하지 마십시오. 요약/판단/정리가 필요하면
@@ -266,6 +270,8 @@ _OUTPUT_FORMAT_SPEC = """\
 }
 - nodes 각 항목은 draft 형식이다: {"id": "node-1", "templateId": "<카탈로그의 templateId>", "slots": { ... }}.
   슬롯은 해당 templateId가 정의한 것만 채우고(없는 슬롯 키 금지), provider 슬롯('자동주입')은 작성하지 않는다.
+  slots에는 label과 함께 description(사용자에게 보여줄 쉬운 설명 1문장)을 반드시 채운다.
+  예: "slots": {"label": "문의 분류", "description": "AI가 문의 내용을 읽고 알맞은 유형으로 나눠요.", ...}
 - actions: OAuth 연동이 추가로 필요할 때(INTEGRATION_REQUIRED)만 채우고, 그 외에는 빈 배열([]).
 - options: CLARIFICATION_NEEDED로 사용자에게 선택을 요청할 때만 채운다(예: GitHub repo 후보, 웹훅 후보).
   각 항목은 {"value": "선택 시 사용할 값", "label": "사용자에게 보일 이름", "description": null} 형식이다.
@@ -286,6 +292,25 @@ _MAX_CLARIFICATION_OPTIONS = 8
 
 # 정적 검증(WorkflowValidator) 실패 시 Designer에 오류를 피드백해 재생성하는 최대 횟수.
 _MAX_VALIDATION_RETRIES = 2
+
+
+def _backfill_legacy_description(draft: dict) -> None:
+    """description 슬롯이 빈 draft를 label로 채운다(in-place).
+
+    description은 28개 템플릿 전부의 required 슬롯이라 hydrate_node가 누락 시 하드 실패한다.
+    모델이 어느 노드 하나라도 빠뜨리면 자가 교정 2회 → CLARIFICATION 폴백으로 정당한 수정 요청
+    자체가 거부된다. 라벨 복제는 좋은 설명이 아니지만 수정 실패보다 낫다.
+
+    호출부는 레거시 id(=저장분에 description이 없던 노드)에만 적용한다. 설명이 이미 있는
+    노드까지 대상으로 넓히면, 되살릴 원본이 draft에 있는데도 label 복제로 덮어써 사용자가 쓴
+    문장이 소실된다. 신규 노드에도 적용하지 않으므로 '새 노드는 반드시 description을 쓴다'는
+    강제가 유지된다."""
+    slots = draft.get("slots")
+    if not isinstance(slots, dict) or str(slots.get("description") or "").strip():
+        return
+    label = slots.get("label")
+    if isinstance(label, str) and label.strip():
+        slots["description"] = label.strip()
 
 
 _WEBHOOK_TOOL_NAMES = {"slack", "discord"}
@@ -454,17 +479,32 @@ async def chat_workflow(
 """
 
     workflow_section = ""
+    legacy_desc_ids: set = set()
     if current_nodes:
         # 저장된 full-node를 draft(templateId+slots)로 역변환해 주입한다. Designer는 draft로 편집한다.
         current_drafts = dehydrate_nodes(current_nodes)
+        # description 슬롯 도입(IEUM-AI-55) 이전에 저장된 노드는 값이 비어 draft에서 아예 빠진다.
+        # 이 id들만 "그대로 복사 금지"의 예외로 프롬프트에 못박고, LLM이 놓쳐도 하이드레이션 직전에 보정한다.
+        legacy_desc_ids = {
+            d["id"] for d in current_drafts
+            if d.get("id") and not str((d.get("slots") or {}).get("description") or "").strip()
+        }
+        legacy_rule = ""
+        if legacy_desc_ids:
+            legacy_rule = (
+                "\n4. 단, 위 JSON에 description 슬롯이 없는 노드({ids})는 2번의 예외다. 이 노드들은"
+                "\n   복사만 하면 안 되고, label과 prompt를 보고 사용자에게 보여줄 쉬운 설명 1문장을"
+                "\n   description 슬롯에 새로 채워야 한다(description은 모든 노드의 필수 슬롯이라"
+                "\n   빠진 채로 두면 수정이 실패한다). 이 노드들의 나머지 슬롯 값은 2번대로 그대로 둔다."
+            ).format(ids=", ".join(sorted(legacy_desc_ids)))
         workflow_section = f"""
 ## 현재 워크플로우 (수정 요청)
 {json.dumps({"nodes": current_drafts, "edges": current_edges}, ensure_ascii=False)}
 
 수정 규칙:
 1. 기존 노드 id 체계 유지. 새 노드는 가장 큰 번호 + 1로 부여
-2. 수정되지 않은 노드는 그대로 유지(같은 templateId·slots)
-3. type은 반드시 WORKFLOW_MODIFIED
+2. 수정 요청과 무관한 노드는 위 JSON의 templateId·slots를 그대로 유지한다(값을 임의로 바꾸지 않는다)
+3. type은 반드시 WORKFLOW_MODIFIED{legacy_rule}
 """
 
     from core.skill_loader import format_mcp_catalog, format_webhook_catalog
@@ -496,6 +536,8 @@ async def chat_workflow(
         raw_nodes = []
         for idx, draft in enumerate(raw_drafts):
             old_id = draft.get("id") if isinstance(draft, dict) else None
+            if old_id in legacy_desc_ids:
+                _backfill_legacy_description(draft)
             node = hydrate_node(draft, provider=provider)
             new_id = old_id if (pid and old_id) else f"node-{idx + 1}"
             node["id"] = new_id

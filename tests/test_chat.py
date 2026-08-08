@@ -7,13 +7,15 @@ from core.workflow_chat import chat_workflow
 
 # Designer가 출력하는 draft 노드(templateId + slots). provider 슬롯은 시스템 자동 주입.
 DRAFT_NODES = [
-    {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
-    {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "prompt": "처리해줘"}},
+    {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+    {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리해줘"}},
 ]
 # 저장된 full-node(수정 요청 시 current_nodes로 들어오는 영속 포맷). dehydrate 대상.
 FULL_NODES = [
-    {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+    {"id": "node-1", "type": "TRIGGER", "label": "트리거",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {"triggerType": "MANUAL"}},
     {"id": "node-2", "type": "AI", "label": "AI 처리",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.",
      "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리해줘",
                 "agentType": "react", "tools": [{"name": "builtin:web_search"}]}},
 ]
@@ -189,6 +191,8 @@ async def test_chat_workflow_수정_정상():
     assert result.changeDescription is not None
     assert len(result.nodes) == 2
     assert result.workflowName is None
+    # 수정 후에도 모든 노드가 사용자용 description을 유지한다(FE 노드 카드).
+    assert all(n.description.strip() for n in result.nodes)
 
 
 @pytest.mark.asyncio
@@ -321,8 +325,8 @@ async def test_chat_workflow_invalid_template_id():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
-            {"id": "node-2", "templateId": "ai.bogus_does_not_exist", "slots": {"label": "x"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-2", "templateId": "ai.bogus_does_not_exist", "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -341,8 +345,8 @@ async def test_chat_workflow_duplicate_node_id():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
-            {"id": "node-1", "templateId": "ai.web_search", "slots": {"label": "중복", "prompt": "p"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "ai.web_search", "slots": {"label": "중복", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "p"}},
         ],
         "edges": [],
     })
@@ -361,7 +365,7 @@ async def test_chat_workflow_invalid_edge_reference():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         ],
         "edges": [
             {"source": "node-1", "target": "node-999", "conditionType": None},
@@ -383,9 +387,9 @@ async def test_chat_workflow_static_validation_self_correction_success():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.web_search",
-             "slots": {"label": "처리", "prompt": "오늘은 {{formatDate now 'YYYY-MM-DD'}}"}},
+             "slots": {"label": "처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "오늘은 {{formatDate now 'YYYY-MM-DD'}}"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -449,9 +453,9 @@ async def test_chat_workflow_id_translation():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "trigger_node", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+            {"id": "trigger_node", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "ai_node", "templateId": "ai.web_search",
-             "slots": {"label": "AI 처리", "prompt": "이전 데이터: {{nodes.trigger_node.output.data}}"}},
+             "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "이전 데이터: {{nodes.trigger_node.output.data}}"}},
         ],
         "edges": [
             {"source": "trigger_node", "target": "ai_node", "conditionType": "success"}
@@ -555,9 +559,9 @@ async def test_chat_workflow_self_correction_loop():
         "message": "초안 생성",
         "type": "WORKFLOW_GENERATED",
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "http",
-             "slots": {"label": "디스코드 전송", "method": "POST", "url": "https://discord.com/api/webhooks/x"}},
+             "slots": {"label": "디스코드 전송", "description": "이 노드가 하는 일을 쉽게 설명해요.", "method": "POST", "url": "https://discord.com/api/webhooks/x"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -569,8 +573,8 @@ async def test_chat_workflow_self_correction_loop():
         "message": "교정 완료",
         "type": "WORKFLOW_GENERATED",
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
-            {"id": "node-2", "templateId": "ai.discord_send", "slots": {"label": "디스코드 전송", "prompt": "발송"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-2", "templateId": "ai.discord_send", "slots": {"label": "디스코드 전송", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "발송"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -631,8 +635,8 @@ async def test_chat_workflow_schedule_trigger_success():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "cron": "0 17 * * 5"}},
-            {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "prompt": "처리해줘"}},
+            {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 17 * * 5"}},
+            {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리해줘"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
         "workflowName": "IT 트렌드 자동 노션 요약",
@@ -654,8 +658,8 @@ async def test_chat_workflow_schedule_trigger_correction():
         "message": "초안 생성",
         "type": "WORKFLOW_GENERATED",
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거"}},
-            {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "prompt": "처리해줘"}},
+            {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리해줘"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -667,8 +671,8 @@ async def test_chat_workflow_schedule_trigger_correction():
         "message": "교정 완료",
         "type": "WORKFLOW_GENERATED",
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "cron": "0 17 * * 5"}},
-            {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "prompt": "처리해줘"}},
+            {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 17 * * 5"}},
+            {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리해줘"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -725,10 +729,95 @@ def test_dehydrate_nodes_round_trip():
     """full-node를 draft로 역변환하면 templateId와 가변 슬롯이 추출된다(provider 슬롯 제외)."""
     from core.template_registry import dehydrate_nodes
     drafts = dehydrate_nodes(FULL_NODES)
-    assert drafts[0] == {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}}
+    assert drafts[0] == {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}}
     assert drafts[1]["templateId"] == "ai.web_search"
     assert drafts[1]["slots"]["prompt"] == "처리해줘"
     assert "llmProvider" not in drafts[1]["slots"]  # provider 슬롯은 제외
+
+
+# ── 레거시(description 없음) 워크플로우 수정 ────────────────────────────────
+
+# description 슬롯 도입 이전에 저장된 워크플로우. dehydrate하면 draft에 description 키가 없다.
+LEGACY_FULL_NODES = [
+    {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+    {"id": "node-2", "type": "AI", "label": "AI 처리",
+     "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리해줘",
+                "agentType": "react", "tools": [{"name": "builtin:web_search"}]}},
+]
+# Designer가 수정 규칙 2("그대로 유지")만 따라 레거시 draft를 그대로 복사한 출력(description 없음).
+LEGACY_COPIED_MODIFIED_JSON = json.dumps({
+    "message": "워크플로우를 수정했습니다.",
+    "type": "WORKFLOW_MODIFIED",
+    "actions": [],
+    "changeDescription": "node-2 프롬프트를 수정했습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+        {"id": "node-2", "templateId": "ai.web_search",
+         "slots": {"label": "AI 처리", "prompt": "다르게 처리해줘"}},
+    ],
+    "edges": VALID_EDGES,
+})
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_레거시_노드_수정_첫_시도_성공():
+    """description 없는 레거시 노드를 Designer가 그대로 복사해도 수정이 첫 시도에 성공한다.
+    (필수 슬롯 누락 → 자가 교정 → CLARIFICATION 폴백으로 새던 경로)"""
+    p1, p2, p3, p4 = _make_patches(LEGACY_COPIED_MODIFIED_JSON)
+    with p1, p2, p3, p4:
+        result = await _call("프롬프트 수정해줘",
+                             current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    assert len(result.nodes) == 2
+    # 보정값은 label. 빈 description으로 FE 노드 카드가 비지 않는다.
+    assert [n.description for n in result.nodes] == ["트리거", "AI 처리"]
+    assert result.nodes[1].config["prompt"] == "다르게 처리해줘"  # 요청한 수정은 반영
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_레거시_보정은_기존_노드에만_적용된다():
+    """레거시 보정은 현재 워크플로우에 있던 노드 id에만 걸린다.
+    새로 추가된 노드가 description을 빠뜨리면 기존대로 실패(→ CLARIFICATION)해야 한다."""
+    payload = json.dumps({
+        "message": "수정", "type": "WORKFLOW_MODIFIED", "actions": [],
+        "changeDescription": "노드 추가",
+        "nodes": [
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+            {"id": "node-2", "templateId": "ai.web_search",
+             "slots": {"label": "AI 처리", "prompt": "처리해줘"}},
+            {"id": "node-3", "templateId": "ai.reasoning", "slots": {"label": "요약", "prompt": "요약해줘"}},
+        ],
+        "edges": VALID_EDGES + [{"source": "node-2", "target": "node-3", "conditionType": None}],
+    })
+    p1, p2, p3, p4 = _make_patches(payload)
+    with p1, p2, p3, p4:
+        result = await _call("요약 노드 추가해줘",
+                             current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_레거시_수정규칙_프롬프트_주입():
+    """레거시 노드가 있을 때만 '규칙 2의 예외' 문구와 해당 노드 id가 Designer 프롬프트에 들어간다."""
+    captured = []
+
+    def _agent_factory(**kwargs):
+        captured.append(kwargs.get("instruction") or "")
+        return MagicMock()
+
+    p1, p2, p3, p4 = _make_patches(LEGACY_COPIED_MODIFIED_JSON)
+    with p1, p2, p3, p4, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
+        await _call("수정해줘", current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
+    designer_instruction = captured[0]
+    assert "2번의 예외" in designer_instruction
+    assert "node-1, node-2" in designer_instruction
+
+    captured.clear()
+    p1, p2, p3, p4 = _make_patches(WORKFLOW_MODIFIED_JSON)
+    with p1, p2, p3, p4, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
+        await _call("수정해줘", current_nodes=FULL_NODES, current_edges=VALID_EDGES)
+    # description이 이미 있는 워크플로우에는 예외 규칙 자체를 넣지 않는다(규칙 2와 충돌 방지).
+    assert "2번의 예외" not in captured[0]
 
 
 def test_strip_invalid_webhook_credentials():
@@ -752,8 +841,8 @@ async def test_chat_workflow_mcp_assigned_when_catalog_available():
     payload = json.dumps({
         "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
-            {"id": "node-2", "templateId": "ai.mcp", "slots": {"label": "MCP 처리", "prompt": "처리", "catalogId": "cat-abc"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-2", "templateId": "ai.mcp", "slots": {"label": "MCP 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리", "catalogId": "cat-abc"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -773,8 +862,8 @@ async def test_chat_workflow_mcp_rejected_when_no_catalog():
     payload = json.dumps({
         "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
-            {"id": "node-2", "templateId": "ai.mcp", "slots": {"label": "처리", "prompt": "처리", "catalogId": "nonexistent"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-2", "templateId": "ai.mcp", "slots": {"label": "처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리", "catalogId": "nonexistent"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -790,9 +879,9 @@ async def test_chat_workflow_webhook_assigned_when_credential_available():
     payload = json.dumps({
         "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.discord_send",
-             "slots": {"label": "디스코드 발송", "prompt": "발송", "webhookCredentialId": "wh-1"}},
+             "slots": {"label": "디스코드 발송", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "발송", "webhookCredentialId": "wh-1"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -812,9 +901,9 @@ async def test_chat_workflow_webhook_hallucinated_credential_stripped():
     payload = json.dumps({
         "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.discord_send",
-             "slots": {"label": "발송", "prompt": "발송", "webhookCredentialId": "hallucinated"}},
+             "slots": {"label": "발송", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "발송", "webhookCredentialId": "hallucinated"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
@@ -941,3 +1030,5 @@ async def test_chat_workflow_usage_토큰없으면_None():
         result = await _call("워크플로우 만들어줘")
 
     assert result.usage is None
+
+

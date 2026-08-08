@@ -10,19 +10,21 @@
   },
   "slots": [
     {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
+    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
     {"name": "operator", "path": "config.operator", "required": true, "kind": "string", "description": "비교 연산자 (예: equals, notEquals, contains, greaterThan, lessThan)"},
-    {"name": "leftValue", "path": "config.leftValue", "required": true, "kind": "expr", "description": "비교 좌변(선행 노드 참조식 가능)"},
-    {"name": "rightValue", "path": "config.rightValue", "required": true, "kind": "string", "description": "비교 우변(기대값)"}
+    {"name": "left", "path": "config.left", "required": true, "kind": "expr", "description": "비교 좌변(선행 노드 참조식 가능)"},
+    {"name": "right", "path": "config.right", "required": true, "kind": "string", "description": "비교 우변(기대값)"}
   ],
-  "allowed_config_fields": ["operator", "leftValue", "rightValue"],
+  "allowed_config_fields": ["operator", "left", "right"],
   "golden_snippet": {
     "id": "node-3",
     "type": "CONDITION",
     "label": "긴급 여부 분기",
+    "description": "앞의 결과가 조건에 맞는지 보고 갈 길을 나눠요.",
     "config": {
       "operator": "equals",
-      "leftValue": "{{nodes.node-2.output.output}}",
-      "rightValue": "urgent"
+      "left": "{{nodes.node-2.output.output}}",
+      "right": "urgent"
     }
   }
 }
