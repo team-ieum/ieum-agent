@@ -38,8 +38,13 @@ VALID_SERVICE_TYPES = {"GOOGLE", "NOTION", "GITHUB", "SLACK", "DISCORD"}
 _REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "tags", "menu", "fixed", "slots", "allowed_config_fields"}
 
 # resolve_template_for_node가 매칭 템플릿을 찾지 못한 노드용 센티넬 templateId.
-# dehydrate_node가 None(드롭) 대신 이 templateId + 원본 노드 전체를 담은 pass-through draft를 반환해
-# MODIFY 왕복에서 노드가 소실되지 않게 한다. hydrate_node는 이 센티넬을 슬롯 검증 없이 그대로 복원한다.
+# dehydrate_node가 None(드롭) 대신 이 templateId를 단 draft를 반환해 MODIFY 왕복에서 노드가
+# 소실되지 않게 한다.
+#
+# **draft["node"]에는 식별용 필드(type·label·description)만 담고, 복원은 hydrate_node가 호출부에서
+# 받은 passthrough_originals에서만 한다.** draft는 LLM 프롬프트에 실려 나가고 LLM이 그대로 되돌려
+# 보내는 값이라 신뢰 대상이 아니다 — config를 담으면 저장된 credentialId·토큰이 외부 LLM으로
+# 나가고, 복원에 쓰면 슬롯 검증이 통째로 우회된다. 둘 다 실제로 지적됐던 경로다.
 PASSTHROUGH_TEMPLATE_ID = "__passthrough__"
 
 # 모듈 캐시 (파일은 기동 중 불변)
@@ -476,6 +481,13 @@ def dehydrate_node(node: dict) -> dict | None:
         return None
     tpl = resolve_template_for_node(node)
     if tpl is None:
+        # 매칭 실패는 노드가 사라지지는 않지만 '편집 불가'로 강등되는 사건이라 흔적을 남긴다.
+        # 템플릿 tool_key나 _TOOL_MAP 키를 바꿔 흔한 노드가 매칭에서 빠지면 수정 요청이 전부
+        # "편집을 지원하지 않는다"로 끝나는데, 로그가 없으면 사용자 신고 전까지 알 수 없다.
+        logger.info("pass-through 강등 — 매칭 템플릿 없음 (node_id=%s, type=%s, tools=%s)",
+                    node.get("id"), node.get("type"),
+                    [t.get("name") if isinstance(t, dict) else t
+                     for t in ((node.get("config") or {}).get("tools") or [])])
         # 복원은 서버가 쥔 원본으로만 한다(hydrate_node 참고). 그래서 draft에는 LLM이 이 노드를
         # 식별하는 데 필요한 만큼만 담는다 — config를 통째로 실으면 저장된 credentialId·토큰
         # 같은 값이 프롬프트로 외부 LLM에 나가는데, 서버는 그 값을 쓰지도 않는다.
