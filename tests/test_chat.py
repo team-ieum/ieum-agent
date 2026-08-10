@@ -1032,3 +1032,90 @@ async def test_chat_workflow_usage_토큰없으면_None():
     assert result.usage is None
 
 
+# ── pass-through draft 신뢰 경계 (IEUM-AI-58 단계1) ─────────────────────────
+
+# 어떤 템플릿과도 매칭되지 않는 노드(builtin:json_parse만 가진 AI 노드) → dehydrate 시 pass-through draft.
+PASSTHROUGH_FULL_NODES = [
+    {"id": "node-1", "type": "TRIGGER", "label": "트리거",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {"triggerType": "MANUAL"}},
+    {"id": "node-2", "type": "AI", "label": "가공",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.",
+     "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "파싱해줘",
+                "agentType": "react", "tools": [{"name": "builtin:json_parse"}]}},
+]
+
+# node-2를 pass-through draft로 위장해 "node" 필드를 조작한 MODIFY 응답. credentialId 날조,
+# prompt 치환, 화이트리스트에 없는 config 필드(extraField) 주입을 노린다.
+FORGED_PASSTHROUGH_MODIFIED_JSON = json.dumps({
+    "message": "수정했습니다.",
+    "type": "WORKFLOW_MODIFIED",
+    "actions": [],
+    "changeDescription": "가공 노드를 손봤습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.manual",
+         "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"id": "node-2", "templateId": "__passthrough__",
+         "node": {"id": "node-2", "type": "AI",
+                  "config": {"llmProvider": "CLAUDE", "credentialId": "hacked-cred",
+                             "agentType": "react", "tools": [{"name": "builtin:json_parse"}],
+                             "prompt": "완전히 다른 프롬프트로 날조", "extraField": "환각 필드"}}},
+    ],
+    "edges": VALID_EDGES,
+})
+
+# current_nodes에 없는 id("node-9")를 pass-through draft로 날조해 신규 노드를 만들려는 시도.
+FORGED_NEW_PASSTHROUGH_JSON = json.dumps({
+    "message": "수정했습니다.",
+    "type": "WORKFLOW_MODIFIED",
+    "actions": [],
+    "changeDescription": "노드를 추가했습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.manual",
+         "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"id": "node-2", "templateId": "__passthrough__",
+         "node": {"id": "node-2", "type": "AI",
+                  "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "파싱해줘",
+                             "agentType": "react", "tools": [{"name": "builtin:json_parse"}]}}},
+        {"id": "node-9", "templateId": "__passthrough__",
+         "node": {"id": "node-9", "type": "AI",
+                  "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "날조된 신규 노드",
+                             "agentType": "simple", "tools": []}}},
+    ],
+    "edges": VALID_EDGES + [{"source": "node-2", "target": "node-9", "conditionType": None}],
+})
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_passthrough_forged_node_is_ignored():
+    """LLM이 pass-through draft의 'node'를 조작해도, 서버가 쥔 current_nodes 원본으로 강제 치환된다."""
+    p1, p2, p3, p4 = _make_patches(FORGED_PASSTHROUGH_MODIFIED_JSON)
+    with p1, p2, p3, p4:
+        result = await _call(
+            "가공 노드 손봐줘",
+            current_nodes=PASSTHROUGH_FULL_NODES,
+            current_edges=VALID_EDGES,
+        )
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    node2 = next(n for n in result.nodes if n.id == "node-2")
+    orig_config = PASSTHROUGH_FULL_NODES[1]["config"]
+    # brand는 apply_service_brand가 모든 노드에 후처리로 주입하는 정상 필드라 비교에서 제외한다.
+    assert node2.config["credentialId"] == orig_config["credentialId"] == ""
+    assert node2.config["prompt"] == orig_config["prompt"] == "파싱해줘"
+    assert node2.config["tools"] == orig_config["tools"]
+    assert "extraField" not in node2.config
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_passthrough_new_node_forgery_rejected():
+    """current_nodes에 없는 id로 pass-through draft를 보내 신규 노드를 날조하면 거부된다
+    (자가 교정 재시도 후에도 실패 → CLARIFICATION_NEEDED 폴백)."""
+    p1, p2, p3, p4 = _make_patches(FORGED_NEW_PASSTHROUGH_JSON)
+    with p1, p2, p3, p4:
+        result = await _call(
+            "노드 추가해줘",
+            current_nodes=PASSTHROUGH_FULL_NODES,
+            current_edges=VALID_EDGES,
+        )
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
+
+
