@@ -12,8 +12,6 @@ class ErrorCode(Enum):
     MONGODB_ERROR                = (500, "데이터베이스 오류가 발생했습니다.")
     WORKFLOW_GENERATION_FAILED   = (500, "워크플로우 생성에 실패했습니다.")
     WORKFLOW_PARSE_FAILED        = (502, "워크플로우 JSON 파싱에 실패했습니다. 다시 시도해주세요.")
-    WORKFLOW_MODIFY_FAILED       = (500, "워크플로우 수정에 실패했습니다.")
-    WORKFLOW_MODIFY_PARSE_FAILED = (502, "수정된 워크플로우 파싱에 실패했습니다. 다시 시도해주세요.")
     CHAT_EXECUTION_FAILED        = (500, "채팅 처리에 실패했습니다.")
     CHAT_PARSE_FAILED            = (502, "채팅 워크플로우 파싱에 실패했습니다. 다시 시도해주세요.")
 

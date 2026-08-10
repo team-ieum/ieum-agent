@@ -5,7 +5,7 @@ dict를 넘긴 호출부만 pass-through가 열린다), 이 모듈은 그 원본
 노드가 출력에서 빠지지 않았는지 확인하는 역할이다."""
 import re
 
-from core.template_registry import hydrate_node, SlotFillError
+from core.template_registry import hydrate_node, SlotFillError, PASSTHROUGH_TEMPLATE_ID
 
 
 def backfill_legacy_description(draft: dict) -> None:
@@ -40,12 +40,18 @@ def prepare_hydrated_nodes(
     """LLM 출력 draft(nodes)를 템플릿으로 하이드레이션하고 노드 ID 재부여 + 참조식/엣지 리맵을 적용한다.
 
     **어느 노드가 pass-through인지는 서버가 정한다.** 호출부가 자기 dehydrate 결과에서 뽑은
-    passthrough_ids만 원본 복원이 열리고, 그 밖의 노드에 LLM이 PASSTHROUGH_TEMPLATE_ID를 붙이면
-    SlotFillError다. LLM 판단을 믿으면 편집 가능한 노드를 pass-through로 위장해 사용자의 수정을
-    조용히 되돌릴 수 있다(응답은 '수정했습니다'인데 노드는 그대로).
+    passthrough_ids가 유일한 근거이고, LLM 출력은 그 판정을 바꾸지 못한다. 규칙은 한 문장이다 —
+    **passthrough_ids의 노드는 출력에 있으면 반드시 센티넬(PASSTHROUGH_TEMPLATE_ID)이어야 하고,
+    없으면 삭제로 인정한다.** 양방향으로 막는다:
+    - 그 밖의 노드에 센티넬을 붙이면(위장) SlotFillError. 허용하면 편집 가능한 노드를 되돌려놓고
+      '수정했습니다'로 응답할 수 있다
+    - passthrough_ids의 노드를 진짜 templateId로 되돌리면(센티넬 제거) SlotFillError. 허용하면
+      LLM이 쓴 config가 id 기준 검증 면제(웹훅 스트립·MCP 인가·config 화이트리스트)를 그대로
+      타고 나간다 — 면제는 '서버가 원본을 복원했다'는 전제 위에서만 성립한다
+    이 규칙 덕에 '검증 면제 대상 id'와 '실제로 원본이 복원된 노드'가 정의상 일치한다.
     복원은 서버 측 원본에서만 한다 — LLM이 보낸 "node"는 hydrate_node가 무시한다.
-    passthrough_ids 중 출력에서 통째로 빠진 노드가 있으면 SlotFillError(편집 불가 노드가 조용히
-    삭제되는 것 차단 — 프롬프트 지시만으로는 못 막는다).
+    출력에서 빠진 pass-through 노드는 삭제 요청으로 본다. 서버가 생존을 강제하면 사용자가 그
+    노드를 지워달라고 해도 영원히 실패한다(모델이 빼면 거부, 넣으면 삭제가 안 됨).
     legacy_desc_ids에 담긴 id의 draft는 description 슬롯이 비어 있으면 label로 보정한다.
     raw_drafts가 비어 있으면(빈 배열/None) 그대로 반환한다(하이드레이션 대상 없음).
     하이드레이션 실패(SlotFillError 등)는 호출부에서 처리한다."""
@@ -61,28 +67,24 @@ def prepare_hydrated_nodes(
     pid = preserve_id if preserve_id is not None else bool(current_nodes)
     id_mapping = {}
     raw_nodes = []
-    seen_passthrough = set()
     for idx, draft in enumerate(raw_drafts):
         old_id = draft.get("id") if isinstance(draft, dict) else None
+        if old_id in passthrough_ids and (
+                not isinstance(draft, dict) or draft.get("templateId") != PASSTHROUGH_TEMPLATE_ID):
+            raise SlotFillError(
+                f"노드 '{old_id}'는 편집을 지원하지 않습니다. templateId를 "
+                f"\"{PASSTHROUGH_TEMPLATE_ID}\"로 둔 채 반환하거나, 삭제할 거라면 아예 빼십시오."
+            )
         if old_id in legacy_desc_ids:
             backfill_legacy_description(draft)
         node = hydrate_node(
             draft, provider=provider, passthrough_originals=current_nodes_by_id
         )
-        if old_id in passthrough_ids:
-            seen_passthrough.add(old_id)
         new_id = old_id if (pid and old_id) else f"node-{idx + 1}"
         node["id"] = new_id
         if old_id and old_id != new_id:
             id_mapping[old_id] = new_id
         raw_nodes.append(node)
-
-    dropped = passthrough_ids - seen_passthrough
-    if dropped:
-        raise SlotFillError(
-            f"편집을 지원하지 않는 노드({', '.join(sorted(dropped))})가 출력에서 빠졌습니다. "
-            "이 노드들은 templateId와 id를 그대로 두고 반드시 함께 반환해야 합니다."
-        )
 
     if raw_edges and id_mapping:
         for e in raw_edges:

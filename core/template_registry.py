@@ -365,10 +365,12 @@ def hydrate_node(
             desc = llm_node.get("description") if isinstance(llm_node, dict) else None
             if not (isinstance(desc, str) and desc.strip()):
                 # 모델이 안 채우면 label로 떨어진다(슬롯 경로의 backfill_legacy_description과 같은 처리).
-                # 빈 채로 내보내면 BE의 description 필수 검증에 걸려 저장 시점에 수정이 통째로 날아간다.
+                # label까지 비었으면 고정 문구를 쓴다 — 빈 채로 내보내면 BE의 description 필수 검증에
+                # 걸려 저장 시점에 수정 결과가 통째로 날아간다(사용자는 원인을 알 수 없다).
                 desc = node.get("label")
-            if isinstance(desc, str) and desc.strip():
-                node["description"] = desc.strip()
+            if not (isinstance(desc, str) and desc.strip()):
+                desc = "이 노드가 하는 일을 설명해요."
+            node["description"] = desc.strip()
         return node
     templates = load_templates()
     tpl = templates.get(tid)
@@ -459,8 +461,10 @@ def dehydrate_node(node: dict) -> dict | None:
 
     resolve_template_for_node로 templateId를 찾고, 각 슬롯의 path에서 현재 값을 읽어 slots를 구성한다.
     provider/model 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 노드를 버리지 않고
-    원본 전체를 담은 pass-through draft({"id", "templateId": PASSTHROUGH_TEMPLATE_ID, "node"})를
-    반환한다(hydrate_node가 슬롯 검증 없이 그대로 복원). node 자체가 dict가 아니면 None(역변환 불가)."""
+    pass-through draft({"id", "templateId": PASSTHROUGH_TEMPLATE_ID, "node"})를 반환한다.
+    **이때 "node"에는 LLM이 노드를 식별할 만큼(type·label·description)만 담는다** — 복원은
+    hydrate_node가 서버 측 원본에서 하므로 config는 필요 없고, 실으면 저장된 credentialId·토큰이
+    프롬프트로 외부 LLM에 나간다. node 자체가 dict가 아니면 None(역변환 불가)."""
     if not isinstance(node, dict):
         return None
     tpl = resolve_template_for_node(node)

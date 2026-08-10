@@ -798,7 +798,7 @@ async def test_chat_workflow_레거시_보정은_기존_노드에만_적용된�
 
 @pytest.mark.asyncio
 async def test_chat_workflow_레거시_수정규칙_프롬프트_주입():
-    """레거시 노드가 있을 때만 '규칙 2의 예외' 문구와 해당 노드 id가 Designer 프롬프트에 들어간다."""
+    """레거시 노드가 있을 때만 예외 규칙 문구와 해당 노드 id가 Designer 프롬프트에 들어간다."""
     captured = []
 
     def _agent_factory(**kwargs):
@@ -809,7 +809,7 @@ async def test_chat_workflow_레거시_수정규칙_프롬프트_주입():
     with p1, p2, p3, p4, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
         await _call("수정해줘", current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
     designer_instruction = captured[0]
-    assert "2번의 예외" in designer_instruction
+    assert "그대로 유지' 규칙의 예외" in designer_instruction
     assert "node-1, node-2" in designer_instruction
 
     captured.clear()
@@ -817,7 +817,7 @@ async def test_chat_workflow_레거시_수정규칙_프롬프트_주입():
     with p1, p2, p3, p4, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
         await _call("수정해줘", current_nodes=FULL_NODES, current_edges=VALID_EDGES)
     # description이 이미 있는 워크플로우에는 예외 규칙 자체를 넣지 않는다(규칙 2와 충돌 방지).
-    assert "2번의 예외" not in captured[0]
+    assert "그대로 유지' 규칙의 예외" not in captured[0]
 
 
 def test_strip_invalid_webhook_credentials():
@@ -1142,15 +1142,30 @@ DISGUISED_PASSTHROUGH_JSON = json.dumps({
     "edges": VALID_EDGES,
 })
 
-# 편집 불가(pass-through) 노드를 출력에서 통째로 빠뜨린 응답 — 저장되면 노드가 영구 삭제된다.
-DROPPED_PASSTHROUGH_JSON = json.dumps({
-    "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
-    "changeDescription": "정리했습니다.",
+# 편집 불가 노드를 삭제해 달라는 요청 — 출력에서 빠지면 삭제로 인정한다.
+DELETED_PASSTHROUGH_JSON = json.dumps({
+    "message": "삭제했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
+    "changeDescription": "가공 노드를 지웠습니다.",
     "nodes": [
         {"id": "node-1", "templateId": "trigger.manual",
          "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
     ],
     "edges": [],
+})
+
+# 편집 불가 노드의 센티넬을 떼고 진짜 templateId로 되돌린 응답 — LLM이 쓴 config가 id 기준
+# 검증 면제(웹훅 스트립·MCP 인가·config 화이트리스트)를 그대로 타고 나가는 경로다.
+SENTINEL_STRIPPED_JSON = json.dumps({
+    "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
+    "changeDescription": "가공 노드를 슬랙으로 바꿨습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.manual",
+         "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"id": "node-2", "templateId": "ai.slack_send",
+         "slots": {"label": "슬랙", "description": "설명", "prompt": "보내줘",
+                   "webhookCredentialId": "남의-크레덴셜"}},
+    ],
+    "edges": VALID_EDGES,
 })
 
 
@@ -1169,12 +1184,28 @@ async def test_chat_workflow_disguised_passthrough_rejected():
 
 
 @pytest.mark.asyncio
-async def test_chat_workflow_dropped_passthrough_rejected():
-    """편집 불가 노드가 출력에서 빠지면 거부된다 — 소실 방어를 프롬프트 지시에만 맡기지 않는다."""
-    p1, p2, p3, p4 = _make_patches(DROPPED_PASSTHROUGH_JSON)
+async def test_chat_workflow_passthrough_deletion_allowed():
+    """편집 불가 노드를 출력에서 빼면 삭제로 인정한다. 생존을 강제하면 사용자가 그 노드를
+    지워달라고 해도 영원히 실패한다(빼면 거부, 넣으면 삭제가 안 됨)."""
+    p1, p2, p3, p4 = _make_patches(DELETED_PASSTHROUGH_JSON)
     with p1, p2, p3, p4:
         result = await _call(
-            "정리해줘",
+            "가공 노드 지워줘",
+            current_nodes=PASSTHROUGH_FULL_NODES,
+            current_edges=VALID_EDGES,
+        )
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    assert [n.id for n in result.nodes] == ["node-1"]
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_sentinel_stripped_rejected():
+    """편집 불가 노드의 센티넬을 떼고 진짜 templateId로 되돌리면 거부된다.
+    허용하면 LLM이 쓴 config가 id 기준 검증 면제를 그대로 타고 나간다."""
+    p1, p2, p3, p4 = _make_patches(SENTINEL_STRIPPED_JSON)
+    with p1, p2, p3, p4:
+        result = await _call(
+            "가공 노드를 슬랙으로 바꿔줘",
             current_nodes=PASSTHROUGH_FULL_NODES,
             current_edges=VALID_EDGES,
         )

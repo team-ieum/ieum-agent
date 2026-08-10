@@ -483,31 +483,38 @@ async def chat_workflow(
             d["id"] for d in current_drafts
             if d.get("id") and d.get("templateId") == PASSTHROUGH_TEMPLATE_ID
         }
-        passthrough_rule = ""
+        # 규칙은 조건부로 빠지는 항목이 있어 번호를 직접 쓰지 않는다(결번이 생기면 모델이 못 받은
+        # 규칙이 있다고 해석해 지시 준수율이 떨어진다).
+        rules = [
+            "기존 노드 id 체계 유지. 새 노드는 가장 큰 번호 + 1로 부여",
+            "수정 요청과 무관한 노드는 위 JSON의 templateId·slots를 그대로 유지한다"
+            "(값을 임의로 바꾸지 않는다)",
+        ]
         if passthrough_ids:
-            passthrough_rule = (
-                f"\n3. templateId가 \"{PASSTHROUGH_TEMPLATE_ID}\"인 노드({{ids}})는 편집을 지원하지 않는다."
-                "\n   이 노드는 templateId와 id만 그대로 두고 **반드시 함께** 반환한다(서버가 원본으로"
-                "\n   복원한다. 빠뜨리면 수정이 거부된다). 사용자가 이 노드 자체의 변경을 요청하면"
-                "\n   수정본을 만들지 말고 CLARIFICATION_NEEDED로 \"이 노드는 편집을 지원하지 않는다\"고"
-                "\n   답한다. 설명(description)이 비어 있을 때만 'node' 필드에 description을 채울 수 있다."
-            ).format(ids=", ".join(sorted(passthrough_ids)))
-        legacy_rule = ""
+            rules.append(
+                f"templateId가 \"{PASSTHROUGH_TEMPLATE_ID}\"인 노드({', '.join(sorted(passthrough_ids))})는"
+                "\n   편집을 지원하지 않는다. 남겨 둘 거라면 templateId를 그대로 두고 반환한다(서버가"
+                "\n   원본으로 복원한다. 다른 templateId로 바꾸면 수정이 거부된다). 사용자가 이 노드의"
+                "\n   삭제를 요청했다면 출력에서 빼면 된다. 그 밖의 변경을 요청하면 수정본을 만들지 말고"
+                "\n   CLARIFICATION_NEEDED로 \"이 노드는 편집을 지원하지 않는다\"고 답한다."
+                "\n   설명(description)이 비어 있을 때만 'node' 필드에 description을 채울 수 있다."
+            )
+        rules.append("type은 반드시 WORKFLOW_MODIFIED")
         if legacy_desc_ids:
-            legacy_rule = (
-                "\n5. 단, 위 JSON에 description 슬롯이 없는 노드({ids})는 2번의 예외다. 이 노드들은"
-                "\n   복사만 하면 안 되고, label과 prompt를 보고 사용자에게 보여줄 쉬운 설명 1문장을"
-                "\n   description 슬롯에 새로 채워야 한다(description은 모든 노드의 필수 슬롯이라"
-                "\n   빠진 채로 두면 수정이 실패한다). 이 노드들의 나머지 슬롯 값은 2번대로 그대로 둔다."
-            ).format(ids=", ".join(sorted(legacy_desc_ids)))
+            rules.append(
+                f"단, 위 JSON에 description 슬롯이 없는 노드({', '.join(sorted(legacy_desc_ids))})는"
+                "\n   '무관한 노드는 그대로 유지' 규칙의 예외다. 복사만 하면 안 되고, label과 prompt를 보고"
+                "\n   사용자에게 보여줄 쉬운 설명 1문장을 description 슬롯에 새로 채워야 한다"
+                "\n   (description은 모든 노드의 필수 슬롯이라 빠진 채로 두면 수정이 실패한다)."
+                "\n   이 노드들의 나머지 슬롯 값은 그대로 둔다."
+            )
+        rules_text = "\n".join(f"{i}. {r}" for i, r in enumerate(rules, 1))
         workflow_section = f"""
 ## 현재 워크플로우 (수정 요청)
 {json.dumps({"nodes": current_drafts, "edges": current_edges}, ensure_ascii=False)}
 
 수정 규칙:
-1. 기존 노드 id 체계 유지. 새 노드는 가장 큰 번호 + 1로 부여
-2. 수정 요청과 무관한 노드는 위 JSON의 templateId·slots를 그대로 유지한다(값을 임의로 바꾸지 않는다){passthrough_rule}
-4. type은 반드시 WORKFLOW_MODIFIED{legacy_rule}
+{rules_text}
 """
 
     from core.skill_loader import format_mcp_catalog, format_webhook_catalog
