@@ -10,7 +10,6 @@ db = client[settings.MONGODB_DB_NAME]
 
 execution_logs = db["execution_logs"]
 generate_workflow_logs = db["generate_workflow_logs"]
-modify_workflow_logs = db["modify_workflow_logs"]
 chat_logs = db["chat_logs"]
 agent_sessions = db["agent_sessions"]
 node_templates = db["node_templates"]

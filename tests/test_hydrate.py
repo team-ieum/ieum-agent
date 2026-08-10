@@ -1,3 +1,4 @@
+import json
 import pytest
 
 from core.template_registry import (
@@ -191,38 +192,10 @@ def test_dehydrate_hydrate_round_trip_all_templates():
         assert node2 == node, f"{tid}: 왕복 불일치\nn ={node}\nn2={node2}"
 
 
-def test_dehydrate_hydrate_preserves_position():
-    """position은 슬롯이 없는 상위 필드라 하이드레이션이 만들지 않는다 — 재부착 함수로 복원."""
-    from core.template_registry import dehydrate_node, reattach_stripped_fields
-
-    node = {"id": "node-2", "type": "AI", "label": "검색", "description": "설명",
-            "position": {"x": 100, "y": 200},
-            "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "검색해줘",
-                       "agentType": "react", "tools": [{"name": "builtin:notion_search"}]}}
-    draft = dehydrate_node(node)
-    hydrated = hydrate_node(draft, provider="CLAUDE")
-    assert "position" not in hydrated  # 슬롯 밖 필드 — hydrate가 만들지 않음
-    reattach_stripped_fields([hydrated], [node])
-    assert hydrated["position"] == {"x": 100, "y": 200}
-
-
-def test_reattach_does_not_restore_config():
-    """config는 재부착하지 않는다 — credentialId는 ''가 정답(런타임 주입)이고, 되살리면
-    WorkflowValidator가 그 워크플로우의 수정을 영구히 거부한다."""
-    from core.template_registry import dehydrate_node, reattach_stripped_fields
-
-    node = {"id": "node-4", "type": "AI", "label": "슬랙", "description": "설명",
-            "config": {"llmProvider": "CLAUDE", "credentialId": "cred-123", "prompt": "보내줘",
-                       "agentType": "react", "tools": [{"name": "slack"}]}}
-    draft = dehydrate_node(node)
-    hydrated = hydrate_node(draft, provider="CLAUDE")
-    reattach_stripped_fields([hydrated], [node])
-    assert hydrated["config"]["credentialId"] == ""
-
-
 def test_modify_roundtrip_of_stored_credential_passes_validator():
-    """저장분에 credentialId가 UUID로 남아 있어도(실데이터 12건) 수정 왕복 결과가 검증을 통과한다."""
-    from core.template_registry import dehydrate_nodes, reattach_stripped_fields
+    """저장분에 credentialId가 UUID로 남아 있어도(실데이터 12건) 수정 왕복 결과가 검증을 통과한다.
+    하이드레이션이 ''로 비우는 게 정답이라 되살리지 않는다."""
+    from core.template_registry import dehydrate_nodes
     from tools.registry import apply_service_brand
 
     stored = [
@@ -235,9 +208,45 @@ def test_modify_roundtrip_of_stored_credential_passes_validator():
     drafts = dehydrate_nodes(stored)
     nodes = hydrate_nodes(drafts, provider="CLAUDE",
                           passthrough_originals={n["id"]: n for n in stored})
-    reattach_stripped_fields(nodes, stored)
     apply_service_brand(nodes)
     WorkflowValidator.validate(nodes, [{"source": "node-1", "target": "node-2"}], set())
+    assert nodes[1]["config"]["credentialId"] == ""
+
+
+def test_passthrough_node_skips_content_validation():
+    """폐기된 도구 이름으로 저장된 노드가 pass-through로 복원되면 내용 검증에서 제외된다.
+    거부하면 그 워크플로우는 수정 요청 자체가 영구히 실패한다(수정 전후가 동일한 노드다)."""
+    from core.template_registry import dehydrate_nodes, PASSTHROUGH_TEMPLATE_ID
+
+    stored = [
+        {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명",
+         "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "옛노드", "description": "설명",
+         "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "p", "agentType": "react",
+                    "tools": [{"name": "builtin:notion_query_db"}]}},  # 레지스트리에 없는 도구
+    ]
+    drafts = dehydrate_nodes(stored)
+    assert drafts[1]["templateId"] == PASSTHROUGH_TEMPLATE_ID
+    nodes = hydrate_nodes(drafts, provider="CLAUDE",
+                          passthrough_originals={n["id"]: n for n in stored})
+    edges = [{"source": "node-1", "target": "node-2"}]
+
+    with pytest.raises(Exception, match="도구 이름"):  # 제외하지 않으면 거부된다
+        WorkflowValidator.validate(nodes, edges, set())
+    WorkflowValidator.validate(nodes, edges, set(), unvalidated_node_ids={"node-2"})
+
+
+def test_passthrough_draft_does_not_leak_config_to_prompt():
+    """pass-through draft는 프롬프트에 실린다 — 서버가 쓰지도 않는 저장 크레덴셜을 담지 않는다."""
+    from core.template_registry import dehydrate_node
+
+    node = {"id": "node-2", "type": "AI", "label": "옛노드", "description": "설명",
+            "config": {"credentialId": "42a230ce-32a4-4f99-aaed-da00dc85c2a8",
+                       "access_token": "secret-token", "prompt": "p",
+                       "tools": [{"name": "builtin:json_parse"}]}}
+    draft = dehydrate_node(node)
+    assert "config" not in draft["node"]
+    assert "secret-token" not in json.dumps(draft, ensure_ascii=False)
 
 
 def test_dehydrate_hydrate_trigger_without_type_survives():

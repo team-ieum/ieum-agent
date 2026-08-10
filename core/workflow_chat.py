@@ -39,7 +39,7 @@ from agents.base import _safe_close_mcp
 from core.validators.workflow_validator import WorkflowValidator
 from core.template_registry import (
     dehydrate_nodes, slot_catalog_text,
-    PASSTHROUGH_TEMPLATE_ID, reattach_stripped_fields,
+    PASSTHROUGH_TEMPLATE_ID,
 )
 from core.node_hydration import prepare_hydrated_nodes
 from tools.registry import apply_service_brand
@@ -516,6 +516,14 @@ async def chat_workflow(
         + f"\n\n## Current Request Context\n- provider: {provider.upper()}\n  (모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정한다)"
     )
 
+    def _passthrough_ids(data: dict) -> set:
+        """LLM 출력에서 pass-through로 복원되는 노드 id 집합. 이 노드들은 저장분을 그대로
+        되돌린 것이라 내용 검증 대상이 아니다(WorkflowValidator 참고)."""
+        return {
+            d.get("id") for d in (data.get("nodes") or [])
+            if isinstance(d, dict) and d.get("templateId") == PASSTHROUGH_TEMPLATE_ID and d.get("id")
+        }
+
     def _prepare_nodes(data: dict):
         """LLM 출력 draft(nodes)를 하이드레이션한다(core.node_hydration.prepare_hydrated_nodes에 위임).
         외부 응답 빌드와 정적 검증 사전점검이 동일 로직을 공유하도록 여기서 provider/current_nodes/
@@ -538,11 +546,10 @@ async def chat_workflow(
             raw_nodes, raw_edges = _prepare_nodes(data)
             if not raw_nodes:
                 return "WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다."
-            if current_nodes:
-                reattach_stripped_fields(raw_nodes, current_nodes)
             apply_service_brand(raw_nodes)
             _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
-            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
+            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids,
+                                       unvalidated_node_ids=_passthrough_ids(data))
         except Exception as e:
             return str(e)
         return None
@@ -876,11 +883,10 @@ async def chat_workflow(
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             if not raw_nodes:
                 raise ValueError("WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다.")
-            if current_nodes:
-                reattach_stripped_fields(raw_nodes, current_nodes)
             apply_service_brand(raw_nodes)
             _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
-            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
+            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids,
+                                       unvalidated_node_ids=_passthrough_ids(data))
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
         edges = [WorkflowEdge(**e) for e in raw_edges] if raw_edges else None

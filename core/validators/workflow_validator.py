@@ -28,10 +28,17 @@ class WorkflowValidator:
 
     @classmethod
     def validate(cls, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]],
-                 allowed_mcp_catalog_ids: set | None = None) -> None:
+                 allowed_mcp_catalog_ids: set | None = None,
+                 unvalidated_node_ids: set | None = None) -> None:
         """워크플로우의 무결성 및 설계 규칙을 검증한다.
-        allowed_mcp_catalog_ids: 생성 단계에서 허용되는 MCP 카탈로그 ID 집합(없으면 MCP 전면 차단)."""
+        allowed_mcp_catalog_ids: 생성 단계에서 허용되는 MCP 카탈로그 ID 집합(없으면 MCP 전면 차단).
+        unvalidated_node_ids: 내용 검증에서 제외할 노드 id 집합. LLM이 만든 값이 아니라 저장분을
+            그대로 복원한 pass-through 노드에 쓴다 — 옛 규칙으로 저장된 노드(폐기된 도구 이름 등)를
+            여기서 거부하면 그 워크플로우는 수정 요청 자체가 영구히 실패한다. 이 노드들은 수정
+            전후가 동일하므로 통과시키는 편이 안전하다. 그래프 수준 검증(id 고유성·TRIGGER 규칙·
+            엣지 정합성·연결 구조·참조 대상)은 제외 대상에도 그대로 적용된다."""
         allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
+        unvalidated_node_ids = unvalidated_node_ids or set()
         if not nodes:
             raise WorkflowValidationError("워크플로우에 노드가 존재하지 않습니다.")
 
@@ -63,7 +70,13 @@ class WorkflowValidator:
             if ntype.upper() == "TRIGGER":
                 trigger_count += 1
                 trigger_node_id = nid
-                
+
+            # pass-through 노드는 저장분을 그대로 복원한 것이라 내용 검증 대상이 아니다.
+            # (여기까지의 id·type·TRIGGER 개수 검증은 그래프 수준이므로 이미 적용됐다)
+            if nid in unvalidated_node_ids:
+                continue
+
+            if ntype.upper() == "TRIGGER":
                 # SCHEDULE 트리거의 상세 cron 검증
                 trigger_type = config.get("triggerType")
                 if trigger_type == "SCHEDULE":

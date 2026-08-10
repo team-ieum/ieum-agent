@@ -461,7 +461,18 @@ def dehydrate_node(node: dict) -> dict | None:
         return None
     tpl = resolve_template_for_node(node)
     if tpl is None:
-        return {"id": node.get("id"), "templateId": PASSTHROUGH_TEMPLATE_ID, "node": copy.deepcopy(node)}
+        # 복원은 서버가 쥔 원본으로만 한다(hydrate_node 참고). 그래서 draft에는 LLM이 이 노드를
+        # 식별하는 데 필요한 만큼만 담는다 — config를 통째로 실으면 저장된 credentialId·토큰
+        # 같은 값이 프롬프트로 외부 LLM에 나가는데, 서버는 그 값을 쓰지도 않는다.
+        return {
+            "id": node.get("id"),
+            "templateId": PASSTHROUGH_TEMPLATE_ID,
+            "node": {
+                "type": node.get("type"),
+                "label": node.get("label"),
+                "description": node.get("description"),
+            },
+        }
     slots = {}
     for s in tpl["slots"]:
         if s["kind"] in _SYSTEM_INJECTED_KINDS:
@@ -478,39 +489,6 @@ def dehydrate_nodes(nodes: list) -> list:
     if not isinstance(nodes, list):
         return []
     return [d for d in (dehydrate_node(n) for n in nodes) if d is not None]
-
-
-def reattach_stripped_fields(hydrated_nodes: list, original_nodes: list) -> list:
-    """하이드레이션이 만들지 않는 상위 필드(position 등)를 원본 노드에서 되살린다(MODIFY 전용, in-place).
-
-    결과 노드와 원본 노드를 id로 매칭해, 결과에 그 키가 아예 없을 때만 원본 값을 채운다.
-    id/type/config는 제외한다.
-
-    **config는 재부착하지 않는다.** 하이드레이션이 config를 비우는 게 정답인 필드가 있기 때문이다:
-    - `credentialId`는 런타임에 백엔드가 주입하므로 WorkflowValidator가 빈 문자열을 강제한다.
-      저장분에 값이 남아 있어도 되살리면 검증에 걸려 그 워크플로우는 수정 자체가 불가능해진다.
-    - `tools`를 통째로 되돌리면 사용자가 방금 바꾼 도구 설정(webhookCredentialId 등)이나
-      "도구 빼줘" 요청 결과가 조용히 원복된다.
-    슬롯 밖 config 값을 살려야 하는 케이스가 실제로 나오면 그때 케이스별로 열어라 —
-    "왕복에서 값이 바뀌었다"가 곧 "되살려야 한다"는 아니다."""
-    if not isinstance(hydrated_nodes, list) or not isinstance(original_nodes, list):
-        return hydrated_nodes
-    originals_by_id = {
-        n.get("id"): n for n in original_nodes if isinstance(n, dict) and n.get("id")
-    }
-    for node in hydrated_nodes:
-        if not isinstance(node, dict):
-            continue
-        original = originals_by_id.get(node.get("id"))
-        if not isinstance(original, dict):
-            continue
-        for key, value in original.items():
-            if key in ("id", "type", "config"):
-                continue
-            if key not in node:
-                node[key] = copy.deepcopy(value)
-
-    return hydrated_nodes
 
 
 def allowed_config_fields_for_node(node: dict) -> set | None:
