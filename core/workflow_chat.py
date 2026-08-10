@@ -464,6 +464,7 @@ async def chat_workflow(
 
     workflow_section = ""
     legacy_desc_ids: set = set()
+    passthrough_ids: set = set()
     if current_nodes:
         # 저장된 full-node를 draft(templateId+slots)로 역변환해 주입한다. Designer는 draft로 편집한다.
         current_drafts = dehydrate_nodes(current_nodes)
@@ -476,13 +477,21 @@ async def chat_workflow(
             if d.get("id") and d.get("templateId") != PASSTHROUGH_TEMPLATE_ID
             and not str((d.get("slots") or {}).get("description") or "").strip()
         }
-        passthrough_rule = (
-            f"\n3. templateId가 \"{PASSTHROUGH_TEMPLATE_ID}\"인 노드는 편집을 지원하지 않는다."
-            "\n   이 노드는 templateId와 id만 그대로 두고 넘긴다(서버가 원본으로 복원한다)."
-            "\n   사용자가 이 노드 자체의 변경을 요청하면 수정본을 만들지 말고 CLARIFICATION_NEEDED로"
-            "\n   \"이 노드는 편집을 지원하지 않는다\"고 답한다. 설명(description)이 비어 있을 때만"
-            "\n   'node' 필드에 description을 채워 보낼 수 있다."
-        )
+        # 어느 노드가 편집 불가인지는 **서버의 dehydrate 결과**가 정한다. LLM이 붙인 templateId로
+        # 판정하면 편집 가능한 노드를 pass-through로 위장해 사용자의 수정을 되돌릴 수 있다.
+        passthrough_ids = {
+            d["id"] for d in current_drafts
+            if d.get("id") and d.get("templateId") == PASSTHROUGH_TEMPLATE_ID
+        }
+        passthrough_rule = ""
+        if passthrough_ids:
+            passthrough_rule = (
+                f"\n3. templateId가 \"{PASSTHROUGH_TEMPLATE_ID}\"인 노드({{ids}})는 편집을 지원하지 않는다."
+                "\n   이 노드는 templateId와 id만 그대로 두고 **반드시 함께** 반환한다(서버가 원본으로"
+                "\n   복원한다. 빠뜨리면 수정이 거부된다). 사용자가 이 노드 자체의 변경을 요청하면"
+                "\n   수정본을 만들지 말고 CLARIFICATION_NEEDED로 \"이 노드는 편집을 지원하지 않는다\"고"
+                "\n   답한다. 설명(description)이 비어 있을 때만 'node' 필드에 description을 채울 수 있다."
+            ).format(ids=", ".join(sorted(passthrough_ids)))
         legacy_rule = ""
         if legacy_desc_ids:
             legacy_rule = (
@@ -516,23 +525,28 @@ async def chat_workflow(
         + f"\n\n## Current Request Context\n- provider: {provider.upper()}\n  (모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정한다)"
     )
 
-    def _passthrough_ids(data: dict) -> set:
-        """LLM 출력에서 pass-through로 복원되는 노드 id 집합. 이 노드들은 저장분을 그대로
-        되돌린 것이라 내용 검증 대상이 아니다(WorkflowValidator 참고)."""
-        return {
-            d.get("id") for d in (data.get("nodes") or [])
-            if isinstance(d, dict) and d.get("templateId") == PASSTHROUGH_TEMPLATE_ID and d.get("id")
-        }
-
     def _prepare_nodes(data: dict):
         """LLM 출력 draft(nodes)를 하이드레이션한다(core.node_hydration.prepare_hydrated_nodes에 위임).
         외부 응답 빌드와 정적 검증 사전점검이 동일 로직을 공유하도록 여기서 provider/current_nodes/
-        preserve_id/legacy_desc_ids를 캡처해 얇게 감싼다."""
+        preserve_id/legacy_desc_ids/passthrough_ids를 캡처해 얇게 감싼다."""
         return prepare_hydrated_nodes(
             data.get("nodes"), data.get("edges"),
             provider=provider, current_nodes=current_nodes,
             preserve_id=preserve_id, legacy_desc_ids=legacy_desc_ids,
+            passthrough_ids=passthrough_ids,
         )
+
+    def _finalize_nodes(raw_nodes: list, raw_edges: list | None) -> None:
+        """브랜드 주입·웹훅 크레덴셜 스트립·정적 검증을 순서대로 적용한다(in-place).
+
+        pass-through 노드는 저장분을 그대로 되돌린 것이라 셋 다 대상이 아니다 — 브랜드를 다시
+        도출하면 저장돼 있던 배지가 무관한 수정 한 번에 바뀌고, 내용 검증은 옛 규칙으로 저장된
+        값을 거부해 그 워크플로우의 수정을 영구히 막는다."""
+        editable = [n for n in raw_nodes if n.get("id") not in passthrough_ids]
+        apply_service_brand(editable)
+        _strip_invalid_webhook_credentials(editable, allowed_webhook_credential_ids)
+        WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids,
+                                   unvalidated_node_ids=passthrough_ids)
 
     def _static_validation_error(output_str: str) -> str | None:
         """후보 출력이 정적 검증(WorkflowValidator)을 통과하는지 확인한다.
@@ -546,10 +560,7 @@ async def chat_workflow(
             raw_nodes, raw_edges = _prepare_nodes(data)
             if not raw_nodes:
                 return "WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다."
-            apply_service_brand(raw_nodes)
-            _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
-            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids,
-                                       unvalidated_node_ids=_passthrough_ids(data))
+            _finalize_nodes(raw_nodes, raw_edges)
         except Exception as e:
             return str(e)
         return None
@@ -883,10 +894,7 @@ async def chat_workflow(
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
             if not raw_nodes:
                 raise ValueError("WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다.")
-            apply_service_brand(raw_nodes)
-            _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
-            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids,
-                                       unvalidated_node_ids=_passthrough_ids(data))
+            _finalize_nodes(raw_nodes, raw_edges)
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
         edges = [WorkflowEdge(**e) for e in raw_edges] if raw_edges else None

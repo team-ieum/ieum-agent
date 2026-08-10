@@ -133,7 +133,7 @@ class WorkflowValidator:
         cls._validate_graph_connectivity(nodes, edges, trigger_node_id)
 
         # 4. 변수 참조 대상 노드의 존재성 및 선행(upstream) 관계 검증
-        cls._validate_reference_targets(nodes, edges)
+        cls._validate_reference_targets(nodes, edges, unvalidated_node_ids)
 
     @classmethod
     def _validate_cron(cls, cron: str, node_id: str) -> None:
@@ -265,12 +265,14 @@ class WorkflowValidator:
                 yield from cls._iter_config_strings(v)
 
     @classmethod
-    def _validate_reference_targets(cls, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
+    def _validate_reference_targets(cls, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]],
+                                    unvalidated_node_ids: set | None = None) -> None:
         """변수 참조({{nodes.X.output.Y}})가 가리키는 노드 X가 실제 존재하고,
         참조하는 노드의 선행(upstream) 노드인지 검증한다.
         형식 검증(_validate_variable_references)과 달리, 존재하지 않는 노드ID 참조와
         하류/형제/자기 자신 참조 같은 데이터 흐름 환각을 차단한다."""
         node_ids = {n.get("id") for n in nodes}
+        unvalidated_node_ids = unvalidated_node_ids or set()
 
         # 역방향 인접 리스트(선행 노드 맵) 구성
         preds: Dict[Any, list] = {n.get("id"): [] for n in nodes}
@@ -297,6 +299,11 @@ class WorkflowValidator:
 
         for node in nodes:
             nid = node.get("id")
+            if nid in unvalidated_node_ids:
+                # 편집 불가(pass-through) 노드의 참조식은 모델이 고칠 수 없다. 거부하면 그 참조
+                # 대상을 지우는 수정 요청이 재시도를 몇 번 하든 성공할 수 없다. 대신 끊긴 참조가
+                # 저장될 수 있다는 대가를 진다(실행 시 빈 값으로 해석).
+                continue
             config = node.get("config", {}) or {}
             anc = None  # 조상 집합은 참조가 실제 있을 때만 lazy 계산
             for text in cls._iter_config_strings(config):

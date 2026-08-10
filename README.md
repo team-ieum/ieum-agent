@@ -24,7 +24,6 @@ graph TD
     User([Client / Spring Backend]) -->|HTTP Request| API[FastAPI Entrypoint]
     API -->|Routing| Execute[v1/execute]
     API -->|Routing| Generate[v1/generate-workflow]
-    API -->|Routing| Modify[v1/modify-workflow]
     API -->|Routing| Chat[v1/chat]
 
     Execute -->|Run Agent| Factory{Agent Factory}
@@ -143,11 +142,8 @@ graph TD
 ### 2. Workflow Generation (`POST /v1/generate-workflow`)
 - 자연어로 전달된 사용자 요구사항을 분석하여, 적절한 Node와 Edge를 갖춘 이음 워크플로우 규격을 자동으로 설계 및 생성합니다.
 
-### 3. Workflow Modification (`POST /v1/modify-workflow`)
-- 현재의 워크플로우 상태(노드/에지)와 변경하고 싶은 자연어 요구사항을 바탕으로 워크플로우를 안전하게 수정 및 반환합니다.
-
-### 4. Interactive Chat (`POST /v1/chat`)
-- 사용자와 대화를 나누며 워크플로우를 점진적으로 설계하고, 필요한 외부 연동 상태를 진단 및 설정합니다.
+### 3. Interactive Chat (`POST /v1/chat`)
+- 사용자와 대화를 나누며 워크플로우를 점진적으로 설계·수정하고, 필요한 외부 연동 상태를 진단 및 설정합니다.
 
 ---
 

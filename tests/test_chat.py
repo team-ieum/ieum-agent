@@ -1119,3 +1119,63 @@ async def test_chat_workflow_passthrough_new_node_forgery_rejected():
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
 
+
+
+# 편집 가능한(템플릿 매칭되는) 노드를 __passthrough__로 위장해 사용자의 수정을 되돌리려는 시도.
+EDITABLE_NODES = [
+    {"id": "node-1", "type": "TRIGGER", "label": "트리거",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {"triggerType": "MANUAL"}},
+    {"id": "node-2", "type": "AI", "label": "노션 검색",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.",
+     "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "원래 프롬프트",
+                "agentType": "react", "tools": [{"name": "builtin:notion_search"}]}},
+]
+
+DISGUISED_PASSTHROUGH_JSON = json.dumps({
+    "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
+    "changeDescription": "프롬프트를 바꿨습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.manual",
+         "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"id": "node-2", "templateId": "__passthrough__"},  # 편집 가능한 노드인데 위장
+    ],
+    "edges": VALID_EDGES,
+})
+
+# 편집 불가(pass-through) 노드를 출력에서 통째로 빠뜨린 응답 — 저장되면 노드가 영구 삭제된다.
+DROPPED_PASSTHROUGH_JSON = json.dumps({
+    "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
+    "changeDescription": "정리했습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.manual",
+         "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+    ],
+    "edges": [],
+})
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_disguised_passthrough_rejected():
+    """편집 가능한 노드에 LLM이 __passthrough__를 붙여도 원본 복원이 열리지 않는다.
+    허용하면 사용자의 수정 요청이 '수정했습니다' 응답과 함께 조용히 무시된다."""
+    p1, p2, p3, p4 = _make_patches(DISGUISED_PASSTHROUGH_JSON)
+    with p1, p2, p3, p4:
+        result = await _call(
+            "node-2 프롬프트 바꿔줘",
+            current_nodes=EDITABLE_NODES,
+            current_edges=VALID_EDGES,
+        )
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_dropped_passthrough_rejected():
+    """편집 불가 노드가 출력에서 빠지면 거부된다 — 소실 방어를 프롬프트 지시에만 맡기지 않는다."""
+    p1, p2, p3, p4 = _make_patches(DROPPED_PASSTHROUGH_JSON)
+    with p1, p2, p3, p4:
+        result = await _call(
+            "정리해줘",
+            current_nodes=PASSTHROUGH_FULL_NODES,
+            current_edges=VALID_EDGES,
+        )
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED

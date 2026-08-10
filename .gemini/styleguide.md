@@ -9,7 +9,7 @@ Spring Boot 백엔드에서 HTTP로 위임받아 Google ADK를 통해 에이전�
 api/routes/        — FastAPI 라우터 (execute, generate, modify, chat)
 api/schemas/       — Pydantic 요청/응답 스키마
 api/middleware/     — 인증 미들웨어 (credential.py)
-core/              — 핵심 비즈니스 로직 (agent.py, workflow_generator.py, workflow_modifier.py, workflow_chat.py)
+core/              — 핵심 비즈니스 로직 (agent.py, workflow_generator.py, workflow_chat.py, node_hydration.py)
 tools/             — 빌트인 도구 함수 (slack, discord, gmail, notion, google_*, http_fetch, mcp, utils)
 providers/         — LLM Provider 어댑터 (현재 미사용, 레거시/확장용)
 common/            — 에러 코드(ErrorCode, ToolErrorCode), 커스텀 예외

@@ -363,6 +363,10 @@ def hydrate_node(
         if not str(node.get("description") or "").strip():
             llm_node = draft.get("node")
             desc = llm_node.get("description") if isinstance(llm_node, dict) else None
+            if not (isinstance(desc, str) and desc.strip()):
+                # 모델이 안 채우면 label로 떨어진다(슬롯 경로의 backfill_legacy_description과 같은 처리).
+                # 빈 채로 내보내면 BE의 description 필수 검증에 걸려 저장 시점에 수정이 통째로 날아간다.
+                desc = node.get("label")
             if isinstance(desc, str) and desc.strip():
                 node["description"] = desc.strip()
         return node

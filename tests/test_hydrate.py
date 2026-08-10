@@ -309,3 +309,30 @@ def test_hydrated_workflow_passes_validator():
     apply_service_brand(nodes)
     WorkflowValidator.validate(nodes, edges, set())
     assert nodes[1]["config"]["brand"] == "notion"
+
+
+def test_passthrough_description_falls_back_to_label():
+    """레거시 pass-through 노드의 description이 비어 있고 모델도 안 채우면 label로 떨어진다.
+    빈 채로 나가면 BE의 description 필수 검증에 걸려 저장 시점에 수정이 통째로 날아간다."""
+    original = {"id": "node-2", "type": "AI", "label": "가공 노드", "description": "",
+                "config": {"tools": [{"name": "builtin:json_parse"}]}}
+    restored = hydrate_node({"id": "node-2", "templateId": "__passthrough__"},
+                            passthrough_originals={"node-2": original})
+    assert restored["description"] == "가공 노드"
+
+
+def test_ref_remap_does_not_double_rewrite():
+    """id 재부여가 서로 맞바뀌는 경우(node-2→node-1, node-1→node-2) 참조식이 두 번 치환돼
+    원위치로 돌아가면 안 된다 — 한 번의 스캔으로 치환한다."""
+    from core.node_hydration import prepare_hydrated_nodes
+
+    drafts = [
+        {"id": "node-2", "templateId": "trigger.manual",
+         "slots": {"label": "시작", "description": "설명"}},
+        {"id": "node-1", "templateId": "ai.reasoning",
+         "slots": {"label": "요약", "description": "설명",
+                   "prompt": "{{nodes.node-2.output.text}}를 요약해줘"}},
+    ]
+    nodes, _ = prepare_hydrated_nodes(drafts, [], provider="CLAUDE", preserve_id=False)
+    # node-2 → node-1로 재부여됐으므로 참조도 node-1을 가리켜야 한다(node-2로 되돌아오면 버그)
+    assert "{{nodes.node-1.output.text}}" in nodes[1]["config"]["prompt"]
