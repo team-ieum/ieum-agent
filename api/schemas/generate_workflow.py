@@ -35,7 +35,7 @@ class WorkflowNodeDraft(BaseModel):
 
 # CONDITION config 키의 구표기 → 표준 표기(IEUM-AI-55). FE 명세와 BE executor가 보는 이름은
 # left/right이고 agent는 이제 그 이름만 만든다. 다만 구표기로 저장된 워크플로우가 수정 요청
-# (/v1/chat, /v1/modify-workflow의 currentNodes)으로 되돌아오므로, 노드 입출력의 단일 관문인
+# (/v1/chat의 currentNodes)으로 되돌아오므로, 노드 입출력의 단일 관문인
 # 이 스키마에서 한 번만 표준 표기로 옮긴다. 옮기기만 하므로 출력에는 구표기가 남지 않는다.
 _LEGACY_CONDITION_KEYS = {"leftValue": "left", "rightValue": "right"}
 

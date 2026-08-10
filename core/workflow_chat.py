@@ -6,7 +6,6 @@ import inspect
 import json
 import logging
 import os
-import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -38,7 +37,11 @@ from tools.discord import send_discord_webhook
 from tools.slack import send_slack_message
 from agents.base import _safe_close_mcp
 from core.validators.workflow_validator import WorkflowValidator
-from core.template_registry import hydrate_node, dehydrate_nodes, slot_catalog_text
+from core.template_registry import (
+    dehydrate_nodes, slot_catalog_text,
+    PASSTHROUGH_TEMPLATE_ID,
+)
+from core.node_hydration import prepare_hydrated_nodes
 from tools.registry import apply_service_brand
 
 logger = logging.getLogger(__name__)
@@ -294,25 +297,6 @@ _MAX_CLARIFICATION_OPTIONS = 8
 _MAX_VALIDATION_RETRIES = 2
 
 
-def _backfill_legacy_description(draft: dict) -> None:
-    """description 슬롯이 빈 draft를 label로 채운다(in-place).
-
-    description은 28개 템플릿 전부의 required 슬롯이라 hydrate_node가 누락 시 하드 실패한다.
-    모델이 어느 노드 하나라도 빠뜨리면 자가 교정 2회 → CLARIFICATION 폴백으로 정당한 수정 요청
-    자체가 거부된다. 라벨 복제는 좋은 설명이 아니지만 수정 실패보다 낫다.
-
-    호출부는 레거시 id(=저장분에 description이 없던 노드)에만 적용한다. 설명이 이미 있는
-    노드까지 대상으로 넓히면, 되살릴 원본이 draft에 있는데도 label 복제로 덮어써 사용자가 쓴
-    문장이 소실된다. 신규 노드에도 적용하지 않으므로 '새 노드는 반드시 description을 쓴다'는
-    강제가 유지된다."""
-    slots = draft.get("slots")
-    if not isinstance(slots, dict) or str(slots.get("description") or "").strip():
-        return
-    label = slots.get("label")
-    if isinstance(label, str) and label.strip():
-        slots["description"] = label.strip()
-
-
 _WEBHOOK_TOOL_NAMES = {"slack", "discord"}
 
 
@@ -480,31 +464,57 @@ async def chat_workflow(
 
     workflow_section = ""
     legacy_desc_ids: set = set()
+    passthrough_ids: set = set()
     if current_nodes:
         # 저장된 full-node를 draft(templateId+slots)로 역변환해 주입한다. Designer는 draft로 편집한다.
         current_drafts = dehydrate_nodes(current_nodes)
         # description 슬롯 도입(IEUM-AI-55) 이전에 저장된 노드는 값이 비어 draft에서 아예 빠진다.
         # 이 id들만 "그대로 복사 금지"의 예외로 프롬프트에 못박고, LLM이 놓쳐도 하이드레이션 직전에 보정한다.
+        # pass-through draft(templateId=PASSTHROUGH_TEMPLATE_ID)는 slots 자체가 없으므로 제외한다
+        # (제외하지 않으면 slots 없는 draft가 전부 "description 없는 레거시"로 오분류된다).
         legacy_desc_ids = {
             d["id"] for d in current_drafts
-            if d.get("id") and not str((d.get("slots") or {}).get("description") or "").strip()
+            if d.get("id") and d.get("templateId") != PASSTHROUGH_TEMPLATE_ID
+            and not str((d.get("slots") or {}).get("description") or "").strip()
         }
-        legacy_rule = ""
+        # 어느 노드가 편집 불가인지는 **서버의 dehydrate 결과**가 정한다. LLM이 붙인 templateId로
+        # 판정하면 편집 가능한 노드를 pass-through로 위장해 사용자의 수정을 되돌릴 수 있다.
+        passthrough_ids = {
+            d["id"] for d in current_drafts
+            if d.get("id") and d.get("templateId") == PASSTHROUGH_TEMPLATE_ID
+        }
+        # 규칙은 조건부로 빠지는 항목이 있어 번호를 직접 쓰지 않는다(결번이 생기면 모델이 못 받은
+        # 규칙이 있다고 해석해 지시 준수율이 떨어진다).
+        rules = [
+            "기존 노드 id 체계 유지. 새 노드는 가장 큰 번호 + 1로 부여",
+            "수정 요청과 무관한 노드는 위 JSON의 templateId·slots를 그대로 유지한다"
+            "(값을 임의로 바꾸지 않는다)",
+        ]
+        if passthrough_ids:
+            rules.append(
+                f"templateId가 \"{PASSTHROUGH_TEMPLATE_ID}\"인 노드({', '.join(sorted(passthrough_ids))})는"
+                "\n   편집을 지원하지 않는다. 남겨 둘 거라면 templateId를 그대로 두고 반환한다(서버가"
+                "\n   원본으로 복원한다. 다른 templateId로 바꾸면 수정이 거부된다). 사용자가 이 노드의"
+                "\n   삭제를 요청했다면 출력에서 빼면 된다. 그 밖의 변경을 요청하면 수정본을 만들지 말고"
+                "\n   CLARIFICATION_NEEDED로 \"이 노드는 편집을 지원하지 않는다\"고 답한다."
+                "\n   설명(description)이 비어 있을 때만 'node' 필드에 description을 채울 수 있다."
+            )
+        rules.append("type은 반드시 WORKFLOW_MODIFIED")
         if legacy_desc_ids:
-            legacy_rule = (
-                "\n4. 단, 위 JSON에 description 슬롯이 없는 노드({ids})는 2번의 예외다. 이 노드들은"
-                "\n   복사만 하면 안 되고, label과 prompt를 보고 사용자에게 보여줄 쉬운 설명 1문장을"
-                "\n   description 슬롯에 새로 채워야 한다(description은 모든 노드의 필수 슬롯이라"
-                "\n   빠진 채로 두면 수정이 실패한다). 이 노드들의 나머지 슬롯 값은 2번대로 그대로 둔다."
-            ).format(ids=", ".join(sorted(legacy_desc_ids)))
+            rules.append(
+                f"단, 위 JSON에 description 슬롯이 없는 노드({', '.join(sorted(legacy_desc_ids))})는"
+                "\n   '무관한 노드는 그대로 유지' 규칙의 예외다. 복사만 하면 안 되고, label과 prompt를 보고"
+                "\n   사용자에게 보여줄 쉬운 설명 1문장을 description 슬롯에 새로 채워야 한다"
+                "\n   (description은 모든 노드의 필수 슬롯이라 빠진 채로 두면 수정이 실패한다)."
+                "\n   이 노드들의 나머지 슬롯 값은 그대로 둔다."
+            )
+        rules_text = "\n".join(f"{i}. {r}" for i, r in enumerate(rules, 1))
         workflow_section = f"""
 ## 현재 워크플로우 (수정 요청)
 {json.dumps({"nodes": current_drafts, "edges": current_edges}, ensure_ascii=False)}
 
 수정 규칙:
-1. 기존 노드 id 체계 유지. 새 노드는 가장 큰 번호 + 1로 부여
-2. 수정 요청과 무관한 노드는 위 JSON의 templateId·slots를 그대로 유지한다(값을 임의로 바꾸지 않는다)
-3. type은 반드시 WORKFLOW_MODIFIED{legacy_rule}
+{rules_text}
 """
 
     from core.skill_loader import format_mcp_catalog, format_webhook_catalog
@@ -523,50 +533,29 @@ async def chat_workflow(
     )
 
     def _prepare_nodes(data: dict):
-        """LLM 출력 draft(nodes)를 템플릿으로 하이드레이션하고 노드 ID 재부여 + 참조식/엣지 리맵을 적용한다.
-        외부 응답 빌드와 정적 검증 사전점검이 동일 로직을 공유하도록 추출했다.
-        하이드레이션 실패(SlotFillError 등)는 호출부(try/except)에서 처리된다."""
-        raw_drafts = data.get("nodes")
-        raw_edges = data.get("edges")
-        if not raw_drafts:
-            return raw_drafts, raw_edges
+        """LLM 출력 draft(nodes)를 하이드레이션한다(core.node_hydration.prepare_hydrated_nodes에 위임).
+        외부 응답 빌드와 정적 검증 사전점검이 동일 로직을 공유하도록 여기서 provider/current_nodes/
+        preserve_id/legacy_desc_ids/passthrough_ids를 캡처해 얇게 감싼다."""
+        return prepare_hydrated_nodes(
+            data.get("nodes"), data.get("edges"),
+            provider=provider, current_nodes=current_nodes,
+            preserve_id=preserve_id, legacy_desc_ids=legacy_desc_ids,
+            passthrough_ids=passthrough_ids,
+        )
 
-        pid = preserve_id if preserve_id is not None else bool(current_nodes)
-        id_mapping = {}
-        raw_nodes = []
-        for idx, draft in enumerate(raw_drafts):
-            old_id = draft.get("id") if isinstance(draft, dict) else None
-            if old_id in legacy_desc_ids:
-                _backfill_legacy_description(draft)
-            node = hydrate_node(draft, provider=provider)
-            new_id = old_id if (pid and old_id) else f"node-{idx + 1}"
-            node["id"] = new_id
-            if old_id and old_id != new_id:
-                id_mapping[old_id] = new_id
-            raw_nodes.append(node)
+    def _finalize_nodes(raw_nodes: list, raw_edges: list | None) -> None:
+        """브랜드 주입·웹훅 크레덴셜 스트립·정적 검증을 순서대로 적용한다(in-place).
 
-        if raw_edges and id_mapping:
-            for e in raw_edges:
-                if e.get("source") in id_mapping:
-                    e["source"] = id_mapping[e["source"]]
-                if e.get("target") in id_mapping:
-                    e["target"] = id_mapping[e["target"]]
-
-        if id_mapping:
-            def _replace_refs(val):
-                if isinstance(val, dict):
-                    return {k: _replace_refs(v) for k, v in val.items()}
-                elif isinstance(val, list):
-                    return [_replace_refs(v) for v in val]
-                elif isinstance(val, str):
-                    for old, new in id_mapping.items():
-                        pattern = r'\{\{\s*nodes\.' + re.escape(old) + r'\.output\.'
-                        val = re.sub(pattern, '{{nodes.' + new + '.output.', val)
-                    return val
-                return val
-            raw_nodes = _replace_refs(raw_nodes)
-
-        return raw_nodes, raw_edges
+        pass-through 노드에 대한 취급이 차원마다 다르다:
+        - 브랜드 재도출은 **제외**. 저장돼 있던 배지가 무관한 수정 한 번에 바뀌면 안 된다
+        - 웹훅 크레덴셜 스트립은 **적용**. 미보유 id를 제거하는 방식이라 레거시를 깨지 않는다.
+          현재는 도달하지 않는 조합이지만(slack/discord 도구는 tool_key가 매칭돼 pass-through가
+          되지 않는다) 제외해 둘 이유가 없다 — 이 노드도 요청 바디에서 온 값이다
+        - 내용 검증만 면제하고 MCP 인가는 유지(WorkflowValidator 참고)"""
+        apply_service_brand([n for n in raw_nodes if n.get("id") not in passthrough_ids])
+        _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
+        WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids,
+                                   unvalidated_node_ids=passthrough_ids)
 
     def _static_validation_error(output_str: str) -> str | None:
         """후보 출력이 정적 검증(WorkflowValidator)을 통과하는지 확인한다.
@@ -580,9 +569,7 @@ async def chat_workflow(
             raw_nodes, raw_edges = _prepare_nodes(data)
             if not raw_nodes:
                 return "WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다."
-            apply_service_brand(raw_nodes)
-            _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
-            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
+            _finalize_nodes(raw_nodes, raw_edges)
         except Exception as e:
             return str(e)
         return None
@@ -910,15 +897,18 @@ async def chat_workflow(
             return response
 
         response_type = data.get("type")
-        # draft 하이드레이션 + ID 재부여 + 참조식/엣지 리맵 (정적 검증 사전점검과 동일 로직 공유)
-        raw_nodes, raw_edges = _prepare_nodes(data)
-
+        # 하이드레이션은 워크플로우를 싣는 타입에만 돌린다. 타입 확인 전에 돌리면 모델이 설명용으로
+        # nodes를 곁들인 CLARIFICATION_NEEDED가 하이드레이션 실패 하나로 502가 된다 — 자가교정
+        # 사전점검도 GENERATED/MODIFIED만 보므로 재시도도 폴백도 걸리지 않고, 정작 사용자에게
+        # 보여줬어야 할 안내 메시지가 사라진다.
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
+            # draft 하이드레이션 + ID 재부여 + 참조식/엣지 리맵 (정적 검증 사전점검과 동일 로직 공유)
+            raw_nodes, raw_edges = _prepare_nodes(data)
             if not raw_nodes:
                 raise ValueError("WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다.")
-            apply_service_brand(raw_nodes)
-            _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
-            WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids)
+            _finalize_nodes(raw_nodes, raw_edges)
+        else:
+            raw_nodes, raw_edges = None, None
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
         edges = [WorkflowEdge(**e) for e in raw_edges] if raw_edges else None

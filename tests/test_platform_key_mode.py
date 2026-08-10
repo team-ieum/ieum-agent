@@ -14,7 +14,6 @@ from core.agent import run_agent, save_execution_log
 from core.config import settings
 from core.workflow_chat import _save_chat_log
 from core.workflow_generator import _save_generate_workflow_log
-from core.workflow_modifier import _save_modify_workflow_log
 from main import app
 
 
@@ -154,17 +153,6 @@ async def test_generate_log_records_key_mode():
     with patch("core.workflow_generator.generate_workflow_logs") as mock_logs:
         mock_logs.insert_one = AsyncMock()
         await _save_generate_workflow_log(
-            prompt="p", provider="GEMINI", model="gemini-3.5-flash",
-            success=True, duration_ms=10, key_mode="platform",
-        )
-    assert mock_logs.insert_one.call_args.args[0]["keyMode"] == "platform"
-
-
-@pytest.mark.asyncio
-async def test_modify_log_records_key_mode():
-    with patch("core.workflow_modifier.modify_workflow_logs") as mock_logs:
-        mock_logs.insert_one = AsyncMock()
-        await _save_modify_workflow_log(
             prompt="p", provider="GEMINI", model="gemini-3.5-flash",
             success=True, duration_ms=10, key_mode="platform",
         )

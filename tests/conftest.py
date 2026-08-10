@@ -23,13 +23,13 @@ from unittest.mock import AsyncMock
 def _block_real_mongo_writes():
     """모든 테스트에서 로그 컬렉션의 insert를 차단한다(이중 안전망).
 
-    DB 격리(ieum_test)와 별개로, generate/modify/execute 로그 저장이 실 mongo로
+    DB 격리(ieum_test)와 별개로, generate/chat/execute 로그 저장이 실 mongo로
     새어 나가 운영 데이터를 오염시키는 것을 원천 차단한다."""
     from unittest.mock import patch
     import db.mongodb as mongodb
 
     patchers = []
-    for name in ("generate_workflow_logs", "modify_workflow_logs", "execution_logs"):
+    for name in ("generate_workflow_logs", "chat_logs", "execution_logs"):
         col = getattr(mongodb, name, None)
         if col is None:
             continue

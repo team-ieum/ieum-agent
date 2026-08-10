@@ -13,7 +13,6 @@ import pytest
 import core.template_registry as tr
 from api.schemas.chat import ChatRequest
 from api.schemas.generate_workflow import WorkflowNode
-from api.schemas.modify_workflow import ModifyWorkflowRequest
 from core.template_registry import SlotFillError, dehydrate_node, hydrate_node
 from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
 
@@ -47,9 +46,9 @@ def test_condition_template_uses_canonical_keys():
 
 
 def test_no_legacy_condition_keys_in_design_assets():
-    """설계 자산(템플릿·레퍼런스 문서)과 modify 프롬프트에 구표기가 남아 있지 않다.
+    """설계 자산(템플릿·레퍼런스 문서)과 chat 설계 프롬프트에 구표기가 남아 있지 않다.
     한 곳이라도 남으면 모델이 그대로 따라 써 표기가 다시 갈라진다."""
-    from core.workflow_modifier import _MODIFY_SYSTEM_PROMPT
+    from core.workflow_chat import _SYSTEM_PROMPT_BASE
 
     paths = glob.glob(os.path.join(tr.TEMPLATES_DIR, "*.json"))
     ref_dir = os.path.join(os.path.dirname(tr.TEMPLATES_DIR), "references")
@@ -57,7 +56,7 @@ def test_no_legacy_condition_keys_in_design_assets():
     assert paths, "설계 자산 경로 탐색 실패"
 
     sources = {p: open(p, encoding="utf-8").read() for p in paths}
-    sources["_MODIFY_SYSTEM_PROMPT"] = _MODIFY_SYSTEM_PROMPT
+    sources["_SYSTEM_PROMPT_BASE"] = _SYSTEM_PROMPT_BASE
     offenders = [name for name, text in sources.items()
                  if "leftValue" in text or "rightValue" in text]
     assert not offenders, f"구표기(leftValue/rightValue) 잔존: {offenders}"
@@ -117,18 +116,15 @@ def test_workflow_node_keeps_canonical_when_both_present():
     assert "leftValue" not in node.config and "rightValue" not in node.config
 
 
-@pytest.mark.parametrize("build", [
-    lambda n: ChatRequest(prompt="수정", currentNodes=[n], currentEdges=[]).currentNodes[0],
-    lambda n: ModifyWorkflowRequest(prompt="수정", currentNodes=[n], currentEdges=[]).currentNodes[0],
-])
-def test_legacy_workflow_is_accepted_at_api_boundary(build):
-    """/v1/chat·/v1/modify-workflow의 currentNodes로 들어온 레거시 CONDITION이 422로 튕기지 않고,
+def test_legacy_workflow_is_accepted_at_api_boundary():
+    """/v1/chat의 currentNodes로 들어온 레거시 CONDITION이 422로 튕기지 않고,
     라우터가 넘기는 model_dump()에는 표준 표기만 담긴다."""
-    dumped = build(_condition_node(LEGACY_CFG)).model_dump()
-    assert dumped["config"] == CANONICAL_CFG
+    node = ChatRequest(prompt="수정", currentNodes=[_condition_node(LEGACY_CFG)],
+                       currentEdges=[]).currentNodes[0]
+    assert node.model_dump()["config"] == CANONICAL_CFG
 
 
-def test_legacy_condition_survives_modify_round_trip():
+def test_legacy_condition_survives_chat_round_trip():
     """레거시 워크플로우 수정 시나리오: API 관문 → dehydrate(draft) → Designer 복사 → hydrate.
     구표기 노드가 draft에서 left/right 슬롯으로 실려야 Designer가 그대로 복사해도 첫 시도에 성공한다."""
     boundary_node = WorkflowNode(**_condition_node(LEGACY_CFG)).model_dump()
@@ -140,11 +136,7 @@ def test_legacy_condition_survives_modify_round_trip():
     assert rehydrated["config"] == CANONICAL_CFG
 
 
-def test_modify_response_nodes_use_canonical_keys():
-    """/v1/modify-workflow 경로: LLM이 현재 워크플로우의 구표기를 그대로 베껴도 응답은 표준 표기다."""
-    from api.schemas.modify_workflow import ModifyWorkflowResponse
-
-    resp = ModifyWorkflowResponse(
-        nodes=[_condition_node(LEGACY_CFG)], edges=[], rawPrompt="수정", changeDescription="",
-    )
-    assert json.loads(resp.model_dump_json())["nodes"][0]["config"] == CANONICAL_CFG
+def test_response_nodes_use_canonical_keys():
+    """LLM이 현재 워크플로우의 구표기를 그대로 베껴도 응답 노드는 표준 표기다."""
+    node = WorkflowNode(**_condition_node(LEGACY_CFG))
+    assert json.loads(node.model_dump_json())["config"] == CANONICAL_CFG

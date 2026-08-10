@@ -37,6 +37,16 @@ _SYSTEM_INJECTED_KINDS = {"provider", "model"}
 VALID_SERVICE_TYPES = {"GOOGLE", "NOTION", "GITHUB", "SLACK", "DISCORD"}
 _REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "tags", "menu", "fixed", "slots", "allowed_config_fields"}
 
+# resolve_template_for_node가 매칭 템플릿을 찾지 못한 노드용 센티넬 templateId.
+# dehydrate_node가 None(드롭) 대신 이 templateId를 단 draft를 반환해 MODIFY 왕복에서 노드가
+# 소실되지 않게 한다.
+#
+# **draft["node"]에는 식별용 필드(type·label·description)만 담고, 복원은 hydrate_node가 호출부에서
+# 받은 passthrough_originals에서만 한다.** draft는 LLM 프롬프트에 실려 나가고 LLM이 그대로 되돌려
+# 보내는 값이라 신뢰 대상이 아니다 — config를 담으면 저장된 credentialId·토큰이 외부 LLM으로
+# 나가고, 복원에 쓰면 슬롯 검증이 통째로 우회된다. 둘 다 실제로 지적됐던 경로다.
+PASSTHROUGH_TEMPLATE_ID = "__passthrough__"
+
 # 모듈 캐시 (파일은 기동 중 불변)
 _cache: dict | None = None
 
@@ -323,10 +333,20 @@ def _set_by_path(obj: dict, path: str, value) -> None:
         cur[last] = value
 
 
-def hydrate_node(draft: dict, provider: str | None = None) -> dict:
+def hydrate_node(
+    draft: dict,
+    provider: str | None = None,
+    passthrough_originals: dict | None = None,
+) -> dict:
     """draft({id, templateId, slots})를 템플릿으로 완성된 노드로 변환한다.
 
     구조(type/fixed.config)는 템플릿이 결정론적으로 제공하고, 가변값만 slots에서 채운다.
+    - templateId가 PASSTHROUGH_TEMPLATE_ID면 **passthrough_originals[draft["id"]]에서만** 복원한다.
+      draft["node"]는 LLM 출력이라 신뢰하지 않는다(신뢰하면 슬롯 검증을 통째로 우회당한다).
+      passthrough_originals를 넘기지 않은 호출부에서는 pass-through가 항상 거부된다 — 기본값이
+      거부여야 새 호출부가 생겨도 안전하게 실패한다(생성 경로가 이 기본값에 기대고 있다).
+      단 원본에 description이 없고 draft["node"]에 있으면 description **한 필드만** 가져온다
+      (레거시+템플릿 미매칭 노드가 BE의 description 필수 검증에 걸려 저장이 막히는 것 방지).
     - templateId가 레지스트리에 없으면 SlotFillError(노드 날조 차단).
     - 템플릿에 없는 슬롯 키, 필수 슬롯 누락이면 SlotFillError(필드 날조 차단).
     - provider/model 슬롯(kind=provider|model)은 인자 provider에서 계산해 자동 주입한다
@@ -334,8 +354,37 @@ def hydrate_node(draft: dict, provider: str | None = None) -> dict:
     의미 검증(llmProvider/cron/tool/참조 등)은 호출부의 WorkflowValidator가 담당한다."""
     if not isinstance(draft, dict):
         raise SlotFillError("노드 draft는 객체여야 합니다.")
-    templates = load_templates()
     tid = draft.get("templateId")
+    if tid == PASSTHROUGH_TEMPLATE_ID:
+        node_id = draft.get("id")
+        original = (passthrough_originals or {}).get(node_id) if node_id else None
+        if not isinstance(original, dict):
+            raise SlotFillError(
+                f"pass-through 노드(id={node_id!r})의 서버 측 원본을 찾을 수 없습니다. "
+                "pass-through 노드는 새로 만들 수 없습니다."
+            )
+        node = copy.deepcopy(original)
+        node["id"] = node_id
+        # credentialId는 런타임에 백엔드가 주입한다 — 템플릿 경로가 fixed로 ""를 박는 것과 같은
+        # 규칙을 여기에도 적용한다. 이 노드는 서버 저장분이 아니라 **요청 바디**에서 온 값이라
+        # (agent는 워크플로우를 DB에서 읽지 않는다) 값을 그대로 되살리면 남의 credentialId를
+        # 실어 보내는 경로가 된다. 저장분에 UUID가 남아 있는 노드도 여기서 정리된다.
+        cfg = node.get("config")
+        if isinstance(cfg, dict) and "credentialId" in cfg:
+            cfg["credentialId"] = ""
+        if not str(node.get("description") or "").strip():
+            llm_node = draft.get("node")
+            desc = llm_node.get("description") if isinstance(llm_node, dict) else None
+            if not (isinstance(desc, str) and desc.strip()):
+                # 모델이 안 채우면 label로 떨어진다(슬롯 경로의 backfill_legacy_description과 같은 처리).
+                # label까지 비었으면 고정 문구를 쓴다 — 빈 채로 내보내면 BE의 description 필수 검증에
+                # 걸려 저장 시점에 수정 결과가 통째로 날아간다(사용자는 원인을 알 수 없다).
+                desc = node.get("label")
+            if not (isinstance(desc, str) and desc.strip()):
+                desc = "이 노드가 하는 일을 설명해요."
+            node["description"] = desc.strip()
+        return node
+    templates = load_templates()
     tpl = templates.get(tid)
     if tpl is None:
         raise SlotFillError(f"존재하지 않는 templateId '{tid}'. 사용 가능: {sorted(templates)}")
@@ -385,13 +434,18 @@ def hydrate_node(draft: dict, provider: str | None = None) -> dict:
     return node
 
 
-def hydrate_nodes(drafts: list, provider: str | None = None) -> list:
-    """draft 리스트를 하이드레이션한다. id 누락 시 node-N 순차 부여한다."""
+def hydrate_nodes(
+    drafts: list,
+    provider: str | None = None,
+    passthrough_originals: dict | None = None,
+) -> list:
+    """draft 리스트를 하이드레이션한다. id 누락 시 node-N 순차 부여한다.
+    passthrough_originals 미지정 시 pass-through draft는 거부된다(hydrate_node 참고)."""
     if not isinstance(drafts, list):
         raise SlotFillError("nodes는 리스트여야 합니다.")
     nodes = []
     for idx, draft in enumerate(drafts):
-        node = hydrate_node(draft, provider=provider)
+        node = hydrate_node(draft, provider=provider, passthrough_originals=passthrough_originals)
         if not node.get("id"):
             node["id"] = f"node-{idx + 1}"
         nodes.append(node)
@@ -418,12 +472,34 @@ def dehydrate_node(node: dict) -> dict | None:
     """완성된 노드(full-node)를 draft({id, templateId, slots})로 역변환한다(MODIFY 편집용).
 
     resolve_template_for_node로 templateId를 찾고, 각 슬롯의 path에서 현재 값을 읽어 slots를 구성한다.
-    provider/model 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 None(역변환 불가)."""
+    provider/model 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 노드를 버리지 않고
+    pass-through draft({"id", "templateId": PASSTHROUGH_TEMPLATE_ID, "node"})를 반환한다.
+    **이때 "node"에는 LLM이 노드를 식별할 만큼(type·label·description)만 담는다** — 복원은
+    hydrate_node가 서버 측 원본에서 하므로 config는 필요 없고, 실으면 저장된 credentialId·토큰이
+    프롬프트로 외부 LLM에 나간다. node 자체가 dict가 아니면 None(역변환 불가)."""
     if not isinstance(node, dict):
         return None
     tpl = resolve_template_for_node(node)
     if tpl is None:
-        return None
+        # 매칭 실패는 노드가 사라지지는 않지만 '편집 불가'로 강등되는 사건이라 흔적을 남긴다.
+        # 템플릿 tool_key나 _TOOL_MAP 키를 바꿔 흔한 노드가 매칭에서 빠지면 수정 요청이 전부
+        # "편집을 지원하지 않는다"로 끝나는데, 로그가 없으면 사용자 신고 전까지 알 수 없다.
+        logger.info("pass-through 강등 — 매칭 템플릿 없음 (node_id=%s, type=%s, tools=%s)",
+                    node.get("id"), node.get("type"),
+                    [t.get("name") if isinstance(t, dict) else t
+                     for t in ((node.get("config") or {}).get("tools") or [])])
+        # 복원은 서버가 쥔 원본으로만 한다(hydrate_node 참고). 그래서 draft에는 LLM이 이 노드를
+        # 식별하는 데 필요한 만큼만 담는다 — config를 통째로 실으면 저장된 credentialId·토큰
+        # 같은 값이 프롬프트로 외부 LLM에 나가는데, 서버는 그 값을 쓰지도 않는다.
+        return {
+            "id": node.get("id"),
+            "templateId": PASSTHROUGH_TEMPLATE_ID,
+            "node": {
+                "type": node.get("type"),
+                "label": node.get("label"),
+                "description": node.get("description"),
+            },
+        }
     slots = {}
     for s in tpl["slots"]:
         if s["kind"] in _SYSTEM_INJECTED_KINDS:
@@ -435,7 +511,8 @@ def dehydrate_node(node: dict) -> dict | None:
 
 
 def dehydrate_nodes(nodes: list) -> list:
-    """노드 리스트를 draft 리스트로 역변환한다. 매칭 실패 노드는 건너뛴다."""
+    """노드 리스트를 draft 리스트로 역변환한다. 템플릿 매칭 실패 노드도 pass-through draft로 보존하므로
+    아무 노드도 버리지 않는다(node가 dict가 아닌 항목만 건너뛴다)."""
     if not isinstance(nodes, list):
         return []
     return [d for d in (dehydrate_node(n) for n in nodes) if d is not None]

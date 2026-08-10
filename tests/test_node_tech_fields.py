@@ -204,7 +204,7 @@ def test_hydrated_workflow_with_tech_fields_passes_validator():
     from tools.registry import apply_service_brand
 
 
-# modify 경로(/v1/modify-workflow)의 model·serviceType 후처리 테스트는 제거했다.
+# modify 경로의 model·serviceType 후처리 테스트는 제거했다.
 # 그 후처리 자체가 리뷰 3라운드 내내 회귀를 만들어 걷어냈다 — 노드가 어느 앱인지는 full-node
 # JSON만 보고 결정론적으로 답할 수 없다. 템플릿에서 복원하는 draft 방식 전환은 IEUM-AI-58.
 # 생성 경로(하이드레이션)의 두 필드 계약은 위 테스트들이 그대로 지킨다.

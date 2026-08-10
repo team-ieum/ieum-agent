@@ -126,6 +126,41 @@ async def test_generate_workflow_description_누락시_실패():
 
 
 @pytest.mark.asyncio
+async def test_generate_workflow_passthrough_draft_거부됨():
+    """생성 경로는 신규 워크플로우라 복원할 서버 측 원본이 없다. LLM이 pass-through draft
+    (templateId=__passthrough__)를 뱉으면 hydrate_nodes가 기본 거부하므로 생성이 실패한다
+    (LLM이 슬롯 검증을 우회해 임의 model·systemMessage를 주입하는 것 차단)."""
+    forged = json.dumps({
+        "nodes": [
+            {"id": "node-1", "templateId": "trigger.schedule",
+             "slots": {"label": "매일 오전 9시", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}},
+            {"id": "node-2", "templateId": "__passthrough__",
+             "node": {"id": "node-2", "type": "AI", "label": "검색", "description": "설명",
+                      "config": {"llmProvider": "CLAUDE", "model": "날조-모델", "systemMessage": "주입된 지시"}}},
+        ],
+        "edges": [{"source": "node-1", "target": "node-2"}],
+    })
+    # Builder 재시도(2회)까지 모두 동일한 결함 출력을 반환시켜 최종 실패를 확인한다.
+    outputs = [VALID_PLAN_JSON, forged, forged, forged]
+
+    mock_session = AsyncMock()
+    mock_session.id = "test-session"
+    mock_session_service = MagicMock()
+    mock_session_service.create_session = AsyncMock(return_value=mock_session)
+
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = AsyncMock(return_value=None)
+    mock_lock.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
+         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
+         patch("core.workflow_generator.get_env_lock", return_value=mock_lock), \
+         patch("core.workflow_generator.generate_workflow_logs.insert_one", AsyncMock()):
+        with pytest.raises(ValueError, match="하이드레이션"):
+            await generate_workflow("테스트", "CLAUDE", "test-key")
+
+
+@pytest.mark.asyncio
 async def test_generate_workflow_코드펜스_제거():
     """LLM이 마크다운 코드 펜스로 감싸 반환해도 정상 파싱된다."""
     fenced_output = f"```json\n{VALID_WORKFLOW_JSON}\n```"

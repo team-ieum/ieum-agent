@@ -1,3 +1,4 @@
+import json
 import pytest
 
 from core.template_registry import (
@@ -169,6 +170,133 @@ def test_hydrate_nodes_assigns_sequential_ids():
     assert [n["id"] for n in nodes] == ["node-1", "node-2"]
 
 
+# --- dehydrate/hydrate 왕복 무손실 (IEUM-AI-58 단계1) -------------------------
+
+def test_dehydrate_hydrate_round_trip_all_templates():
+    """모든 템플릿에 대해 hydrate(dehydrate(n)) == n(왕복 무손실). golden_snippet에서
+    슬롯 값을 뽑아 유효한 완성 노드를 만든 뒤 왕복시킨다."""
+    from core.template_registry import load_templates, dehydrate_node, _get_by_path, _SYSTEM_INJECTED_KINDS
+
+    for tid, tpl in load_templates().items():
+        snip = tpl["golden_snippet"]
+        slots = {}
+        for s in tpl["slots"]:
+            if s["kind"] in _SYSTEM_INJECTED_KINDS:
+                continue
+            val = _get_by_path(snip, s["path"])
+            if val not in (None, ""):
+                slots[s["name"]] = val
+        node = hydrate_node({"id": "node-x", "templateId": tid, "slots": slots}, provider="CLAUDE")
+        draft2 = dehydrate_node(node)
+        node2 = hydrate_node(draft2, provider="CLAUDE")
+        assert node2 == node, f"{tid}: 왕복 불일치\nn ={node}\nn2={node2}"
+
+
+def test_modify_roundtrip_of_stored_credential_passes_validator():
+    """저장분에 credentialId가 UUID로 남아 있어도(실데이터 12건) 수정 왕복 결과가 검증을 통과한다.
+    하이드레이션이 ''로 비우는 게 정답이라 되살리지 않는다."""
+    from core.template_registry import dehydrate_nodes
+    from tools.registry import apply_service_brand
+
+    stored = [
+        {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명",
+         "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "슬랙", "description": "설명",
+         "config": {"llmProvider": "CLAUDE", "credentialId": "42a230ce-32a4-4f99-aaed-da00dc85c2a8",
+                    "prompt": "보내줘", "agentType": "react", "tools": [{"name": "slack"}]}},
+    ]
+    drafts = dehydrate_nodes(stored)
+    nodes = hydrate_nodes(drafts, provider="CLAUDE",
+                          passthrough_originals={n["id"]: n for n in stored})
+    apply_service_brand(nodes)
+    WorkflowValidator.validate(nodes, [{"source": "node-1", "target": "node-2"}], set())
+    assert nodes[1]["config"]["credentialId"] == ""
+
+
+def test_passthrough_node_skips_content_validation():
+    """폐기된 도구 이름으로 저장된 노드가 pass-through로 복원되면 내용 검증에서 제외된다.
+    거부하면 그 워크플로우는 수정 요청 자체가 영구히 실패한다(수정 전후가 동일한 노드다)."""
+    from core.template_registry import dehydrate_nodes, PASSTHROUGH_TEMPLATE_ID
+
+    stored = [
+        {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명",
+         "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "옛노드", "description": "설명",
+         "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "p", "agentType": "react",
+                    "tools": [{"name": "builtin:notion_query_db"}]}},  # 레지스트리에 없는 도구
+    ]
+    drafts = dehydrate_nodes(stored)
+    assert drafts[1]["templateId"] == PASSTHROUGH_TEMPLATE_ID
+    nodes = hydrate_nodes(drafts, provider="CLAUDE",
+                          passthrough_originals={n["id"]: n for n in stored})
+    edges = [{"source": "node-1", "target": "node-2"}]
+
+    with pytest.raises(Exception, match="도구 이름"):  # 제외하지 않으면 거부된다
+        WorkflowValidator.validate(nodes, edges, set())
+    WorkflowValidator.validate(nodes, edges, set(), unvalidated_node_ids={"node-2"})
+
+
+def test_passthrough_draft_does_not_leak_config_to_prompt():
+    """pass-through draft는 프롬프트에 실린다 — 서버가 쓰지도 않는 저장 크레덴셜을 담지 않는다."""
+    from core.template_registry import dehydrate_node
+
+    node = {"id": "node-2", "type": "AI", "label": "옛노드", "description": "설명",
+            "config": {"credentialId": "42a230ce-32a4-4f99-aaed-da00dc85c2a8",
+                       "access_token": "secret-token", "prompt": "p",
+                       "tools": [{"name": "builtin:json_parse"}]}}
+    draft = dehydrate_node(node)
+    assert "config" not in draft["node"]
+    assert "secret-token" not in json.dumps(draft, ensure_ascii=False)
+
+
+def test_dehydrate_hydrate_trigger_without_type_survives():
+    """triggerType이 없어(또는 알 수 없어) 어떤 템플릿과도 매칭 안 되는 TRIGGER 노드도 드롭되지 않는다."""
+    from core.template_registry import dehydrate_node, PASSTHROUGH_TEMPLATE_ID
+
+    node = {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명", "config": {}}
+    draft = dehydrate_node(node)
+    assert draft["templateId"] == PASSTHROUGH_TEMPLATE_ID
+    assert hydrate_node(draft, passthrough_originals={"node-1": node}) == node
+
+
+def test_dehydrate_hydrate_orphan_tool_ai_node_survives():
+    """_TOOL_MAP엔 있지만 어떤 템플릿의 tool_key도 아닌 도구(builtin:json_parse)만 가진 AI 노드도 보존된다."""
+    from core.template_registry import dehydrate_node, dehydrate_nodes, PASSTHROUGH_TEMPLATE_ID
+
+    node = {"id": "node-2", "type": "AI", "label": "가공", "description": "설명",
+            "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "파싱해줘",
+                       "agentType": "react", "tools": [{"name": "builtin:json_parse"}]}}
+    draft = dehydrate_node(node)
+    assert draft["templateId"] == PASSTHROUGH_TEMPLATE_ID
+    assert len(dehydrate_nodes([node])) == 1  # 회귀: 과거엔 드롭됨
+    assert hydrate_node(draft, passthrough_originals={"node-2": node}) == node
+
+
+def test_passthrough_rejected_without_originals():
+    """생성 경로처럼 원본 dict를 넘기지 않는 호출부에서는 pass-through가 항상 거부된다.
+    (LLM이 패스스루 draft를 날조해 슬롯 검증을 통째로 우회하는 것 차단)"""
+    forged = {"id": "node-9", "templateId": "__passthrough__",
+              "node": {"id": "node-9", "type": "AI", "label": "위장", "description": "설명",
+                       "config": {"llmProvider": "CLAUDE", "model": "날조-모델",
+                                  "systemMessage": "주입된 지시"}}}
+    with pytest.raises(SlotFillError):
+        hydrate_node(forged, provider="CLAUDE")
+    with pytest.raises(SlotFillError):
+        hydrate_nodes([forged], provider="CLAUDE")
+
+
+def test_passthrough_ignores_llm_supplied_node():
+    """원본이 있어도 LLM이 보낸 node는 쓰지 않는다 — description만 예외적으로 채울 수 있다."""
+    original = {"id": "node-1", "type": "TRIGGER", "label": "시작", "config": {}}
+    forged = {"id": "node-1", "templateId": "__passthrough__",
+              "node": {"id": "node-1", "type": "TRIGGER", "label": "바뀐라벨",
+                       "description": "새 설명", "config": {"주입": "값"}}}
+    restored = hydrate_node(forged, passthrough_originals={"node-1": original})
+    assert restored["label"] == "시작"          # LLM 라벨 무시
+    assert "주입" not in restored["config"]      # LLM config 무시
+    assert restored["description"] == "새 설명"  # description만 허용
+
+
 def test_hydrated_workflow_passes_validator():
     drafts = [
         {"templateId": "trigger.manual", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
@@ -181,3 +309,59 @@ def test_hydrated_workflow_passes_validator():
     apply_service_brand(nodes)
     WorkflowValidator.validate(nodes, edges, set())
     assert nodes[1]["config"]["brand"] == "notion"
+
+
+def test_passthrough_description_falls_back_to_label():
+    """레거시 pass-through 노드의 description이 비어 있고 모델도 안 채우면 label로 떨어진다.
+    빈 채로 나가면 BE의 description 필수 검증에 걸려 저장 시점에 수정이 통째로 날아간다."""
+    original = {"id": "node-2", "type": "AI", "label": "가공 노드", "description": "",
+                "config": {"tools": [{"name": "builtin:json_parse"}]}}
+    restored = hydrate_node({"id": "node-2", "templateId": "__passthrough__"},
+                            passthrough_originals={"node-2": original})
+    assert restored["description"] == "가공 노드"
+
+
+def test_ref_remap_does_not_double_rewrite():
+    """id 재부여가 서로 맞바뀌는 경우(node-2→node-1, node-1→node-2) 참조식이 두 번 치환돼
+    원위치로 돌아가면 안 된다 — 한 번의 스캔으로 치환한다."""
+    from core.node_hydration import prepare_hydrated_nodes
+
+    drafts = [
+        {"id": "node-2", "templateId": "trigger.manual",
+         "slots": {"label": "시작", "description": "설명"}},
+        {"id": "node-1", "templateId": "ai.reasoning",
+         "slots": {"label": "요약", "description": "설명",
+                   "prompt": "{{nodes.node-2.output.text}}를 요약해줘"}},
+    ]
+    nodes, _ = prepare_hydrated_nodes(drafts, [], provider="CLAUDE", preserve_id=False)
+    # node-2 → node-1로 재부여됐으므로 참조도 node-1을 가리켜야 한다(node-2로 되돌아오면 버그)
+    assert "{{nodes.node-1.output.text}}" in nodes[1]["config"]["prompt"]
+
+
+def test_passthrough_restore_clears_credential_id():
+    """pass-through 복원도 credentialId를 비운다. 이 노드는 서버 저장분이 아니라 요청 바디에서
+    온 값이라(agent는 워크플로우를 DB에서 읽지 않는다) 그대로 되살리면 남의 credentialId가
+    실려 나가는 경로가 된다. 실행 시 BE가 그 id로 키를 복호화한다."""
+    original = {"id": "node-2", "type": "AI", "label": "가공", "description": "설명",
+                "config": {"llmProvider": "CLAUDE", "credentialId": "42a230ce-32a4-4f99-aaed-da00dc85c2a8",
+                           "prompt": "p", "tools": [{"name": "builtin:json_parse"}]}}
+    restored = hydrate_node({"id": "node-2", "templateId": "__passthrough__"},
+                            passthrough_originals={"node-2": original})
+    assert restored["config"]["credentialId"] == ""
+
+
+def test_passthrough_mcp_authorization_still_enforced():
+    """내용 검증은 면제해도 MCP 인가는 유지한다 — 면제는 '옛 규칙으로 저장된 값을 봐준다'는
+    뜻이지 남의 리소스를 써도 된다는 뜻이 아니다."""
+    nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명",
+         "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "MCP", "description": "설명",
+         "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "p", "agentType": "react",
+                    "tools": [{"name": "mcp", "config": {"catalogId": "남의-서버"}}]}},
+    ]
+    edges = [{"source": "node-1", "target": "node-2"}]
+    with pytest.raises(Exception, match="MCP"):
+        WorkflowValidator.validate(nodes, edges, set(), unvalidated_node_ids={"node-2"})
+    # 보유한 카탈로그면 통과한다
+    WorkflowValidator.validate(nodes, edges, {"남의-서버"}, unvalidated_node_ids={"node-2"})

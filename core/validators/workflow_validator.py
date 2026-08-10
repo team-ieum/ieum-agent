@@ -28,10 +28,17 @@ class WorkflowValidator:
 
     @classmethod
     def validate(cls, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]],
-                 allowed_mcp_catalog_ids: set | None = None) -> None:
+                 allowed_mcp_catalog_ids: set | None = None,
+                 unvalidated_node_ids: set | None = None) -> None:
         """워크플로우의 무결성 및 설계 규칙을 검증한다.
-        allowed_mcp_catalog_ids: 생성 단계에서 허용되는 MCP 카탈로그 ID 집합(없으면 MCP 전면 차단)."""
+        allowed_mcp_catalog_ids: 생성 단계에서 허용되는 MCP 카탈로그 ID 집합(없으면 MCP 전면 차단).
+        unvalidated_node_ids: 내용 검증에서 제외할 노드 id 집합. LLM이 만든 값이 아니라 저장분을
+            그대로 복원한 pass-through 노드에 쓴다 — 옛 규칙으로 저장된 노드(폐기된 도구 이름 등)를
+            여기서 거부하면 그 워크플로우는 수정 요청 자체가 영구히 실패한다. 이 노드들은 수정
+            전후가 동일하므로 통과시키는 편이 안전하다. 그래프 수준 검증(id 고유성·TRIGGER 규칙·
+            엣지 정합성·연결 구조·참조 대상)은 제외 대상에도 그대로 적용된다."""
         allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
+        unvalidated_node_ids = unvalidated_node_ids or set()
         if not nodes:
             raise WorkflowValidationError("워크플로우에 노드가 존재하지 않습니다.")
 
@@ -63,7 +70,20 @@ class WorkflowValidator:
             if ntype.upper() == "TRIGGER":
                 trigger_count += 1
                 trigger_node_id = nid
-                
+
+            # pass-through 노드는 옛 규칙으로 저장된 값을 그대로 되살린 것이라 **내용** 검증에서만
+            # 제외한다(도구 이름·config 필드 화이트리스트 등 — 여기서 거부하면 그 워크플로우는
+            # 수정 자체가 영구히 불가능해진다). **인가 검사는 제외 대상이 아니다** — 면제는 옛 값을
+            # 봐준다는 뜻이지 남의 리소스를 써도 된다는 뜻이 아니고, 애초에 이 노드도 요청 바디에서
+            # 온 값이라 '서버가 쥔 원본이니 믿는다'는 전제가 성립하지 않는다.
+            if nid in unvalidated_node_ids:
+                for tool in (config.get("tools") or []) if isinstance(config, dict) else []:
+                    name = tool.get("name") if isinstance(tool, dict) else tool
+                    if name == "mcp":
+                        cls._validate_mcp_authorization(tool, nid, allowed_mcp_catalog_ids)
+                continue
+
+            if ntype.upper() == "TRIGGER":
                 # SCHEDULE 트리거의 상세 cron 검증
                 trigger_type = config.get("triggerType")
                 if trigger_type == "SCHEDULE":
@@ -120,7 +140,7 @@ class WorkflowValidator:
         cls._validate_graph_connectivity(nodes, edges, trigger_node_id)
 
         # 4. 변수 참조 대상 노드의 존재성 및 선행(upstream) 관계 검증
-        cls._validate_reference_targets(nodes, edges)
+        cls._validate_reference_targets(nodes, edges, unvalidated_node_ids)
 
     @classmethod
     def _validate_cron(cls, cron: str, node_id: str) -> None:
@@ -162,7 +182,6 @@ class WorkflowValidator:
                 f"AI 노드 '{node_id}'의 tools는 리스트 형식이어야 합니다."
             )
 
-        allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
         allowed = cls._allowed_tool_names()
         for tool in tools:
             name = tool.get("name") if isinstance(tool, dict) else tool
@@ -171,15 +190,8 @@ class WorkflowValidator:
                     f"AI 노드 '{node_id}'의 tools 항목에 name이 누락되었습니다."
                 )
             if name == "mcp":
-                cfg = tool.get("config") if isinstance(tool, dict) else None
-                catalog_id = cfg.get("catalogId") if isinstance(cfg, dict) else None
-                if catalog_id and catalog_id in allowed_mcp_catalog_ids:
-                    continue
-                raise WorkflowValidationError(
-                    f"AI 노드 '{node_id}'의 MCP 도구를 사용할 수 없습니다. "
-                    f"config.catalogId가 사용 가능한 MCP 서버 목록에 없습니다. "
-                    f"(MCP 미보유 시 빌트인 도구만 사용)"
-                )
+                cls._validate_mcp_authorization(tool, node_id, allowed_mcp_catalog_ids)
+                continue
             if name not in allowed:
                 hint = ""
                 if f"builtin:{name}" in allowed:
@@ -188,6 +200,24 @@ class WorkflowValidator:
                     f"AI 노드 '{node_id}'의 도구 이름 '{name}'이(가) 유효하지 않습니다."
                     f"{hint} 사용 가능한 도구 이름만 지정하십시오."
                 )
+
+    @classmethod
+    def _validate_mcp_authorization(cls, tool: Any, node_id: str,
+                                    allowed_mcp_catalog_ids: set | None = None) -> None:
+        """MCP 도구의 config.catalogId가 사용자 보유 목록에 있는지 검증한다.
+
+        인가 검사라 내용 검증 면제 대상(pass-through)에도 적용한다 — 면제는 '옛 규칙으로 저장된
+        값을 봐준다'는 뜻이지 남의 리소스를 써도 된다는 뜻이 아니다."""
+        allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
+        cfg = tool.get("config") if isinstance(tool, dict) else None
+        catalog_id = cfg.get("catalogId") if isinstance(cfg, dict) else None
+        if catalog_id and catalog_id in allowed_mcp_catalog_ids:
+            return
+        raise WorkflowValidationError(
+            f"AI 노드 '{node_id}'의 MCP 도구를 사용할 수 없습니다. "
+            f"config.catalogId가 사용 가능한 MCP 서버 목록에 없습니다. "
+            f"(MCP 미보유 시 빌트인 도구만 사용)"
+        )
 
     @classmethod
     def _validate_ai_node_fields(cls, config: Dict[str, Any], node_id: str) -> None:
@@ -252,12 +282,14 @@ class WorkflowValidator:
                 yield from cls._iter_config_strings(v)
 
     @classmethod
-    def _validate_reference_targets(cls, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
+    def _validate_reference_targets(cls, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]],
+                                    unvalidated_node_ids: set | None = None) -> None:
         """변수 참조({{nodes.X.output.Y}})가 가리키는 노드 X가 실제 존재하고,
         참조하는 노드의 선행(upstream) 노드인지 검증한다.
         형식 검증(_validate_variable_references)과 달리, 존재하지 않는 노드ID 참조와
         하류/형제/자기 자신 참조 같은 데이터 흐름 환각을 차단한다."""
         node_ids = {n.get("id") for n in nodes}
+        unvalidated_node_ids = unvalidated_node_ids or set()
 
         # 역방향 인접 리스트(선행 노드 맵) 구성
         preds: Dict[Any, list] = {n.get("id"): [] for n in nodes}
@@ -284,6 +316,11 @@ class WorkflowValidator:
 
         for node in nodes:
             nid = node.get("id")
+            if nid in unvalidated_node_ids:
+                # 편집 불가(pass-through) 노드의 참조식은 모델이 고칠 수 없다. 거부하면 그 참조
+                # 대상을 지우는 수정 요청이 재시도를 몇 번 하든 성공할 수 없다. 대신 끊긴 참조가
+                # 저장될 수 있다는 대가를 진다(실행 시 빈 값으로 해석).
+                continue
             config = node.get("config", {}) or {}
             anc = None  # 조상 집합은 참조가 실제 있을 때만 lazy 계산
             for text in cls._iter_config_strings(config):
