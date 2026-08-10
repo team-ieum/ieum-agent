@@ -546,12 +546,14 @@ async def chat_workflow(
     def _finalize_nodes(raw_nodes: list, raw_edges: list | None) -> None:
         """브랜드 주입·웹훅 크레덴셜 스트립·정적 검증을 순서대로 적용한다(in-place).
 
-        pass-through 노드는 저장분을 그대로 되돌린 것이라 셋 다 대상이 아니다 — 브랜드를 다시
-        도출하면 저장돼 있던 배지가 무관한 수정 한 번에 바뀌고, 내용 검증은 옛 규칙으로 저장된
-        값을 거부해 그 워크플로우의 수정을 영구히 막는다."""
-        editable = [n for n in raw_nodes if n.get("id") not in passthrough_ids]
-        apply_service_brand(editable)
-        _strip_invalid_webhook_credentials(editable, allowed_webhook_credential_ids)
+        pass-through 노드에 대한 취급이 차원마다 다르다:
+        - 브랜드 재도출은 **제외**. 저장돼 있던 배지가 무관한 수정 한 번에 바뀌면 안 된다
+        - 웹훅 크레덴셜 스트립은 **적용**. 미보유 id를 제거하는 방식이라 레거시를 깨지 않는다.
+          현재는 도달하지 않는 조합이지만(slack/discord 도구는 tool_key가 매칭돼 pass-through가
+          되지 않는다) 제외해 둘 이유가 없다 — 이 노드도 요청 바디에서 온 값이다
+        - 내용 검증만 면제하고 MCP 인가는 유지(WorkflowValidator 참고)"""
+        apply_service_brand([n for n in raw_nodes if n.get("id") not in passthrough_ids])
+        _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)
         WorkflowValidator.validate(raw_nodes, raw_edges or [], allowed_mcp_catalog_ids,
                                    unvalidated_node_ids=passthrough_ids)
 
@@ -895,13 +897,18 @@ async def chat_workflow(
             return response
 
         response_type = data.get("type")
-        # draft 하이드레이션 + ID 재부여 + 참조식/엣지 리맵 (정적 검증 사전점검과 동일 로직 공유)
-        raw_nodes, raw_edges = _prepare_nodes(data)
-
+        # 하이드레이션은 워크플로우를 싣는 타입에만 돌린다. 타입 확인 전에 돌리면 모델이 설명용으로
+        # nodes를 곁들인 CLARIFICATION_NEEDED가 하이드레이션 실패 하나로 502가 된다 — 자가교정
+        # 사전점검도 GENERATED/MODIFIED만 보므로 재시도도 폴백도 걸리지 않고, 정작 사용자에게
+        # 보여줬어야 할 안내 메시지가 사라진다.
         if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
+            # draft 하이드레이션 + ID 재부여 + 참조식/엣지 리맵 (정적 검증 사전점검과 동일 로직 공유)
+            raw_nodes, raw_edges = _prepare_nodes(data)
             if not raw_nodes:
                 raise ValueError("WORKFLOW_GENERATED/MODIFIED 타입에는 nodes가 필요합니다.")
             _finalize_nodes(raw_nodes, raw_edges)
+        else:
+            raw_nodes, raw_edges = None, None
 
         nodes = [WorkflowNode(**n) for n in raw_nodes] if raw_nodes else None
         edges = [WorkflowEdge(**e) for e in raw_edges] if raw_edges else None

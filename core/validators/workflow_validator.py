@@ -71,9 +71,16 @@ class WorkflowValidator:
                 trigger_count += 1
                 trigger_node_id = nid
 
-            # pass-through 노드는 저장분을 그대로 복원한 것이라 내용 검증 대상이 아니다.
-            # (여기까지의 id·type·TRIGGER 개수 검증은 그래프 수준이므로 이미 적용됐다)
+            # pass-through 노드는 옛 규칙으로 저장된 값을 그대로 되살린 것이라 **내용** 검증에서만
+            # 제외한다(도구 이름·config 필드 화이트리스트 등 — 여기서 거부하면 그 워크플로우는
+            # 수정 자체가 영구히 불가능해진다). **인가 검사는 제외 대상이 아니다** — 면제는 옛 값을
+            # 봐준다는 뜻이지 남의 리소스를 써도 된다는 뜻이 아니고, 애초에 이 노드도 요청 바디에서
+            # 온 값이라 '서버가 쥔 원본이니 믿는다'는 전제가 성립하지 않는다.
             if nid in unvalidated_node_ids:
+                for tool in (config.get("tools") or []) if isinstance(config, dict) else []:
+                    name = tool.get("name") if isinstance(tool, dict) else tool
+                    if name == "mcp":
+                        cls._validate_mcp_authorization(tool, nid, allowed_mcp_catalog_ids)
                 continue
 
             if ntype.upper() == "TRIGGER":
@@ -175,7 +182,6 @@ class WorkflowValidator:
                 f"AI 노드 '{node_id}'의 tools는 리스트 형식이어야 합니다."
             )
 
-        allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
         allowed = cls._allowed_tool_names()
         for tool in tools:
             name = tool.get("name") if isinstance(tool, dict) else tool
@@ -184,15 +190,8 @@ class WorkflowValidator:
                     f"AI 노드 '{node_id}'의 tools 항목에 name이 누락되었습니다."
                 )
             if name == "mcp":
-                cfg = tool.get("config") if isinstance(tool, dict) else None
-                catalog_id = cfg.get("catalogId") if isinstance(cfg, dict) else None
-                if catalog_id and catalog_id in allowed_mcp_catalog_ids:
-                    continue
-                raise WorkflowValidationError(
-                    f"AI 노드 '{node_id}'의 MCP 도구를 사용할 수 없습니다. "
-                    f"config.catalogId가 사용 가능한 MCP 서버 목록에 없습니다. "
-                    f"(MCP 미보유 시 빌트인 도구만 사용)"
-                )
+                cls._validate_mcp_authorization(tool, node_id, allowed_mcp_catalog_ids)
+                continue
             if name not in allowed:
                 hint = ""
                 if f"builtin:{name}" in allowed:
@@ -201,6 +200,24 @@ class WorkflowValidator:
                     f"AI 노드 '{node_id}'의 도구 이름 '{name}'이(가) 유효하지 않습니다."
                     f"{hint} 사용 가능한 도구 이름만 지정하십시오."
                 )
+
+    @classmethod
+    def _validate_mcp_authorization(cls, tool: Any, node_id: str,
+                                    allowed_mcp_catalog_ids: set | None = None) -> None:
+        """MCP 도구의 config.catalogId가 사용자 보유 목록에 있는지 검증한다.
+
+        인가 검사라 내용 검증 면제 대상(pass-through)에도 적용한다 — 면제는 '옛 규칙으로 저장된
+        값을 봐준다'는 뜻이지 남의 리소스를 써도 된다는 뜻이 아니다."""
+        allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
+        cfg = tool.get("config") if isinstance(tool, dict) else None
+        catalog_id = cfg.get("catalogId") if isinstance(cfg, dict) else None
+        if catalog_id and catalog_id in allowed_mcp_catalog_ids:
+            return
+        raise WorkflowValidationError(
+            f"AI 노드 '{node_id}'의 MCP 도구를 사용할 수 없습니다. "
+            f"config.catalogId가 사용 가능한 MCP 서버 목록에 없습니다. "
+            f"(MCP 미보유 시 빌트인 도구만 사용)"
+        )
 
     @classmethod
     def _validate_ai_node_fields(cls, config: Dict[str, Any], node_id: str) -> None:

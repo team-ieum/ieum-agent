@@ -336,3 +336,32 @@ def test_ref_remap_does_not_double_rewrite():
     nodes, _ = prepare_hydrated_nodes(drafts, [], provider="CLAUDE", preserve_id=False)
     # node-2 → node-1로 재부여됐으므로 참조도 node-1을 가리켜야 한다(node-2로 되돌아오면 버그)
     assert "{{nodes.node-1.output.text}}" in nodes[1]["config"]["prompt"]
+
+
+def test_passthrough_restore_clears_credential_id():
+    """pass-through 복원도 credentialId를 비운다. 이 노드는 서버 저장분이 아니라 요청 바디에서
+    온 값이라(agent는 워크플로우를 DB에서 읽지 않는다) 그대로 되살리면 남의 credentialId가
+    실려 나가는 경로가 된다. 실행 시 BE가 그 id로 키를 복호화한다."""
+    original = {"id": "node-2", "type": "AI", "label": "가공", "description": "설명",
+                "config": {"llmProvider": "CLAUDE", "credentialId": "42a230ce-32a4-4f99-aaed-da00dc85c2a8",
+                           "prompt": "p", "tools": [{"name": "builtin:json_parse"}]}}
+    restored = hydrate_node({"id": "node-2", "templateId": "__passthrough__"},
+                            passthrough_originals={"node-2": original})
+    assert restored["config"]["credentialId"] == ""
+
+
+def test_passthrough_mcp_authorization_still_enforced():
+    """내용 검증은 면제해도 MCP 인가는 유지한다 — 면제는 '옛 규칙으로 저장된 값을 봐준다'는
+    뜻이지 남의 리소스를 써도 된다는 뜻이 아니다."""
+    nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명",
+         "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "MCP", "description": "설명",
+         "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "p", "agentType": "react",
+                    "tools": [{"name": "mcp", "config": {"catalogId": "남의-서버"}}]}},
+    ]
+    edges = [{"source": "node-1", "target": "node-2"}]
+    with pytest.raises(Exception, match="MCP"):
+        WorkflowValidator.validate(nodes, edges, set(), unvalidated_node_ids={"node-2"})
+    # 보유한 카탈로그면 통과한다
+    WorkflowValidator.validate(nodes, edges, {"남의-서버"}, unvalidated_node_ids={"node-2"})

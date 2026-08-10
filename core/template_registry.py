@@ -360,6 +360,13 @@ def hydrate_node(
             )
         node = copy.deepcopy(original)
         node["id"] = node_id
+        # credentialId는 런타임에 백엔드가 주입한다 — 템플릿 경로가 fixed로 ""를 박는 것과 같은
+        # 규칙을 여기에도 적용한다. 이 노드는 서버 저장분이 아니라 **요청 바디**에서 온 값이라
+        # (agent는 워크플로우를 DB에서 읽지 않는다) 값을 그대로 되살리면 남의 credentialId를
+        # 실어 보내는 경로가 된다. 저장분에 UUID가 남아 있는 노드도 여기서 정리된다.
+        cfg = node.get("config")
+        if isinstance(cfg, dict) and "credentialId" in cfg:
+            cfg["credentialId"] = ""
         if not str(node.get("description") or "").strip():
             llm_node = draft.get("node")
             desc = llm_node.get("description") if isinstance(llm_node, dict) else None
