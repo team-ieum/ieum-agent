@@ -374,12 +374,16 @@ def _stored_ai_node(model: str, provider: str = "CLAUDE") -> dict:
                        "tools": [{"name": "builtin:notion_search"}]}}
 
 
-def test_rerender_preserves_user_model():
+def test_rerender_preserves_user_model(monkeypatch):
     """채팅 수정 왕복에서 사용자가 고른 model이 provider 기본값으로 리셋되지 않는다(IEUM-AI-57 ③)."""
+    import litellm
     from core.node_hydration import prepare_hydrated_nodes
     from core.template_registry import dehydrate_nodes, PASSTHROUGH_TEMPLATE_ID
     from core.provider_config import resolve_model
 
+    # litellm 카탈로그상 claude-haiku-4-5의 폐기일은 2026-10-15다. 그날이 오면 보존값이 정당하게
+    # 기본값으로 강등돼 이 테스트가 코드 변경 없이 빨개진다 — 폐기 판정을 비워 날짜에서 떼어낸다.
+    monkeypatch.setitem(litellm.model_cost, "claude-haiku-4-5", {})
     stored = [_stored_ai_node("claude-haiku-4-5")]
     drafts = dehydrate_nodes(stored)
     assert drafts[0]["templateId"] != PASSTHROUGH_TEMPLATE_ID  # 템플릿 경로여야 의미 있는 테스트
