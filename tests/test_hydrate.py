@@ -8,6 +8,7 @@ from core.template_registry import (
     SlotFillError,
 )
 from core.validators.workflow_validator import WorkflowValidator
+from core.config import settings
 
 
 # --- _set_by_path -------------------------------------------------------------
@@ -384,6 +385,8 @@ def test_rerender_preserves_user_model(monkeypatch):
     # litellm 카탈로그상 claude-haiku-4-5의 폐기일은 2026-10-15다. 그날이 오면 보존값이 정당하게
     # 기본값으로 강등돼 이 테스트가 코드 변경 없이 빨개진다 — 폐기 판정을 비워 날짜에서 떼어낸다.
     monkeypatch.setitem(litellm.model_cost, "claude-haiku-4-5", {})
+    # 기본값을 고정해 개발자 .env(CLAUDE_DEFAULT_MODEL)와 무관하게 "기본값 ≠ 보존값"을 보장한다.
+    monkeypatch.setattr(settings, "CLAUDE_DEFAULT_MODEL", "claude-sonnet-5")
     stored = [_stored_ai_node("claude-haiku-4-5")]
     drafts = dehydrate_nodes(stored)
     assert drafts[0]["templateId"] != PASSTHROUGH_TEMPLATE_ID  # 템플릿 경로여야 의미 있는 테스트
@@ -392,6 +395,18 @@ def test_rerender_preserves_user_model(monkeypatch):
 
     nodes, _ = prepare_hydrated_nodes(drafts, [], provider="CLAUDE", current_nodes=stored)
     assert nodes[0]["config"]["model"] == "claude-haiku-4-5"
+
+
+def test_rerender_ignores_non_string_stored_model():
+    """저장분 config.model이 문자열이 아니면(dict/int) 보존하지 않는다 — litellm 조회에서 TypeError가
+    나면 채팅 수정이 그 워크플로우에서 영구 실패한다."""
+    from core.node_hydration import prepare_hydrated_nodes
+    from core.template_registry import dehydrate_nodes
+    from core.provider_config import resolve_model
+
+    stored = [_stored_ai_node({"name": "x"})]
+    nodes, _ = prepare_hydrated_nodes(dehydrate_nodes(stored), [], provider="CLAUDE", current_nodes=stored)
+    assert nodes[0]["config"]["model"] == resolve_model("CLAUDE")
 
 
 def test_rerender_preserved_model_still_goes_through_deprecation(monkeypatch):

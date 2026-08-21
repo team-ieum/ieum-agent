@@ -72,7 +72,8 @@ def prepare_hydrated_nodes(
         n.get("id"): n["config"]["model"]
         for n in (current_nodes or [])
         if isinstance(n, dict) and n.get("id") not in passthrough_ids
-        and isinstance(n.get("config"), dict) and n["config"].get("model")
+        and isinstance(n.get("config"), dict) and isinstance(n["config"].get("model"), str)
+        and n["config"]["model"]
         and str(n["config"].get("llmProvider") or "").upper() == str(provider or "").upper()
     }
     pid = preserve_id if preserve_id is not None else bool(current_nodes)

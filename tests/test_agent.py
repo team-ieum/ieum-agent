@@ -130,11 +130,40 @@ def test_resolve_model_passes_malformed_deprecation_date(monkeypatch):
     assert resolve_model("OPENAI", "weird-model") == "weird-model"
 
 
-def test_resolve_model_real_litellm_entry_claude_sonnet_4_20250514_is_demoted(monkeypatch):
-    """실데이터 회귀 가드: BE 카탈로그가 광고하던 claude-sonnet-4-20250514는 2026-06-15 폐기됐다.
-    기본 모델을 테스트 안에서 고정해 개발자 .env와 무관하게 강등을 단언한다."""
-    monkeypatch.setattr(settings, "CLAUDE_DEFAULT_MODEL", "claude-sonnet-4-6")
-    assert resolve_model("CLAUDE", "claude-sonnet-4-20250514") == "claude-sonnet-4-6"
+def test_resolve_model_gemini_uses_ai_studio_catalog_row(monkeypatch):
+    """Gemini 폐기 판정은 bare 키(Vertex 행)가 아니라 'gemini/<model>'(AI Studio 행)을 본다.
+    실데이터: gemini-2.5-pro는 bare=2026-10-20, gemini/=None — bare로 보면 존중한다던 모델이 강등된다."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "gemini-x", {"deprecation_date": "2020-01-01"})
+    monkeypatch.setitem(litellm.model_cost, "gemini/gemini-x", {})
+    assert resolve_model("GEMINI", "gemini-x") == "gemini-x"
+    monkeypatch.setitem(litellm.model_cost, "gemini/gemini-x", {"deprecation_date": "2020-01-01"})
+    assert resolve_model("GEMINI", "gemini-x") == settings.GEMINI_DEFAULT_MODEL
+
+
+def test_resolve_model_strips_routing_prefix_before_lookup(monkeypatch):
+    """'anthropic/…'·'openai/…' 접두 id는 model_factory가 유효 입력으로 받으므로 폐기 판정도 우회하면 안 된다."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "claude-dead", {"deprecation_date": "2020-01-01"})
+    assert resolve_model("CLAUDE", "anthropic/claude-dead") == settings.CLAUDE_DEFAULT_MODEL
+
+
+def test_resolve_model_promotes_gemini_2_5_flash_variants():
+    """hang 이력 계열(-lite·-preview)도 같이 승격한다. 2.5-pro는 건드리지 않는다(위 테스트)."""
+    assert resolve_model("GEMINI", "gemini-2.5-flash-lite") == settings.GEMINI_DEFAULT_MODEL
+    assert resolve_model("GEMINI", "gemini-2.5-flash-preview-09-2025") == settings.GEMINI_DEFAULT_MODEL
+
+
+def test_resolve_model_demotion_warns_once_per_model(monkeypatch, caplog):
+    """같은 (provider, model) 강등 경고는 프로세스당 1회 — 채팅 한 턴에 하이드레이션이 3회 돈다."""
+    import litellm
+    from core import provider_config
+    monkeypatch.setattr(provider_config, "_demotion_warned", set())
+    monkeypatch.setitem(litellm.model_cost, "claude-once", {"deprecation_date": "2020-01-01"})
+    with caplog.at_level(logging.WARNING, logger="core.provider_config"):
+        for _ in range(3):
+            assert resolve_model("CLAUDE", "claude-once") == settings.CLAUDE_DEFAULT_MODEL
+    assert len([r for r in caplog.records if "claude-once" in r.getMessage()]) == 1
 
 
 def test_resolve_model_default_is_exempt_from_deprecation(monkeypatch, caplog):
