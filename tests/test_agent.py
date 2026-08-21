@@ -9,6 +9,7 @@ core/agent.py의 resolve_model() 및 run_agent() 함수에 대한 단위 테스�
 
 import asyncio
 import inspect
+import logging
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -129,9 +130,22 @@ def test_resolve_model_passes_malformed_deprecation_date(monkeypatch):
     assert resolve_model("OPENAI", "weird-model") == "weird-model"
 
 
-def test_resolve_model_real_litellm_entry_claude_sonnet_4_20250514_is_demoted():
-    """실데이터 회귀 가드: BE 카탈로그가 광고하던 claude-sonnet-4-20250514는 2026-06-15 폐기됐다."""
-    assert resolve_model("CLAUDE", "claude-sonnet-4-20250514") == settings.CLAUDE_DEFAULT_MODEL
+def test_resolve_model_real_litellm_entry_claude_sonnet_4_20250514_is_demoted(monkeypatch):
+    """실데이터 회귀 가드: BE 카탈로그가 광고하던 claude-sonnet-4-20250514는 2026-06-15 폐기됐다.
+    기본 모델을 테스트 안에서 고정해 개발자 .env와 무관하게 강등을 단언한다."""
+    monkeypatch.setattr(settings, "CLAUDE_DEFAULT_MODEL", "claude-sonnet-4-6")
+    assert resolve_model("CLAUDE", "claude-sonnet-4-20250514") == "claude-sonnet-4-6"
+
+
+def test_resolve_model_default_is_exempt_from_deprecation(monkeypatch, caplog):
+    """기본 모델 자체가 폐기돼도 강등 대상이 아니다(자기 자신으로 강등 = 무의미, 경고 스팸 방지).
+    반환값만으로는 강등 여부를 알 수 없어(기본값으로 강등 = 자기 자신) 경고 로그 부재로 단언한다."""
+    import litellm
+    monkeypatch.setattr(settings, "CLAUDE_DEFAULT_MODEL", "claude-dead-default")
+    monkeypatch.setitem(litellm.model_cost, "claude-dead-default", {"deprecation_date": "2020-01-01"})
+    with caplog.at_level(logging.WARNING, logger="core.provider_config"):
+        assert resolve_model("CLAUDE") == "claude-dead-default"
+    assert caplog.records == []
 
 
 def test_model_map_reflects_settings():

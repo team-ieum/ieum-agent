@@ -47,9 +47,11 @@ def resolve_model(provider: str, model_override: str | None = None) -> str:
     #     다른 2.x(gemini-2.5-pro 등)는 건드리지 않는다(카탈로그에 올릴 수 있어야 한다).
     #  2) litellm 카탈로그상 폐기일이 지난 모델(예: claude-sonnet-4-20250514, 2026-06-15 폐기).
     #     저장된 워크플로우가 폐기 모델을 들고 있어도 실행이 깨지지 않게 한다. 미등록 모델은 통과.
+    #     단, provider 기본 모델 자체는 강등 대상이 아니다(자기 자신으로 강등 = 무의미 + 경고 스팸).
+    #     기본값 위생은 운영자/.env의 책임이다.
     if provider.upper() == "GEMINI" and model == "gemini-2.5-flash":
         return default
-    if _is_deprecated(model):
+    if model != default and _is_deprecated(model):
         logger.warning("폐기된 모델 강등 provider=%s model=%s -> %s", provider, model, default)
         return default
     return model
