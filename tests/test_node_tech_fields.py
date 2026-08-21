@@ -74,9 +74,9 @@ def test_default_model_contract_values():
     배포 환경변수가 덮어쓸 수 있으므로 여기서는 코드 기본값(계약 기준선)을 고정한다."""
     from core.config import Settings
 
-    assert Settings.model_fields["CLAUDE_DEFAULT_MODEL"].default == "claude-sonnet-4-6"
-    assert Settings.model_fields["OPENAI_DEFAULT_MODEL"].default == "gpt-4o"
-    assert Settings.model_fields["GEMINI_DEFAULT_MODEL"].default == "gemini-3.5-flash"
+    assert Settings.model_fields["CLAUDE_DEFAULT_MODEL"].default == "claude-sonnet-5"
+    assert Settings.model_fields["OPENAI_DEFAULT_MODEL"].default == "gpt-5.6-terra"
+    assert Settings.model_fields["GEMINI_DEFAULT_MODEL"].default == "gemini-3.7-flash"
 
 
 def test_every_ai_template_hydrates_with_model():

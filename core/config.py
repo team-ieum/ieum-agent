@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # Provider 기본 모델명 (.env에서 오버라이드 가능)
-    CLAUDE_DEFAULT_MODEL: str = "claude-sonnet-4-6"
-    OPENAI_DEFAULT_MODEL: str = "gpt-4o"
-    GEMINI_DEFAULT_MODEL: str = "gemini-3.5-flash"
+    CLAUDE_DEFAULT_MODEL: str = "claude-sonnet-5"
+    OPENAI_DEFAULT_MODEL: str = "gpt-5.6-terra"
+    GEMINI_DEFAULT_MODEL: str = "gemini-3.7-flash"
 
     # 지원 프로바이더 목록
     SUPPORTED_PROVIDERS: list[str] = ["CLAUDE", "OPENAI", "GEMINI"]
