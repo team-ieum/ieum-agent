@@ -90,11 +90,9 @@ def prepare_hydrated_nodes(
         if old_id in legacy_desc_ids:
             backfill_legacy_description(draft)
         node = hydrate_node(
-            draft, provider=provider, passthrough_originals=current_nodes_by_id
+            draft, provider=provider, passthrough_originals=current_nodes_by_id,
+            model_override=stored_models.get(old_id),
         )
-        if old_id in stored_models and isinstance(node.get("config"), dict) and "model" in node["config"]:
-            from core.provider_config import resolve_model  # settings 의존이라 lazy(template_registry 관례)
-            node["config"]["model"] = resolve_model(provider, stored_models[old_id])
         new_id = old_id if (pid and old_id) else f"node-{idx + 1}"
         node["id"] = new_id
         if old_id and old_id != new_id:

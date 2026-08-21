@@ -9,6 +9,7 @@ from core.template_registry import (
 )
 from core.validators.workflow_validator import WorkflowValidator
 from core.config import settings
+from core.provider_config import resolve_model
 
 
 # --- _set_by_path -------------------------------------------------------------
@@ -51,6 +52,19 @@ def test_hydrate_provider_auto_injected_overrides_slot():
              "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "y", "llmProvider": "OPENAI"}}
     node = hydrate_node(draft, provider="CLAUDE")
     assert node["config"]["llmProvider"] == "CLAUDE"  # 인자 provider가 우선
+
+
+def test_hydrate_model_override_goes_into_model_slot(monkeypatch):
+    """model_override는 kind=model 슬롯 주입값이 된다(resolve_model 경유). LLM slots["model"]은 여전히 무시."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "claude-picked", {})
+    draft = {"templateId": "ai.notion_search",
+             "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "y",
+                       "model": "claude-from-llm"}}
+    node = hydrate_node(draft, provider="CLAUDE", model_override="claude-picked")
+    assert node["config"]["model"] == "claude-picked"
+    node2 = hydrate_node(draft, provider="CLAUDE")
+    assert node2["config"]["model"] == resolve_model("CLAUDE")
 
 
 def test_hydrate_condition_node():

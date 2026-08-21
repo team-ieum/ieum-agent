@@ -337,6 +337,8 @@ def hydrate_node(
     draft: dict,
     provider: str | None = None,
     passthrough_originals: dict | None = None,
+    *,
+    model_override: str | None = None,
 ) -> dict:
     """draft({id, templateId, slots})를 템플릿으로 완성된 노드로 변환한다.
 
@@ -351,6 +353,9 @@ def hydrate_node(
     - 템플릿에 없는 슬롯 키, 필수 슬롯 누락이면 SlotFillError(필드 날조 차단).
     - provider/model 슬롯(kind=provider|model)은 인자 provider에서 계산해 자동 주입한다
       (LLM이 채우지 않음. slots에 값이 있어도 무시하고 덮어쓴다 — 모델명 날조 차단).
+      model_override가 있으면 model 슬롯은 resolve_model(provider, model_override)로 해석한다
+      (호출부가 서버 측 저장분에서 뽑아 넘기는 값 — 채팅 재렌더 시 사용자가 고른 모델 보존).
+      LLM slots의 model은 여전히 무시한다.
     의미 검증(llmProvider/cron/tool/참조 등)은 호출부의 WorkflowValidator가 담당한다."""
     if not isinstance(draft, dict):
         raise SlotFillError("노드 draft는 객체여야 합니다.")
@@ -412,7 +417,7 @@ def hydrate_node(
                 # core.provider_config는 settings(MONGODB_URL 필수)를 끌어오므로, 이 파일의
                 # lazy-import 관례대로 주입 분기 안에서만 import한다(env 없는 템플릿 로더 보호).
                 from core.provider_config import resolve_model
-                value = provider if slot["kind"] == "provider" else resolve_model(provider)
+                value = provider if slot["kind"] == "provider" else resolve_model(provider, model_override)
             elif slot["kind"] == "provider" and name in slots_in:
                 value = slots_in[name]
             else:
