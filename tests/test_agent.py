@@ -89,6 +89,51 @@ def test_resolve_model_empty_string_returns_default():
     assert resolve_model("") == settings.GEMINI_DEFAULT_MODEL
 
 
+# --- IEUM-AI-57: 승격 축소 + 폐기 강등 ---
+
+def test_resolve_model_promotes_only_gemini_2_5_flash():
+    """hang 이력이 있는 gemini-2.5-flash만 기본 모델로 승격한다."""
+    assert resolve_model("GEMINI", "gemini-2.5-flash") == settings.GEMINI_DEFAULT_MODEL
+
+
+def test_resolve_model_keeps_other_gemini_2_models(monkeypatch):
+    """gemini-2.5-pro 같은 다른 2.x는 존중한다(카탈로그 확장 전제). 폐기 판정은 끈다."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "gemini-2.5-pro", {})
+    assert resolve_model("GEMINI", "gemini-2.5-pro") == "gemini-2.5-pro"
+
+
+def test_resolve_model_demotes_deprecated_model(monkeypatch):
+    """litellm deprecation_date가 지난 모델은 provider 기본 모델로 강등한다."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "claude-old-model", {"deprecation_date": "2020-01-01"})
+    assert resolve_model("CLAUDE", "claude-old-model") == settings.CLAUDE_DEFAULT_MODEL
+
+
+def test_resolve_model_passes_future_deprecation(monkeypatch):
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "claude-future-model", {"deprecation_date": "2999-01-01"})
+    assert resolve_model("CLAUDE", "claude-future-model") == "claude-future-model"
+
+
+def test_resolve_model_passes_unregistered_model(monkeypatch):
+    """litellm에 없는 모델(자체 호스팅·신모델)은 판정 불가 → 그대로 통과."""
+    import litellm
+    monkeypatch.delitem(litellm.model_cost, "my-custom-model", raising=False)
+    assert resolve_model("OPENAI", "my-custom-model") == "my-custom-model"
+
+
+def test_resolve_model_passes_malformed_deprecation_date(monkeypatch):
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "weird-model", {"deprecation_date": "not-a-date"})
+    assert resolve_model("OPENAI", "weird-model") == "weird-model"
+
+
+def test_resolve_model_real_litellm_entry_claude_sonnet_4_20250514_is_demoted():
+    """실데이터 회귀 가드: BE 카탈로그가 광고하던 claude-sonnet-4-20250514는 2026-06-15 폐기됐다."""
+    assert resolve_model("CLAUDE", "claude-sonnet-4-20250514") == settings.CLAUDE_DEFAULT_MODEL
+
+
 def test_model_map_reflects_settings():
     """MODEL_MAP이 settings의 모델명 설정과 일치한다."""
     assert _MODEL_MAP["CLAUDE"] == settings.CLAUDE_DEFAULT_MODEL

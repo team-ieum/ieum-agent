@@ -1,4 +1,8 @@
+import logging
+
 from core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _build_model_map() -> dict[str, str]:
@@ -20,13 +24,34 @@ ENV_KEY_MAP: dict[str, str] = {
 MODEL_MAP: dict[str, str] = _build_model_map()
 
 
+def _is_deprecated(model: str) -> bool:
+    """litellm 모델 카탈로그의 deprecation_date가 오늘 이전·당일이면 True.
+    미등록·날짜 없음·형식 오류는 판정 불가라 False(통과)."""
+    from datetime import date
+    import litellm  # ADK 의존으로 이미 설치됨. 모듈 import 비용이 커서 호출 시점에만 끌어온다.
+
+    raw = (litellm.model_cost.get(model) or {}).get("deprecation_date")
+    if not raw:
+        return False
+    try:
+        return date.fromisoformat(str(raw)) <= date.today()
+    except ValueError:
+        return False
+
+
 def resolve_model(provider: str, model_override: str | None = None) -> str:
-    model = model_override or _build_model_map().get(provider.upper(), settings.GEMINI_DEFAULT_MODEL)
-    # [정책] 구형 Gemini 2.x는 최신 기본 모델로 승격한다.
-    # gemini-2.5-flash가 대량 조회+요약 단계에서 응답 지연/hang으로 노드 타임아웃을 유발했고,
-    # 최신 stable인 gemini-3.5-flash는 agentic 성능이 우수하다. gemini-3.x 명시는 그대로 존중한다.
-    if provider.upper() == "GEMINI" and model.startswith("gemini-2"):
-        model = settings.GEMINI_DEFAULT_MODEL
+    default = _build_model_map().get(provider.upper(), settings.GEMINI_DEFAULT_MODEL)
+    model = model_override or default
+    # [정책] 사용자가 고른 모델(BYOK)은 존중한다. 기본 모델로 강등하는 경우는 둘뿐이다:
+    #  1) gemini-2.5-flash — 대량 조회+요약 단계에서 응답 지연/hang으로 노드 타임아웃을 유발한 이력.
+    #     다른 2.x(gemini-2.5-pro 등)는 건드리지 않는다(카탈로그에 올릴 수 있어야 한다).
+    #  2) litellm 카탈로그상 폐기일이 지난 모델(예: claude-sonnet-4-20250514, 2026-06-15 폐기).
+    #     저장된 워크플로우가 폐기 모델을 들고 있어도 실행이 깨지지 않게 한다. 미등록 모델은 통과.
+    if provider.upper() == "GEMINI" and model == "gemini-2.5-flash":
+        return default
+    if _is_deprecated(model):
+        logger.warning("폐기된 모델 강등 provider=%s model=%s -> %s", provider, model, default)
+        return default
     return model
 
 
