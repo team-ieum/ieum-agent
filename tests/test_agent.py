@@ -100,7 +100,7 @@ def test_resolve_model_promotes_only_gemini_2_5_flash():
 def test_resolve_model_keeps_other_gemini_2_models(monkeypatch):
     """gemini-2.5-pro 같은 다른 2.x는 존중한다(카탈로그 확장 전제). 폐기 판정은 끈다."""
     import litellm
-    monkeypatch.setitem(litellm.model_cost, "gemini-2.5-pro", {})
+    monkeypatch.setitem(litellm.model_cost, "gemini/gemini-2.5-pro", {})  # GEMINI 조회 키는 gemini/ 행
     assert resolve_model("GEMINI", "gemini-2.5-pro") == "gemini-2.5-pro"
 
 
@@ -148,10 +148,12 @@ def test_resolve_model_strips_routing_prefix_before_lookup(monkeypatch):
     assert resolve_model("CLAUDE", "anthropic/claude-dead") == settings.CLAUDE_DEFAULT_MODEL
 
 
-def test_resolve_model_promotes_gemini_2_5_flash_variants():
-    """hang 이력 계열(-lite·-preview)도 같이 승격한다. 2.5-pro는 건드리지 않는다(위 테스트)."""
+def test_resolve_model_promotes_only_listed_gemini_models(monkeypatch):
+    """승격은 _GEMINI_PROMOTED 정확 일치만 — 접두 매칭이면 -image·-tts 같은 다른 모달리티가 텍스트 모델로 바뀐다."""
+    import litellm
     assert resolve_model("GEMINI", "gemini-2.5-flash-lite") == settings.GEMINI_DEFAULT_MODEL
-    assert resolve_model("GEMINI", "gemini-2.5-flash-preview-09-2025") == settings.GEMINI_DEFAULT_MODEL
+    monkeypatch.setitem(litellm.model_cost, "gemini/gemini-2.5-flash-image", {})
+    assert resolve_model("GEMINI", "gemini-2.5-flash-image") == "gemini-2.5-flash-image"
 
 
 def test_resolve_model_demotion_warns_once_per_model(monkeypatch, caplog):

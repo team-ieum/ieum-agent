@@ -6,6 +6,7 @@ from datetime import date
 import litellm
 
 from core.config import settings
+from core.model_factory import _LITELLM_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,12 @@ ENV_KEY_MAP: dict[str, str] = {
     "GEMINI": "GOOGLE_API_KEY",
 }
 
-# LiteLlm 라우팅용 접두(model_factory._LITELLM_PREFIX와 동일 집합 + cost 조회용 gemini/).
-_ROUTING_PREFIXES = ("anthropic/", "openai/", "gemini/")
+# 조회 전 벗길 접두: LiteLlm 라우팅용(model_factory._LITELLM_PREFIX에서 파생) + cost 조회용 gemini/.
+_ROUTING_PREFIXES = tuple(f"{p}/" for p in _LITELLM_PREFIX.values()) + ("gemini/",)
+
+# hang 이력으로 기본 모델로 승격하는 Gemini 모델(정확히 일치). 접두 매칭을 쓰면 -image·-tts·
+# -native-audio 같은 다른 모달리티까지 텍스트 모델로 조용히 바뀐다. 프리뷰 변종은 litellm 폐기일로 잡힌다.
+_GEMINI_PROMOTED = frozenset({"gemini-2.5-flash", "gemini-2.5-flash-lite"})
 
 # 하위 호환: 테스트에서 직접 import 가능하도록 모듈 레벨에서 노출
 MODEL_MAP: dict[str, str] = _build_model_map()
@@ -65,13 +70,13 @@ def resolve_model(provider: str, model_override: str | None = None) -> str:
     default = _build_model_map().get(provider.upper(), settings.GEMINI_DEFAULT_MODEL)
     model = model_override or default
     # [정책] 사용자가 고른 모델(BYOK)은 존중한다. 기본 모델로 강등하는 경우는 둘뿐이다:
-    #  1) gemini-2.5-flash 계열(-lite·-preview 포함) — 대량 조회+요약 단계에서 응답 지연/hang으로
+    #  1) _GEMINI_PROMOTED(gemini-2.5-flash·-lite) — 대량 조회+요약 단계에서 응답 지연/hang으로
     #     노드 타임아웃을 유발한 이력. gemini-2.5-pro 등은 건드리지 않는다(카탈로그에 올릴 수 있어야 한다).
     #  2) litellm 카탈로그상 폐기일이 지난 모델(예: claude-sonnet-4-20250514, 2026-06-15 폐기).
     #     저장된 워크플로우가 폐기 모델을 들고 있어도 실행이 깨지지 않게 한다. 미등록 모델은 통과.
     #     단, provider 기본 모델 자체는 강등 대상이 아니다(자기 자신으로 강등 = 무의미 + 경고 스팸).
     #     기본값 위생은 운영자/.env의 책임이다.
-    if provider.upper() == "GEMINI" and _bare_model(model).startswith("gemini-2.5-flash"):
+    if provider.upper() == "GEMINI" and _bare_model(model) in _GEMINI_PROMOTED:
         return default
     if model != default and _is_deprecated(provider, model):
         key = (provider.upper(), model)
