@@ -64,6 +64,18 @@ def prepare_hydrated_nodes(
         n.get("id"): n for n in (current_nodes or [])
         if isinstance(n, dict) and n.get("id") in passthrough_ids
     }
+    # 사용자가 고른 model(BYOK)은 LLM이 쓰지 않는 시스템 주입 슬롯이라 재하이드레이션마다 기본값으로
+    # 리셋된다. 서버가 쥔 저장분에서만 되살린다(LLM draft의 slots["model"]은 계속 무시 — 날조 차단).
+    # provider가 바뀐 요청이면 옛 provider의 모델이라 되살리지 않는다. pass-through 노드는 원본
+    # 전체를 복사하므로 여기서 손대지 않는다.
+    stored_models = {
+        n.get("id"): n["config"]["model"]
+        for n in (current_nodes or [])
+        if isinstance(n, dict) and n.get("id") not in passthrough_ids
+        and isinstance(n.get("config"), dict) and isinstance(n["config"].get("model"), str)
+        and n["config"]["model"]
+        and str(n["config"].get("llmProvider") or "").upper() == str(provider or "").upper()
+    }
     pid = preserve_id if preserve_id is not None else bool(current_nodes)
     id_mapping = {}
     raw_nodes = []
@@ -78,7 +90,8 @@ def prepare_hydrated_nodes(
         if old_id in legacy_desc_ids:
             backfill_legacy_description(draft)
         node = hydrate_node(
-            draft, provider=provider, passthrough_originals=current_nodes_by_id
+            draft, provider=provider, passthrough_originals=current_nodes_by_id,
+            model_override=stored_models.get(old_id),
         )
         new_id = old_id if (pid and old_id) else f"node-{idx + 1}"
         node["id"] = new_id

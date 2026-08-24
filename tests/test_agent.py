@@ -9,6 +9,7 @@ core/agent.py의 resolve_model() 및 run_agent() 함수에 대한 단위 테스�
 
 import asyncio
 import inspect
+import logging
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -87,6 +88,95 @@ def test_resolve_model_unknown_provider_returns_default():
 
 def test_resolve_model_empty_string_returns_default():
     assert resolve_model("") == settings.GEMINI_DEFAULT_MODEL
+
+
+# --- IEUM-AI-57: 승격 축소 + 폐기 강등 ---
+
+def test_resolve_model_promotes_only_gemini_2_5_flash():
+    """hang 이력이 있는 gemini-2.5-flash만 기본 모델로 승격한다."""
+    assert resolve_model("GEMINI", "gemini-2.5-flash") == settings.GEMINI_DEFAULT_MODEL
+
+
+def test_resolve_model_keeps_other_gemini_2_models(monkeypatch):
+    """gemini-2.5-pro 같은 다른 2.x는 존중한다(카탈로그 확장 전제). 폐기 판정은 끈다."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "gemini/gemini-2.5-pro", {})  # GEMINI 조회 키는 gemini/ 행
+    assert resolve_model("GEMINI", "gemini-2.5-pro") == "gemini-2.5-pro"
+
+
+def test_resolve_model_demotes_deprecated_model(monkeypatch):
+    """litellm deprecation_date가 지난 모델은 provider 기본 모델로 강등한다."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "claude-old-model", {"deprecation_date": "2020-01-01"})
+    assert resolve_model("CLAUDE", "claude-old-model") == settings.CLAUDE_DEFAULT_MODEL
+
+
+def test_resolve_model_passes_future_deprecation(monkeypatch):
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "claude-future-model", {"deprecation_date": "2999-01-01"})
+    assert resolve_model("CLAUDE", "claude-future-model") == "claude-future-model"
+
+
+def test_resolve_model_passes_unregistered_model(monkeypatch):
+    """litellm에 없는 모델(자체 호스팅·신모델)은 판정 불가 → 그대로 통과."""
+    import litellm
+    monkeypatch.delitem(litellm.model_cost, "my-custom-model", raising=False)
+    assert resolve_model("OPENAI", "my-custom-model") == "my-custom-model"
+
+
+def test_resolve_model_passes_malformed_deprecation_date(monkeypatch):
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "weird-model", {"deprecation_date": "not-a-date"})
+    assert resolve_model("OPENAI", "weird-model") == "weird-model"
+
+
+def test_resolve_model_gemini_uses_ai_studio_catalog_row(monkeypatch):
+    """Gemini 폐기 판정은 bare 키(Vertex 행)가 아니라 'gemini/<model>'(AI Studio 행)을 본다.
+    실데이터: gemini-2.5-pro는 bare=2026-10-20, gemini/=None — bare로 보면 존중한다던 모델이 강등된다."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "gemini-x", {"deprecation_date": "2020-01-01"})
+    monkeypatch.setitem(litellm.model_cost, "gemini/gemini-x", {})
+    assert resolve_model("GEMINI", "gemini-x") == "gemini-x"
+    monkeypatch.setitem(litellm.model_cost, "gemini/gemini-x", {"deprecation_date": "2020-01-01"})
+    assert resolve_model("GEMINI", "gemini-x") == settings.GEMINI_DEFAULT_MODEL
+
+
+def test_resolve_model_strips_routing_prefix_before_lookup(monkeypatch):
+    """'anthropic/…'·'openai/…' 접두 id는 model_factory가 유효 입력으로 받으므로 폐기 판정도 우회하면 안 된다."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "claude-dead", {"deprecation_date": "2020-01-01"})
+    assert resolve_model("CLAUDE", "anthropic/claude-dead") == settings.CLAUDE_DEFAULT_MODEL
+
+
+def test_resolve_model_promotes_only_listed_gemini_models(monkeypatch):
+    """승격은 _GEMINI_PROMOTED 정확 일치만 — 접두 매칭이면 -image·-tts 같은 다른 모달리티가 텍스트 모델로 바뀐다."""
+    import litellm
+    assert resolve_model("GEMINI", "gemini-2.5-flash-lite") == settings.GEMINI_DEFAULT_MODEL
+    monkeypatch.setitem(litellm.model_cost, "gemini/gemini-2.5-flash-image", {})
+    assert resolve_model("GEMINI", "gemini-2.5-flash-image") == "gemini-2.5-flash-image"
+
+
+def test_resolve_model_demotion_warns_once_per_model(monkeypatch, caplog):
+    """같은 (provider, model) 강등 경고는 프로세스당 1회 — 채팅 한 턴에 하이드레이션이 3회 돈다."""
+    import litellm
+    from core import provider_config
+    monkeypatch.setattr(provider_config, "_demotion_warned", set())
+    monkeypatch.setitem(litellm.model_cost, "claude-once", {"deprecation_date": "2020-01-01"})
+    with caplog.at_level(logging.WARNING, logger="core.provider_config"):
+        for _ in range(3):
+            assert resolve_model("CLAUDE", "claude-once") == settings.CLAUDE_DEFAULT_MODEL
+    assert len([r for r in caplog.records if "claude-once" in r.getMessage()]) == 1
+
+
+def test_resolve_model_default_is_exempt_from_deprecation(monkeypatch, caplog):
+    """기본 모델 자체가 폐기돼도 강등 대상이 아니다(자기 자신으로 강등 = 무의미, 경고 스팸 방지).
+    반환값만으로는 강등 여부를 알 수 없어(기본값으로 강등 = 자기 자신) 경고 로그 부재로 단언한다."""
+    import litellm
+    monkeypatch.setattr(settings, "CLAUDE_DEFAULT_MODEL", "claude-dead-default")
+    monkeypatch.setitem(litellm.model_cost, "claude-dead-default", {"deprecation_date": "2020-01-01"})
+    with caplog.at_level(logging.WARNING, logger="core.provider_config"):
+        assert resolve_model("CLAUDE") == "claude-dead-default"
+    assert caplog.records == []
 
 
 def test_model_map_reflects_settings():

@@ -8,6 +8,8 @@ from core.template_registry import (
     SlotFillError,
 )
 from core.validators.workflow_validator import WorkflowValidator
+from core.config import settings
+from core.provider_config import resolve_model
 
 
 # --- _set_by_path -------------------------------------------------------------
@@ -50,6 +52,19 @@ def test_hydrate_provider_auto_injected_overrides_slot():
              "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "y", "llmProvider": "OPENAI"}}
     node = hydrate_node(draft, provider="CLAUDE")
     assert node["config"]["llmProvider"] == "CLAUDE"  # 인자 provider가 우선
+
+
+def test_hydrate_model_override_goes_into_model_slot(monkeypatch):
+    """model_override는 kind=model 슬롯 주입값이 된다(resolve_model 경유). LLM slots["model"]은 여전히 무시."""
+    import litellm
+    monkeypatch.setitem(litellm.model_cost, "claude-picked", {})
+    draft = {"templateId": "ai.notion_search",
+             "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "y",
+                       "model": "claude-from-llm"}}
+    node = hydrate_node(draft, provider="CLAUDE", model_override="claude-picked")
+    assert node["config"]["model"] == "claude-picked"
+    node2 = hydrate_node(draft, provider="CLAUDE")
+    assert node2["config"]["model"] == resolve_model("CLAUDE")
 
 
 def test_hydrate_condition_node():
@@ -365,3 +380,81 @@ def test_passthrough_mcp_authorization_still_enforced():
         WorkflowValidator.validate(nodes, edges, set(), unvalidated_node_ids={"node-2"})
     # 보유한 카탈로그면 통과한다
     WorkflowValidator.validate(nodes, edges, {"남의-서버"}, unvalidated_node_ids={"node-2"})
+
+
+def _stored_ai_node(model: str, provider: str = "CLAUDE") -> dict:
+    return {"id": "node-2", "type": "AI", "label": "검색", "description": "설명",
+            "config": {"llmProvider": provider, "model": model, "credentialId": "", "prompt": "p",
+                       "agentType": "react", "serviceType": "NOTION",
+                       "tools": [{"name": "builtin:notion_search"}]}}
+
+
+def test_rerender_preserves_user_model(monkeypatch):
+    """채팅 수정 왕복에서 사용자가 고른 model이 provider 기본값으로 리셋되지 않는다(IEUM-AI-57 ③)."""
+    import litellm
+    from core.node_hydration import prepare_hydrated_nodes
+    from core.template_registry import dehydrate_nodes, PASSTHROUGH_TEMPLATE_ID
+    from core.provider_config import resolve_model
+
+    # litellm 카탈로그상 claude-haiku-4-5의 폐기일은 2026-10-15다. 그날이 오면 보존값이 정당하게
+    # 기본값으로 강등돼 이 테스트가 코드 변경 없이 빨개진다 — 폐기 판정을 비워 날짜에서 떼어낸다.
+    monkeypatch.setitem(litellm.model_cost, "claude-haiku-4-5", {})
+    # 기본값을 고정해 개발자 .env(CLAUDE_DEFAULT_MODEL)와 무관하게 "기본값 ≠ 보존값"을 보장한다.
+    monkeypatch.setattr(settings, "CLAUDE_DEFAULT_MODEL", "claude-sonnet-5")
+    stored = [_stored_ai_node("claude-haiku-4-5")]
+    drafts = dehydrate_nodes(stored)
+    assert drafts[0]["templateId"] != PASSTHROUGH_TEMPLATE_ID  # 템플릿 경로여야 의미 있는 테스트
+    assert "model" not in drafts[0]["slots"]                   # LLM에는 여전히 model을 안 보낸다
+    assert resolve_model("CLAUDE") != "claude-haiku-4-5"       # 기본값과 달라야 보존을 증명한다
+
+    nodes, _ = prepare_hydrated_nodes(drafts, [], provider="CLAUDE", current_nodes=stored)
+    assert nodes[0]["config"]["model"] == "claude-haiku-4-5"
+
+
+def test_rerender_ignores_non_string_stored_model():
+    """저장분 config.model이 문자열이 아니면(dict/int) 보존하지 않는다 — litellm 조회에서 TypeError가
+    나면 채팅 수정이 그 워크플로우에서 영구 실패한다."""
+    from core.node_hydration import prepare_hydrated_nodes
+    from core.template_registry import dehydrate_nodes
+    from core.provider_config import resolve_model
+
+    stored = [_stored_ai_node({"name": "x"})]
+    nodes, _ = prepare_hydrated_nodes(dehydrate_nodes(stored), [], provider="CLAUDE", current_nodes=stored)
+    assert nodes[0]["config"]["model"] == resolve_model("CLAUDE")
+
+
+def test_rerender_preserved_model_still_goes_through_deprecation(monkeypatch):
+    """보존값도 resolve_model을 거친다 — 폐기 모델을 저장해 둔 경우 기본값으로 강등된다."""
+    import litellm
+    from core.node_hydration import prepare_hydrated_nodes
+    from core.template_registry import dehydrate_nodes
+    from core.config import settings
+
+    monkeypatch.setitem(litellm.model_cost, "claude-dead", {"deprecation_date": "2020-01-01"})
+    stored = [_stored_ai_node("claude-dead")]
+    nodes, _ = prepare_hydrated_nodes(dehydrate_nodes(stored), [], provider="CLAUDE", current_nodes=stored)
+    assert nodes[0]["config"]["model"] == settings.CLAUDE_DEFAULT_MODEL
+
+
+def test_rerender_drops_model_when_provider_changed():
+    """요청 provider가 저장분과 다르면 옛 provider의 모델은 되살리지 않는다."""
+    from core.node_hydration import prepare_hydrated_nodes
+    from core.template_registry import dehydrate_nodes
+    from core.provider_config import resolve_model
+
+    stored = [_stored_ai_node("claude-haiku-4-5", provider="CLAUDE")]
+    nodes, _ = prepare_hydrated_nodes(dehydrate_nodes(stored), [], provider="GEMINI", current_nodes=stored)
+    assert nodes[0]["config"]["llmProvider"] == "GEMINI"
+    assert nodes[0]["config"]["model"] == resolve_model("GEMINI")
+
+
+def test_rerender_new_node_gets_default_model():
+    """current_nodes에 없던 새 노드는 기존대로 provider 기본 모델."""
+    from core.node_hydration import prepare_hydrated_nodes
+    from core.provider_config import resolve_model
+
+    stored = [_stored_ai_node("claude-haiku-4-5")]
+    new_draft = {"id": "node-3", "templateId": "ai.notion_search",
+                 "slots": {"label": "새", "description": "새 노드", "prompt": "q"}}
+    nodes, _ = prepare_hydrated_nodes([new_draft], [], provider="CLAUDE", current_nodes=stored)
+    assert nodes[0]["config"]["model"] == resolve_model("CLAUDE")
