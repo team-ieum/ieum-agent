@@ -7,10 +7,11 @@ CATALOG는 ieum-backend api/.../provider/service/ProviderRegistry.java의 복제
 크로스레포라 코드로 묶을 수 없다. BE 카탈로그가 바뀌면 여기도 바꾼다.
 실 litellm.model_cost를 그대로 쓴다(폐기일 판정이 목적이라 monkeypatch하지 않는다).
 """
+import litellm
 import pytest
 
 from core.config import settings
-from core.provider_config import _is_deprecated, resolve_model
+from core.provider_config import _catalog_key, _is_deprecated, resolve_model
 
 CATALOG = [
     ("CLAUDE", "claude-haiku-4-5"),
@@ -34,6 +35,7 @@ def test_catalog_model_resolves_to_itself(provider, model):
 
 @pytest.mark.parametrize("provider,model", CATALOG)
 def test_catalog_model_not_deprecated(provider, model):
+    assert _catalog_key(provider, model) in litellm.model_cost  # 미등록이면 _is_deprecated가 공허하게 False
     assert _is_deprecated(provider, model) is False
 
 
