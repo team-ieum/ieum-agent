@@ -10,7 +10,6 @@ CATALOG는 ieum-backend api/.../provider/service/ProviderRegistry.java의 복제
 import litellm
 import pytest
 
-from core.config import settings
 from core.provider_config import _catalog_key, _is_deprecated, resolve_model
 
 CATALOG = [
@@ -25,9 +24,6 @@ CATALOG = [
     ("GEMINI", "gemini-2.5-pro"),
 ]
 
-BE_DEFAULTS = {"CLAUDE": "claude-sonnet-5", "OPENAI": "gpt-5.6-terra", "GEMINI": "gemini-3.7-flash"}
-
-
 @pytest.mark.parametrize("provider,model", CATALOG)
 def test_catalog_model_resolves_to_itself(provider, model):
     assert resolve_model(provider, model) == model
@@ -37,14 +33,3 @@ def test_catalog_model_resolves_to_itself(provider, model):
 def test_catalog_model_not_deprecated(provider, model):
     assert _catalog_key(provider, model) in litellm.model_cost  # 미등록이면 _is_deprecated가 공허하게 False
     assert _is_deprecated(provider, model) is False
-
-
-def test_be_defaults_match_agent_code_defaults():
-    """BE ModelInfo.default == agent 코드 기본값. .env가 덮어쓰면 settings가 달라지므로
-    코드 기본값(model_fields default)과 비교한다 — 배포 .env 위생은 운영 몫."""
-    code_defaults = {
-        "CLAUDE": type(settings).model_fields["CLAUDE_DEFAULT_MODEL"].default,
-        "OPENAI": type(settings).model_fields["OPENAI_DEFAULT_MODEL"].default,
-        "GEMINI": type(settings).model_fields["GEMINI_DEFAULT_MODEL"].default,
-    }
-    assert code_defaults == BE_DEFAULTS

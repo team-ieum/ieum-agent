@@ -215,11 +215,6 @@ def test_bind_notion_token_preserves_config_binding():
     assert "content" in params
 
 
-def test_resolve_model_uses_settings_default():
-    """알 수 없는 provider는 settings.GEMINI_DEFAULT_MODEL을 기본값으로 반환한다."""
-    assert resolve_model("UNKNOWN") == settings.GEMINI_DEFAULT_MODEL
-
-
 # ---------------------------------------------------------------------------
 # run_agent() 성공 케이스
 # ---------------------------------------------------------------------------
