@@ -65,7 +65,16 @@ def test_catalog_model_not_deprecated(provider, model):
     # litellm은 import 시점에 원격 model_cost를 받아오고, 실패하면 조용히 패키지 백업으로 폴백한다.
     # 그 백업엔 카탈로그 9개 중 7개가 없어서, 네트워크가 없으면 아래 등록 단언이 무더기로 깨진다.
     # 이 pytest는 배포 게이트라(agent-dev-server.yml) 코드와 무관하게 배포가 막힌다 — skip이 맞다.
-    if get_model_cost_map_source_info()["source"] != "remote":
-        pytest.skip("litellm이 원격 model_cost를 못 받아 로컬 백업으로 폴백 — 등록·폐기일 판정 불가")
+    info = get_model_cost_map_source_info()
+    if info["source"] != "remote":
+        pytest.skip(
+            "litellm이 원격 model_cost를 못 받아 로컬 백업으로 폴백 — 등록·폐기일 판정 불가 "
+            f"(source={info['source']}, env_forced={info['is_env_forced']}, reason={info['fallback_reason']})"
+        )
     assert _catalog_key(provider, model) in litellm.model_cost  # 미등록이면 _is_deprecated가 공허하게 False
     assert _is_deprecated(provider, model) is False
+
+
+def test_sunset_dates_have_no_dead_entries():
+    """BE가 모델을 교체하면 SUNSET_DATES 항목이 조용히 썩는다 — 카탈로그에 없는 항목을 잡는다."""
+    assert set(SUNSET_DATES) <= {m for _, m in CATALOG}
