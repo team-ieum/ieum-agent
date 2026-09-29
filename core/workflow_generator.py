@@ -44,6 +44,7 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
    - HTTP → `output.body`, `output.statusCode`
    - TRIGGER(SCHEDULE) → `output.triggeredAt`, `output.cron`
    - TRANSFORM → 그 노드 매핑에서 정의한 키
+   - APPROVAL → `output.approvedBy`(승인자 ID), `output.approvedAt`(승인 시각)
 7. 발송/저장 노드(slack/discord/gmail/notion)의 prompt는 **참조식 단독으로 두지 말고** 발송·저장 지시문과
    보낼 내용 참조를 함께 쓴다. (예: "다음 내용을 디스코드로 보내줘: {{nodes.node-3.output.output}}")
 8. CONDITION 노드의 true/false 분기는 edges의 conditionType: "true" | "false" 로 표현한다.

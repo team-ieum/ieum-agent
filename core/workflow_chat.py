@@ -169,6 +169,10 @@ _REVIEWER_SYSTEM_PROMPT = """\
    - Notion parent_page_id 등 워크플로우 작동에 필요한 리소스 ID들이 빈 값("")이 아닌 유효한 조회 ID로 매핑되어 있는지 확인하십시오.
 5. SCHEDULE 트리거의 cron 필드 검증:
    - 만약 TRIGGER 노드의 `config.triggerType`이 "SCHEDULE"인 경우, `config.cron` 필드가 반드시 존재하고 비어있지 않아야 하며, 5필드 표준 크론 표현식(예: "0 17 * * 5") 형식인지 확인하십시오. 누락되었거나 형식이 잘못되었다면 isValid를 false로 하고 피드백을 반환하십시오.
+6. 승인 게이트(APPROVAL) 적절성:
+   - approval 노드는 사용자가 승인·결재를 **명시적으로 요청한 경우에만** 있어야 합니다. 요청 없이 들어갔다면 결함입니다.
+   - 사용자가 승인을 요청했는데 approval 노드가 없거나, 승인이 필요한 노드보다 뒤에 있다면 결함입니다.
+   - 단, 수정(WORKFLOW_MODIFIED) 초안의 approval 노드는 이전 대화에서 요청해 이미 있던 것일 수 있으므로, 이번 요청에 승인 언급이 없다는 이유만으로 결함 처리하지 마십시오.
 </verification_checklist>
 
 설계 초안에 결함이나 규칙 위반이 존재한다면 isValid를 false로 하고, 피드백(feedback) 필드에 구체적으로 어떤 부분을 어떻게 수정해야 하는지 피드백 메시지를 상세히 작성하여 반환하십시오.
@@ -178,7 +182,7 @@ _REVIEWER_SYSTEM_PROMPT = """\
 
 _SYSTEM_PROMPT_BASE = """\
 당신은 IEUM 워크플로우를 설계 및 관리하는 AI 어시스턴트입니다.
-사용자 요청에 따라 TRIGGER, AI, HTTP, CONDITION, TRANSFORM 노드로 구성된 최적의 워크플로우를 설계하십시오.
+사용자 요청에 따라 TRIGGER, AI, HTTP, CONDITION, TRANSFORM, APPROVAL 노드로 구성된 최적의 워크플로우를 설계하십시오.
 
 <workflow_design_rules>
 당신은 노드 구조를 직접 설계하지 않습니다. 아래 '노드 템플릿 카탈로그'에서 각 노드의 templateId를 고르고,
@@ -192,6 +196,7 @@ _SYSTEM_PROMPT_BASE = """\
      · AI 노드 결과 → `output.output` (예: 이중 중괄호로 nodes.node-2.output.output)
      · HTTP → `output.body`, `output.statusCode`   · TRIGGER(SCHEDULE) → `output.triggeredAt`
      · TRANSFORM → 그 노드 매핑에서 정의한 키
+     · APPROVAL → `output.approvedBy`(승인자 ID), `output.approvedAt`(승인 시각)
    - [참조 전용] 이중 중괄호 안에는 'nodes.노드ID.output.필드명'만 허용됩니다. `{{#each}}`, `{{formatDate now}}`, `{{this.필드}}` 같은 헬퍼·함수·반복문은 **금지**입니다(엔진에 함수 없음). 날짜 삽입·반복·포맷팅이 필요하면 prompt에 자연어로 지시합니다.
    - [데이터 보존·출력 최소화] 조회 노드 prompt는 후속 노드가 실제 쓰는 필드만 추출하도록 지시합니다. 전체 raw JSON 덤프 금지(타임아웃 유발), 임의 요약/왜곡 금지. 목록 조회(깃허브 PR/이슈, 노션 검색 등)는 반드시 단일 페이지·개수 상한을 명시합니다("최신순 1페이지(per_page=30, page=1)만 조회"). 날짜 필터는 그 1페이지 결과에 적용합니다.
    - [데이터 가공 위임] 요약·날짜 포맷·JSON 파싱 등 변환은 transform 템플릿 또는 별도 AI 노드 prompt에 위임합니다(실행 시 서브 에이전트 자동 처리).
@@ -211,6 +216,9 @@ _SYSTEM_PROMPT_BASE = """\
 5. 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 대변하는 한국어 이름을 'workflowName'에 기입하고, 수정 시에는 null로 둡니다.
 6. 모든 워크플로우는 1개의 TRIGGER 템플릿(trigger.manual / trigger.schedule / trigger.webhook)으로 시작합니다.
    trigger.schedule을 고르면 cron 슬롯에 5필드 표준 크론 표현식을 채웁니다(예: "매일 오전 9시" -> "0 9 * * *").
+7. [승인 게이트] 사용자가 사람의 승인·결재를 **명시적으로 요청한 경우에만** approval 템플릿을 넣습니다.
+   승인이 필요한 노드(발송·저장 등) 바로 앞에 두며, 승인 전에는 그 뒤 노드가 실행되지 않습니다.
+   message 슬롯에는 승인자에게 보여 줄 확인 문구를 씁니다. 요청이 없으면 발송·저장 노드 앞이라도 자동으로 넣지 않습니다.
 </workflow_design_rules>
 
 <resource_rules>

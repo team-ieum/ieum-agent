@@ -24,6 +24,9 @@ _PLANNER_INSTRUCTION = """
    전달만 하도록 노드를 분리한다. (예: web_search → ai.reasoning(요약) → ai.discord_send(발송만))
 8. 출력은 WorkflowPlanSchema에 부합하는 JSON Plan만 작성한다.
    각 노드는 {id, templateId, role, description} 형식이며, role/description에 노드가 할 일을 구체적으로 적는다.
+9. [승인 게이트] 사용자가 사람의 승인·결재를 **명시적으로 요청한 경우에만** approval 템플릿을 넣는다.
+   승인이 필요한 노드(발송·저장 등) 바로 앞에 두며, 승인 전에는 그 뒤 노드가 실행되지 않는다.
+   요청이 없으면 발송·저장 노드 앞이라도 자동으로 넣지 않는다.
 """
 
 

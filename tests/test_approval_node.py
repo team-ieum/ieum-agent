@@ -77,3 +77,42 @@ def test_approval_message_survives_dehydrate_hydrate_round_trip():
     assert draft["templateId"] == "approval"
     assert draft["slots"]["message"] == "슬랙으로 보내도 될까요?"
     assert hydrate_node(draft) == node
+
+
+# --- 생성 가이드: 요청할 때만 넣는다 -------------------------------------------
+
+def test_approval_snippet_not_auto_injected():
+    """메뉴 한 줄로 존재는 알리되, 골든 스니펫은 항상층·검색층 어디에도 자동 주입하지 않는다."""
+    from core.skill_loader import load_design_rules
+
+    rules = load_design_rules("매일 아침 뉴스를 요약해서 슬랙으로 보내줘")
+    assert "- approval:" in rules
+    # 골든 스니펫 헤더 형식은 "### <id> — <menu>" (node-types.md의 "### APPROVAL" 섹션과 구분된다)
+    assert "### approval —" not in rules
+
+
+def test_generation_prompts_insert_approval_only_on_request():
+    from agents.generate.sub.planner_agent import _PLANNER_INSTRUCTION
+    from core.workflow_chat import _REVIEWER_SYSTEM_PROMPT, _SYSTEM_PROMPT_BASE
+    from core.workflow_generator import _SYSTEM_PROMPT as _BUILDER_BASE
+
+    for name, text in {"planner": _PLANNER_INSTRUCTION, "chat": _SYSTEM_PROMPT_BASE,
+                       "reviewer": _REVIEWER_SYSTEM_PROMPT}.items():
+        assert "명시적으로 요청한 경우에만" in text, f"{name}: 승인 게이트 삽입 조건 누락"
+    for name, text in {"builder": _BUILDER_BASE, "chat": _SYSTEM_PROMPT_BASE}.items():
+        assert "output.approvedBy" in text, f"{name}: APPROVAL 출력 필드 누락"
+
+
+def test_node_types_reference_documents_approval():
+    import os
+    from core.skill_loader import SKILL_DIR
+
+    with open(os.path.join(SKILL_DIR, "references", "node-types.md"), encoding="utf-8") as f:
+        assert "### APPROVAL" in f.read()
+
+
+def test_reviewer_does_not_flag_existing_approval_on_modify():
+    """리뷰어는 이번 턴 요청만 본다 — 이전 턴에 요청해 둔 게이트를 '요청 없음'으로 지적하면 자가 교정이 지운다."""
+    from core.workflow_chat import _REVIEWER_SYSTEM_PROMPT
+
+    assert "WORKFLOW_MODIFIED" in _REVIEWER_SYSTEM_PROMPT
