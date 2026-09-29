@@ -11,7 +11,6 @@ api/schemas/       — Pydantic 요청/응답 스키마
 api/middleware/     — 인증 미들웨어 (credential.py)
 core/              — 핵심 비즈니스 로직 (agent.py, workflow_generator.py, workflow_chat.py, node_hydration.py)
 tools/             — 빌트인 도구 함수 (slack, discord, gmail, notion, google_*, http_fetch, mcp, utils)
-providers/         — LLM Provider 어댑터 (현재 미사용, 레거시/확장용)
 common/            — 에러 코드(ErrorCode, ToolErrorCode), 커스텀 예외
 db/                — MongoDB 연결(mongodb.py), 컬렉션 스키마 문서(models.py)
 tests/             — pytest 테스트 (test_{모듈명}.py 형식)
