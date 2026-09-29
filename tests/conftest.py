@@ -19,25 +19,26 @@ import pytest
 from unittest.mock import AsyncMock
 
 
+_MONGO_WRITE_METHODS = (
+    "insert_one", "insert_many", "update_one", "update_many", "replace_one",
+    "delete_one", "delete_many", "find_one_and_update", "find_one_and_replace",
+    "find_one_and_delete", "bulk_write", "create_index", "create_indexes", "drop",
+    "drop_index", "drop_indexes", "rename",
+)
+
+
 @pytest.fixture(autouse=True)
 def _block_real_mongo_writes():
-    """모든 테스트에서 로그 컬렉션의 insert를 차단한다(이중 안전망).
+    """모든 테스트에서 Mongo 컬렉션 쓰기를 차단한다(이중 안전망).
 
-    DB 격리(ieum_test)와 별개로, generate/chat/execute 로그 저장이 실 mongo로
-    새어 나가 운영 데이터를 오염시키는 것을 원천 차단한다."""
+    DB 격리(ieum_test)와 별개로, 쓰기가 실 mongo로 새어 나가는 것을 원천 차단한다.
+    인스턴스가 아니라 AsyncIOMotorCollection 클래스를 막아야 db["..."]로 새로 만든
+    컬렉션(MongoSessionService 등)까지 걸린다. 인스턴스별 patch는 여전히 우선한다."""
+    from contextlib import ExitStack
     from unittest.mock import patch
-    import db.mongodb as mongodb
+    from motor.motor_asyncio import AsyncIOMotorCollection
 
-    patchers = []
-    for name in ("generate_workflow_logs", "chat_logs", "execution_logs"):
-        col = getattr(mongodb, name, None)
-        if col is None:
-            continue
-        p = patch.object(col, "insert_one", AsyncMock())
-        p.start()
-        patchers.append(p)
-    try:
+    with ExitStack() as stack:
+        for m in _MONGO_WRITE_METHODS:
+            stack.enter_context(patch.object(AsyncIOMotorCollection, m, AsyncMock()))
         yield
-    finally:
-        for p in patchers:
-            p.stop()
