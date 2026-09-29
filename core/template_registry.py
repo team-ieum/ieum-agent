@@ -27,7 +27,7 @@ UNIVERSAL_CONFIG_FIELDS = {
     "brand",
 }
 
-_VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM"}
+_VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL"}
 _VALID_SLOT_KINDS = {"string", "enum", "provider", "model", "cron", "expr", "mapping", "http_method"}
 # LLM이 값을 쓰지 못하고 시스템이 요청 provider에서 계산해 주입하는 슬롯 kind.
 _SYSTEM_INJECTED_KINDS = {"provider", "model"}

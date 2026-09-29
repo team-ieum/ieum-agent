@@ -80,7 +80,7 @@ def test_every_user_facing_tool_has_template():
 
 def test_all_node_types_have_at_least_one_template():
     types = {t["node_type"] for t in tr.all_templates()}
-    assert {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM"} <= types
+    assert {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL"} <= types
 
 
 def test_schema_rejects_drifted_tool_key():
