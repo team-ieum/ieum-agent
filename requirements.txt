@@ -24,10 +24,6 @@ httpx>=0.28.1
 # MCP
 mcp>=1.0.0
 
-# AI Providers
-anthropic>=0.30.0
-openai>=1.35.0
-
 # Test
 pytest>=8.2.0
 pytest-asyncio>=0.23.0
