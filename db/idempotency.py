@@ -84,8 +84,14 @@ async def claim(key: str | None) -> tuple[bool, AgentExecutionResult | None]:
         # insert와 조회 사이에 TTL로 만료된 경우. 가드 없이 실행한다.
         return False, None
     if doc.get("status") == "COMPLETED" and doc.get("response") is not None:
+        try:
+            cached = AgentExecutionResult(**doc["response"])
+        except Exception:
+            # 손상·구버전 레코드는 지우지 않는다 — TTL로 소멸할 때까지 캐시 미스로 재실행한다.
+            logger.warning("멱등 캐시 역직렬화 실패 — 가드를 건너뛰고 실행한다.", exc_info=True)
+            return False, None
         logger.info("멱등 키 중복 — 저장된 응답을 재사용한다.")
-        return False, AgentExecutionResult(**doc["response"])
+        return False, cached
     logger.info("멱등 키 중복 — 앞선 요청이 아직 실행 중이라 재실행하지 않는다.")
     return False, _in_progress_result()
 

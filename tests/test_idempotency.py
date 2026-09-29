@@ -190,6 +190,21 @@ def test_mongo_장애면_가드를_건너뛰고_실행한다(fake_records, caplo
     assert any("멱등" in r.message for r in caplog.records)
 
 
+def test_손상된_캐시_레코드는_캐시_미스로_재실행한다(fake_records, caplog):
+    """구버전 스키마·손상 레코드의 역직렬화 실패가 요청을 500으로 죽이면 안 된다."""
+    run_agent = AsyncMock(return_value=AgentExecutionResult(success=True, output="ok"))
+    headers = {**HEADERS, "X-Idempotency-Key": KEY}
+    fake_records.docs[KEY] = {"_id": KEY, "status": "COMPLETED", "response": {"output": "구버전"}}
+
+    with caplog.at_level("WARNING"):
+        response = _post(headers, run_agent)
+
+    assert response.status_code == 200
+    assert response.json()["output"] == "ok"
+    assert run_agent.await_count == 1
+    assert any(r.levelname == "WARNING" and "멱등" in r.message for r in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # 저장 문서에 민감정보가 없어야 한다
 # ---------------------------------------------------------------------------
