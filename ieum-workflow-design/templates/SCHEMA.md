@@ -21,7 +21,7 @@ LLM이 노드를 자유 생성하며 도구 키·config 필드를 환각하는 �
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
 | `id` | string | ✅ | 템플릿 고유 ID. `<node_type소문자>.<이름>` 관례 (예: `ai.notion_create_page`). 파일명과 일치. |
-| `node_type` | string | ✅ | `TRIGGER` \| `AI` \| `HTTP` \| `CONDITION` \| `TRANSFORM` |
+| `node_type` | string | ✅ | `TRIGGER` \| `AI` \| `HTTP` \| `CONDITION` \| `TRANSFORM` \| `APPROVAL` |
 | `tool_key` | string \| null | ✅ | 이 템플릿이 바인딩하는 `_TOOL_MAP` 키. 구조 노드/능력 기반 AI(GitHub 등)는 `null`. 값이 있으면 `_TOOL_MAP`에 존재해야 함(드리프트 검증). |
 | `tags` | string[] | ✅ | 태그/키워드 검색(#4)용. 한/영 동의어 포함. |
 | `menu` | string | ✅ | 항상층에 주입되는 1줄 메뉴(노드 존재 인지 → 검색 miss 환각 방지). |

@@ -42,7 +42,7 @@ _LEGACY_CONDITION_KEYS = {"leftValue": "left", "rightValue": "right"}
 
 class WorkflowNode(BaseModel):
     id: str
-    type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM
+    type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM | APPROVAL
     label: str
     # 노드 카드에 표시할 사용자용 자연어 설명. 템플릿의 description 슬롯이 필수로 채우지만,
     # description 도입 이전에 저장된 워크플로우가 수정/채팅 요청으로 되돌아오므로 기본값을 둔다.
@@ -108,6 +108,13 @@ class WorkflowNode(BaseModel):
             mappings = cfg.get("mappings")
             if mappings is None or not isinstance(mappings, dict):
                 raise ValueError("TRANSFORM 노드에는 mappings(dict)가 필수입니다.")
+
+        elif node_type == "APPROVAL":
+            # 사람 승인 게이트(IEUM-BE-45). BE 런타임이 여기서 멈출 뿐 실행하지 않는다.
+            # config는 승인자에게 보여 줄 message 하나이고 선택이다.
+            message = cfg.get("message")
+            if message is not None and not isinstance(message, str):
+                raise ValueError("APPROVAL 노드의 message는 문자열이어야 합니다.")
 
         else:
             raise ValueError(f"유효하지 않은 노드 type입니다: {self.type}")
