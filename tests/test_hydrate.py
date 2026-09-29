@@ -328,7 +328,7 @@ def test_hydrated_workflow_passes_validator():
 
 def test_passthrough_description_falls_back_to_label():
     """레거시 pass-through 노드의 description이 비어 있고 모델도 안 채우면 label로 떨어진다.
-    빈 채로 나가면 BE의 description 필수 검증에 걸려 저장 시점에 수정이 통째로 날아간다."""
+    빈 채로 나가면 노드 카드의 설명이 비어 보이므로 카드 표시용으로 채운다."""
     original = {"id": "node-2", "type": "AI", "label": "가공 노드", "description": "",
                 "config": {"tools": [{"name": "builtin:json_parse"}]}}
     restored = hydrate_node({"id": "node-2", "templateId": "__passthrough__"},
