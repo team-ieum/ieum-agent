@@ -5,7 +5,6 @@ import functools
 import inspect
 import json
 import logging
-import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -26,9 +25,8 @@ from core.usage_plugin import UsageTrackingPlugin
 from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge
 from common.error_code import ErrorCode
 from core.config import get_current_time_info
-from core.env_lock import get_env_lock
-from core.provider_config import resolve_model, resolve_env_key
-from core.model_factory import build_model_param, uses_env_key, cost_model_name
+from core.provider_config import resolve_model
+from core.model_factory import build_model_param, cost_model_name
 from db.mongodb import chat_logs
 from tools.notion import notion_search
 from tools.github import github_list_orgs, github_list_repos, github_list_issues, github_list_pull_requests
@@ -436,9 +434,6 @@ async def chat_workflow(
     }
     allowed_webhook_credential_ids.discard(None)
     model = resolve_model(provider)
-    env_key = resolve_env_key(provider)
-    inject_env = uses_env_key(provider, api_key, user_role)
-    lock = get_env_lock(env_key) if (env_key and inject_env) else None
 
     # designer·reviewer·재생성 루프의 모든 LLM 호출을 한 인스턴스에 누적한다.
     # 두 Runner가 같은 플러그인을 공유해야 합산이 성립한다(각자 만들면 마지막 것만 남는다).
@@ -575,286 +570,268 @@ async def chat_workflow(
         return None
 
     async def _execute() -> str:
-        prev_value = None
-        if env_key and inject_env:
-            prev_value = os.environ.get(env_key)
-            os.environ[env_key] = api_key
+        browse_tools = [
+            FunctionTool(send_discord_webhook),
+            FunctionTool(send_slack_message),
+        ]
+        if notion_token:
+            browse_tools.append(FunctionTool(_bind_token(notion_search, token=notion_token)))
+        if github_token:
+            browse_tools.append(FunctionTool(_bind_token(github_list_orgs, token=github_token)))
+            browse_tools.append(FunctionTool(_bind_token(github_list_repos, token=github_token)))
+            browse_tools.append(FunctionTool(_bind_token(github_list_issues, token=github_token)))
+            browse_tools.append(FunctionTool(_bind_token(github_list_pull_requests, token=github_token)))
+        if google_access_token:
+            browse_tools.append(FunctionTool(_bind_token(google_list_calendars, access_token=google_access_token)))
+            browse_tools.append(FunctionTool(_bind_token(google_list_sheets, access_token=google_access_token)))
 
-        try:
-            browse_tools = [
-                FunctionTool(send_discord_webhook),
-                FunctionTool(send_slack_message),
+        async with contextlib.AsyncExitStack() as stack:
+            if mcp_servers:
+                for mcp_cfg in mcp_servers:
+                    params = SseConnectionParams(
+                        url=mcp_cfg["server_url"],
+                        headers=mcp_cfg.get("headers", {}),
+                    )
+                    mcp = MCPToolset(connection_params=params)
+                    res = mcp.get_tools()
+                    mcp_tools = await res if hasattr(res, "__await__") else res
+                    
+                    stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
+                    browse_tools.extend(mcp_tools)
+
+            model_param = build_model_param(provider, model, api_key, user_role)
+
+            session_service = _get_session_service()
+
+            # 1. Designer Agent (Generator) 선언
+            # output_schema는 사용하지 않는다. 이유:
+            #  (1) ADK 제약상 output_schema가 설정되면 도구를 전혀 호출할 수 없어
+            #      resource_rules의 notion_search 기반 리소스 ID 해소가 불가능해진다.
+            #  (2) Gemini API는 response_schema에서 additionalProperties(자유형 config dict)를
+            #      지원하지 않아 ChatResponseOutputSchema를 그대로 쓰면 요청 빌드가 실패한다.
+            # 따라서 도구를 활성화하고 출력은 instruction의 <output_format>으로 강제한 뒤,
+            # 아래에서 JSON을 직접 파싱한다(generate 경로와 동일 방식).
+            # 단, 설계 단계에서는 조회 도구만 허용한다. send_slack/discord 같은 발송 도구를
+            # 주면 모델이 워크플로우를 짜는 도중 실제 메시지를 보낼 수 있으므로 제외한다.
+            designer_tools = [
+                t for t in browse_tools
+                if getattr(t, "name", "") not in _DESIGNER_EXCLUDED_TOOLS
             ]
-            if notion_token:
-                browse_tools.append(FunctionTool(_bind_token(notion_search, token=notion_token)))
-            if github_token:
-                browse_tools.append(FunctionTool(_bind_token(github_list_orgs, token=github_token)))
-                browse_tools.append(FunctionTool(_bind_token(github_list_repos, token=github_token)))
-                browse_tools.append(FunctionTool(_bind_token(github_list_issues, token=github_token)))
-                browse_tools.append(FunctionTool(_bind_token(github_list_pull_requests, token=github_token)))
-            if google_access_token:
-                browse_tools.append(FunctionTool(_bind_token(google_list_calendars, access_token=google_access_token)))
-                browse_tools.append(FunctionTool(_bind_token(google_list_sheets, access_token=google_access_token)))
+            designer_instruction = instruction + _OUTPUT_FORMAT_SPEC + get_current_time_info()
+            designer_agent = LlmAgent(
+                name="workflow_designer",
+                model=model_param,
+                instruction=designer_instruction,
+                tools=designer_tools,
+            )
+            
+            # 2. Reviewer Agent 선언
+            reviewer_agent = LlmAgent(
+                name="workflow_reviewer",
+                model=model_param,
+                instruction=_REVIEWER_SYSTEM_PROMPT,
+                output_schema=WorkflowReviewResult,
+            )
 
-            async with contextlib.AsyncExitStack() as stack:
-                if mcp_servers:
-                    for mcp_cfg in mcp_servers:
-                        params = SseConnectionParams(
-                            url=mcp_cfg["server_url"],
-                            headers=mcp_cfg.get("headers", {}),
-                        )
-                        mcp = MCPToolset(connection_params=params)
-                        res = mcp.get_tools()
-                        mcp_tools = await res if hasattr(res, "__await__") else res
-                        
-                        stack.push_async_callback(lambda m=mcp: _safe_close_mcp(m))
-                        browse_tools.extend(mcp_tools)
+            # designer 실행을 위한 runner
+            designer_runner = Runner(
+                agent=designer_agent,
+                app_name="ieum-agent",
+                session_service=session_service,
+                plugins=[usage_plugin],
+            )
 
-                model_param = build_model_param(provider, model, api_key, user_role)
+            # reviewer 실행을 위한 runner
+            reviewer_runner = Runner(
+                agent=reviewer_agent,
+                app_name="ieum-agent",
+                session_service=session_service,
+                plugins=[usage_plugin],
+            )
 
-                session_service = _get_session_service()
-
-                # 1. Designer Agent (Generator) 선언
-                # output_schema는 사용하지 않는다. 이유:
-                #  (1) ADK 제약상 output_schema가 설정되면 도구를 전혀 호출할 수 없어
-                #      resource_rules의 notion_search 기반 리소스 ID 해소가 불가능해진다.
-                #  (2) Gemini API는 response_schema에서 additionalProperties(자유형 config dict)를
-                #      지원하지 않아 ChatResponseOutputSchema를 그대로 쓰면 요청 빌드가 실패한다.
-                # 따라서 도구를 활성화하고 출력은 instruction의 <output_format>으로 강제한 뒤,
-                # 아래에서 JSON을 직접 파싱한다(generate 경로와 동일 방식).
-                # 단, 설계 단계에서는 조회 도구만 허용한다. send_slack/discord 같은 발송 도구를
-                # 주면 모델이 워크플로우를 짜는 도중 실제 메시지를 보낼 수 있으므로 제외한다.
-                designer_tools = [
-                    t for t in browse_tools
-                    if getattr(t, "name", "") not in _DESIGNER_EXCLUDED_TOOLS
-                ]
-                designer_instruction = instruction + _OUTPUT_FORMAT_SPEC + get_current_time_info()
-                designer_agent = LlmAgent(
-                    name="workflow_designer",
-                    model=model_param,
-                    instruction=designer_instruction,
-                    tools=designer_tools,
-                )
-                
-                # 2. Reviewer Agent 선언
-                reviewer_agent = LlmAgent(
-                    name="workflow_reviewer",
-                    model=model_param,
-                    instruction=_REVIEWER_SYSTEM_PROMPT,
-                    output_schema=WorkflowReviewResult,
-                )
-
-                # designer 실행을 위한 runner
-                designer_runner = Runner(
-                    agent=designer_agent,
+            # 세션 격리: workflow_id가 있으면 워크플로우별 멀티턴 세션을 이어가고,
+            # 없으면(신규 생성) 매 요청 고유 세션을 만들어 종료 시 폐기한다.
+            # (과거 user_id 단일 세션은 서로 다른 워크플로우/요청 간 대화가 섞이는 원인이었다.)
+            ephemeral_session = workflow_id is None
+            if ephemeral_session:
+                session_id = f"{user_id}-{uuid.uuid4().hex}"
+                session = await session_service.create_session(
                     app_name="ieum-agent",
-                    session_service=session_service,
-                    plugins=[usage_plugin],
+                    user_id=user_id,
+                    session_id=session_id,
                 )
-
-                # reviewer 실행을 위한 runner
-                reviewer_runner = Runner(
-                    agent=reviewer_agent,
+            else:
+                session_id = f"{user_id}-{workflow_id}"
+                session = await session_service.get_session(
                     app_name="ieum-agent",
-                    session_service=session_service,
-                    plugins=[usage_plugin],
+                    user_id=user_id,
+                    session_id=session_id,
                 )
-
-                # 세션 격리: workflow_id가 있으면 워크플로우별 멀티턴 세션을 이어가고,
-                # 없으면(신규 생성) 매 요청 고유 세션을 만들어 종료 시 폐기한다.
-                # (과거 user_id 단일 세션은 서로 다른 워크플로우/요청 간 대화가 섞이는 원인이었다.)
-                ephemeral_session = workflow_id is None
-                if ephemeral_session:
-                    session_id = f"{user_id}-{uuid.uuid4().hex}"
+                if not session:
                     session = await session_service.create_session(
                         app_name="ieum-agent",
                         user_id=user_id,
                         session_id=session_id,
                     )
-                else:
-                    session_id = f"{user_id}-{workflow_id}"
-                    session = await session_service.get_session(
-                        app_name="ieum-agent",
-                        user_id=user_id,
-                        session_id=session_id,
+            if ephemeral_session:
+                stack.push_async_callback(
+                    lambda sid=session.id: session_service.delete_session(
+                        app_name="ieum-agent", user_id=user_id, session_id=sid
                     )
-                    if not session:
-                        session = await session_service.create_session(
-                            app_name="ieum-agent",
-                            user_id=user_id,
-                            session_id=session_id,
-                        )
-                if ephemeral_session:
-                    stack.push_async_callback(
-                        lambda sid=session.id: session_service.delete_session(
-                            app_name="ieum-agent", user_id=user_id, session_id=sid
-                        )
-                    )
+                )
 
-                # Step 1: 워크플로우 설계 초안 생성 (Designer)
-                async def _run_designer_once() -> str:
-                    """Designer를 1회 실행해 최종 텍스트를 반환한다. parts가 None인 이벤트는 건너뛴다."""
-                    message = types.Content(role="user", parts=[types.Part(text=prompt)])
-                    parts_out = []
-                    kinds = []
-                    async for event in designer_runner.run_async(
-                        user_id=user_id, session_id=session.id, new_message=message,
-                    ):
-                        if event.is_final_response() and event.content and event.content.parts:
-                            for part in event.content.parts:
-                                if hasattr(part, "text") and part.text:
-                                    parts_out.append(part.text)
-                                elif getattr(part, "function_call", None) is not None:
-                                    kinds.append(f"function_call:{getattr(part.function_call, 'name', '?')}")
-                                else:
-                                    kinds.append("non_text")
-                    text = "\n".join(parts_out) if parts_out else ""
-                    logger.warning(
-                        "[chat-debug] designer draft(len=%d) non_text_parts=%s preview=%r",
-                        len(text), kinds, text[:800],
-                    )
-                    return text
+            # Step 1: 워크플로우 설계 초안 생성 (Designer)
+            async def _run_designer_once() -> str:
+                """Designer를 1회 실행해 최종 텍스트를 반환한다. parts가 None인 이벤트는 건너뛴다."""
+                message = types.Content(role="user", parts=[types.Part(text=prompt)])
+                parts_out = []
+                kinds = []
+                async for event in designer_runner.run_async(
+                    user_id=user_id, session_id=session.id, new_message=message,
+                ):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        for part in event.content.parts:
+                            if hasattr(part, "text") and part.text:
+                                parts_out.append(part.text)
+                            elif getattr(part, "function_call", None) is not None:
+                                kinds.append(f"function_call:{getattr(part.function_call, 'name', '?')}")
+                            else:
+                                kinds.append("non_text")
+                text = "\n".join(parts_out) if parts_out else ""
+                logger.warning(
+                    "[chat-debug] designer draft(len=%d) non_text_parts=%s preview=%r",
+                    len(text), kinds, text[:800],
+                )
+                return text
 
-                async def _run_designer(message_text: str) -> str:
-                    """임의의 지시 텍스트로 Designer를 1회 실행해 최종 텍스트를 반환한다(자가교정 재생성용)."""
-                    message = types.Content(role="user", parts=[types.Part(text=message_text)])
-                    parts_out = []
-                    async for event in designer_runner.run_async(
-                        user_id=user_id, session_id=session.id, new_message=message,
-                    ):
-                        if event.is_final_response() and event.content and event.content.parts:
-                            for part in event.content.parts:
-                                if hasattr(part, "text") and part.text:
-                                    parts_out.append(part.text)
-                    return "\n".join(parts_out) if parts_out else ""
+            async def _run_designer(message_text: str) -> str:
+                """임의의 지시 텍스트로 Designer를 1회 실행해 최종 텍스트를 반환한다(자가교정 재생성용)."""
+                message = types.Content(role="user", parts=[types.Part(text=message_text)])
+                parts_out = []
+                async for event in designer_runner.run_async(
+                    user_id=user_id, session_id=session.id, new_message=message,
+                ):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        for part in event.content.parts:
+                            if hasattr(part, "text") and part.text:
+                                parts_out.append(part.text)
+                return "\n".join(parts_out) if parts_out else ""
 
-                # Gemini가 함수 호출 후 빈 텍스트를 반환하는 경우가 있어, 빈 응답이면 1회 재시도한다.
-                _emit_stage(on_stage, "designing")
+            # Gemini가 함수 호출 후 빈 텍스트를 반환하는 경우가 있어, 빈 응답이면 1회 재시도한다.
+            _emit_stage(on_stage, "designing")
+            draft_output = await _run_designer_once()
+            if not draft_output.strip():
+                logger.warning("[chat-debug] designer 빈 응답 — 1회 재시도합니다.")
                 draft_output = await _run_designer_once()
-                if not draft_output.strip():
-                    logger.warning("[chat-debug] designer 빈 응답 — 1회 재시도합니다.")
-                    draft_output = await _run_designer_once()
 
-                # 재시도 후에도 비어 있으면 502 대신 CLARIFICATION_NEEDED로 우아하게 안내한다.
-                if not draft_output.strip():
-                    logger.warning("[chat-debug] designer 재시도 후에도 빈 응답 — CLARIFICATION 폴백.")
-                    draft_output = json.dumps({
-                        "message": "요청을 처리하지 못했습니다. 조금 더 구체적으로 다시 말씀해 주시겠어요?",
-                        "type": "CLARIFICATION_NEEDED",
-                        "actions": [], "options": [],
-                        "changeDescription": None, "nodes": None, "edges": None,
-                        "workflowName": None,
-                    }, ensure_ascii=False)
+            # 재시도 후에도 비어 있으면 502 대신 CLARIFICATION_NEEDED로 우아하게 안내한다.
+            if not draft_output.strip():
+                logger.warning("[chat-debug] designer 재시도 후에도 빈 응답 — CLARIFICATION 폴백.")
+                draft_output = json.dumps({
+                    "message": "요청을 처리하지 못했습니다. 조금 더 구체적으로 다시 말씀해 주시겠어요?",
+                    "type": "CLARIFICATION_NEEDED",
+                    "actions": [], "options": [],
+                    "changeDescription": None, "nodes": None, "edges": None,
+                    "workflowName": None,
+                }, ensure_ascii=False)
 
-                # 초안이 JSON 인지 체크 및 응답 타입 파악
-                draft_data = _extract_json(draft_output)
-                response_type = draft_data.get("type") if draft_data else None
-                cleaned_draft = json.dumps(draft_data, ensure_ascii=False) if draft_data else draft_output
+            # 초안이 JSON 인지 체크 및 응답 타입 파악
+            draft_data = _extract_json(draft_output)
+            response_type = draft_data.get("type") if draft_data else None
+            cleaned_draft = json.dumps(draft_data, ensure_ascii=False) if draft_data else draft_output
 
-                candidate = draft_output
+            candidate = draft_output
 
-                # 신규 생성 또는 수정인 경우에만 지능형 검증(Reviewer) 가동
-                if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
-                    # Step 2: 설계 초안 검증 (Reviewer)
-                    _emit_stage(on_stage, "reviewing")
-                    review_prompt = (
-                        f"Original User Request: {prompt}\n\n"
-                        f"Drafted Workflow Configs:\n{cleaned_draft}"
-                    )
-                    review_message = types.Content(
-                        role="user",
-                        parts=[types.Part(text=review_prompt)],
-                    )
+            # 신규 생성 또는 수정인 경우에만 지능형 검증(Reviewer) 가동
+            if response_type in ("WORKFLOW_GENERATED", "WORKFLOW_MODIFIED"):
+                # Step 2: 설계 초안 검증 (Reviewer)
+                _emit_stage(on_stage, "reviewing")
+                review_prompt = (
+                    f"Original User Request: {prompt}\n\n"
+                    f"Drafted Workflow Configs:\n{cleaned_draft}"
+                )
+                review_message = types.Content(
+                    role="user",
+                    parts=[types.Part(text=review_prompt)],
+                )
 
-                    review_parts = []
-                    async for event in reviewer_runner.run_async(
-                        user_id=user_id,
-                        session_id=session.id,
-                        new_message=review_message,
-                    ):
-                        if event.is_final_response() and event.content and event.content.parts:
-                            for part in event.content.parts:
-                                if hasattr(part, "text") and part.text:
-                                    review_parts.append(part.text)
+                review_parts = []
+                async for event in reviewer_runner.run_async(
+                    user_id=user_id,
+                    session_id=session.id,
+                    new_message=review_message,
+                ):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        for part in event.content.parts:
+                            if hasattr(part, "text") and part.text:
+                                review_parts.append(part.text)
 
-                    review_output = "\n".join(review_parts) if review_parts else ""
+                review_output = "\n".join(review_parts) if review_parts else ""
 
-                    review_data = _extract_json(review_output)
-                    if review_data:
-                        is_valid = review_data.get("isValid", True)
-                        feedback = review_data.get("feedback")
-                    else:
-                        logger.warning("검증 레이어 응답 파싱 실패, 기본값으로 통과 처리합니다.")
-                        is_valid = True
-                        feedback = None
-
-                    # Step 3: 결함 발견 시 피드백 기반 1회 자가 교정 (Reviewer Self-Correction Loop)
-                    if not is_valid and feedback:
-                        logger.info("검증 레이어 결함 발견! 자가 교정을 시도합니다. 피드백: %s", feedback)
-                        correction_prompt = (
-                            f"당신이 이전에 작성한 워크플로우 설계 초안에 결함이 발견되었습니다.\n"
-                            f"아래 피드백 내용을 엄격하게 수용하여, 오류를 수정하고 완성된 새로운 워크플로우를 재생성하십시오.\n\n"
-                            f"## 검증 피드백:\n{feedback}\n\n"
-                            f"## 이전 설계 초안:\n{cleaned_draft}"
-                        )
-                        corrected = await _run_designer(correction_prompt)
-                        if corrected.strip():
-                            candidate = corrected
-
-                # Step 4: 정적 검증(WorkflowValidator) 기반 자가 교정 루프.
-                # Reviewer(LLM)가 못 잡는 결정론적 오류(잘못된 변수 참조 문법, config 필드 환각,
-                # enum 위반 등)를 validator가 잡으면, 그 오류 메시지를 Designer에 피드백해 재생성한다.
-                for attempt in range(_MAX_VALIDATION_RETRIES):
-                    err = _static_validation_error(candidate)
-                    if err is None:
-                        break
-                    logger.info(
-                        "[chat] 정적 검증 실패(시도 %d/%d) — 자가 교정 재생성. error: %s",
-                        attempt + 1, _MAX_VALIDATION_RETRIES, err,
-                    )
-                    _emit_stage(on_stage, "designing")
-                    fix_prompt = (
-                        "당신이 작성한 워크플로우가 정적 검증(WorkflowValidator)에서 거부되었습니다.\n"
-                        "아래 오류를 반드시 해소하여 완전한 워크플로우 JSON을 재생성하십시오.\n"
-                        "특히 이중 중괄호는 '{{nodes.노드ID.output.필드}}' 참조 전용입니다. "
-                        "{{#each}}, {{formatDate ...}}, {{this.x}} 같은 템플릿 헬퍼/함수/루프 문법은 절대 사용하지 마십시오. "
-                        "날짜·목록·포맷팅이 필요하면 노드의 prompt에 자연어로 지시하십시오.\n\n"
-                        f"## 검증 오류:\n{err}\n\n## 이전 출력:\n{candidate}"
-                    )
-                    fixed = await _run_designer(fix_prompt)
-                    if fixed.strip():
-                        candidate = fixed
-
-                # 재시도 후에도 검증 실패면 하드 실패(CHAT_PARSE_FAILED) 대신 CLARIFICATION으로 우아하게 폴백
-                if _static_validation_error(candidate) is not None:
-                    logger.warning(
-                        "[chat] 정적 검증 자가 교정 %d회 실패 — CLARIFICATION 폴백.", _MAX_VALIDATION_RETRIES,
-                    )
-                    return json.dumps({
-                        "message": "워크플로우를 자동 생성했지만 일부 노드 설정에 오류가 있어 완성하지 못했습니다. "
-                                   "조금 더 단순하게 다시 설명해 주시겠어요? "
-                                   "(예: 날짜 형식이나 목록 정리는 각 노드 설명에 맡겨 주세요)",
-                        "type": "CLARIFICATION_NEEDED",
-                        "actions": [], "options": [],
-                        "changeDescription": None, "nodes": None, "edges": None,
-                        "workflowName": None,
-                    }, ensure_ascii=False)
-
-                return candidate
-
-        finally:
-            if env_key and inject_env:
-                if prev_value is None:
-                    os.environ.pop(env_key, None)
+                review_data = _extract_json(review_output)
+                if review_data:
+                    is_valid = review_data.get("isValid", True)
+                    feedback = review_data.get("feedback")
                 else:
-                    os.environ[env_key] = prev_value
+                    logger.warning("검증 레이어 응답 파싱 실패, 기본값으로 통과 처리합니다.")
+                    is_valid = True
+                    feedback = None
 
-    raw_output = None
-    if lock:
-        async with lock:
-            raw_output = await _execute()
-    else:
-        raw_output = await _execute()
+                # Step 3: 결함 발견 시 피드백 기반 1회 자가 교정 (Reviewer Self-Correction Loop)
+                if not is_valid and feedback:
+                    logger.info("검증 레이어 결함 발견! 자가 교정을 시도합니다. 피드백: %s", feedback)
+                    correction_prompt = (
+                        f"당신이 이전에 작성한 워크플로우 설계 초안에 결함이 발견되었습니다.\n"
+                        f"아래 피드백 내용을 엄격하게 수용하여, 오류를 수정하고 완성된 새로운 워크플로우를 재생성하십시오.\n\n"
+                        f"## 검증 피드백:\n{feedback}\n\n"
+                        f"## 이전 설계 초안:\n{cleaned_draft}"
+                    )
+                    corrected = await _run_designer(correction_prompt)
+                    if corrected.strip():
+                        candidate = corrected
+
+            # Step 4: 정적 검증(WorkflowValidator) 기반 자가 교정 루프.
+            # Reviewer(LLM)가 못 잡는 결정론적 오류(잘못된 변수 참조 문법, config 필드 환각,
+            # enum 위반 등)를 validator가 잡으면, 그 오류 메시지를 Designer에 피드백해 재생성한다.
+            for attempt in range(_MAX_VALIDATION_RETRIES):
+                err = _static_validation_error(candidate)
+                if err is None:
+                    break
+                logger.info(
+                    "[chat] 정적 검증 실패(시도 %d/%d) — 자가 교정 재생성. error: %s",
+                    attempt + 1, _MAX_VALIDATION_RETRIES, err,
+                )
+                _emit_stage(on_stage, "designing")
+                fix_prompt = (
+                    "당신이 작성한 워크플로우가 정적 검증(WorkflowValidator)에서 거부되었습니다.\n"
+                    "아래 오류를 반드시 해소하여 완전한 워크플로우 JSON을 재생성하십시오.\n"
+                    "특히 이중 중괄호는 '{{nodes.노드ID.output.필드}}' 참조 전용입니다. "
+                    "{{#each}}, {{formatDate ...}}, {{this.x}} 같은 템플릿 헬퍼/함수/루프 문법은 절대 사용하지 마십시오. "
+                    "날짜·목록·포맷팅이 필요하면 노드의 prompt에 자연어로 지시하십시오.\n\n"
+                    f"## 검증 오류:\n{err}\n\n## 이전 출력:\n{candidate}"
+                )
+                fixed = await _run_designer(fix_prompt)
+                if fixed.strip():
+                    candidate = fixed
+
+            # 재시도 후에도 검증 실패면 하드 실패(CHAT_PARSE_FAILED) 대신 CLARIFICATION으로 우아하게 폴백
+            if _static_validation_error(candidate) is not None:
+                logger.warning(
+                    "[chat] 정적 검증 자가 교정 %d회 실패 — CLARIFICATION 폴백.", _MAX_VALIDATION_RETRIES,
+                )
+                return json.dumps({
+                    "message": "워크플로우를 자동 생성했지만 일부 노드 설정에 오류가 있어 완성하지 못했습니다. "
+                               "조금 더 단순하게 다시 설명해 주시겠어요? "
+                               "(예: 날짜 형식이나 목록 정리는 각 노드 설명에 맡겨 주세요)",
+                    "type": "CLARIFICATION_NEEDED",
+                    "actions": [], "options": [],
+                    "changeDescription": None, "nodes": None, "edges": None,
+                    "workflowName": None,
+                }, ensure_ascii=False)
+
+            return candidate
+
+    raw_output = await _execute()
 
     try:
         cleaned = raw_output.strip()

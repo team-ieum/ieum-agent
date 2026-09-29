@@ -51,23 +51,18 @@ def _make_runner_mock(outputs: list):
 
 @pytest.fixture
 def mock_adk():
-    """ADK Runner, InMemorySessionService, env_lock을 mock으로 교체하는 공통 픽스처."""
+    """ADK Runner, InMemorySessionService를 mock으로 교체하는 공통 픽스처."""
     mock_session = AsyncMock()
     mock_session.id = "test-session"
 
     mock_session_service = MagicMock()
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     # 1차 Plan ➡️ 2차 Workflow JSON
     outputs = [VALID_PLAN_JSON, VALID_WORKFLOW_JSON]
 
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
          patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
-         patch("core.workflow_generator.get_env_lock", return_value=mock_lock), \
          patch("core.workflow_generator.generate_workflow_logs.insert_one", AsyncMock()):
         yield
 
@@ -113,13 +108,8 @@ async def test_generate_workflow_description_누락시_실패():
     mock_session_service = MagicMock()
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
          patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
-         patch("core.workflow_generator.get_env_lock", return_value=mock_lock), \
          patch("core.workflow_generator.generate_workflow_logs.insert_one", AsyncMock()):
         with pytest.raises(ValueError, match="description"):
             await generate_workflow("테스트", "CLAUDE", "test-key")
@@ -148,13 +138,8 @@ async def test_generate_workflow_passthrough_draft_거부됨():
     mock_session_service = MagicMock()
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
          patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
-         patch("core.workflow_generator.get_env_lock", return_value=mock_lock), \
          patch("core.workflow_generator.generate_workflow_logs.insert_one", AsyncMock()):
         with pytest.raises(ValueError, match="하이드레이션"):
             await generate_workflow("테스트", "CLAUDE", "test-key")
@@ -171,13 +156,8 @@ async def test_generate_workflow_코드펜스_제거():
     mock_session_service = MagicMock()
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
-         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
-         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
+         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service):
 
         result = await generate_workflow("테스트", "CLAUDE", "test-key")
         assert len(result.nodes) == 2
@@ -194,13 +174,8 @@ async def test_generate_workflow_서론_후행_텍스트_제거():
     mock_session_service = MagicMock()
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
-         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
-         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
+         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service):
 
         result = await generate_workflow("테스트", "CLAUDE", "test-key")
         assert len(result.nodes) == 2
@@ -233,13 +208,8 @@ async def test_generate_workflow_프롬프트_내_중괄호_보존():
     mock_session_service = MagicMock()
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
-         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
-         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
+         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service):
 
         result = await generate_workflow("테스트", "CLAUDE", "test-key")
         assert len(result.nodes) == 2
@@ -254,16 +224,11 @@ async def test_generate_workflow_빈_응답_에러():
     mock_session_service = MagicMock()
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     # 1차 Plan ➡️ Builder 빈 응답(+ Reflexion 재시도도 빈 응답)
     outputs = [VALID_PLAN_JSON, "", "", ""]
 
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
-         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
-         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
+         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service):
 
         with pytest.raises(ValueError, match="빈 응답"):
             await generate_workflow("테스트", "CLAUDE", "test-key")
@@ -277,16 +242,11 @@ async def test_generate_workflow_잘못된_json_에러():
     mock_session_service = MagicMock()
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     # 1차 Plan ➡️ 2차 Workflow(잘못된 JSON) ➡️ 자가교정(잘못된 JSON)
     outputs = [VALID_PLAN_JSON, "이건 JSON이 아닙니다", VALID_PLAN_JSON, "이건 JSON이 아닙니다"]
 
     with patch("agents.generate.factory.Runner", return_value=_make_runner_mock(outputs)), \
-         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service), \
-         patch("core.workflow_generator.get_env_lock", return_value=mock_lock):
+         patch("agents.generate.factory.InMemorySessionService", return_value=mock_session_service):
 
         with pytest.raises(ValueError, match="JSON 파싱 실패"):
             await generate_workflow("테스트", "CLAUDE", "test-key")

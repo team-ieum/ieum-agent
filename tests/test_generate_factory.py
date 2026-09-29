@@ -1,4 +1,3 @@
-import os
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -103,7 +102,6 @@ async def test_run_generate_agent_returns_raw_json_string():
             model="gemini-2.5-flash",
             provider="CLAUDE",
             api_key="test-key",
-            env_key=None,
         )
 
     assert result == VALID_WORKFLOW_JSON
@@ -129,7 +127,6 @@ async def test_run_generate_agent_with_plan_retry():
             model="gemini-2.5-flash",
             provider="CLAUDE",
             api_key="test-key",
-            env_key=None,
         )
 
     assert result == VALID_WORKFLOW_JSON
@@ -161,7 +158,6 @@ async def test_run_generate_agent_builder_reflexion_recovers():
             model="gemini-2.5-flash",
             provider="CLAUDE",
             api_key="test-key",
-            env_key=None,
             validate_fn=validate_fn,
         )
 
@@ -195,37 +191,9 @@ async def test_run_generate_agent_builder_reflexion_exhausts_and_raises():
                 model="gemini-2.5-flash",
                 provider="CLAUDE",
                 api_key="test-key",
-                env_key=None,
                 validate_fn=validate_fn,
                 max_builder_retries=2,
             )
 
     # 1차 + 재시도 2회 = 검증 3회
     assert validate_calls["n"] == 3
-
-
-@pytest.mark.asyncio
-async def test_run_generate_agent_restores_env_on_exception():
-    """Runner 예외 발생 시 env_key가 os.environ에서 제거된다."""
-    from agents.generate.factory import run_generate_agent
-
-    env_key = "TEST_GENERATE_API_KEY_RESTORE"
-    assert env_key not in os.environ
-
-    mock_runner = MagicMock()
-    mock_runner.run_async = MagicMock(side_effect=RuntimeError("runner error"))
-
-    with patch("agents.generate.factory.Runner", return_value=mock_runner), \
-         patch("agents.generate.factory.InMemorySessionService", return_value=_make_session_service()), \
-         patch("agents.generate.factory.build_planner_agent", return_value=MagicMock()), \
-         patch("agents.generate.factory.build_builder_agent", return_value=MagicMock()):
-        with pytest.raises(Exception):
-            await run_generate_agent(
-                prompt="test",
-                model="gemini-2.5-flash",
-                provider="CLAUDE",
-                api_key="test-key",
-                env_key=env_key,
-            )
-
-    assert env_key not in os.environ

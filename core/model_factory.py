@@ -96,21 +96,3 @@ def cost_model_name(provider: str, model: str, api_key: str | None, user_role: s
     if provider.upper() == "GEMINI":
         return model if model.startswith("gemini/") else f"gemini/{model}"
     return _litellm_model_name(provider, model)
-
-
-def uses_env_key(provider: str, api_key: str | None, user_role: str | None = None) -> bool:
-    """os.environ에 API Key 주입이 필요한지 여부.
-
-    Gemini(CustomGemini 직접 주입)와 자체 LLM(엔드포인트 자격증명 사용)은 환경변수 주입이 불필요하다.
-    """
-    if not api_key:
-        # 주입할 키가 없으면 os.environ에 None을 넣어 TypeError가 나는 것을 방어한다.
-        return False
-    if provider.upper() == "GEMINI":
-        return False
-    if _use_self_hosted(api_key, user_role):
-        return False
-    # 신규: Claude/OpenAI + 키 있음은 LiteLlm 인스턴스가 키를 주입받으므로 env 불필요
-    if provider.upper() in _LITELLM_PREFIX:
-        return False
-    return True

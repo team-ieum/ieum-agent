@@ -3,11 +3,10 @@ tests/test_agent.py
 
 core/agent.py의 resolve_model() 및 run_agent() 함수에 대한 단위 테스트.
 - resolve_model(): provider 문자열 → 모델 ID 변환 검증
-- run_agent(): ADK 실행 성공/실패, os.environ 복원, Lock 동작, MongoDB 로깅 실패 처리
+- run_agent(): ADK 실행 성공/실패, os.environ 복원, MongoDB 로깅 실패 처리
 모든 외부 의존성(ADK, MongoDB)은 mock으로 처리.
 """
 
-import asyncio
 import inspect
 import logging
 import os
@@ -21,9 +20,8 @@ from common.error_code import ErrorCode
 from core.agent import run_agent
 from agents.base import _bind_notion_token
 from core.provider_config import resolve_model
-from core.env_lock import _env_locks
 from core.config import settings
-from core.provider_config import MODEL_MAP as _MODEL_MAP, ENV_KEY_MAP as _ENV_KEY_MAP
+from core.provider_config import MODEL_MAP as _MODEL_MAP
 from tools import get_tools_for_request
 
 
@@ -186,13 +184,6 @@ def test_model_map_reflects_settings():
     assert _MODEL_MAP["GEMINI"] == settings.GEMINI_DEFAULT_MODEL
 
 
-def test_env_key_map_has_known_providers():
-    """ENV_KEY_MAP이 알려진 provider 환경변수 키를 포함한다."""
-    assert _ENV_KEY_MAP["CLAUDE"] == "ANTHROPIC_API_KEY"
-    assert _ENV_KEY_MAP["OPENAI"] == "OPENAI_API_KEY"
-    assert _ENV_KEY_MAP["GEMINI"] == "GOOGLE_API_KEY"
-
-
 def test_bind_notion_token_preserves_config_binding():
     """config로 일부 인자가 바인딩된 Notion 도구에도 token 바인딩이 적용된다."""
     tools = get_tools_for_request([
@@ -334,20 +325,19 @@ async def test_run_agent_success_non_final_events_ignored():
 @pytest.mark.asyncio
 async def test_run_agent_commercial_no_env_injection():
     """CLAUDE/OPENAI + api_key는 LiteLlm(api_key=...) 인스턴스로 키를 전달받으므로
-    os.environ에는 전혀 주입되지 않는다(uses_env_key()가 False를 반환).
+    os.environ에는 전혀 주입되지 않는다.
     os.environ 오염 제거가 목적이므로 실행 전/도중/후 모두 env에 키가 없어야 한다.
     """
     request = _make_request()
-    env_key = _ENV_KEY_MAP["CLAUDE"]
 
     # 실행 전 환경변수 없음 보장
-    os.environ.pop(env_key, None)
+    os.environ.pop("ANTHROPIC_API_KEY", None)
 
     captured_env_values = {}
 
     async def _fake_run_async(**kwargs):
-        # _execute() 내부 실행 중 env_key가 설정되어 있는지 캡처
-        captured_env_values["during"] = os.environ.get(env_key)
+        # _execute() 내부 실행 중 키가 설정되어 있는지 캡처
+        captured_env_values["during"] = os.environ.get("ANTHROPIC_API_KEY")
         yield _make_final_event("ok")
 
     mock_session = MagicMock()
@@ -373,71 +363,8 @@ async def test_run_agent_commercial_no_env_injection():
     # LiteLlm 인스턴스가 키를 직접 받으므로 실행 도중에도 env에는 주입되지 않는다
     assert captured_env_values["during"] is None
     # 실행 후에도 여전히 env에는 키가 없어야 한다
-    assert env_key not in os.environ
+    assert "ANTHROPIC_API_KEY" not in os.environ
     assert result.success is True
-
-
-@pytest.mark.asyncio
-async def test_run_agent_env_key_restored_on_exception():
-    """ADK 실행 중 예외가 발생해도 os.environ이 복원된다."""
-    request = _make_request()
-    env_key = _ENV_KEY_MAP["CLAUDE"]
-    os.environ.pop(env_key, None)
-
-    mock_session_service = MagicMock()
-    mock_session_service.create_session = AsyncMock(side_effect=RuntimeError("adk error"))
-
-    with (
-        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
-        patch("agents.execute.factory.Runner", return_value=MagicMock()),
-        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
-        patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
-    ):
-        result = await run_agent(
-            request, provider="CLAUDE", api_key="sk-test", user_id="test-user",
-            session_service=mock_session_service
-        )
-
-    assert env_key not in os.environ
-    assert result.success is False
-
-
-@pytest.mark.asyncio
-async def test_run_agent_env_key_previous_value_restored():
-    """기존 환경변수가 있었다면 실행 후 원래 값으로 복원된다."""
-    request = _make_request()
-    env_key = _ENV_KEY_MAP["OPENAI"]
-    original_value = "original-openai-key"
-    os.environ[env_key] = original_value
-
-    async def _fake_run_async(**kwargs):
-        yield _make_final_event("ok")
-
-    mock_session = MagicMock()
-    mock_session.id = "s2"
-
-    mock_runner = MagicMock()
-    mock_runner.run_async = _fake_run_async
-
-    mock_session_service = MagicMock()
-    mock_session_service.create_session = AsyncMock(return_value=mock_session)
-
-    try:
-        with (
-            patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
-            patch("agents.execute.factory.Runner", return_value=mock_runner),
-            patch("agents.execute.factory.get_tools_for_request", return_value=[]),
-            patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
-        ):
-            await run_agent(
-                request, provider="OPENAI", api_key="new-key", user_id="test-user",
-                session_service=mock_session_service
-            )
-    finally:
-        # 테스트 환경 정리
-        os.environ.pop(env_key, None)
-
-    assert os.environ.get(env_key) is None  # finally에서 제거됨
 
 
 # ---------------------------------------------------------------------------
@@ -519,87 +446,6 @@ async def test_run_agent_exception_metadata_not_exposed():
     if result.metadata is not None:
         metadata_str = str(result.metadata)
         assert "internal secret error detail" not in metadata_str
-
-
-# ---------------------------------------------------------------------------
-# run_agent() - Lock 동작 검증
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_run_agent_commercial_skips_env_lock():
-    """CLAUDE/OPENAI + api_key는 LiteLlm 인스턴스로 키를 주입받아 os.environ을
-    건드리지 않으므로(uses_env_key()=False), env_lock도 획득할 필요가 없다.
-    env_key 매핑 자체는 존재하지만(_ENV_KEY_MAP["CLAUDE"]), run_agent는
-    uses_env_key() 결과에 따라 Lock 획득을 건너뛰어야 한다.
-    """
-    request = _make_request()
-    env_key = _ENV_KEY_MAP["CLAUDE"]
-
-    # _env_locks에 spy lock 주입
-    spy_lock = asyncio.Lock()
-    acquired_count = {"value": 0}
-    original_acquire = spy_lock.acquire
-
-    async def _spy_acquire():
-        acquired_count["value"] += 1
-        return await original_acquire()
-
-    spy_lock.acquire = _spy_acquire
-
-    async def _fake_run_async(**kwargs):
-        yield _make_final_event("ok")
-
-    mock_session = MagicMock()
-    mock_session.id = "s3"
-    mock_runner = MagicMock()
-    mock_runner.run_async = _fake_run_async
-    mock_session_service = MagicMock()
-    mock_session_service.create_session = AsyncMock(return_value=mock_session)
-
-    with (
-        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
-        patch("agents.execute.factory.Runner", return_value=mock_runner),
-        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
-        patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
-        patch.dict("core.env_lock._env_locks", {env_key: spy_lock}),
-    ):
-        result = await run_agent(
-            request, provider="CLAUDE", api_key="sk-test", user_id="test-user",
-            session_service=mock_session_service
-        )
-
-    assert result.success is True
-    assert acquired_count["value"] == 0, "LiteLlm 인스턴스 주입 방식이라 env_lock을 획득하지 않아야 한다"
-
-
-@pytest.mark.asyncio
-async def test_run_agent_unknown_provider_no_lock():
-    """env_key가 없는 provider(매핑 없음)는 Lock 없이 실행된다."""
-    request = _make_request()
-
-    async def _fake_run_async(**kwargs):
-        yield _make_final_event("ok")
-
-    mock_session = MagicMock()
-    mock_session.id = "s4"
-    mock_runner = MagicMock()
-    mock_runner.run_async = _fake_run_async
-    mock_session_service = MagicMock()
-    mock_session_service.create_session = AsyncMock(return_value=mock_session)
-
-    # UNKNOWN provider는 _ENV_KEY_MAP에 없으므로 env_key=None → lock=None
-    with (
-        patch("agents.execute.factory.LlmAgent", return_value=MagicMock()),
-        patch("agents.execute.factory.Runner", return_value=mock_runner),
-        patch("agents.execute.factory.get_tools_for_request", return_value=[]),
-        patch("core.agent.execution_logs.insert_one", new=AsyncMock()),
-    ):
-        result = await run_agent(
-            request, provider="UNKNOWN", api_key="", user_id="test-user",
-            session_service=mock_session_service
-        )
-
-    assert result.success is True
 
 
 # ---------------------------------------------------------------------------

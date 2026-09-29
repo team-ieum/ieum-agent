@@ -132,8 +132,7 @@ async def _run_with_events(events, agent_type="simple"):
     mock_ss = AsyncMock()
     mock_ss.create_session = AsyncMock(return_value=mock_session)
 
-    with patch("core.agent.resolve_env_key", return_value=None), \
-         patch("core.agent.resolve_model", return_value="gemini-2.5-flash"), \
+    with patch("core.agent.resolve_model", return_value="gemini-2.5-flash"), \
          patch("agents.execute.factory.LlmAgent"), \
          patch("agents.execute.factory.Runner", side_effect=_make_runner), \
          patch("core.agent.execution_logs") as mock_logs:
