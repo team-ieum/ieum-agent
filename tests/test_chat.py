@@ -91,14 +91,9 @@ def _make_patches(text_output: str):
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
     mock_session_service.delete_session = AsyncMock(return_value=None)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     return (
         patch("core.workflow_chat.Runner", return_value=_make_runner_mock(text_output)),
         patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
-        patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
         patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
     )
 
@@ -130,14 +125,9 @@ def _make_patches_seq(outputs: list):
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
     mock_session_service.delete_session = AsyncMock(return_value=None)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     return (
         patch("core.workflow_chat.Runner", return_value=_make_seq_runner_mock(outputs)),
         patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
-        patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
         patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
     )
 
@@ -165,8 +155,8 @@ async def _call(prompt="테스트", current_nodes=None, current_edges=None,
 @pytest.mark.asyncio
 async def test_chat_workflow_신규생성_정상():
     """정상 WORKFLOW_GENERATED 응답이 draft 하이드레이션을 거쳐 파싱된다."""
-    p1, p2, p3, p4 = _make_patches(WORKFLOW_GENERATED_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(WORKFLOW_GENERATED_JSON)
+    with p1, p2, p3:
         result = await _call("워크플로우 만들어줘")
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
     assert len(result.nodes) == 2
@@ -180,8 +170,8 @@ async def test_chat_workflow_신규생성_정상():
 @pytest.mark.asyncio
 async def test_chat_workflow_수정_정상():
     """currentNodes(full-node) 전달 시 WORKFLOW_MODIFIED, changeDescription이 존재한다."""
-    p1, p2, p3, p4 = _make_patches(WORKFLOW_MODIFIED_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(WORKFLOW_MODIFIED_JSON)
+    with p1, p2, p3:
         result = await _call(
             "프롬프트 수정해줘",
             current_nodes=FULL_NODES,
@@ -198,8 +188,8 @@ async def test_chat_workflow_수정_정상():
 @pytest.mark.asyncio
 async def test_chat_workflow_연동미완료_OAuth():
     """INTEGRATION_REQUIRED + OAuth 서비스: actions에 OAUTH 포함, oauthUrl 없음."""
-    p1, p2, p3, p4 = _make_patches(INTEGRATION_REQUIRED_OAUTH_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(INTEGRATION_REQUIRED_OAUTH_JSON)
+    with p1, p2, p3:
         result = await _call()
     assert result.type == ChatResponseType.INTEGRATION_REQUIRED
     assert len(result.actions) == 1
@@ -212,8 +202,8 @@ async def test_chat_workflow_연동미완료_OAuth():
 @pytest.mark.asyncio
 async def test_chat_workflow_연동미완료_Webhook():
     """INTEGRATION_REQUIRED + Webhook 서비스: actions 비어있음."""
-    p1, p2, p3, p4 = _make_patches(INTEGRATION_REQUIRED_WEBHOOK_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(INTEGRATION_REQUIRED_WEBHOOK_JSON)
+    with p1, p2, p3:
         result = await _call()
     assert result.type == ChatResponseType.INTEGRATION_REQUIRED
     assert result.actions == []
@@ -223,8 +213,8 @@ async def test_chat_workflow_연동미완료_Webhook():
 @pytest.mark.asyncio
 async def test_chat_workflow_Webhook_여러개_되묻기():
     """Webhook credential 2개 전달 시 CLARIFICATION_NEEDED."""
-    p1, p2, p3, p4 = _make_patches(CLARIFICATION_NEEDED_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(CLARIFICATION_NEEDED_JSON)
+    with p1, p2, p3:
         result = await _call(
             available=[{
                 "provider": "SLACK",
@@ -241,8 +231,8 @@ async def test_chat_workflow_Webhook_여러개_되묻기():
 @pytest.mark.asyncio
 async def test_chat_workflow_불명확_요청():
     """불명확한 요청 시 CLARIFICATION_NEEDED, nodes == None."""
-    p1, p2, p3, p4 = _make_patches(CLARIFICATION_NEEDED_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(CLARIFICATION_NEEDED_JSON)
+    with p1, p2, p3:
         result = await _call("뭔가 해줘")
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
     assert result.nodes is None
@@ -265,8 +255,8 @@ CLARIFICATION_WITH_OPTIONS_JSON = json.dumps({
 @pytest.mark.asyncio
 async def test_chat_workflow_options_파싱():
     """CLARIFICATION_NEEDED 응답의 options(선택지)가 파싱된다."""
-    p1, p2, p3, p4 = _make_patches(CLARIFICATION_WITH_OPTIONS_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(CLARIFICATION_WITH_OPTIONS_JSON)
+    with p1, p2, p3:
         result = await _call("GitHub PR을 노션에 저장해줘")
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
     assert len(result.options) == 2
@@ -278,8 +268,8 @@ async def test_chat_workflow_options_파싱():
 @pytest.mark.asyncio
 async def test_chat_workflow_options_기본_빈배열():
     """options가 없는 응답은 빈 배열로 처리된다."""
-    p1, p2, p3, p4 = _make_patches(CLARIFICATION_NEEDED_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(CLARIFICATION_NEEDED_JSON)
+    with p1, p2, p3:
         result = await _call("뭔가 해줘")
     assert result.options == []
 
@@ -287,8 +277,8 @@ async def test_chat_workflow_options_기본_빈배열():
 @pytest.mark.asyncio
 async def test_chat_workflow_빈_응답_CLARIFICATION_폴백():
     """Designer가 (재시도 후에도) 빈 응답을 반환하면 502 대신 CLARIFICATION_NEEDED로 폴백한다."""
-    p1, p2, p3, p4 = _make_patches("")
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches("")
+    with p1, p2, p3:
         result = await _call()
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
     assert result.nodes is None
@@ -298,8 +288,8 @@ async def test_chat_workflow_빈_응답_CLARIFICATION_폴백():
 @pytest.mark.asyncio
 async def test_chat_workflow_잘못된_json_폴백():
     """LLM이 잘못된 JSON을 반환하면 CLARIFICATION_NEEDED 타입으로 폴백된다."""
-    p1, p2, p3, p4 = _make_patches("이건 JSON이 아닙니다")
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches("이건 JSON이 아닙니다")
+    with p1, p2, p3:
         result = await _call()
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
     assert result.message == "이건 JSON이 아닙니다"
@@ -309,8 +299,8 @@ async def test_chat_workflow_잘못된_json_폴백():
 async def test_chat_workflow_코드펜스_제거():
     """마크다운 코드 펜스로 감싸도 정상 파싱된다."""
     fenced = f"```json\n{WORKFLOW_GENERATED_JSON}\n```"
-    p1, p2, p3, p4 = _make_patches(fenced)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(fenced)
+    with p1, p2, p3:
         result = await _call()
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
     assert len(result.nodes) == 2
@@ -330,8 +320,8 @@ async def test_chat_workflow_invalid_template_id():
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
-    p1, p2, p3, p4 = _make_patches(invalid_json)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(invalid_json)
+    with p1, p2, p3:
         result = await _call(preserve_id=True)
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
@@ -350,8 +340,8 @@ async def test_chat_workflow_duplicate_node_id():
         ],
         "edges": [],
     })
-    p1, p2, p3, p4 = _make_patches(invalid_json)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(invalid_json)
+    with p1, p2, p3:
         result = await _call(preserve_id=True)
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
@@ -371,8 +361,8 @@ async def test_chat_workflow_invalid_edge_reference():
             {"source": "node-1", "target": "node-999", "conditionType": None},
         ],
     })
-    p1, p2, p3, p4 = _make_patches(invalid_json)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(invalid_json)
+    with p1, p2, p3:
         result = await _call(preserve_id=True)
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
@@ -395,8 +385,8 @@ async def test_chat_workflow_static_validation_self_correction_success():
     })
     reviewer_pass = json.dumps({"isValid": True, "feedback": None})
     # designer 초안(bad) → reviewer(pass) → 정적검증 실패 → 재생성(정상)
-    p1, p2, p3, p4 = _make_patches_seq([bad, reviewer_pass, WORKFLOW_GENERATED_JSON])
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches_seq([bad, reviewer_pass, WORKFLOW_GENERATED_JSON])
+    with p1, p2, p3:
         result = await _call(preserve_id=True)
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
     assert result.nodes is not None
@@ -413,8 +403,8 @@ async def test_chat_workflow_generated_nodes_없으면_clarification():
         "nodes": None,
         "edges": None,
     })
-    p1, p2, p3, p4 = _make_patches(invalid)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(invalid)
+    with p1, p2, p3:
         result = await _call()
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
@@ -422,12 +412,12 @@ async def test_chat_workflow_generated_nodes_없으면_clarification():
 @pytest.mark.asyncio
 async def test_chat_workflow_with_mcp_servers_success():
     """mcp_servers 전달 시, MCPToolset이 생성되고 get_tools()가 호출되어 browse_tools에 주입된다."""
-    p1, p2, p3, p4 = _make_patches(WORKFLOW_GENERATED_JSON)
+    p1, p2, p3 = _make_patches(WORKFLOW_GENERATED_JSON)
 
     mock_mcp_instance = MagicMock()
     mock_mcp_instance.get_tools = MagicMock(return_value=[])
 
-    with p1, p2, p3, p4, \
+    with p1, p2, p3, \
          patch("core.workflow_chat.MCPToolset", return_value=mock_mcp_instance), \
          patch("core.workflow_chat._safe_close_mcp") as mock_close:
         result = await chat_workflow(
@@ -462,8 +452,8 @@ async def test_chat_workflow_id_translation():
         ],
     })
 
-    p1, p2, p3, p4 = _make_patches(input_json)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(input_json)
+    with p1, p2, p3:
         result = await _call("만들어줘", preserve_id=False)
 
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
@@ -500,14 +490,9 @@ def _make_patches_with_service(text_output: str):
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
     mock_session_service.delete_session = AsyncMock(return_value=None)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     patches = (
         patch("core.workflow_chat.Runner", return_value=_make_runner_mock(text_output)),
         patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
-        patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
         patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
     )
     return patches, mock_session_service
@@ -518,8 +503,8 @@ async def test_chat_workflow_workflow_id_있으면_세션_재사용():
     """workflow_id가 있으면 '{user_id}-{workflow_id}' 세션을 사용하고 삭제하지 않는다(멀티턴 유지)."""
     import core.workflow_chat
     core.workflow_chat._SESSION_SERVICE = None
-    (p1, p2, p3, p4), svc = _make_patches_with_service(WORKFLOW_MODIFIED_JSON)
-    with p1, p2, p3, p4:
+    (p1, p2, p3), svc = _make_patches_with_service(WORKFLOW_MODIFIED_JSON)
+    with p1, p2, p3:
         await _call(
             "프롬프트 수정해줘",
             current_nodes=FULL_NODES,
@@ -538,8 +523,8 @@ async def test_chat_workflow_workflow_id_없으면_격리_세션_생성_후_삭�
     """workflow_id가 없으면(신규 생성) 매 요청 고유 세션을 만들고 종료 시 삭제한다."""
     import core.workflow_chat
     core.workflow_chat._SESSION_SERVICE = None
-    (p1, p2, p3, p4), svc = _make_patches_with_service(WORKFLOW_GENERATED_JSON)
-    with p1, p2, p3, p4:
+    (p1, p2, p3), svc = _make_patches_with_service(WORKFLOW_GENERATED_JSON)
+    with p1, p2, p3:
         await _call("워크플로우 만들어줘")
     # 과거 대화 조회 없이 고유 세션을 새로 생성
     svc.get_session.assert_not_awaited()
@@ -602,13 +587,9 @@ async def test_chat_workflow_self_correction_loop():
     mock_session_service.get_session = AsyncMock(return_value=None)
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
     mock_session_service.delete_session = AsyncMock(return_value=None)
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
 
     with patch("core.workflow_chat.Runner", return_value=mock_runner), \
          patch("core.workflow_chat._get_session_service", return_value=mock_session_service), \
-         patch("core.workflow_chat.get_env_lock", return_value=mock_lock), \
          patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock):
         result = await chat_workflow(
             prompt="디스코드 전송 워크플로우 만들어줘",
@@ -641,8 +622,8 @@ async def test_chat_workflow_schedule_trigger_success():
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
         "workflowName": "IT 트렌드 자동 노션 요약",
     })
-    p1, p2, p3, p4 = _make_patches(schedule_json)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(schedule_json)
+    with p1, p2, p3:
         result = await _call("매주 금요일 17시 실행 스케줄 워크플로우 만들어줘")
 
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
@@ -700,13 +681,9 @@ async def test_chat_workflow_schedule_trigger_correction():
     mock_session_service.get_session = AsyncMock(return_value=None)
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
     mock_session_service.delete_session = AsyncMock(return_value=None)
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
 
     with patch("core.workflow_chat.Runner", return_value=mock_runner), \
          patch("core.workflow_chat._get_session_service", return_value=mock_session_service), \
-         patch("core.workflow_chat.get_env_lock", return_value=mock_lock), \
          patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock):
         result = await chat_workflow(
             prompt="매주 금요일 17시 스케줄 워크플로우 만들어줘",
@@ -763,8 +740,8 @@ LEGACY_COPIED_MODIFIED_JSON = json.dumps({
 async def test_chat_workflow_레거시_노드_수정_첫_시도_성공():
     """description 없는 레거시 노드를 Designer가 그대로 복사해도 수정이 첫 시도에 성공한다.
     (필수 슬롯 누락 → 자가 교정 → CLARIFICATION 폴백으로 새던 경로)"""
-    p1, p2, p3, p4 = _make_patches(LEGACY_COPIED_MODIFIED_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(LEGACY_COPIED_MODIFIED_JSON)
+    with p1, p2, p3:
         result = await _call("프롬프트 수정해줘",
                              current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
     assert result.type == ChatResponseType.WORKFLOW_MODIFIED
@@ -789,8 +766,8 @@ async def test_chat_workflow_레거시_보정은_기존_노드에만_적용된�
         ],
         "edges": VALID_EDGES + [{"source": "node-2", "target": "node-3", "conditionType": None}],
     })
-    p1, p2, p3, p4 = _make_patches(payload)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(payload)
+    with p1, p2, p3:
         result = await _call("요약 노드 추가해줘",
                              current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
@@ -805,16 +782,16 @@ async def test_chat_workflow_레거시_수정규칙_프롬프트_주입():
         captured.append(kwargs.get("instruction") or "")
         return MagicMock()
 
-    p1, p2, p3, p4 = _make_patches(LEGACY_COPIED_MODIFIED_JSON)
-    with p1, p2, p3, p4, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
+    p1, p2, p3 = _make_patches(LEGACY_COPIED_MODIFIED_JSON)
+    with p1, p2, p3, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
         await _call("수정해줘", current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
     designer_instruction = captured[0]
     assert "그대로 유지' 규칙의 예외" in designer_instruction
     assert "node-1, node-2" in designer_instruction
 
     captured.clear()
-    p1, p2, p3, p4 = _make_patches(WORKFLOW_MODIFIED_JSON)
-    with p1, p2, p3, p4, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
+    p1, p2, p3 = _make_patches(WORKFLOW_MODIFIED_JSON)
+    with p1, p2, p3, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
         await _call("수정해줘", current_nodes=FULL_NODES, current_edges=VALID_EDGES)
     # description이 이미 있는 워크플로우에는 예외 규칙 자체를 넣지 않는다(규칙 2와 충돌 방지).
     assert "그대로 유지' 규칙의 예외" not in captured[0]
@@ -846,8 +823,8 @@ async def test_chat_workflow_mcp_assigned_when_catalog_available():
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
-    p1, p2, p3, p4 = _make_patches(payload)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(payload)
+    with p1, p2, p3:
         result = await _call(
             prompt="MCP 워크플로우",
             available_mcp_servers=[{"catalogId": "cat-abc", "name": "내 MCP", "description": "테스트"}],
@@ -867,8 +844,8 @@ async def test_chat_workflow_mcp_rejected_when_no_catalog():
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
-    p1, p2, p3, p4 = _make_patches(payload)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(payload)
+    with p1, p2, p3:
         result = await _call(prompt="MCP 워크플로우")
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
@@ -885,8 +862,8 @@ async def test_chat_workflow_webhook_assigned_when_credential_available():
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
-    p1, p2, p3, p4 = _make_patches(payload)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(payload)
+    with p1, p2, p3:
         result = await _call(
             prompt="디스코드 발송 워크플로우",
             available_webhooks=[{"webhookCredentialId": "wh-1", "provider": "DISCORD", "displayName": "내 채널"}],
@@ -907,8 +884,8 @@ async def test_chat_workflow_webhook_hallucinated_credential_stripped():
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
-    p1, p2, p3, p4 = _make_patches(payload)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(payload)
+    with p1, p2, p3:
         result = await _call(prompt="디스코드 발송 워크플로우")
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
     assert result.nodes[1].config["tools"] == [{"name": "discord", "config": {}}]
@@ -974,14 +951,9 @@ def _make_patches_with_usage(text_output: str, token_pairs: list | None = None):
     mock_session_service.create_session = AsyncMock(return_value=mock_session)
     mock_session_service.delete_session = AsyncMock(return_value=None)
 
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = AsyncMock(return_value=None)
-    mock_lock.__aexit__ = AsyncMock(return_value=None)
-
     patches = (
         patch("core.workflow_chat.Runner", side_effect=_runner_factory),
         patch("core.workflow_chat._get_session_service", return_value=mock_session_service),
-        patch("core.workflow_chat.get_env_lock", return_value=mock_lock),
         patch("core.workflow_chat._save_chat_log", new_callable=AsyncMock),
     )
     return patches, captured
@@ -990,10 +962,10 @@ def _make_patches_with_usage(text_output: str, token_pairs: list | None = None):
 @pytest.mark.asyncio
 async def test_chat_workflow_usage_응답에_채워진다():
     """LLM 호출의 토큰이 ChatResponse.usage에 실린다."""
-    (p1, p2, p3, p4), _ = _make_patches_with_usage(
+    (p1, p2, p3), _ = _make_patches_with_usage(
         WORKFLOW_GENERATED_JSON, token_pairs=[(100, 30)]
     )
-    with p1, p2, p3, p4:
+    with p1, p2, p3:
         result = await _call("워크플로우 만들어줘")
 
     assert result.usage is not None
@@ -1005,10 +977,10 @@ async def test_chat_workflow_usage_응답에_채워진다():
 @pytest.mark.asyncio
 async def test_chat_workflow_usage_designer_reviewer_합산():
     """designer와 reviewer가 같은 플러그인 인스턴스를 공유해 토큰이 합산된다."""
-    (p1, p2, p3, p4), captured = _make_patches_with_usage(
+    (p1, p2, p3), captured = _make_patches_with_usage(
         WORKFLOW_GENERATED_JSON, token_pairs=[(100, 30), (50, 20)]
     )
-    with p1, p2, p3, p4:
+    with p1, p2, p3:
         result = await _call("워크플로우 만들어줘")
 
     # Runner가 2개(designer/reviewer) 생성되고 둘 다 같은 플러그인 인스턴스를 받아야 한다
@@ -1025,8 +997,8 @@ async def test_chat_workflow_usage_designer_reviewer_합산():
 @pytest.mark.asyncio
 async def test_chat_workflow_usage_토큰없으면_None():
     """LLM이 토큰을 보고하지 않으면 usage는 None이다(execute 경로와 동일)."""
-    (p1, p2, p3, p4), _ = _make_patches_with_usage(WORKFLOW_GENERATED_JSON, token_pairs=[])
-    with p1, p2, p3, p4:
+    (p1, p2, p3), _ = _make_patches_with_usage(WORKFLOW_GENERATED_JSON, token_pairs=[])
+    with p1, p2, p3:
         result = await _call("워크플로우 만들어줘")
 
     assert result.usage is None
@@ -1088,8 +1060,8 @@ FORGED_NEW_PASSTHROUGH_JSON = json.dumps({
 @pytest.mark.asyncio
 async def test_chat_workflow_passthrough_forged_node_is_ignored():
     """LLM이 pass-through draft의 'node'를 조작해도, 서버가 쥔 current_nodes 원본으로 강제 치환된다."""
-    p1, p2, p3, p4 = _make_patches(FORGED_PASSTHROUGH_MODIFIED_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(FORGED_PASSTHROUGH_MODIFIED_JSON)
+    with p1, p2, p3:
         result = await _call(
             "가공 노드 손봐줘",
             current_nodes=PASSTHROUGH_FULL_NODES,
@@ -1109,8 +1081,8 @@ async def test_chat_workflow_passthrough_forged_node_is_ignored():
 async def test_chat_workflow_passthrough_new_node_forgery_rejected():
     """current_nodes에 없는 id로 pass-through draft를 보내 신규 노드를 날조하면 거부된다
     (자가 교정 재시도 후에도 실패 → CLARIFICATION_NEEDED 폴백)."""
-    p1, p2, p3, p4 = _make_patches(FORGED_NEW_PASSTHROUGH_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(FORGED_NEW_PASSTHROUGH_JSON)
+    with p1, p2, p3:
         result = await _call(
             "노드 추가해줘",
             current_nodes=PASSTHROUGH_FULL_NODES,
@@ -1173,8 +1145,8 @@ SENTINEL_STRIPPED_JSON = json.dumps({
 async def test_chat_workflow_disguised_passthrough_rejected():
     """편집 가능한 노드에 LLM이 __passthrough__를 붙여도 원본 복원이 열리지 않는다.
     허용하면 사용자의 수정 요청이 '수정했습니다' 응답과 함께 조용히 무시된다."""
-    p1, p2, p3, p4 = _make_patches(DISGUISED_PASSTHROUGH_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(DISGUISED_PASSTHROUGH_JSON)
+    with p1, p2, p3:
         result = await _call(
             "node-2 프롬프트 바꿔줘",
             current_nodes=EDITABLE_NODES,
@@ -1187,8 +1159,8 @@ async def test_chat_workflow_disguised_passthrough_rejected():
 async def test_chat_workflow_passthrough_deletion_allowed():
     """편집 불가 노드를 출력에서 빼면 삭제로 인정한다. 생존을 강제하면 사용자가 그 노드를
     지워달라고 해도 영원히 실패한다(빼면 거부, 넣으면 삭제가 안 됨)."""
-    p1, p2, p3, p4 = _make_patches(DELETED_PASSTHROUGH_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(DELETED_PASSTHROUGH_JSON)
+    with p1, p2, p3:
         result = await _call(
             "가공 노드 지워줘",
             current_nodes=PASSTHROUGH_FULL_NODES,
@@ -1202,8 +1174,8 @@ async def test_chat_workflow_passthrough_deletion_allowed():
 async def test_chat_workflow_sentinel_stripped_rejected():
     """편집 불가 노드의 센티넬을 떼고 진짜 templateId로 되돌리면 거부된다.
     허용하면 LLM이 쓴 config가 id 기준 검증 면제를 그대로 타고 나간다."""
-    p1, p2, p3, p4 = _make_patches(SENTINEL_STRIPPED_JSON)
-    with p1, p2, p3, p4:
+    p1, p2, p3 = _make_patches(SENTINEL_STRIPPED_JSON)
+    with p1, p2, p3:
         result = await _call(
             "가공 노드를 슬랙으로 바꿔줘",
             current_nodes=PASSTHROUGH_FULL_NODES,

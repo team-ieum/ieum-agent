@@ -5,9 +5,7 @@ from datetime import datetime, timezone
 
 from api.schemas.generate_workflow import GenerateWorkflowResponse, WorkflowNode, WorkflowEdge
 from common.error_code import ErrorCode
-from core.env_lock import get_env_lock
-from core.provider_config import resolve_model, resolve_env_key
-from core.model_factory import uses_env_key
+from core.provider_config import resolve_model
 from db.mongodb import generate_workflow_logs
 from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
 
@@ -183,8 +181,6 @@ async def generate_workflow(
 ) -> GenerateWorkflowResponse:
     start = time.monotonic()
     model = resolve_model(provider)
-    env_key = resolve_env_key(provider)
-    lock = get_env_lock(env_key) if (env_key and uses_env_key(provider, api_key, user_role)) else None
 
     # 생성 단계에서 허용되는 MCP 카탈로그 ID 집합. 카탈로그가 없으면 MCP는 전면 차단된다.
     allowed_mcp_catalog_ids = {
@@ -204,7 +200,6 @@ async def generate_workflow(
             model=model,
             provider=provider,
             api_key=api_key,
-            env_key=env_key,
             user_role=user_role,
             validate_fn=_validate,
             available_mcp_servers=available_mcp_servers,
@@ -214,11 +209,7 @@ async def generate_workflow(
     try:
         # Plan 검증·Builder Reflexion 루프는 run_generate_agent 내부에서 수행된다.
         # 반환된 raw_output은 이미 _validate를 통과한 상태이므로 여기서 객체화만 한다.
-        if lock:
-            async with lock:
-                raw_output = await _execute()
-        else:
-            raw_output = await _execute()
+        raw_output = await _execute()
 
         response = _parse_and_validate(raw_output, prompt, provider, allowed_mcp_catalog_ids)
     except Exception as err:

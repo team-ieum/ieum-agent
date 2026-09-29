@@ -348,7 +348,7 @@ def hydrate_node(
       passthrough_originals를 넘기지 않은 호출부에서는 pass-through가 항상 거부된다 — 기본값이
       거부여야 새 호출부가 생겨도 안전하게 실패한다(생성 경로가 이 기본값에 기대고 있다).
       단 원본에 description이 없고 draft["node"]에 있으면 description **한 필드만** 가져온다
-      (레거시+템플릿 미매칭 노드가 BE의 description 필수 검증에 걸려 저장이 막히는 것 방지).
+      (레거시+템플릿 미매칭 노드의 카드 설명이 비어 보이지 않게 하는 표시용 폴백).
     - templateId가 레지스트리에 없으면 SlotFillError(노드 날조 차단).
     - 템플릿에 없는 슬롯 키, 필수 슬롯 누락이면 SlotFillError(필드 날조 차단).
     - provider/model 슬롯(kind=provider|model)은 인자 provider에서 계산해 자동 주입한다
@@ -382,8 +382,8 @@ def hydrate_node(
             desc = llm_node.get("description") if isinstance(llm_node, dict) else None
             if not (isinstance(desc, str) and desc.strip()):
                 # 모델이 안 채우면 label로 떨어진다(슬롯 경로의 backfill_legacy_description과 같은 처리).
-                # label까지 비었으면 고정 문구를 쓴다 — 빈 채로 내보내면 BE의 description 필수 검증에
-                # 걸려 저장 시점에 수정 결과가 통째로 날아간다(사용자는 원인을 알 수 없다).
+                # label까지 비었으면 고정 문구를 쓴다 — 카드 표시용 폴백이다(빈 채로 내보내면 노드 카드의
+                # 설명이 비어 보인다).
                 desc = node.get("label")
             if not (isinstance(desc, str) and desc.strip()):
                 desc = "이 노드가 하는 일을 설명해요."
@@ -427,8 +427,7 @@ def hydrate_node(
             and isinstance(slots_in[name], str) and not slots_in[name].strip()
         ):
             # 필수 문자열 슬롯에 빈 값/공백을 넣은 것은 '채웠다'가 아니다. 키 존재만 보면
-            # description=""가 통과해 응답은 200으로 나가고, 저장 시점에 BE NodeDto의
-            # @NotBlank로 400이 난다 — 사용자가 원인을 알 수 없는 자리에서 실패한다.
+            # description=""가 통과해 빈 설명이 그대로 나가고, 노드 카드 설명이 조용히 비어 보인다.
             value = slots_in[name]
         elif slot["required"]:
             raise SlotFillError(f"'{tid}'의 필수 슬롯 '{name}'이(가) 누락되었습니다.")

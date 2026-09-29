@@ -1,5 +1,4 @@
 import contextlib
-import os
 from google.adk.agents import LlmAgent
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.function_tool import FunctionTool
@@ -18,7 +17,7 @@ from agents.execute.sub.communication_agent import build_communication_agent
 from agents.execute.sub.transform_agent import build_transform_agent, TRANSFORM_OUTPUT_RULES
 from agents.execute.sub.mcp_agent import build_mcp_agent
 from agents.base import _bind_workflow_context, _bind_google_token, _bind_notion_token
-from core.model_factory import build_model_param, uses_env_key, cost_model_name
+from core.model_factory import build_model_param, cost_model_name
 from core.config import get_current_time_info
 from core.usage_plugin import UsageTrackingPlugin
 from db.session_service import MongoSessionService
@@ -92,21 +91,13 @@ async def run_simple_agent(
     model: str,
     request: AgentNodeRequest,
     api_key: str | None,
-    env_key: str | None,
     user_id: str,
     provider: str,
     user_role: str | None = None,
     session_service: BaseSessionService | None = None,
 ) -> tuple[str, int, int, int]:
     """simple 타입: 단일 LlmAgent로 실행. 도구 없이 빠른 LLM 호출."""
-    prev_value = None
     cleanup_session_id = None
-    inject_env = uses_env_key(provider, api_key, user_role)
-
-    # Gemini/자체 LLM이 아닌 경우에만 os.environ 조작 (Lock 대상)
-    if env_key and inject_env:
-        prev_value = os.environ.get(env_key)
-        os.environ[env_key] = api_key
 
     try:
         builtin_tools = get_tools_for_request(request.tools or [])
@@ -162,18 +153,12 @@ async def run_simple_agent(
     finally:
         if cleanup_session_id is not None:
             await _safe_delete_session(session_service, user_id, cleanup_session_id)
-        if env_key and inject_env:
-            if prev_value is None:
-                os.environ.pop(env_key, None)
-            else:
-                os.environ[env_key] = prev_value
 
 
 async def run_react_agent(
     model: str,
     request: AgentNodeRequest,
     api_key: str | None,
-    env_key: str | None,
     user_id: str,
     provider: str,
     google_access_token: str | None = None,
@@ -184,167 +169,20 @@ async def run_react_agent(
     use_single_agent: bool = True,
 ) -> tuple[str, int, int, int]:
     """react 타입: Main Agent + Sub-Agent 멀티 에이전트 실행. AsyncExitStack으로 MCPToolset 관리."""
-    prev_value = None
-    inject_env = uses_env_key(provider, api_key, user_role)
-
     if session_service is None:
         session_service = MongoSessionService()
 
-    # Gemini/자체 LLM이 아닌 경우에만 os.environ 조작
-    if env_key and inject_env:
-        prev_value = os.environ.get(env_key)
-        os.environ[env_key] = api_key
+    active_tokens = [t for t in [google_access_token, notion_token, github_token] if t]
+    has_custom_mcp = bool(request.mcp_servers)
+    webhook_configs = _extract_webhook_configs(request.tools)
 
-    try:
-        active_tokens = [t for t in [google_access_token, notion_token, github_token] if t]
-        has_custom_mcp = bool(request.mcp_servers)
-        webhook_configs = _extract_webhook_configs(request.tools)
+    model_param = build_model_param(provider, model, api_key, user_role)
 
-        model_param = build_model_param(provider, model, api_key, user_role)
-
-        # [최적화] 외부 연동 크레덴셜이 1개 이하이고 커스텀 MCP가 정의되지 않은 경우
-        # 메인-서브 멀티에이전트 오케스트레이션을 우회하고 단일 ReAct Agent로 다이렉트 실행하여 Latency 감소
-        # 단, 테스트 환경(use_single_agent가 False인 경우)에는 기존 멀티에이전트 흐름을 유지합니다.
-        if len(active_tokens) <= 1 and not has_custom_mcp and use_single_agent:
-            async with contextlib.AsyncExitStack() as stack:
-                builtin_tools = get_tools_for_request(request.tools or [])
-                if google_access_token:
-                    builtin_tools = _bind_google_token(builtin_tools, google_access_token)
-                if notion_token:
-                    builtin_tools = _bind_notion_token(builtin_tools, notion_token)
-                builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
-
-                # notion/google/web/comm/github/transform 모두 능력 서술만 남기고 .tools를
-                # 평탄화한다(nested LLM hop 제거). github는 원격 MCP라 도구 description을 바꿀 수
-                # 없으므로, PR 조회 행동규칙(GITHUB_PR_RULES)은 아래에서 단일 에이전트 instruction에
-                # 직접 병합한다. transform은 도구 docstring에 규칙이 있으나, 도구를 호출하지 않고
-                # 직접 생성하는 경우 docstring이 도달하지 않으므로 규칙(TRANSFORM_OUTPUT_RULES)도 병합한다.
-                github_rules = ""
-                transform_rules = ""
-
-                mcp_tools = []
-                if notion_token:
-                    notion_agent, _ = await build_notion_agent(model_param, notion_token, stack)
-                    mcp_tools.extend(notion_agent.tools)
-                elif google_access_token:
-                    google_agent, _ = await build_google_agent(model_param, google_access_token, stack)
-                    mcp_tools.extend(google_agent.tools)
-                elif github_token:
-                    github_agent, _ = await build_github_agent(model_param, github_token, stack)
-                    mcp_tools.extend(github_agent.tools or [])
-                    github_rules = GITHUB_PR_RULES
-
-                # 헬퍼 서브에이전트는 필요할 때만 마운트한다. 명시 도구가 있는 노드(예: 발송 노드)에
-                # web/transform 헬퍼까지 붙이면 ReAct 에이전트가 곁길(예: discord 발송 대신 web_search)로
-                # 새므로, 명시 도구가 없는 능력형 노드에만 붙인다. comm은 webhook 설정이 있을 때만.
-                helper_tools = []
-                if webhook_configs:
-                    comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
-                    helper_tools.extend(comm_agent.tools or [])
-                if not request.tools:
-                    web_agent, _ = await build_web_agent(model_param)
-                    transform_agent, _ = await build_transform_agent(model_param)
-                    helper_tools.extend(web_agent.tools or [])
-                    helper_tools.extend(transform_agent.tools or [])
-                    transform_rules = TRANSFORM_OUTPUT_RULES
-
-                raw_direct_tools = [
-                    *builtin_tools,
-                    *mcp_tools,
-                    *helper_tools,
-                ]
-                seen_names = set()
-                direct_tools = []
-                for t in raw_direct_tools:
-                    if t.name not in seen_names:
-                        seen_names.add(t.name)
-                        direct_tools.append(t)
-
-                single_agent = LlmAgent(
-                    name="ieum_single_agent",
-                    model=model_param,
-                    instruction=(
-                        "당신은 IEUM 워크플로우 실행 에이전트입니다. 주어진 도구들을 사용하여 사용자의 요청을 직접 처리하세요."
-                        + github_rules
-                        + transform_rules
-                        + (f"\n\n## 사용자 지시\n{request.systemMessage}" if request.systemMessage else "")
-                        + get_current_time_info()
-                    ),
-                    tools=direct_tools,
-                )
-
-                usage = UsageTrackingPlugin(model=cost_model_name(provider, model, api_key, user_role))
-                runner = Runner(
-                    agent=single_agent,
-                    app_name="ieum-agent",
-                    session_service=session_service,
-                    plugins=[usage],
-                )
-                session = await session_service.create_session(
-                    app_name="ieum-agent",
-                    user_id=user_id
-                )
-                stack.push_async_callback(_safe_delete_session, session_service, user_id, session.id)
-                message = types.Content(
-                    role="user",
-                    parts=[
-                        types.Part(
-                            text=request.renderedPrompt
-                        )
-                    ]
-                )
-
-                output_parts = []
-                tool_call_count = 0
-
-                async for event in runner.run_async(
-                        user_id=user_id,
-                        session_id=session.id,
-                        new_message=message,
-                        run_config=RunConfig(max_llm_calls=settings.AGENT_MAX_LLM_CALLS)
-                ):
-                    tool_call_count += len(event.get_function_calls() or [])
-                    if event.is_final_response() and event.content and event.content.parts:
-                        for part in event.content.parts:
-                            if hasattr(part, "text") and part.text:
-                                output_parts.append(part.text)
-
-                _assert_tool_called(request.tools, tool_call_count)
-                return "\n".join(output_parts), usage.total_input, usage.total_output, usage.total_count
-
-        # [기본 흐름] 복수 크레덴셜 또는 커스텀 MCP가 있는 경우 오케스트레이터(Main) + 전문 서브에이전트 구조로 실행
+    # [최적화] 외부 연동 크레덴셜이 1개 이하이고 커스텀 MCP가 정의되지 않은 경우
+    # 메인-서브 멀티에이전트 오케스트레이션을 우회하고 단일 ReAct Agent로 다이렉트 실행하여 Latency 감소
+    # 단, 테스트 환경(use_single_agent가 False인 경우)에는 기존 멀티에이전트 흐름을 유지합니다.
+    if len(active_tokens) <= 1 and not has_custom_mcp and use_single_agent:
         async with contextlib.AsyncExitStack() as stack:
-            # 헬퍼 서브에이전트는 필요할 때만 마운트한다(단일 경로와 동일 정책). 명시 도구가 있는 노드에
-            # web/transform 헬퍼까지 붙이면 곁길로 새므로, 도구 없는 능력형 노드에만 붙인다.
-            # comm은 webhook 설정이 있을 때만.
-            sub_agent_tools = []
-            if webhook_configs:
-                comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
-                sub_agent_tools.append(AgentTool(agent=comm_agent))
-            if not request.tools:
-                web_agent, _ = await build_web_agent(model_param)
-                transform_agent, _ = await build_transform_agent(model_param)
-                sub_agent_tools.append(AgentTool(agent=web_agent))
-                sub_agent_tools.append(AgentTool(agent=transform_agent))
-
-            if notion_token:
-                notion_agent, _ = await build_notion_agent(model_param, notion_token, stack)
-                sub_agent_tools.append(AgentTool(agent=notion_agent))
-
-            if google_access_token:
-                google_agent, _ = await build_google_agent(model_param, google_access_token, stack)
-                sub_agent_tools.append(AgentTool(agent=google_agent))
-
-            if github_token:
-                github_agent, _ = await build_github_agent(model_param, github_token, stack)
-                sub_agent_tools.append(AgentTool(agent=github_agent))
-
-            mcp_server_configs = [s.model_dump() for s in (request.mcp_servers or [])]
-            if mcp_server_configs:
-                mcp_agent, _ = await build_mcp_agent(model_param, mcp_server_configs, stack)
-                sub_agent_tools.append(AgentTool(agent=mcp_agent))
-
-            # builtin 도구 바인딩
             builtin_tools = get_tools_for_request(request.tools or [])
             if google_access_token:
                 builtin_tools = _bind_google_token(builtin_tools, google_access_token)
@@ -352,25 +190,72 @@ async def run_react_agent(
                 builtin_tools = _bind_notion_token(builtin_tools, notion_token)
             builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
 
-            # Main Agent 구성
-            main_agent = LlmAgent(
-                name="ieum_main_agent",
+            # notion/google/web/comm/github/transform 모두 능력 서술만 남기고 .tools를
+            # 평탄화한다(nested LLM hop 제거). github는 원격 MCP라 도구 description을 바꿀 수
+            # 없으므로, PR 조회 행동규칙(GITHUB_PR_RULES)은 아래에서 단일 에이전트 instruction에
+            # 직접 병합한다. transform은 도구 docstring에 규칙이 있으나, 도구를 호출하지 않고
+            # 직접 생성하는 경우 docstring이 도달하지 않으므로 규칙(TRANSFORM_OUTPUT_RULES)도 병합한다.
+            github_rules = ""
+            transform_rules = ""
+
+            mcp_tools = []
+            if notion_token:
+                notion_agent, _ = await build_notion_agent(model_param, notion_token, stack)
+                mcp_tools.extend(notion_agent.tools)
+            elif google_access_token:
+                google_agent, _ = await build_google_agent(model_param, google_access_token, stack)
+                mcp_tools.extend(google_agent.tools)
+            elif github_token:
+                github_agent, _ = await build_github_agent(model_param, github_token, stack)
+                mcp_tools.extend(github_agent.tools or [])
+                github_rules = GITHUB_PR_RULES
+
+            # 헬퍼 서브에이전트는 필요할 때만 마운트한다. 명시 도구가 있는 노드(예: 발송 노드)에
+            # web/transform 헬퍼까지 붙이면 ReAct 에이전트가 곁길(예: discord 발송 대신 web_search)로
+            # 새므로, 명시 도구가 없는 능력형 노드에만 붙인다. comm은 webhook 설정이 있을 때만.
+            helper_tools = []
+            if webhook_configs:
+                comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
+                helper_tools.extend(comm_agent.tools or [])
+            if not request.tools:
+                web_agent, _ = await build_web_agent(model_param)
+                transform_agent, _ = await build_transform_agent(model_param)
+                helper_tools.extend(web_agent.tools or [])
+                helper_tools.extend(transform_agent.tools or [])
+                transform_rules = TRANSFORM_OUTPUT_RULES
+
+            raw_direct_tools = [
+                *builtin_tools,
+                *mcp_tools,
+                *helper_tools,
+            ]
+            seen_names = set()
+            direct_tools = []
+            for t in raw_direct_tools:
+                if t.name not in seen_names:
+                    seen_names.add(t.name)
+                    direct_tools.append(t)
+
+            single_agent = LlmAgent(
+                name="ieum_single_agent",
                 model=model_param,
-                instruction=MAIN_INSTRUCTION + (
-                    f"\n\n## 사용자 지시\n{request.systemMessage}" if request.systemMessage else ""
-                ) + get_current_time_info(),
-                tools=[
-                    *sub_agent_tools,
-                    *builtin_tools,
-                ],
+                instruction=(
+                    "당신은 IEUM 워크플로우 실행 에이전트입니다. 주어진 도구들을 사용하여 사용자의 요청을 직접 처리하세요."
+                    + github_rules
+                    + transform_rules
+                    + (f"\n\n## 사용자 지시\n{request.systemMessage}" if request.systemMessage else "")
+                    + get_current_time_info()
+                ),
+                tools=direct_tools,
             )
 
             usage = UsageTrackingPlugin(model=cost_model_name(provider, model, api_key, user_role))
             runner = Runner(
-                agent=main_agent,
+                agent=single_agent,
                 app_name="ieum-agent",
                 session_service=session_service,
-                plugins=[usage])
+                plugins=[usage],
+            )
             session = await session_service.create_session(
                 app_name="ieum-agent",
                 user_id=user_id
@@ -403,9 +288,93 @@ async def run_react_agent(
             _assert_tool_called(request.tools, tool_call_count)
             return "\n".join(output_parts), usage.total_input, usage.total_output, usage.total_count
 
-    finally:
-        if env_key and inject_env:
-            if prev_value is None:
-                os.environ.pop(env_key, None)
-            else:
-                os.environ[env_key] = prev_value
+    # [기본 흐름] 복수 크레덴셜 또는 커스텀 MCP가 있는 경우 오케스트레이터(Main) + 전문 서브에이전트 구조로 실행
+    async with contextlib.AsyncExitStack() as stack:
+        # 헬퍼 서브에이전트는 필요할 때만 마운트한다(단일 경로와 동일 정책). 명시 도구가 있는 노드에
+        # web/transform 헬퍼까지 붙이면 곁길로 새므로, 도구 없는 능력형 노드에만 붙인다.
+        # comm은 webhook 설정이 있을 때만.
+        sub_agent_tools = []
+        if webhook_configs:
+            comm_agent, _ = await build_communication_agent(model_param, webhook_configs)
+            sub_agent_tools.append(AgentTool(agent=comm_agent))
+        if not request.tools:
+            web_agent, _ = await build_web_agent(model_param)
+            transform_agent, _ = await build_transform_agent(model_param)
+            sub_agent_tools.append(AgentTool(agent=web_agent))
+            sub_agent_tools.append(AgentTool(agent=transform_agent))
+
+        if notion_token:
+            notion_agent, _ = await build_notion_agent(model_param, notion_token, stack)
+            sub_agent_tools.append(AgentTool(agent=notion_agent))
+
+        if google_access_token:
+            google_agent, _ = await build_google_agent(model_param, google_access_token, stack)
+            sub_agent_tools.append(AgentTool(agent=google_agent))
+
+        if github_token:
+            github_agent, _ = await build_github_agent(model_param, github_token, stack)
+            sub_agent_tools.append(AgentTool(agent=github_agent))
+
+        mcp_server_configs = [s.model_dump() for s in (request.mcp_servers or [])]
+        if mcp_server_configs:
+            mcp_agent, _ = await build_mcp_agent(model_param, mcp_server_configs, stack)
+            sub_agent_tools.append(AgentTool(agent=mcp_agent))
+
+        # builtin 도구 바인딩
+        builtin_tools = get_tools_for_request(request.tools or [])
+        if google_access_token:
+            builtin_tools = _bind_google_token(builtin_tools, google_access_token)
+        if notion_token:
+            builtin_tools = _bind_notion_token(builtin_tools, notion_token)
+        builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
+
+        # Main Agent 구성
+        main_agent = LlmAgent(
+            name="ieum_main_agent",
+            model=model_param,
+            instruction=MAIN_INSTRUCTION + (
+                f"\n\n## 사용자 지시\n{request.systemMessage}" if request.systemMessage else ""
+            ) + get_current_time_info(),
+            tools=[
+                *sub_agent_tools,
+                *builtin_tools,
+            ],
+        )
+
+        usage = UsageTrackingPlugin(model=cost_model_name(provider, model, api_key, user_role))
+        runner = Runner(
+            agent=main_agent,
+            app_name="ieum-agent",
+            session_service=session_service,
+            plugins=[usage])
+        session = await session_service.create_session(
+            app_name="ieum-agent",
+            user_id=user_id
+        )
+        stack.push_async_callback(_safe_delete_session, session_service, user_id, session.id)
+        message = types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    text=request.renderedPrompt
+                )
+            ]
+        )
+
+        output_parts = []
+        tool_call_count = 0
+
+        async for event in runner.run_async(
+                user_id=user_id,
+                session_id=session.id,
+                new_message=message,
+                run_config=RunConfig(max_llm_calls=settings.AGENT_MAX_LLM_CALLS)
+        ):
+            tool_call_count += len(event.get_function_calls() or [])
+            if event.is_final_response() and event.content and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, "text") and part.text:
+                        output_parts.append(part.text)
+
+        _assert_tool_called(request.tools, tool_call_count)
+        return "\n".join(output_parts), usage.total_input, usage.total_output, usage.total_count

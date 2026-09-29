@@ -19,12 +19,6 @@ def _build_model_map() -> dict[str, str]:
     }
 
 
-ENV_KEY_MAP: dict[str, str] = {
-    "CLAUDE": "ANTHROPIC_API_KEY",
-    "OPENAI": "OPENAI_API_KEY",
-    "GEMINI": "GOOGLE_API_KEY",
-}
-
 # 조회 전 벗길 접두: LiteLlm 라우팅용(model_factory._LITELLM_PREFIX에서 파생) + cost 조회용 gemini/.
 _ROUTING_PREFIXES = tuple(f"{p}/" for p in _LITELLM_PREFIX.values()) + ("gemini/",)
 
@@ -85,7 +79,3 @@ def resolve_model(provider: str, model_override: str | None = None) -> str:
             logger.warning("폐기된 모델 강등 provider=%s model=%s -> %s", provider, model, default)
         return default
     return model
-
-
-def resolve_env_key(provider: str) -> str | None:
-    return ENV_KEY_MAP.get(provider.upper())

@@ -56,7 +56,6 @@ async def test_run_simple_agent_returns_output():
             provider="GEMINI",
             request=_make_request(agent_type="simple"),
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
         )
@@ -86,7 +85,6 @@ async def test_run_simple_agent_creates_agent_with_no_tools():
             provider="GEMINI",
             request=_make_request(agent_type="simple"),
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
         )
@@ -117,7 +115,6 @@ async def test_run_simple_agent_deletes_session_after_run():
             provider="GEMINI",
             request=_make_request(agent_type="simple"),
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
         )
@@ -182,7 +179,6 @@ async def test_run_react_agent_raises_when_tool_never_called():
                 provider="GEMINI",
                 request=req,
                 api_key="test-key",
-                env_key=None,
                 user_id="user-1",
                 session_service=mock_ss,
             )
@@ -216,7 +212,6 @@ async def test_run_react_agent_succeeds_when_tool_called():
             provider="GEMINI",
             request=req,
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
         )
@@ -255,7 +250,6 @@ async def test_run_react_agent_returns_output():
             provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
         )
@@ -289,7 +283,6 @@ async def test_run_react_agent_deletes_session_single_path():
             provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
         )
@@ -330,7 +323,6 @@ async def test_run_react_agent_deletes_session_multi_path():
             provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
             use_single_agent=False,
@@ -377,7 +369,6 @@ async def test_run_react_agent_builds_helpers_for_toolless_node():
             provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
             use_single_agent=False,
@@ -432,7 +423,6 @@ async def test_run_react_agent_builds_conditional_agents_with_tokens():
             provider="GEMINI",
             request=request_with_mcp,
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             notion_token="notion-token",
             google_access_token="google-token",
@@ -481,7 +471,6 @@ async def test_run_react_agent_skips_helpers_for_explicit_tool_node():
             provider="GEMINI",
             request=req,
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
             use_single_agent=False,
@@ -524,7 +513,6 @@ async def test_run_react_agent_passes_tokens_to_sub_agents():
             provider="GEMINI",
             request=_make_request(),
             api_key="test-key",
-            env_key=None,
             user_id="user-1",
             notion_token="notion-token-value",
             github_token="github-token-value",
@@ -582,7 +570,6 @@ async def test_run_react_agent_flattens_behavioral_subagents_and_merges_github_r
             provider="GEMINI",
             request=_make_request(),  # tools 없음 → 능력형 노드(web/transform 마운트) + github 단일 크레덴셜
             api_key="test-key",
-            env_key=None,
             user_id="u1",
             github_token="gh-token",
             session_service=mock_ss,
@@ -639,7 +626,6 @@ async def test_run_react_agent_github_only_credential_merges_rules_and_flattens_
             provider="GEMINI",
             request=req,
             api_key="test-key",
-            env_key=None,
             user_id="u1",
             github_token="gh-token-only",
             session_service=mock_ss,
@@ -684,7 +670,6 @@ async def test_run_simple_agent_passes_cost_model_to_usage_plugin():
             provider="CLAUDE",
             request=_make_request(agent_type="simple"),
             api_key="sk-test",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
         )
@@ -723,7 +708,6 @@ async def test_run_react_agent_explicit_tool_node_passes_cost_model_to_usage_plu
             provider="CLAUDE",
             request=req,
             api_key="sk-test",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
         )
@@ -763,7 +747,6 @@ async def test_run_react_agent_multi_agent_passes_cost_model_to_usage_plugin():
             provider="CLAUDE",
             request=_make_request(),
             api_key="sk-test",
-            env_key=None,
             user_id="user-1",
             session_service=mock_ss,
         )

@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from core.config import settings
-from core.model_factory import build_model_param, uses_env_key, is_self_hosted_eligible
+from core.model_factory import build_model_param, is_self_hosted_eligible
 
 
 def _patch_litellm():
@@ -117,32 +117,6 @@ def test_gemini_returns_custom_gemini():
     from core.custom_gemini import CustomGemini
     result = build_model_param("GEMINI", "gemini-2.5-pro", "key", "ROLE_TESTER")
     assert isinstance(result, CustomGemini)
-
-
-# ---------- uses_env_key ----------
-
-def test_uses_env_key_self_hosted_active(active):
-    assert uses_env_key("CLAUDE", None, "ROLE_TESTER") is False   # 자체 LLM → 주입 불필요
-    assert uses_env_key("CLAUDE", "key", "ROLE_TESTER") is False  # LiteLlm 직접 주입 → 주입 불필요
-    assert uses_env_key("CLAUDE", "key", "ROLE_USER") is False    # LiteLlm 직접 주입 → 주입 불필요
-
-
-def test_uses_env_key_inactive():
-    # 미설정 + 키 있음 → LiteLlm 직접 주입(주입 불필요)
-    assert uses_env_key("CLAUDE", "key", "ROLE_TESTER") is False
-    # 키 없음 → 주입할 키가 없으므로 False (TypeError 방어)
-    assert uses_env_key("CLAUDE", None, "ROLE_TESTER") is False
-
-
-@pytest.mark.parametrize("api_key,role", [("key", None), (None, "ROLE_TESTER")])
-def test_uses_env_key_gemini(api_key, role):
-    assert uses_env_key("GEMINI", api_key, role) is False
-
-
-def test_commercial_with_key_no_env_injection():
-    # LiteLlm 인스턴스 주입으로 바뀌었으므로 env 주입 불필요
-    assert uses_env_key("CLAUDE", "sk-user-key", "ROLE_USER") is False
-    assert uses_env_key("OPENAI", "sk-user-key", "ROLE_USER") is False
 
 
 # ---------- is_self_hosted_eligible ----------

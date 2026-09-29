@@ -35,8 +35,7 @@ tests/             — pytest 테스트 (test_{모듈명}.py 형식)
 
 ## 핵심 실행 패턴 (core/)
 - Google ADK `LlmAgent` + `Runner`로 에이전트를 실행한다.
-- API 키는 요청마다 `os.environ`에 임시 설정 후 finally 블록에서 복원한다.
-- 환경변수 동시 접근 방지를 위해 `core/env_lock.py`의 asyncio Lock을 사용한다.
+- LLM 키는 `core/model_factory.py`의 `build_model_param`이 모델 인스턴스(Gemini는 `CustomGemini`, Claude/OpenAI는 `LiteLlm`)에 직접 주입한다 — `os.environ`에 쓰지 않는다.
 - LLM 응답 후처리: 마크다운 코드 펜스 제거 → `json.loads` → Pydantic 모델 변환.
 - 실행 결과는 MongoDB 컬렉션에 로깅한다 (실패 시 경고 로그만 남기고 무시).
 

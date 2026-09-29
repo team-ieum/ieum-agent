@@ -1,4 +1,3 @@
-import os
 import copy
 import json
 import logging
@@ -12,7 +11,7 @@ from agents.generate.sub.planner_agent import build_planner_agent
 from agents.generate.sub.builder_agent import build_builder_agent
 from api.schemas.generate_workflow import WorkflowPlanSchema
 from core.validators.plan_validator import PlanValidator
-from core.model_factory import build_model_param, uses_env_key
+from core.model_factory import build_model_param
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +125,6 @@ async def run_generate_agent(
     model: str,
     provider: str,
     api_key: str | None,
-    env_key: str | None,
     user_role: str | None = None,
     validate_fn: ValidateFn | None = None,
     max_builder_retries: int = _MAX_BUILDER_RETRIES,
@@ -139,79 +137,67 @@ async def run_generate_agent(
     Builder에게만 결함 JSON과 검증 오류를 재투입하는 Reflexion 루프를 수행한다.
     (Planner는 재실행하지 않는다 — config·도구이름 등 Builder 책임 오류를 재기획으로 고칠 수 없기 때문)
     """
-    inject_env = uses_env_key(provider, api_key, user_role)
     model_param = build_model_param(provider, model, api_key, user_role)
-    prev_value = os.environ.get(env_key) if (env_key and inject_env) else None
+
+    planner_agent = build_planner_agent(model_param, prompt, provider, available_mcp_servers)
+
+    # 1. 계획(Plan) 생성 1차 시도
+    plan_raw = await _run_single_agent(planner_agent, prompt, _GENERATE_USER_ID)
+
     try:
-        if env_key and inject_env:
-            os.environ[env_key] = api_key
-
-        planner_agent = build_planner_agent(model_param, prompt, provider, available_mcp_servers)
-
-        # 1. 계획(Plan) 생성 1차 시도
-        plan_raw = await _run_single_agent(planner_agent, prompt, _GENERATE_USER_ID)
-
-        try:
-            plan = _parse_and_validate_plan(plan_raw, allowed_mcp_catalog_ids)
-        except Exception as first_err:
-            logger.warning("1차 계획(Plan) 검증 실패: %s. 1회 자가 교정을 시도합니다.", str(first_err))
-            feedback = (
-                f"당신이 이전에 작성한 계획(Plan)에 설계상 결함이 발견되어 검증에 실패했습니다.\n"
-                f"오류 피드백을 수용하여 사용자 요청에 부합하는 올바른 JSON Plan을 재생성하십시오.\n\n"
-                f"## 오류 피드백:\n{str(first_err)}\n\n"
-                f"## 사용자 원래 요청:\n{prompt}"
-            )
-            plan_raw = await _run_single_agent(planner_agent, feedback, _GENERATE_USER_ID)
-            plan = _parse_and_validate_plan(plan_raw, allowed_mcp_catalog_ids)
-
-        logger.info("성공적으로 워크플로우 계획(Plan)이 검증 통과했습니다. Justification: %s", plan.justification)
-
-        # 2. 최종 워크플로우 빌드 (+ Builder 대상 Reflexion 루프)
-        builder_agent = build_builder_agent(model_param, prompt, provider, available_mcp_servers)
-        builder_prompt = (
-            f"사용자 원래 요청: {prompt}\n\n"
-            f"현재 요청 컨텍스트:\n- provider: {provider.upper()}\n"
-            f"  (모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정해야 합니다)\n\n"
-            f"수립된 워크플로우 계획 (반드시 준수할 것):\n{plan.model_dump_json(indent=2)}\n\n"
-            f"위 계획의 구조(노드 수, 연결 흐름)를 철저히 준수하여 최종 워크플로우 JSON을 생성하십시오."
+        plan = _parse_and_validate_plan(plan_raw, allowed_mcp_catalog_ids)
+    except Exception as first_err:
+        logger.warning("1차 계획(Plan) 검증 실패: %s. 1회 자가 교정을 시도합니다.", str(first_err))
+        feedback = (
+            f"당신이 이전에 작성한 계획(Plan)에 설계상 결함이 발견되어 검증에 실패했습니다.\n"
+            f"오류 피드백을 수용하여 사용자 요청에 부합하는 올바른 JSON Plan을 재생성하십시오.\n\n"
+            f"## 오류 피드백:\n{str(first_err)}\n\n"
+            f"## 사용자 원래 요청:\n{prompt}"
         )
+        plan_raw = await _run_single_agent(planner_agent, feedback, _GENERATE_USER_ID)
+        plan = _parse_and_validate_plan(plan_raw, allowed_mcp_catalog_ids)
 
-        workflow_raw = await _run_single_agent(builder_agent, builder_prompt, _GENERATE_USER_ID)
+    logger.info("성공적으로 워크플로우 계획(Plan)이 검증 통과했습니다. Justification: %s", plan.justification)
 
-        # validate_fn 미주입 시 기존 동작(검증 없이 raw 반환)을 유지하되, plan templateId는 강제한다.
-        if validate_fn is None:
+    # 2. 최종 워크플로우 빌드 (+ Builder 대상 Reflexion 루프)
+    builder_agent = build_builder_agent(model_param, prompt, provider, available_mcp_servers)
+    builder_prompt = (
+        f"사용자 원래 요청: {prompt}\n\n"
+        f"현재 요청 컨텍스트:\n- provider: {provider.upper()}\n"
+        f"  (모든 AI 노드의 llmProvider는 반드시 \"{provider.upper()}\"로 설정해야 합니다)\n\n"
+        f"수립된 워크플로우 계획 (반드시 준수할 것):\n{plan.model_dump_json(indent=2)}\n\n"
+        f"위 계획의 구조(노드 수, 연결 흐름)를 철저히 준수하여 최종 워크플로우 JSON을 생성하십시오."
+    )
+
+    workflow_raw = await _run_single_agent(builder_agent, builder_prompt, _GENERATE_USER_ID)
+
+    # validate_fn 미주입 시 기존 동작(검증 없이 raw 반환)을 유지하되, plan templateId는 강제한다.
+    if validate_fn is None:
+        return _apply_plan_templates(workflow_raw, plan)
+
+    last_err: Exception | None = None
+    for attempt in range(max_builder_retries + 1):
+        try:
+            validate_fn(workflow_raw)
+            if attempt > 0:
+                logger.info("Builder Reflexion 루프 %d회 만에 검증 통과", attempt)
+            # 검증 통과한 draft의 templateId를 plan으로 강제 정합한다(plan = 단일 진실원천).
+            # builder가 templateId를 변형해도 plan이 보장하며, 최종 산출물은 호출측에서 재검증된다.
             return _apply_plan_templates(workflow_raw, plan)
+        except Exception as e:
+            last_err = e
+            if attempt >= max_builder_retries:
+                break
+            logger.warning(
+                "Builder 산출물 검증 실패(시도 %d/%d): %s. Builder에 결함 JSON과 오류를 재투입합니다.",
+                attempt + 1, max_builder_retries, str(e),
+            )
+            reflexion_prompt = _build_reflexion_prompt(
+                prompt, provider, plan, workflow_raw, str(e)
+            )
+            workflow_raw = await _run_single_agent(
+                builder_agent, reflexion_prompt, _GENERATE_USER_ID
+            )
 
-        last_err: Exception | None = None
-        for attempt in range(max_builder_retries + 1):
-            try:
-                validate_fn(workflow_raw)
-                if attempt > 0:
-                    logger.info("Builder Reflexion 루프 %d회 만에 검증 통과", attempt)
-                # 검증 통과한 draft의 templateId를 plan으로 강제 정합한다(plan = 단일 진실원천).
-                # builder가 templateId를 변형해도 plan이 보장하며, 최종 산출물은 호출측에서 재검증된다.
-                return _apply_plan_templates(workflow_raw, plan)
-            except Exception as e:
-                last_err = e
-                if attempt >= max_builder_retries:
-                    break
-                logger.warning(
-                    "Builder 산출물 검증 실패(시도 %d/%d): %s. Builder에 결함 JSON과 오류를 재투입합니다.",
-                    attempt + 1, max_builder_retries, str(e),
-                )
-                reflexion_prompt = _build_reflexion_prompt(
-                    prompt, provider, plan, workflow_raw, str(e)
-                )
-                workflow_raw = await _run_single_agent(
-                    builder_agent, reflexion_prompt, _GENERATE_USER_ID
-                )
-
-        # 모든 재시도 소진 — 마지막 오류를 전파한다.
-        raise last_err
-
-    finally:
-        if env_key and inject_env:
-            if prev_value is None:
-                os.environ.pop(env_key, None)
-            else:
-                os.environ[env_key] = prev_value
+    # 모든 재시도 소진 — 마지막 오류를 전파한다.
+    raise last_err

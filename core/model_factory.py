@@ -3,7 +3,7 @@
 분기 규칙:
 - GEMINI                                        : CustomGemini (api_key 직접 주입)
 - 자체 LLM 활성 + 허용 role + 등록 API 키 없음   : LiteLlm("openai/<model>", api_base=...) — 자체 호스팅 OpenAI 호환 엔드포인트
-- 그 외(일반 role / 키 등록됨 / 자체 LLM 비활성) : 모델명 문자열 → ADK가 ANTHROPIC_API_KEY/OPENAI_API_KEY 사용
+- CLAUDE/OPENAI + 등록 API 키                    : LiteLlm("<anthropic|openai>/<model>", api_key=...) — 요청별 키 직접 주입, os.environ 미사용 (키 없음/미매핑 provider만 모델명 문자열)
 
 개발/테스트 계정(ROLE_ADMIN/ROLE_TESTER)은 자신의 API 키를 등록하지 않았을 때만 자체 LLM으로 라우팅된다.
 키를 등록하면 그 키가 우선되어, 동일 계정으로 자체 LLM과 자기 키를 모두 쓸 수 있다.
@@ -96,21 +96,3 @@ def cost_model_name(provider: str, model: str, api_key: str | None, user_role: s
     if provider.upper() == "GEMINI":
         return model if model.startswith("gemini/") else f"gemini/{model}"
     return _litellm_model_name(provider, model)
-
-
-def uses_env_key(provider: str, api_key: str | None, user_role: str | None = None) -> bool:
-    """os.environ에 API Key 주입이 필요한지 여부.
-
-    Gemini(CustomGemini 직접 주입)와 자체 LLM(엔드포인트 자격증명 사용)은 환경변수 주입이 불필요하다.
-    """
-    if not api_key:
-        # 주입할 키가 없으면 os.environ에 None을 넣어 TypeError가 나는 것을 방어한다.
-        return False
-    if provider.upper() == "GEMINI":
-        return False
-    if _use_self_hosted(api_key, user_role):
-        return False
-    # 신규: Claude/OpenAI + 키 있음은 LiteLlm 인스턴스가 키를 주입받으므로 env 불필요
-    if provider.upper() in _LITELLM_PREFIX:
-        return False
-    return True
