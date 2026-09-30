@@ -2,24 +2,11 @@ import functools
 import inspect
 import re
 from google.adk.tools.function_tool import FunctionTool
-from tools.google_sheets import google_sheets_read, google_sheets_write
-from tools.google_calendar import google_calendar_create, google_calendar_list
-from tools.google_drive import google_drive_read, google_drive_upload
-from tools.notion import (
-    notion_create_page, notion_read_page, notion_search,
-    notion_update_page, notion_append_block,
-)
+from tools import _TOOL_MAP
 from tools.workflow_context import workflow_context as _workflow_context_fn
 
-_GOOGLE_TOOL_FUNCTIONS = {
-    google_sheets_read, google_sheets_write,
-    google_calendar_create, google_calendar_list,
-    google_drive_read, google_drive_upload,
-}
-_NOTION_TOOL_FUNCTIONS = {
-    notion_create_page, notion_read_page, notion_search,
-    notion_update_page, notion_append_block,
-}
+_GOOGLE_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:google_")}
+_NOTION_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:notion_")}
 _WORKFLOW_CONTEXT_FUNCTIONS = {_workflow_context_fn}
 
 

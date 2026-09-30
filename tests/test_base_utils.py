@@ -7,7 +7,7 @@ from agents.base import (
     _bind_notion_token,
     _bind_workflow_context,
 )
-from tools import get_tools_for_request
+from tools import _TOOL_MAP, get_tools_for_request
 
 
 # ---------- _make_partial ----------
@@ -114,6 +114,26 @@ def test_bind_notion_token_does_not_affect_http_fetch():
     bound = _bind_notion_token(tools, "notion-token")
     bound_fn = getattr(bound[0], "func", None) or getattr(bound[0], "_func", None)
     assert original_fn is bound_fn
+
+
+# ---------- 토큰 바인딩 대상 전수 ----------
+
+def _params_after(bind_fn, tool_key, token):
+    bound = bind_fn(get_tools_for_request([{"name": tool_key}]), token)
+    fn = getattr(bound[0], "func", None) or getattr(bound[0], "_func", None)
+    return list(inspect.signature(fn).parameters.keys())
+
+
+@pytest.mark.parametrize("tool_key", sorted(k for k in _TOOL_MAP if k.startswith("builtin:google_")))
+def test_bind_google_token_binds_every_google_tool(tool_key):
+    assert "access_token" in inspect.signature(_TOOL_MAP[tool_key]).parameters
+    assert "access_token" not in _params_after(_bind_google_token, tool_key, "google-access-token")
+
+
+@pytest.mark.parametrize("tool_key", sorted(k for k in _TOOL_MAP if k.startswith("builtin:notion_")))
+def test_bind_notion_token_binds_every_notion_tool(tool_key):
+    assert "token" in inspect.signature(_TOOL_MAP[tool_key]).parameters
+    assert "token" not in _params_after(_bind_notion_token, tool_key, "notion-token")
 
 
 # ---------- _bind_workflow_context ----------
