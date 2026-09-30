@@ -469,3 +469,151 @@ async def test_google_sheets_append_error():
     parsed = json.loads(result)
     assert "error" in parsed
     assert "403" in parsed["error"]
+
+
+# ---------------------------------------------------------------------------
+# Sheets 대상 고정(sheet_name) · 빈 ID 차단 · range 인코딩 (IEUM-AI-60)
+# ---------------------------------------------------------------------------
+import inspect
+from urllib.parse import unquote
+
+from tools import get_tools_for_request
+from tools.google_sheets import google_sheets_append
+
+
+def _range_in_url(url: str) -> str:
+    """values/ 뒤의 경로 조각(append면 ':append' 앞)을 디코딩한 A1 범위."""
+    tail = url.rsplit("/values/", 1)[1]
+    return unquote(tail.removesuffix(":append"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cell_range, sheet_name, expected", [
+    ("Sheet1!A1:B2", "Sales", "'Sales'!A1:B2"),   # LLM이 붙인 시트보다 고정값이 이긴다
+    ("A1:B2", "Sales", "'Sales'!A1:B2"),
+    ("'a!b'!A:C", "Sales", "'Sales'!A:C"),        # 시트 부분에 '!'가 있어도 마지막 '!' 뒤만 범위
+    ("Sheet1!", "Sales", "'Sales'"),              # 범위가 비면 시트 전체
+    ("", "Sales", "'Sales'"),
+    ("A:B", "Bob's", "'Bob''s'!A:B"),             # 작은따옴표 이스케이프
+    ("Sheet1!A1:B2", None, "Sheet1!A1:B2"),       # 미지정이면 기존대로
+])
+async def test_sheets_sheet_name_replaces_sheet_part(cell_range, sheet_name, expected):
+    resp = _make_mock_response(200, {"values": []})
+    get_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(get_mock=get_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        result = await google_sheets_read(
+            access_token="token", spreadsheet_id="spread-1",
+            cell_range=cell_range, sheet_name=sheet_name,
+        )
+
+    assert json.loads(result)["success"] is True
+    assert _range_in_url(get_mock.call_args.args[0]) == expected
+
+
+@pytest.mark.asyncio
+async def test_sheets_reserved_chars_encoded():
+    """탭 이름의 '/', '#', '?'가 경로·프래그먼트·쿼리로 해석되지 않는다."""
+    resp = _make_mock_response(200, {"updates": {"updatedRows": 1}})
+    post_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(post_mock=post_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        await google_sheets_append(
+            access_token="token", spreadsheet_id="spread-1",
+            cell_range="A1", values='[["x"]]', sheet_name="a/b#c?d",
+        )
+
+    url = post_mock.call_args.args[0]
+    tail = url.rsplit("/values/", 1)[1]
+    assert url.endswith(":append")
+    assert not any(ch in tail for ch in "/#?")
+    assert _range_in_url(url) == "'a/b#c?d'!A1"
+
+
+@pytest.mark.asyncio
+async def test_sheets_append_payload_range_matches_url():
+    resp = _make_mock_response(200, {"updates": {"updatedRows": 1}})
+    post_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(post_mock=post_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        await google_sheets_append(
+            access_token="token", spreadsheet_id="spread-1",
+            cell_range="Sheet1!A:B", values='[["x"]]', sheet_name="Sales",
+        )
+
+    assert post_mock.call_args.kwargs["json"]["range"] == "'Sales'!A:B"
+    assert _range_in_url(post_mock.call_args.args[0]) == "'Sales'!A:B"
+
+
+@pytest.mark.asyncio
+async def test_sheets_write_uses_sheet_name():
+    resp = _make_mock_response(200, {"updatedCells": 1})
+    put_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(put_mock=put_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        await google_sheets_write(
+            access_token="token", spreadsheet_id="spread-1",
+            cell_range="A1", values='[["x"]]', sheet_name="Sales",
+        )
+
+    assert put_mock.call_args.kwargs["json"]["range"] == "'Sales'!A1"
+    assert _range_in_url(put_mock.call_args.args[0]) == "'Sales'!A1"
+
+
+_SHEETS_TOOLS = {
+    "read": (google_sheets_read, {}),
+    "append": (google_sheets_append, {"values": '[["x"]]'}),
+    "write": (google_sheets_write, {"values": '[["x"]]'}),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", ["read", "append", "write"])
+@pytest.mark.parametrize("spreadsheet_id, sheet_name", [
+    ("", None), ("   ", None),          # 미해결 참조식은 ""로 치환돼 온다
+    ("spread-1", ""), ("spread-1", "  "),
+])
+async def test_sheets_blank_target_returns_error_without_http(tool, spreadsheet_id, sheet_name):
+    fn, extra = _SHEETS_TOOLS[tool]
+
+    with patch("tools.google_sheets.get_http_client") as factory:
+        result = await fn(
+            access_token="token", spreadsheet_id=spreadsheet_id,
+            cell_range="A1", sheet_name=sheet_name, **extra,
+        )
+
+    parsed = json.loads(result)
+    assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
+    factory.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bound_sheet_target_hidden_from_llm():
+    """tools[0].config의 spreadsheet_id·sheet_name은 고정 바인딩되고 _names는 무시된다.
+    config가 없는 기존 노드는 두 인자가 LLM에 그대로 노출된다."""
+    [bound] = get_tools_for_request([{
+        "name": "builtin:google_sheets_append",
+        "config": {"spreadsheet_id": "abc", "sheet_name": "Sales",
+                   "_names": {"spreadsheet_id": "2026 매출 장부"}},
+    }])
+    params = inspect.signature(bound.func).parameters
+    assert "spreadsheet_id" not in params and "sheet_name" not in params
+    assert "_names" not in params
+    assert {"cell_range", "values"} <= set(params)
+    assert "sheet_name:" not in (bound.func.__doc__ or "")
+
+    resp = _make_mock_response(200, {"updates": {"updatedRows": 1}})
+    post_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(post_mock=post_mock)
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        await bound.func(access_token="token", cell_range="Sheet1!A:B", values='[["x"]]')
+    url = post_mock.call_args.args[0]
+    assert "/spreadsheets/abc/values/" in url
+    assert _range_in_url(url) == "'Sales'!A:B"
+
+    [legacy] = get_tools_for_request([{"name": "builtin:google_sheets_append"}])
+    assert {"spreadsheet_id", "sheet_name"} <= set(inspect.signature(legacy.func).parameters)
