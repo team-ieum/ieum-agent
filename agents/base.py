@@ -7,14 +7,13 @@ from tools.workflow_context import workflow_context as _workflow_context_fn
 _WORKFLOW_CONTEXT_FUNCTIONS = {_workflow_context_fn}
 
 
-# 토큰 바인딩 대상은 수동 목록 대신 모듈·시그니처로 판별한다.
-# 수동 목록은 도구 추가 시 누락돼 토큰이 LLM 인자로 노출됐다(IEUM-AI-59).
 def _is_google_tool(fn) -> bool:
-    return fn.__module__.startswith("tools.google_") and "access_token" in inspect.signature(fn).parameters
+    module = getattr(fn, "__module__", None) or ""
+    return module.startswith("tools.google_") and "access_token" in inspect.signature(fn).parameters
 
 
 def _is_notion_tool(fn) -> bool:
-    return fn.__module__ == "tools.notion" and "token" in inspect.signature(fn).parameters
+    return getattr(fn, "__module__", None) == "tools.notion" and "token" in inspect.signature(fn).parameters
 
 
 def _get_tool_function(tool):

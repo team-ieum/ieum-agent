@@ -116,9 +116,7 @@ def test_bind_notion_token_does_not_affect_http_fetch():
     assert original_fn is bound_fn
 
 
-# ---------- 토큰 바인딩 대상 전수 (IEUM-AI-59) ----------
-# 수동 목록에서 google_sheets_append·google_calendar_update·notion_query_database가
-# 빠져 토큰이 LLM 인자로 노출됐다. _TOOL_MAP의 해당 서비스 도구 전부를 검사한다.
+# ---------- 토큰 바인딩 대상 전수 ----------
 
 def _params_after(bind_fn, tool_key, token):
     bound = bind_fn(get_tools_for_request([{"name": tool_key}]), token)
@@ -128,12 +126,24 @@ def _params_after(bind_fn, tool_key, token):
 
 @pytest.mark.parametrize("tool_key", sorted(k for k in _TOOL_MAP if k.startswith("builtin:google_")))
 def test_bind_google_token_binds_every_google_tool(tool_key):
+    assert "access_token" in inspect.signature(_TOOL_MAP[tool_key]).parameters
     assert "access_token" not in _params_after(_bind_google_token, tool_key, "google-access-token")
 
 
 @pytest.mark.parametrize("tool_key", sorted(k for k in _TOOL_MAP if k.startswith("builtin:notion_")))
 def test_bind_notion_token_binds_every_notion_tool(tool_key):
+    assert "token" in inspect.signature(_TOOL_MAP[tool_key]).parameters
     assert "token" not in _params_after(_bind_notion_token, tool_key, "notion-token")
+
+
+def test_bind_token_skips_function_without_module():
+    """__module__이 None인 callable이 섞여도 바인딩이 예외 없이 건너뛴다."""
+    def orphan(access_token: str, token: str) -> str:
+        return ""
+    orphan.__module__ = None
+    tools = [FunctionTool(orphan)]
+    assert _bind_google_token(tools, "g")[0] is tools[0]
+    assert _bind_notion_token(tools, "n")[0] is tools[0]
 
 
 def test_bind_notion_token_does_not_affect_github_tool():
