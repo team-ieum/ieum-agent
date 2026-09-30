@@ -496,6 +496,7 @@ def _range_in_url(url: str) -> str:
     ("", "Sales", "'Sales'"),
     ("A:B", "Bob's", "'Bob''s'!A:B"),             # 작은따옴표 이스케이프
     ("Sheet1!A1:B2", None, "Sheet1!A1:B2"),       # 미지정이면 기존대로
+    ("A:B", 2024, "'2024'!A:B"),                  # 숫자로 고정된 연도별 탭도 문자열로 쓴다
 ])
 async def test_sheets_sheet_name_replaces_sheet_part(cell_range, sheet_name, expected):
     resp = _make_mock_response(200, {"values": []})
@@ -511,6 +512,20 @@ async def test_sheets_sheet_name_replaces_sheet_part(cell_range, sheet_name, exp
     assert json.loads(result)["success"] is True
     assert _range_in_url(get_mock.call_args.args[0]) == expected
 
+
+@pytest.mark.asyncio
+async def test_sheets_numeric_spreadsheet_id_used_as_string():
+    resp = _make_mock_response(200, {"values": []})
+    get_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(get_mock=get_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        result = await google_sheets_read(
+            access_token="token", spreadsheet_id=12345, cell_range="A1:B2",
+        )
+
+    assert json.loads(result)["success"] is True
+    assert "/spreadsheets/12345/values/" in get_mock.call_args.args[0]
 
 @pytest.mark.asyncio
 async def test_sheets_reserved_chars_encoded():

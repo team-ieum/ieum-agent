@@ -22,9 +22,9 @@ def _target_error(tool: str, spreadsheet_id: str, sheet_name: str | None) -> str
 
     노드 설정(tools[].config)에 키가 있으면 빈 값도 그대로 고정 바인딩된다(미해결 참조식도 ""가 된다).
     여기서 끊어야 엉뚱한 대상에 요청이 나가지 않는다."""
-    if not (spreadsheet_id or "").strip():
+    if spreadsheet_id is None or not str(spreadsheet_id).strip():
         detail = "spreadsheet_id가 비어 있습니다"
-    elif sheet_name is not None and not sheet_name.strip():
+    elif sheet_name is not None and not str(sheet_name).strip():
         detail = "sheet_name이 비어 있습니다"
     else:
         return None
@@ -40,14 +40,14 @@ def _a1_range(cell_range: str, sheet_name: str | None) -> str:
     고정값이 이겨야 하므로 마지막 '!' 뒤(범위)만 쓴다. 범위가 비면 시트 전체다."""
     if sheet_name is None:
         return cell_range
-    sheet = "'" + sheet_name.replace("'", "''") + "'"
+    sheet = "'" + str(sheet_name).replace("'", "''") + "'"
     part = (cell_range or "").rpartition("!")[2]
     return f"{sheet}!{part}" if part else sheet
 
 
 def _values_url(spreadsheet_id: str, a1_range: str) -> str:
     # 탭 이름의 '/', '#', '?'가 경로·프래그먼트·쿼리로 해석되지 않도록 경로 조각을 인코딩한다.
-    return (f"{_SHEETS_API_BASE}/spreadsheets/{quote(spreadsheet_id, safe='')}"
+    return (f"{_SHEETS_API_BASE}/spreadsheets/{quote(str(spreadsheet_id), safe='')}"
             f"/values/{quote(a1_range, safe='')}")
 
 
