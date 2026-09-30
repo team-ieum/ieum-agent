@@ -1182,3 +1182,19 @@ async def test_chat_workflow_sentinel_stripped_rejected():
             current_edges=VALID_EDGES,
         )
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
+
+
+def test_chat_prompt_puts_resource_id_in_slot_not_prompt():
+    """ID 슬롯이 있는 템플릿(Sheets)은 ID를 슬롯에, 없는 템플릿(Notion·GitHub)은 prompt에 적게 한다.
+    모든 리소스를 슬롯으로 몰면 슬롯이 없는 Notion·GitHub 노드에서 ID가 사라진다."""
+    from core.workflow_chat import _SYSTEM_PROMPT_BASE, _OUTPUT_FORMAT_SPEC
+
+    assert "리소스 ID 기입 위치" in _SYSTEM_PROMPT_BASE
+    assert "prompt에는 ID를 쓰지 않습니다" in _SYSTEM_PROMPT_BASE
+    assert "ID 슬롯이 없는 템플릿(Notion·GitHub 등)은 기존대로 prompt 슬롯에" in _SYSTEM_PROMPT_BASE
+    assert "사용자가 시트(탭) 이름을 말한 경우에만" in _SYSTEM_PROMPT_BASE
+    assert "빈 문자열을 넣지 말고" in _SYSTEM_PROMPT_BASE
+    assert "선행 노드 결과로 정해지는 ID(참조식)는 슬롯에 넣지 말고 prompt에" in _SYSTEM_PROMPT_BASE
+    assert "노드의 prompt 슬롯에 자연어로 기입하여" not in _SYSTEM_PROMPT_BASE
+    assert "ID 슬롯이 있으면 그 슬롯" in _OUTPUT_FORMAT_SPEC
+    assert "prompt 슬롯에 자연어로 기입한다. 못 찾으면 비운다." not in _OUTPUT_FORMAT_SPEC

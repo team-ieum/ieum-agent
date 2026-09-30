@@ -230,7 +230,7 @@ _SYSTEM_PROMPT_BASE = """\
    - Notion `parent_page_id`, Sheets `spreadsheet_id`, GitHub `owner/repo` 등이 누락되었을 경우,
      먼저 바인딩된 목록 조회 도구(notion_search, github_list_repos 등)를 실행하여 실제 목록을 조회하십시오.
    - 조회 목록 중 워크플로우 목적에 가장 잘 부합하는 항목이 명확히 매칭되면, 되묻지 않고 해당
-     리소스 ID/이름을 노드의 prompt 슬롯에 자연어로 기입하여 완성형 워크플로우(WORKFLOW_GENERATED)를 제공하십시오.
+     리소스 ID/이름을 3번 규칙의 위치에 기입하여 완성형 워크플로우(WORKFLOW_GENERATED)를 제공하십시오.
    - 미연동이라 조회 도구가 없는 경우(예: GitHub 토큰 없음)에는 가정하지 말고 `INTEGRATION_REQUIRED`
      유형으로 해당 서비스 연동을 요청하십시오. (actions에 {type: OAUTH, provider: <서비스>} 추가)
    - 연동은 되어 있으나 후보가 여러 개이거나 매칭이 애매하면, **가정하지 말고** `CLARIFICATION_NEEDED`
@@ -241,6 +241,15 @@ _SYSTEM_PROMPT_BASE = """\
      요청 맥락·최근 활동(github_list_repos는 최신 업데이트순) 기준으로 가장 관련성 높은 상위 후보만
      추리십시오. 그리고 message에 "원하는 저장소가 없으면 'owner/repo' 형식으로 직접 입력해 주세요"처럼
      직접 입력 안내를 덧붙입니다.
+3. 리소스 ID 기입 위치:
+   - 템플릿에 리소스 ID 슬롯(예: Sheets의 spreadsheet_id)이 있으면 ID는 그 슬롯에, 표시 이름을 알면
+     이름 슬롯(spreadsheet_name)에 채우고, prompt에는 ID를 쓰지 않습니다. 사용자가 직접 알려준 ID든
+     조회로 찾은 ID든 같습니다.
+   - 선행 노드 결과로 정해지는 ID(참조식)는 슬롯에 넣지 말고 prompt에 씁니다.
+   - sheet_name 슬롯은 사용자가 시트(탭) 이름을 말한 경우에만 채우고, 그때 prompt의 range에는 시트 이름 없이
+     범위만(예: 'A:B') 씁니다.
+   - ID 슬롯이 없는 템플릿(Notion·GitHub 등)은 기존대로 prompt 슬롯에 자연어로 기입합니다.
+   - 모르는 ID 슬롯에는 빈 문자열을 넣지 말고 슬롯을 아예 생략합니다.
 </resource_rules>
 
 <integration_rules>
@@ -288,7 +297,7 @@ _OUTPUT_FORMAT_SPEC = """\
 - changeDescription: 워크플로우 수정(WORKFLOW_MODIFIED) 시 변경 요약 한 문장, 그 외 null.
 - nodes/edges: 생성/수정 시에만 채우고, INTEGRATION_REQUIRED/CLARIFICATION_NEEDED일 때는 null.
 - workflowName: 신규 생성(WORKFLOW_GENERATED) 시에만 간결한 한국어 이름, 그 외 null.
-- 리소스 ID(parent_page_id, owner/repo 등)가 필요하면 바인딩된 조회 도구(notion_search 등)로 실제 ID를 찾아 prompt 슬롯에 자연어로 기입한다. 못 찾으면 비운다.
+- 리소스 ID(spreadsheet_id, parent_page_id, owner/repo 등)가 필요하면 바인딩된 조회 도구(notion_search 등)로 실제 ID를 찾아, 템플릿에 ID 슬롯이 있으면 그 슬롯에, 없으면 prompt 슬롯에 자연어로 기입한다. 못 찾으면 ID 슬롯은 생략하고 prompt에도 쓰지 않는다.
 </output_format>
 """
 
