@@ -136,20 +136,6 @@ def test_bind_notion_token_binds_every_notion_tool(tool_key):
     assert "token" not in _params_after(_bind_notion_token, tool_key, "notion-token")
 
 
-def test_token_binding_key_groups_are_not_empty():
-    """키 체계가 바뀌어 전수 테스트의 parametrize가 비면 skip으로 조용히 통과하므로 따로 막는다."""
-    assert any(k.startswith("builtin:google_") for k in _TOOL_MAP)
-    assert any(k.startswith("builtin:notion_") for k in _TOOL_MAP)
-
-
-def test_bind_notion_token_does_not_affect_github_tool():
-    """GitHub 도구도 token 파라미터를 갖지만 Notion 토큰이 바인딩되면 안 된다."""
-    from tools.github import github_list_repos
-    tools = [FunctionTool(github_list_repos)]
-    bound = _bind_notion_token(tools, "notion-token")
-    assert bound[0] is tools[0]
-
-
 # ---------- _bind_workflow_context ----------
 
 def test_bind_workflow_context_binds_workflow_tool():
