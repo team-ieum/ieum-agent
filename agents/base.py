@@ -2,25 +2,19 @@ import functools
 import inspect
 import re
 from google.adk.tools.function_tool import FunctionTool
-from tools.google_sheets import google_sheets_read, google_sheets_write
-from tools.google_calendar import google_calendar_create, google_calendar_list
-from tools.google_drive import google_drive_read, google_drive_upload
-from tools.notion import (
-    notion_create_page, notion_read_page, notion_search,
-    notion_update_page, notion_append_block,
-)
 from tools.workflow_context import workflow_context as _workflow_context_fn
 
-_GOOGLE_TOOL_FUNCTIONS = {
-    google_sheets_read, google_sheets_write,
-    google_calendar_create, google_calendar_list,
-    google_drive_read, google_drive_upload,
-}
-_NOTION_TOOL_FUNCTIONS = {
-    notion_create_page, notion_read_page, notion_search,
-    notion_update_page, notion_append_block,
-}
 _WORKFLOW_CONTEXT_FUNCTIONS = {_workflow_context_fn}
+
+
+# 토큰 바인딩 대상은 수동 목록 대신 모듈·시그니처로 판별한다.
+# 수동 목록은 도구 추가 시 누락돼 토큰이 LLM 인자로 노출됐다(IEUM-AI-59).
+def _is_google_tool(fn) -> bool:
+    return fn.__module__.startswith("tools.google_") and "access_token" in inspect.signature(fn).parameters
+
+
+def _is_notion_tool(fn) -> bool:
+    return fn.__module__ == "tools.notion" and "token" in inspect.signature(fn).parameters
 
 
 def _get_tool_function(tool):
@@ -84,7 +78,7 @@ def _bind_google_token(tools: list, google_access_token: str) -> list:
     bound = []
     for tool in tools:
         fn = _get_tool_function(tool)
-        if fn is not None and _get_base_function(fn) in _GOOGLE_TOOL_FUNCTIONS:
+        if fn is not None and _is_google_tool(_get_base_function(fn)):
             bound.append(_bind_tool_argument(tool, access_token=google_access_token))
         else:
             bound.append(tool)
@@ -96,7 +90,7 @@ def _bind_notion_token(tools: list, notion_token: str) -> list:
     bound = []
     for tool in tools:
         fn = _get_tool_function(tool)
-        if fn is not None and _get_base_function(fn) in _NOTION_TOOL_FUNCTIONS:
+        if fn is not None and _is_notion_tool(_get_base_function(fn)):
             bound.append(_bind_tool_argument(tool, token=notion_token))
         else:
             bound.append(tool)
