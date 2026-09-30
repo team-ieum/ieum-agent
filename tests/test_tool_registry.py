@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from tools.registry import (
     tool_param_spec,
     required_user_params,
@@ -5,6 +9,7 @@ from tools.registry import (
     all_blueprints,
     brand_for_node,
     apply_service_brand,
+    tool_form_schema,
     RUNTIME_INJECTED_PARAMS,
 )
 
@@ -141,3 +146,62 @@ def test_toolless_ai_without_github_intent_falls_back():
         "config": {"tools": [], "prompt": "이전 결과를 세 문장으로 요약해줘"},
     }
     assert brand_for_node(node) == "openai"
+
+
+# --- 도구 필드 스키마 (IEUM-AI-60) -------------------------------------------
+
+def _schema_tool(name: str) -> dict:
+    return next(t for t in tool_form_schema()["tools"] if t["name"] == name)
+
+
+def test_tool_form_schema_sheets_append_fields():
+    assert _schema_tool("builtin:google_sheets_append")["fields"] == [
+        {"name": "spreadsheet_id", "title": "스프레드시트", "description": "대상 스프레드시트",
+         "type": "string", "required": True, "optionsSource": "google.spreadsheets"},
+        {"name": "cell_range", "title": "범위", "description": "예: A:C",
+         "type": "string", "required": True},
+        {"name": "values", "title": "값", "type": "string", "required": True},
+        {"name": "sheet_name", "title": "워크시트", "description": "대상 워크시트(탭)",
+         "type": "string", "required": False,
+         "optionsSource": "google.worksheets", "optionsInputs": ["spreadsheet_id"]},
+    ]
+
+
+def test_tool_form_schema_covers_tool_map_without_injected_params():
+    from tools import _TOOL_MAP
+
+    schema = tool_form_schema()
+    assert [t["name"] for t in schema["tools"]] == list(_TOOL_MAP)
+    for t in schema["tools"]:
+        assert not {f["name"] for f in t["fields"]} & RUNTIME_INJECTED_PARAMS, t["name"]
+    json.dumps(schema)  # 라우트 응답으로 직렬화 가능해야 한다
+
+
+@pytest.mark.parametrize("tool, field, expected_type, required", [
+    ("builtin:google_calendar_update", "summary", "string", False),   # Optional[str]
+    ("builtin:workflow_context", "node_id", "string", False),         # str | None
+    ("builtin:http_fetch", "headers_json", "string", False),          # str | dict | None → 첫 타입
+    ("builtin:web_search", "max_results", "integer", False),
+    ("builtin:text_extract", "find_all", "boolean", False),
+    ("builtin:workflow_context", "workflow_context_data", "object", True),
+])
+def test_tool_form_schema_json_types(tool, field, expected_type, required):
+    f = next(f for f in _schema_tool(tool)["fields"] if f["name"] == field)
+    assert (f["type"], f["required"]) == (expected_type, required)
+
+
+def test_tool_form_schema_field_without_meta_uses_param_name():
+    f = next(f for f in _schema_tool("builtin:notion_create_page")["fields"]
+             if f["name"] == "parent_page_id")
+    assert f == {"name": "parent_page_id", "title": "parent_page_id",
+                 "type": "string", "required": True}
+
+
+def test_tools_schema_route_returns_registry_schema():
+    """LLM 자격증명 헤더 없이 열린다(정적 메타, 사용자 인증은 BE가 맡는다)."""
+    from fastapi.testclient import TestClient
+    from main import app
+
+    resp = TestClient(app).get("/v1/tools/schema")
+    assert resp.status_code == 200
+    assert resp.json() == tool_form_schema()
