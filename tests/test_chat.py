@@ -1193,7 +1193,7 @@ def test_chat_prompt_puts_resource_id_in_slot_not_prompt():
     assert "prompt에는 ID를 쓰지 않습니다" in _SYSTEM_PROMPT_BASE
     assert "ID 슬롯이 없는 템플릿(Notion·GitHub 등)은 기존대로 prompt 슬롯에" in _SYSTEM_PROMPT_BASE
     assert "사용자가 시트(탭) 이름을 말한 경우에만" in _SYSTEM_PROMPT_BASE
-    assert "빈 문자열을 넣지 말고" in _SYSTEM_PROMPT_BASE
+    assert "빈 문자열이나 null을 넣지 말고" in _SYSTEM_PROMPT_BASE
     assert "선행 노드 결과로 정해지는 ID(참조식)는 슬롯에 넣지 말고 prompt에" in _SYSTEM_PROMPT_BASE
     assert "노드의 prompt 슬롯에 자연어로 기입하여" not in _SYSTEM_PROMPT_BASE
     assert "ID 슬롯이 있으면 그 슬롯" in _OUTPUT_FORMAT_SPEC

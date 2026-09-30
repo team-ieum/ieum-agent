@@ -249,7 +249,7 @@ _SYSTEM_PROMPT_BASE = """\
    - sheet_name 슬롯은 사용자가 시트(탭) 이름을 말한 경우에만 채우고, 그때 prompt의 range에는 시트 이름 없이
      범위만(예: 'A:B') 씁니다.
    - ID 슬롯이 없는 템플릿(Notion·GitHub 등)은 기존대로 prompt 슬롯에 자연어로 기입합니다.
-   - 모르는 ID 슬롯에는 빈 문자열을 넣지 말고 슬롯을 아예 생략합니다.
+   - 모르는 ID 슬롯에는 빈 문자열이나 null을 넣지 말고 슬롯 키 자체를 생략합니다.
 </resource_rules>
 
 <integration_rules>

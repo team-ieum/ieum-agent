@@ -425,12 +425,16 @@ def hydrate_node(
         elif name in slots_in and not (
             slot["kind"] == "string"
             and (slot["required"] or slot["path"].startswith("config.tools."))
-            and isinstance(slots_in[name], str) and not slots_in[name].strip()
+            and (
+                (isinstance(slots_in[name], str) and not slots_in[name].strip())
+                or (slots_in[name] is None and slot["path"].startswith("config.tools."))
+            )
         ):
             # 필수 문자열 슬롯에 빈 값/공백을 넣은 것은 '채웠다'가 아니다. 키 존재만 보면
             # description=""가 통과해 빈 설명이 그대로 나가고, 노드 카드 설명이 조용히 비어 보인다.
-            # 도구 인자 슬롯(config.tools.*)도 같다 — 거기선 키 존재가 '코드가 고정'이라, 빈 값을
-            # 쓰면 빈 인자가 고정 바인딩돼 실행이 매번 실패한다. 선택 슬롯이라 아래 else로 건너뛴다.
+            # 도구 인자 슬롯(config.tools.*)은 None까지 빈 값으로 본다 — 거기선 키 존재가 '코드가 고정'이라,
+            # 빈 값·None을 쓰면 그 값이 고정 바인딩돼 실행이 매번 실패한다. 걸러진 슬롯은 아래로 내려가
+            # 선택 슬롯이면 건너뛰고, 필수 슬롯(예: ai.mcp catalogId)이면 누락 에러가 된다.
             value = slots_in[name]
         elif slot["required"]:
             raise SlotFillError(f"'{tid}'의 필수 슬롯 '{name}'이(가) 누락되었습니다.")

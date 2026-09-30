@@ -488,14 +488,23 @@ def test_sheets_slots_fill_tool_config(tid):
     }}]
 
 
-def test_blank_tool_slot_is_not_bound():
-    """LLM이 '모르면 비움'을 빈 문자열로 쓰면 키를 만들지 않는다.
+@pytest.mark.parametrize("blank", ["", "  ", None])
+def test_blank_tool_slot_is_not_bound(blank):
+    """LLM이 '모르면 비움'을 빈 문자열·null로 쓰면 키를 만들지 않는다.
     만들면 빈 값이 고정 바인딩돼 그 노드는 매번 실패한다."""
     from core.template_registry import hydrate_node
 
-    node = hydrate_node(_sheets_draft(spreadsheet_id="", sheet_name="  ", spreadsheet_name=""),
+    node = hydrate_node(_sheets_draft(spreadsheet_id=blank, sheet_name=blank, spreadsheet_name=blank),
                         provider="GEMINI")
     assert node["config"]["tools"] == [{"name": "builtin:google_sheets_append"}]
+
+
+def test_null_required_tool_slot_rejected():
+    """필수 도구 인자 슬롯의 null은 누락이다. 통과시키면 catalogId=None이 고정 바인딩된다."""
+    with pytest.raises(SlotFillError):
+        hydrate_node({"templateId": "ai.mcp", "slots": {
+            "label": "MCP 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.",
+            "prompt": "처리", "catalogId": None}}, provider="GEMINI")
 
 
 def test_sheets_slot_binds_at_execution():
