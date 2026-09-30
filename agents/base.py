@@ -2,18 +2,12 @@ import functools
 import inspect
 import re
 from google.adk.tools.function_tool import FunctionTool
+from tools import _TOOL_MAP
 from tools.workflow_context import workflow_context as _workflow_context_fn
 
+_GOOGLE_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:google_")}
+_NOTION_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:notion_")}
 _WORKFLOW_CONTEXT_FUNCTIONS = {_workflow_context_fn}
-
-
-def _is_google_tool(fn) -> bool:
-    module = getattr(fn, "__module__", None) or ""
-    return module.startswith("tools.google_") and "access_token" in inspect.signature(fn).parameters
-
-
-def _is_notion_tool(fn) -> bool:
-    return getattr(fn, "__module__", None) == "tools.notion" and "token" in inspect.signature(fn).parameters
 
 
 def _get_tool_function(tool):
@@ -77,7 +71,7 @@ def _bind_google_token(tools: list, google_access_token: str) -> list:
     bound = []
     for tool in tools:
         fn = _get_tool_function(tool)
-        if fn is not None and _is_google_tool(_get_base_function(fn)):
+        if fn is not None and _get_base_function(fn) in _GOOGLE_TOOL_FUNCTIONS:
             bound.append(_bind_tool_argument(tool, access_token=google_access_token))
         else:
             bound.append(tool)
@@ -89,7 +83,7 @@ def _bind_notion_token(tools: list, notion_token: str) -> list:
     bound = []
     for tool in tools:
         fn = _get_tool_function(tool)
-        if fn is not None and _is_notion_tool(_get_base_function(fn)):
+        if fn is not None and _get_base_function(fn) in _NOTION_TOOL_FUNCTIONS:
             bound.append(_bind_tool_argument(tool, token=notion_token))
         else:
             bound.append(tool)

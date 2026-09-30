@@ -136,14 +136,10 @@ def test_bind_notion_token_binds_every_notion_tool(tool_key):
     assert "token" not in _params_after(_bind_notion_token, tool_key, "notion-token")
 
 
-def test_bind_token_skips_function_without_module():
-    """__module__이 None인 callable이 섞여도 바인딩이 예외 없이 건너뛴다."""
-    def orphan(access_token: str, token: str) -> str:
-        return ""
-    orphan.__module__ = None
-    tools = [FunctionTool(orphan)]
-    assert _bind_google_token(tools, "g")[0] is tools[0]
-    assert _bind_notion_token(tools, "n")[0] is tools[0]
+def test_token_binding_key_groups_are_not_empty():
+    """키 체계가 바뀌어 전수 테스트의 parametrize가 비면 skip으로 조용히 통과하므로 따로 막는다."""
+    assert any(k.startswith("builtin:google_") for k in _TOOL_MAP)
+    assert any(k.startswith("builtin:notion_") for k in _TOOL_MAP)
 
 
 def test_bind_notion_token_does_not_affect_github_tool():
