@@ -113,6 +113,25 @@ async def test_google_sheets_write_invalid_json():
     assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
 
 
+@pytest.mark.asyncio
+async def test_google_sheets_write_accepts_list_values():
+    """values가 이미 list로 와도 예외 없이 그대로 전송된다(append와 같은 처리)."""
+    resp = _make_mock_response(200, {"updatedCells": 2})
+    put_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(put_mock=put_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        result = await google_sheets_write(
+            access_token="token",
+            spreadsheet_id="spread-1",
+            cell_range="Sheet1!A1",
+            values=[["홍길동", "100"]],
+        )
+
+    assert json.loads(result)["success"] is True
+    assert put_mock.call_args.kwargs["json"]["values"] == [["홍길동", "100"]]
+
+
 # ---------------------------------------------------------------------------
 # Google Calendar Create
 # ---------------------------------------------------------------------------
