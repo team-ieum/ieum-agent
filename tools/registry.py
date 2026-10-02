@@ -20,8 +20,8 @@ from tools.github import (
     github_list_pull_requests,
 )
 
-# Spring Boot 백엔드가 실행 시 주입하는 자격증명/연결 파라미터.
-# 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증에서 제외한다.
+# 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
+# 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증과 설정 폼에서 제외한다.
 RUNTIME_INJECTED_PARAMS: set[str] = {
     "token",            # Notion / GitHub Integration Token
     "access_token",     # Google OAuth Access Token
@@ -30,6 +30,7 @@ RUNTIME_INJECTED_PARAMS: set[str] = {
     "sender_password",  # Gmail SMTP
     "smtp_host",        # Gmail SMTP
     "smtp_port",        # Gmail SMTP
+    "workflow_context_data",  # agent가 바인딩(agents/base.py _bind_workflow_context)
 }
 
 # 도구 설정 폼(GET /v1/tools/schema)의 필드 표시 메타. 파라미터 이름 기준이다.

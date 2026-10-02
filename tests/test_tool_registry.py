@@ -183,7 +183,6 @@ def test_tool_form_schema_covers_tool_map_without_injected_params():
     ("builtin:http_fetch", "headers_json", "string", False),          # str | dict | None → 첫 타입
     ("builtin:web_search", "max_results", "integer", False),
     ("builtin:text_extract", "find_all", "boolean", False),
-    ("builtin:workflow_context", "workflow_context_data", "object", True),
 ])
 def test_tool_form_schema_json_types(tool, field, expected_type, required):
     f = next(f for f in _schema_tool(tool)["fields"] if f["name"] == field)
@@ -205,3 +204,16 @@ def test_tools_schema_route_returns_registry_schema():
     resp = TestClient(app).get("/v1/tools/schema")
     assert resp.status_code == 200
     assert resp.json() == tool_form_schema()
+
+
+def test_tool_form_schema_hides_agent_bound_context():
+    """workflow_context_data는 agent가 실행 시 바인딩한다(agents/base.py _bind_workflow_context).
+    폼에 필수 필드로 나가면 사용자가 내부 값을 넣어야 하는 것처럼 보인다."""
+    names = {f["name"] for f in _schema_tool("builtin:workflow_context")["fields"]}
+    assert names == {"action", "node_id", "field_path"}
+
+
+def test_json_type_maps_dict_to_object():
+    from tools.registry import _json_type
+
+    assert _json_type(dict) == "object"
