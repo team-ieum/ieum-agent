@@ -45,6 +45,19 @@ def _a1_range(cell_range: str, sheet_name: str | None) -> str:
     return f"{sheet}!{part}" if part else sheet
 
 
+def _parse_values(tool: str, values) -> tuple[list | None, str | None]:
+    """values는 JSON 배열 문자열이 기본이나, 프레임워크/LLM이 이미 list로 넘길 수도 있어 둘 다 허용한다.
+    (파싱 결과, None) 또는 (None, 에러 JSON)을 반환한다."""
+    if isinstance(values, list):
+        return values, None
+    try:
+        return json.loads(values), None
+    except (json.JSONDecodeError, TypeError) as e:
+        return None, json.dumps({
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} ({tool}: values JSON 파싱 오류 - {str(e)})"
+        }, ensure_ascii=False)
+
+
 def _values_url(spreadsheet_id: str, a1_range: str) -> str:
     # 탭 이름의 '/', '#', '?'가 경로·프래그먼트·쿼리로 해석되지 않도록 경로 조각을 인코딩한다.
     return (f"{_SHEETS_API_BASE}/spreadsheets/{quote(str(spreadsheet_id), safe='')}"
@@ -124,16 +137,9 @@ async def google_sheets_append(
         return error
     a1_range = _a1_range(cell_range, sheet_name)
 
-    # values는 JSON 배열 문자열이 기본이나, 프레임워크/LLM이 이미 list로 넘길 수도 있어 둘 다 허용한다.
-    if isinstance(values, list):
-        parsed_values = values
-    else:
-        try:
-            parsed_values = json.loads(values)
-        except (json.JSONDecodeError, TypeError) as e:
-            return json.dumps({
-                "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_append: values JSON 파싱 오류 - {str(e)})"
-            }, ensure_ascii=False)
+    parsed_values, error = _parse_values("google_sheets_append", values)
+    if error:
+        return error
 
     payload = {
         "range": a1_range,
@@ -194,16 +200,9 @@ async def google_sheets_write(
         return error
     a1_range = _a1_range(cell_range, sheet_name)
 
-    # append와 같이 list로 넘어온 values도 허용한다.
-    if isinstance(values, list):
-        parsed_values = values
-    else:
-        try:
-            parsed_values = json.loads(values)
-        except (json.JSONDecodeError, TypeError) as e:
-            return json.dumps({
-                "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_write: values JSON 파싱 오류 - {str(e)})"
-            }, ensure_ascii=False)
+    parsed_values, error = _parse_values("google_sheets_write", values)
+    if error:
+        return error
 
     payload = {
         "range": a1_range,
