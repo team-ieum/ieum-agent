@@ -9,6 +9,8 @@
 """
 
 import inspect
+import types
+import typing
 
 from tools import _TOOL_MAP
 from tools.github import (
@@ -18,8 +20,8 @@ from tools.github import (
     github_list_pull_requests,
 )
 
-# Spring Boot 백엔드가 실행 시 주입하는 자격증명/연결 파라미터.
-# 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증에서 제외한다.
+# 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
+# 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증과 설정 폼에서 제외한다.
 RUNTIME_INJECTED_PARAMS: set[str] = {
     "token",            # Notion / GitHub Integration Token
     "access_token",     # Google OAuth Access Token
@@ -28,6 +30,20 @@ RUNTIME_INJECTED_PARAMS: set[str] = {
     "sender_password",  # Gmail SMTP
     "smtp_host",        # Gmail SMTP
     "smtp_port",        # Gmail SMTP
+    "workflow_context_data",  # agent가 바인딩(agents/base.py _bind_workflow_context)
+}
+
+# 도구 설정 폼(GET /v1/tools/schema)의 필드 표시 메타. 파라미터 이름 기준이다.
+# 없는 파라미터는 title=파라미터 이름, description 생략으로 내보낸다.
+# optionsSource는 BE options API 경로(/api/v1/integrations/{app}/options/{resource})의
+# `{app}.{resource}`이고, optionsInputs는 그 공급원에 넘길 다른 필드 이름이다.
+FIELD_META: dict[str, dict] = {
+    "spreadsheet_id": {"title": "스프레드시트", "description": "대상 스프레드시트",
+                       "optionsSource": "google.spreadsheets"},
+    "sheet_name": {"title": "워크시트", "description": "대상 워크시트(탭)",
+                   "optionsSource": "google.worksheets", "optionsInputs": ["spreadsheet_id"]},
+    "cell_range": {"title": "범위", "description": "예: A:C"},
+    "values": {"title": "값"},
 }
 
 # 자동 파생이 불가능한 서비스별 수동 정책. 양이 적으므로 코드에 두고 git으로 관리한다.
@@ -240,3 +256,41 @@ def all_blueprints() -> dict[str, dict]:
     services |= set(SERVICE_POLICY.keys())
     services |= set(_DYNAMIC_SERVICE_ACTIONS.keys())
     return {s: service_blueprint(s) for s in sorted(services)}
+
+
+_JSON_TYPES = {str: "string", int: "integer", float: "number", bool: "boolean",
+               list: "array", dict: "object"}
+
+
+def _json_type(annotation) -> str:
+    """파이썬 타입 표기를 JSON Schema type으로 바꾼다. Optional·Union은 None을 뺀 첫 타입을 쓴다."""
+    if annotation is inspect.Parameter.empty:
+        return "string"
+    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+        annotation = next(a for a in typing.get_args(annotation) if a is not type(None))
+    return _JSON_TYPES.get(typing.get_origin(annotation) or annotation, "string")
+
+
+def tool_form_schema() -> dict:
+    """노드 tools 전체의 설정 폼 스키마(GET /v1/tools/schema → BE가 그대로 전달).
+
+    필드는 도구 함수 시그니처 순서이고, 실행 시 주입 인자(RUNTIME_INJECTED_PARAMS)는 뺀다.
+    required는 시그니처 기준이다 — AI 노드에서는 required라도 'AI가 결정'(키 없음)이 가능하다."""
+    tools = []
+    for name, fn in _TOOL_MAP.items():
+        fields = []
+        for p in inspect.signature(fn).parameters.values():
+            if p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                continue
+            param_class = _classify(p)
+            if param_class == "runtime_injected":
+                continue
+            fields.append({
+                "name": p.name,
+                "title": p.name,
+                "type": _json_type(p.annotation),
+                "required": param_class == "required",
+                **FIELD_META.get(p.name, {}),
+            })
+        tools.append({"name": name, "fields": fields})
+    return {"tools": tools}

@@ -458,3 +458,87 @@ def test_rerender_new_node_gets_default_model():
                  "slots": {"label": "새", "description": "새 노드", "prompt": "q"}}
     nodes, _ = prepare_hydrated_nodes([new_draft], [], provider="CLAUDE", current_nodes=stored)
     assert nodes[0]["config"]["model"] == resolve_model("CLAUDE")
+
+
+# --- Sheets 리소스 슬롯 (IEUM-AI-60) ------------------------------------------
+
+_TRIGGER = {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명",
+            "config": {"triggerType": "MANUAL"}}
+
+
+def _sheets_draft(**slots) -> dict:
+    return {"id": "node-2", "templateId": "ai.google_sheets_append", "slots": {
+        "label": "행 추가", "description": "구글 시트에 새 줄을 덧붙여요.",
+        "prompt": "'A:B' 범위에 한 행을 추가해줘. values: [[\"x\"]]", **slots}}
+
+
+@pytest.mark.parametrize("tid", ["ai.google_sheets_read", "ai.google_sheets_append",
+                                 "ai.google_sheets_write"])
+def test_sheets_slots_fill_tool_config(tid):
+    from core.template_registry import hydrate_node
+
+    draft = _sheets_draft(spreadsheet_id="1Bxi", spreadsheet_name="2026 매출 장부",
+                          sheet_name="매출")
+    draft["templateId"] = tid
+    node = hydrate_node(draft, provider="GEMINI")
+    tool_key = tid.replace("ai.", "builtin:")
+    assert node["config"]["tools"] == [{"name": tool_key, "config": {
+        "spreadsheet_id": "1Bxi", "sheet_name": "매출",
+        "_names": {"spreadsheet_id": "2026 매출 장부"},
+    }}]
+
+
+@pytest.mark.parametrize("blank", ["", "  ", None])
+def test_blank_tool_slot_is_not_bound(blank):
+    """LLM이 '모르면 비움'을 빈 문자열·null로 쓰면 키를 만들지 않는다.
+    만들면 빈 값이 고정 바인딩돼 그 노드는 매번 실패한다."""
+    from core.template_registry import hydrate_node
+
+    node = hydrate_node(_sheets_draft(spreadsheet_id=blank, sheet_name=blank, spreadsheet_name=blank),
+                        provider="GEMINI")
+    assert node["config"]["tools"] == [{"name": "builtin:google_sheets_append"}]
+
+
+def test_null_required_tool_slot_rejected():
+    """필수 도구 인자 슬롯의 null은 누락이다. 통과시키면 catalogId=None이 고정 바인딩된다."""
+    with pytest.raises(SlotFillError):
+        hydrate_node({"templateId": "ai.mcp", "slots": {
+            "label": "MCP 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.",
+            "prompt": "처리", "catalogId": None}}, provider="GEMINI")
+
+
+def test_sheets_slot_binds_at_execution():
+    """슬롯 → tools[0].config → _bind_config 고정까지 한 줄로 이어진다."""
+    import inspect
+    from core.template_registry import hydrate_node
+    from tools import get_tools_for_request
+
+    node = hydrate_node(_sheets_draft(spreadsheet_id="1Bxi", sheet_name="매출"), provider="GEMINI")
+    [tool] = get_tools_for_request(node["config"]["tools"])
+    params = inspect.signature(tool.func).parameters
+    assert "spreadsheet_id" not in params and "sheet_name" not in params
+
+
+def test_sheets_slot_reference_validated():
+    """ID 슬롯의 참조식도 검증기의 참조 대상 검사를 받는다."""
+    from core.template_registry import hydrate_node
+    from core.validators.workflow_validator import WorkflowValidationError
+
+    edges = [{"source": "node-1", "target": "node-2"}]
+    ok = hydrate_node(_sheets_draft(spreadsheet_id="{{nodes.node-1.output.sheetId}}"),
+                      provider="GEMINI")
+    WorkflowValidator.validate([_TRIGGER, ok], edges, set())
+
+    bad = hydrate_node(_sheets_draft(spreadsheet_id="{{nodes.node-9.output.sheetId}}"),
+                       provider="GEMINI")
+    with pytest.raises(WorkflowValidationError):
+        WorkflowValidator.validate([_TRIGGER, bad], edges, set())
+
+
+def test_sheets_slots_listed_as_optional_in_catalog():
+    from core.template_registry import slot_catalog_text
+
+    lines = slot_catalog_text().splitlines()
+    i = next(i for i, l in enumerate(lines) if l.startswith("- ai.google_sheets_append "))
+    for name in ("spreadsheet_id", "spreadsheet_name", "sheet_name"):
+        assert f"{name}(string,선택)" in lines[i + 1]
