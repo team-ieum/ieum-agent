@@ -42,7 +42,7 @@ async def google_drive_read(
         meta_response = await client.get(
             f"{_DRIVE_API_BASE}/files/{file_id}",
             headers=_headers(access_token),
-            params={"fields": "name,mimeType"},
+            params={"fields": "name,mimeType", "supportsAllDrives": "true"},
             timeout=_TIMEOUT,
         )
         if not meta_response.is_success:
@@ -75,7 +75,7 @@ async def google_drive_read(
             content_response = await client.get(
                 f"{_DRIVE_API_BASE}/files/{file_id}",
                 headers=_headers(access_token),
-                params={"alt": "media"},
+                params={"alt": "media", "supportsAllDrives": "true"},
                 timeout=_TIMEOUT,
             )
 
@@ -155,7 +155,7 @@ async def google_drive_upload(
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": f"multipart/related; boundary={boundary}",
             },
-            params={"uploadType": "multipart", "fields": "id,name,webViewLink"},
+            params={"uploadType": "multipart", "fields": "id,name,webViewLink", "supportsAllDrives": "true"},
             content=body.encode("utf-8"),
             timeout=_TIMEOUT,
         )

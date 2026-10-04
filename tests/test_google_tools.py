@@ -245,6 +245,10 @@ async def test_google_drive_read_plain_text_success():
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["content"] == "hello world"
+    # 공유 드라이브 파일은 supportsAllDrives 없이 404 — 메타 조회·본문 다운로드 둘 다 실어야 한다
+    meta_call, media_call = get_mock.call_args_list
+    assert meta_call.kwargs["params"]["supportsAllDrives"] == "true"
+    assert media_call.kwargs["params"]["supportsAllDrives"] == "true"
 
 
 @pytest.mark.asyncio
@@ -267,6 +271,10 @@ async def test_google_drive_read_google_doc_export():
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["mimeType"] == "text/plain"
+    # files.export는 supportsAllDrives 파라미터가 없다(mimeType뿐)
+    meta_call, export_call = get_mock.call_args_list
+    assert meta_call.kwargs["params"]["supportsAllDrives"] == "true"
+    assert "supportsAllDrives" not in export_call.kwargs["params"]
 
 
 @pytest.mark.asyncio
@@ -294,7 +302,8 @@ async def test_google_drive_upload_success():
         "name": "test.txt",
         "webViewLink": "https://drive.google.com/file/d/file-123/view",
     })
-    client = _make_async_client(post_mock=AsyncMock(return_value=resp))
+    post_mock = AsyncMock(return_value=resp)
+    client = _make_async_client(post_mock=post_mock)
 
     with patch("tools.google_drive.get_http_client", return_value=client):
         result = await google_drive_upload(
@@ -306,6 +315,8 @@ async def test_google_drive_upload_success():
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["fileId"] == "file-123"
+    # 공유 드라이브 폴더에 올리려면 files.create에도 supportsAllDrives가 필요하다
+    assert post_mock.call_args.kwargs["params"]["supportsAllDrives"] == "true"
 
 
 @pytest.mark.asyncio
