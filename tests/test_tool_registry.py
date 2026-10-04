@@ -191,8 +191,8 @@ def test_tool_form_schema_json_types(tool, field, expected_type, required):
 
 def test_tool_form_schema_field_without_meta_uses_param_name():
     f = next(f for f in _schema_tool("builtin:notion_create_page")["fields"]
-             if f["name"] == "parent_page_id")
-    assert f == {"name": "parent_page_id", "title": "parent_page_id",
+             if f["name"] == "content")
+    assert f == {"name": "content", "title": "content",
                  "type": "string", "required": True}
 
 
@@ -217,3 +217,51 @@ def test_json_type_maps_dict_to_object():
     from tools.registry import _json_type
 
     assert _json_type(dict) == "object"
+
+
+# --- 앱별 드롭다운 공급원 (IEUM-AI-62) ----------------------------------------
+
+_EXPECTED_OPTION_FIELDS = {
+    ("builtin:google_sheets_read", "spreadsheet_id"), ("builtin:google_sheets_read", "sheet_name"),
+    ("builtin:google_sheets_write", "spreadsheet_id"), ("builtin:google_sheets_write", "sheet_name"),
+    ("builtin:google_sheets_append", "spreadsheet_id"), ("builtin:google_sheets_append", "sheet_name"),
+    ("builtin:google_calendar_create", "calendar_id"),
+    ("builtin:google_calendar_list", "calendar_id"),
+    ("builtin:google_calendar_update", "calendar_id"), ("builtin:google_calendar_update", "event_id"),
+    ("builtin:google_drive_read", "file_id"),
+    ("builtin:google_drive_upload", "folder_id"),
+    ("builtin:notion_create_page", "parent_page_id"),
+    ("builtin:notion_read_page", "page_id"),
+    ("builtin:notion_update_page", "page_id"),
+    ("builtin:notion_append_block", "page_id"),
+    ("builtin:notion_query_database", "database_id"),
+}
+
+
+def test_tool_form_schema_공급원이_붙는_필드_집합():
+    """FIELD_META는 파라미터 이름 기준이라 같은 이름의 다른 도구 필드에 번질 수 있다 — 집합을 고정한다."""
+    actual = {(t["name"], f["name"])
+              for t in tool_form_schema()["tools"] for f in t["fields"] if "optionsSource" in f}
+    assert actual == _EXPECTED_OPTION_FIELDS
+
+
+@pytest.mark.parametrize("field, title, source, inputs", [
+    ("calendar_id", "캘린더", "google.calendars", None),
+    ("event_id", "일정", "google.events", ["calendar_id"]),
+    ("file_id", "파일", "google.files", None),
+    ("folder_id", "폴더", "google.folders", None),
+    ("page_id", "페이지", "notion.pages", None),
+    ("parent_page_id", "상위 페이지", "notion.pages", None),
+    ("database_id", "데이터베이스", "notion.databases", None),
+])
+def test_tool_form_schema_app_option_sources(field, title, source, inputs):
+    """공급원 키는 BE OptionSource.key()와 1:1 계약(IEUM-BE-72·73)."""
+    f = next(f for t in tool_form_schema()["tools"] for f in t["fields"] if f["name"] == field)
+    assert (f["title"], f["optionsSource"], f.get("optionsInputs")) == (title, source, inputs)
+    assert f["description"]
+
+
+def test_tool_form_schema_event_id는_뒤의_calendar_id를_가리킨다():
+    """필드 순서는 시그니처 순서 그대로 — optionsInputs가 뒤 필드를 가리킬 수 있다(FE-51 명세)."""
+    names = [f["name"] for f in _schema_tool("builtin:google_calendar_update")["fields"]]
+    assert names.index("event_id") < names.index("calendar_id")
