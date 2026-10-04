@@ -19,7 +19,7 @@
     {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
     {"name": "model", "path": "config.model", "required": true, "kind": "model", "description": "요청 provider의 기본 모델. 시스템이 자동 주입한다(작성 금지)."},
     {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "읽기 지시. range 명시(sheet_name 슬롯을 채웠으면 'A:B'처럼 범위만). 스프레드시트 ID는 spreadsheet_id 슬롯에 쓰고 prompt에는 쓰지 않는다. 후속 노드가 쓰는 컬럼만 추출하도록 지시."},
-    {"name": "spreadsheet_id", "path": "config.tools.0.config.spreadsheet_id", "required": false, "kind": "string", "description": "대상 스프레드시트 ID(사용자가 준 값·조회로 확인한 값). 모르면 슬롯을 생략한다. 선행 노드 결과로 정해지는 ID(참조식)는 넣지 않고 prompt에 쓴다."},
+    {"name": "spreadsheet_id", "path": "config.tools.0.config.spreadsheet_id", "required": false, "kind": "string", "description": "대상 스프레드시트 ID(사용자가 준 값·조회로 확인한 값). 모르면 슬롯을 생략한다. 선행 노드 결과로 정해지면 참조식({{nodes.<id>.output.<field>}})을 넣는다."},
     {"name": "spreadsheet_name", "path": "config.tools.0.config._names.spreadsheet_id", "required": false, "kind": "string", "description": "spreadsheet_id의 표시 이름(화면 표시용). spreadsheet_id 슬롯을 채웠을 때만 채운다."},
     {"name": "sheet_name", "path": "config.tools.0.config.sheet_name", "required": false, "kind": "string", "description": "워크시트(탭) 제목. 사용자가 시트 이름을 말한 경우에만 채운다."}
   ],

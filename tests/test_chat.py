@@ -1194,7 +1194,20 @@ def test_chat_prompt_puts_resource_id_in_slot_not_prompt():
     assert "ID 슬롯이 없는 템플릿(Notion·GitHub 등)은 기존대로 prompt 슬롯에" in _SYSTEM_PROMPT_BASE
     assert "사용자가 시트(탭) 이름을 말한 경우에만" in _SYSTEM_PROMPT_BASE
     assert "빈 문자열이나 null을 넣지 말고" in _SYSTEM_PROMPT_BASE
-    assert "선행 노드 결과로 정해지는 ID(참조식)는 슬롯에 넣지 말고 prompt에" in _SYSTEM_PROMPT_BASE
+    assert "선행 노드 결과로 정해지는 ID는 슬롯에 참조식" in _SYSTEM_PROMPT_BASE
+    assert "슬롯에 넣지 말고 prompt에" not in _SYSTEM_PROMPT_BASE
     assert "노드의 prompt 슬롯에 자연어로 기입하여" not in _SYSTEM_PROMPT_BASE
     assert "ID 슬롯이 있으면 그 슬롯" in _OUTPUT_FORMAT_SPEC
     assert "prompt 슬롯에 자연어로 기입한다. 못 찾으면 비운다." not in _OUTPUT_FORMAT_SPEC
+
+
+def test_sheets_id_slot_allows_reference():
+    """BE-71이 tools[].config를 치환하므로 Sheets ID 슬롯 설명이 참조식을 허용해야 한다."""
+    import json
+    from pathlib import Path
+
+    base = Path(__file__).resolve().parent.parent / "ieum-workflow-design" / "templates"
+    for name in ("append", "read", "write"):
+        slots = json.loads((base / f"ai.google_sheets_{name}.json").read_text(encoding="utf-8"))["slots"]
+        [desc] = [s["description"] for s in slots if s["name"] == "spreadsheet_id"]
+        assert "참조식" in desc and "넣지 않고 prompt" not in desc, name
