@@ -38,9 +38,10 @@ async def build_notion_agent(
 
     # self-host한 notion-mcp-server(--transport http --enable-token-passthrough)에 연결한다.
     # 유저별 토큰은 매 요청 Notion-Token 헤더로 전달되며, 서버가 이를 Notion API 호출에 사용한다.
+    # Notion-Version은 보내지 않는다 — notion-mcp-server 2.x가 operation별로 버전을 스스로 고정하고
+    # 클라이언트 헤더를 무시한다(2025-09-03, markdown 계열 2026-03-11).
     headers = {
         "Notion-Token": notion_oauth_token,
-        "Notion-Version": "2022-06-28",
     }
     # 서버의 게이트웨이 Bearer 인증(AUTH_TOKEN)을 통과하기 위한 헤더. 토큰 passthrough와 별개 레이어다.
     if settings.NOTION_MCP_AUTH_TOKEN:
