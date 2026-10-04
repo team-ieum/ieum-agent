@@ -403,6 +403,54 @@ async def test_google_calendar_update_error():
 
 
 # ---------------------------------------------------------------------------
+# Google Calendar — calendar_id 경로 인코딩 (IEUM-AI-62)
+# ---------------------------------------------------------------------------
+
+_HOLIDAY_CALENDAR = "ko.south_korea#holiday@group.v.calendar.google.com"
+_HOLIDAY_ENCODED = "ko.south_korea%23holiday%40group.v.calendar.google.com"
+_CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars/"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool, verb, kwargs, suffix", [
+    ("google_calendar_create", "post",
+     {"summary": "회의", "start_datetime": "2026-10-07T09:00:00+09:00",
+      "end_datetime": "2026-10-07T10:00:00+09:00"}, "/events"),
+    ("google_calendar_list", "get",
+     {"time_min": "2026-10-01T00:00:00+09:00", "time_max": "2026-10-31T23:59:59+09:00"}, "/events"),
+    ("google_calendar_update", "patch", {"event_id": "evt-1", "summary": "변경"}, "/events/evt-1"),
+])
+async def test_google_calendar_calendar_id는_경로에_인코딩(tool, verb, kwargs, suffix):
+    """드롭다운이 주는 공휴일 캘린더 id의 #가 fragment로 잘리지 않아야 한다."""
+    import tools.google_calendar as gc
+
+    call = AsyncMock(return_value=_make_mock_response(200, {"id": "evt-1", "htmlLink": "x", "items": []}))
+    client = _make_async_client(**{f"{verb}_mock": call})
+
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        result = json.loads(await getattr(gc, tool)(
+            access_token="token", calendar_id=_HOLIDAY_CALENDAR, **kwargs))
+
+    assert "error" not in result
+    assert call.call_args.args[0] == f"{_CALENDAR_BASE}{_HOLIDAY_ENCODED}{suffix}"
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_기본_primary_경로_그대로():
+    call = AsyncMock(return_value=_make_mock_response(200, {"items": []}))
+    client = _make_async_client(get_mock=call)
+
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        await google_calendar_list(
+            access_token="token",
+            time_min="2026-10-01T00:00:00+09:00",
+            time_max="2026-10-31T23:59:59+09:00",
+        )
+
+    assert call.call_args.args[0] == f"{_CALENDAR_BASE}primary/events"
+
+
+# ---------------------------------------------------------------------------
 # Google Sheets Append
 # ---------------------------------------------------------------------------
 

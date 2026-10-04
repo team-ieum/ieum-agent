@@ -1,5 +1,6 @@
 import json
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -34,7 +35,7 @@ async def google_calendar_create(
         start_datetime: 시작 일시 (ISO 8601, 예: "2026-05-13T09:00:00+09:00")
         end_datetime: 종료 일시 (ISO 8601)
         description: 일정 설명 (optional)
-        calendar_id: 캘린더 ID (기본값: "primary")
+        calendar_id: 캘린더 ID (기본값: "primary"). 공휴일 캘린더처럼 #·@가 든 id도 받는다(경로 인코딩).
 
     Returns:
         생성된 일정 ID, URL을 포함한 JSON 문자열
@@ -49,7 +50,7 @@ async def google_calendar_create(
     try:
         client = get_http_client()
         response = await client.post(
-            f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+            f"{_CALENDAR_API_BASE}/calendars/{quote(calendar_id, safe='')}/events",
             headers=_headers(access_token),
             json=payload,
             timeout=_TIMEOUT,
@@ -110,7 +111,7 @@ async def google_calendar_update(
     try:
         client = get_http_client()
         response = await client.patch(
-            f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+            f"{_CALENDAR_API_BASE}/calendars/{quote(calendar_id, safe='')}/events/{event_id}",
             headers=_headers(access_token),
             json=payload,
             timeout=_TIMEOUT,
@@ -164,7 +165,7 @@ async def google_calendar_list(
     try:
         client = get_http_client()
         response = await client.get(
-            f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+            f"{_CALENDAR_API_BASE}/calendars/{quote(calendar_id, safe='')}/events",
             headers=_headers(access_token),
             params=params,
             timeout=_TIMEOUT,
