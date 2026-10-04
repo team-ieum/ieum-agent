@@ -626,6 +626,23 @@ async def test_sheets_blank_target_returns_error_without_http(tool, spreadsheet_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cell_range, sheet_name", [
+    ("", "매출"),          # 미해결 참조식 "" + 고정 시트 → 시트 전체를 A1부터 덮어쓰게 된다
+    ("Sheet1!", None),
+    ("  ", None),
+])
+async def test_sheets_write_blank_range_returns_error_without_http(cell_range, sheet_name):
+    with patch("tools.google_sheets.get_http_client") as factory:
+        result = await google_sheets_write(
+            access_token="token", spreadsheet_id="spread-1",
+            cell_range=cell_range, values='[["x"]]', sheet_name=sheet_name,
+        )
+
+    assert "cell_range" in json.loads(result)["error"]
+    factory.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_bound_sheet_target_hidden_from_llm():
     """tools[0].config의 spreadsheet_id·sheet_name은 고정 바인딩되고 _names는 무시된다.
     config가 없는 기존 노드는 두 인자가 LLM에 그대로 노출된다."""

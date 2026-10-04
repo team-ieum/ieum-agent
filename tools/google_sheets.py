@@ -198,6 +198,12 @@ async def google_sheets_write(
     error = _target_error("google_sheets_write", spreadsheet_id, sheet_name)
     if error:
         return error
+    # 범위가 비면 시트 전체가 대상이 돼 A1부터 헤더·기존 데이터를 덮어쓴다(미해결 참조식도 ""가 된다).
+    if not (cell_range or "").rpartition("!")[2].strip():
+        return json.dumps({
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_write: "
+                     "쓰기 범위(cell_range)가 비어 있습니다. 덮어쓸 위치를 'A1'처럼 지정해 주세요.)"
+        }, ensure_ascii=False)
     a1_range = _a1_range(cell_range, sheet_name)
 
     parsed_values, error = _parse_values("google_sheets_write", values)
