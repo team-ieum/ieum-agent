@@ -628,6 +628,7 @@ async def test_sheets_blank_target_returns_error_without_http(tool, spreadsheet_
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cell_range, sheet_name", [
     ("", "매출"),          # 미해결 참조식 "" + 고정 시트 → 시트 전체를 A1부터 덮어쓰게 된다
+    (None, "매출"),        # config의 null도 그대로 바인딩된다
     ("Sheet1!", None),
     ("  ", None),
 ])
@@ -638,8 +639,38 @@ async def test_sheets_write_blank_range_returns_error_without_http(cell_range, s
             cell_range=cell_range, values='[["x"]]', sheet_name=sheet_name,
         )
 
-    assert "cell_range" in json.loads(result)["error"]
+    assert "cell_range가 비어 있습니다" in json.loads(result)["error"]
     factory.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sheets_write_non_str_range_does_not_raise():
+    resp = _make_mock_response(200, {"updatedCells": 1})
+    client = _make_async_client(put_mock=AsyncMock(return_value=resp))
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        result = await google_sheets_write(
+            access_token="token", spreadsheet_id="spread-1",
+            cell_range=5, values='[["x"]]',
+        )
+
+    parsed = json.loads(result)
+    assert "error" in parsed or parsed.get("success") is True
+
+
+@pytest.mark.asyncio
+async def test_sheets_non_str_range_with_sheet_name_does_not_raise():
+    get_mock = AsyncMock(return_value=_make_mock_response(200, {"values": []}))
+    client = _make_async_client(get_mock=get_mock)
+
+    with patch("tools.google_sheets.get_http_client", return_value=client):
+        result = await google_sheets_read(
+            access_token="token", spreadsheet_id="spread-1",
+            cell_range=5, sheet_name="매출",
+        )
+
+    assert json.loads(result)["success"] is True
+    assert _range_in_url(get_mock.call_args.args[0]) == "'매출'!5"
 
 
 @pytest.mark.asyncio

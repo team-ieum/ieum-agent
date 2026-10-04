@@ -41,7 +41,7 @@ def _a1_range(cell_range: str, sheet_name: str | None) -> str:
     if sheet_name is None:
         return cell_range
     sheet = "'" + str(sheet_name).replace("'", "''") + "'"
-    part = (cell_range or "").rpartition("!")[2]
+    part = str(cell_range or "").rpartition("!")[2]
     return f"{sheet}!{part}" if part else sheet
 
 
@@ -199,10 +199,9 @@ async def google_sheets_write(
     if error:
         return error
     # 범위가 비면 시트 전체가 대상이 돼 A1부터 헤더·기존 데이터를 덮어쓴다(미해결 참조식도 ""가 된다).
-    if not (cell_range or "").rpartition("!")[2].strip():
+    if not str(cell_range or "").rpartition("!")[2].strip():
         return json.dumps({
-            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_write: "
-                     "쓰기 범위(cell_range)가 비어 있습니다. 덮어쓸 위치를 'A1'처럼 지정해 주세요.)"
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_write: cell_range가 비어 있습니다)"
         }, ensure_ascii=False)
     a1_range = _a1_range(cell_range, sheet_name)
 
