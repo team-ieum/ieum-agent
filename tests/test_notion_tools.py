@@ -138,6 +138,43 @@ async def test_notion_search_성공(mock_client):
     assert result["results"][0]["title"] == "경제 뉴스"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filter_type, sent", [
+    ("database", "data_source"),   # LLM·템플릿이 쓰는 값 → 2026-03-11의 data source
+    ("page", "page"),
+    ("data_source", "data_source"),
+])
+async def test_notion_search_filter_type_매핑(mock_client, filter_type, sent):
+    mock_client.post = AsyncMock(return_value=_make_response(200, {"results": []}))
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_search
+        await notion_search(token="secret_test", query="업무", filter_type=filter_type)
+
+    kwargs = mock_client.post.call_args.kwargs
+    assert kwargs["json"]["filter"] == {"value": sent, "property": "object"}
+    assert kwargs["headers"]["Notion-Version"] == "2026-03-11"
+
+
+@pytest.mark.asyncio
+async def test_notion_search_data_source_결과는_최상위_title이_제목(mock_client):
+    """data source의 properties는 스키마 정의(title 값이 {})라 최상위 title로 이름을 만든다."""
+    mock_client.post = AsyncMock(return_value=_make_response(200, {"results": [{
+        "object": "data_source",
+        "id": "ds-1",
+        "url": "https://notion.so/ds-1",
+        "title": [{"plain_text": "업무 "}, {"plain_text": "보드"}],
+        "properties": {"Name": {"id": "title", "name": "Name", "type": "title", "title": {}}},
+    }]}))
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_search
+        result = json.loads(await notion_search(token="secret_test", query="업무", filter_type="database"))
+
+    assert result["results"][0]["id"] == "ds-1"
+    assert result["results"][0]["title"] == "업무 보드"
+
+
 # ---------------------------------------------------------------------------
 # notion_append_block
 # ---------------------------------------------------------------------------
@@ -486,21 +523,99 @@ async def test_notion_query_database_성공(mock_client):
     assert row["properties"]["완료"] is False
 
 
+_DS_QUERY = "https://api.notion.com/v1/data_sources/{}/query"
+
+
 @pytest.mark.asyncio
-async def test_notion_query_database_api_오류(mock_client):
-    mock_client.post = AsyncMock(return_value=_make_response(404, {
-        "message": "Could not find database."
+async def test_notion_query_database_data_source_id는_한번에_조회(mock_client):
+    mock_client.post = AsyncMock(return_value=_make_response(200, {"results": []}))
+    mock_client.get = AsyncMock()
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        result = json.loads(await notion_query_database(token="secret_test", database_id="ds-1"))
+
+    assert result["success"] is True
+    assert mock_client.post.call_args.args[0] == _DS_QUERY.format("ds-1")
+    assert mock_client.post.call_args.kwargs["headers"]["Notion-Version"] == "2026-03-11"
+    mock_client.get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_notion_query_database_옛_database_id는_data_source로_풀어_재시도(mock_client):
+    mock_client.post = AsyncMock(side_effect=[
+        _make_response(404, {"code": "object_not_found", "message": "Could not find data_source."}),
+        _make_response(200, {"results": [{"id": "row-1", "url": "u", "properties": {}}]}),
+    ])
+    mock_client.get = AsyncMock(return_value=_make_response(200, {
+        "object": "database", "id": "db-old",
+        "data_sources": [{"id": "ds-9", "name": "업무"}],
     }))
 
     with patch("tools.notion.get_http_client", return_value=mock_client):
         from tools.notion import notion_query_database
         result = json.loads(await notion_query_database(
-            token="secret_test",
-            database_id="db-missing",
+            token="secret_test", database_id="db-old",
+            filter_json='{"property":"상태","status":{"equals":"진행중"}}', page_size=5,
         ))
+
+    assert result["success"] is True
+    assert result["rows"][0]["id"] == "row-1"
+    assert mock_client.get.call_args.args[0] == "https://api.notion.com/v1/databases/db-old"
+    calls = mock_client.post.call_args_list
+    assert [c.args[0] for c in calls] == [_DS_QUERY.format("db-old"), _DS_QUERY.format("ds-9")]
+    # 재시도에도 필터·page_size가 그대로 간다
+    assert calls[1].kwargs["json"] == {
+        "page_size": 5,
+        "filter": {"property": "상태", "status": {"equals": "진행중"}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_notion_query_database_다중_data_source는_목록을_에러로(mock_client):
+    mock_client.post = AsyncMock(return_value=_make_response(404, {"message": "Could not find data_source."}))
+    mock_client.get = AsyncMock(return_value=_make_response(200, {
+        "object": "database", "id": "db-old",
+        "data_sources": [{"id": "ds-1", "name": "2025"}, {"id": "ds-2", "name": "2026"}],
+    }))
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        result = json.loads(await notion_query_database(token="secret_test", database_id="db-old"))
+
+    assert "error" in result
+    assert result["dataSources"] == [{"id": "ds-1", "name": "2025"}, {"id": "ds-2", "name": "2026"}]
+    assert mock_client.post.call_count == 1  # 자동으로 하나를 골라 조회하지 않는다
+
+
+@pytest.mark.asyncio
+async def test_notion_query_database_data_source가_없는_DB는_에러(mock_client):
+    mock_client.post = AsyncMock(return_value=_make_response(404, {"message": "Could not find data_source."}))
+    mock_client.get = AsyncMock(return_value=_make_response(200, {
+        "object": "database", "id": "db-old", "data_sources": [],
+    }))
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        result = json.loads(await notion_query_database(token="secret_test", database_id="db-old"))
+
+    assert "error" in result
+    assert mock_client.post.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("get_status", [404, 500])
+async def test_notion_query_database_database로도_못_찾으면_원래_404(mock_client, get_status):
+    mock_client.post = AsyncMock(return_value=_make_response(404, {"message": "Could not find data_source."}))
+    mock_client.get = AsyncMock(return_value=_make_response(get_status, {"message": "x"}))
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        result = json.loads(await notion_query_database(token="secret_test", database_id="db-missing"))
 
     assert "error" in result
     assert "404" in result["error"]
+    assert mock_client.post.call_count == 1
 
 
 @pytest.mark.asyncio
