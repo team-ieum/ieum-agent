@@ -600,6 +600,8 @@ async def test_notion_query_database_data_source가_없는_DB는_에러(mock_cli
         result = json.loads(await notion_query_database(token="secret_test", database_id="db-old"))
 
     assert "error" in result
+    assert "404" not in result["error"]
+    mock_client.get.assert_called_once()
     assert mock_client.post.call_count == 1
 
 
@@ -615,6 +617,7 @@ async def test_notion_query_database_database로도_못_찾으면_원래_404(moc
 
     assert "error" in result
     assert "404" in result["error"]
+    mock_client.get.assert_called_once()
     assert mock_client.post.call_count == 1
 
 
