@@ -41,7 +41,7 @@ def _a1_range(cell_range: str, sheet_name: str | None) -> str:
     if sheet_name is None:
         return cell_range
     sheet = "'" + str(sheet_name).replace("'", "''") + "'"
-    part = (cell_range or "").rpartition("!")[2]
+    part = str(cell_range or "").rpartition("!")[2]
     return f"{sheet}!{part}" if part else sheet
 
 
@@ -198,6 +198,11 @@ async def google_sheets_write(
     error = _target_error("google_sheets_write", spreadsheet_id, sheet_name)
     if error:
         return error
+    # 범위가 비면 시트 전체가 대상이 돼 A1부터 헤더·기존 데이터를 덮어쓴다(미해결 참조식도 ""가 된다).
+    if not str(cell_range or "").rpartition("!")[2].strip():
+        return json.dumps({
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_sheets_write: cell_range가 비어 있습니다)"
+        }, ensure_ascii=False)
     a1_range = _a1_range(cell_range, sheet_name)
 
     parsed_values, error = _parse_values("google_sheets_write", values)
