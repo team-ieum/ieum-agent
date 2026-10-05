@@ -568,7 +568,7 @@ async def _query_data_source(client, token: str, data_source_id: str, payload: d
 async def _resolve_data_source(client, token: str, database_id: str):
     """옛 database id를 data source id로 푼다 — 2022-06-28 시절 저장된 노드 호환.
 
-    Returns: 단일 source면 그 id(str), 0개·여러 개면 에러 dict, database로도 못 찾으면 None.
+    Returns: 단일 source면 그 id(str), 0개·여러 개면 에러 dict, database로도 못 찾거나 data_sources 키가 없거나 null이면 None.
     """
     response = await client.get(
         f"{_NOTION_API_BASE}/databases/{database_id}",
@@ -577,7 +577,9 @@ async def _resolve_data_source(client, token: str, database_id: str):
     )
     if response.status_code != 200:
         return None
-    sources = response.json().get("data_sources", [])
+    sources = response.json().get("data_sources")
+    if not isinstance(sources, list):
+        return None
     if len(sources) == 1:
         return sources[0].get("id", "")
     if not sources:
@@ -607,7 +609,8 @@ async def notion_query_database(
     Returns:
         행 목록(id, url, 단순화된 properties)을 포함한 JSON 문자열
     """
-    payload = {"page_size": page_size}
+    # result_type: 위키 data source의 data_source 자식을 서버에서 거른다 — page_size 자리를 뺏기지 않게
+    payload = {"page_size": page_size, "result_type": "page"}
     # filter_json은 dict로 바로 오거나(일부 프레임워크), JSON 문자열로 올 수 있다. 빈/공백 문자열은 무시.
     if isinstance(filter_json, dict):
         payload["filter"] = filter_json

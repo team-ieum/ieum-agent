@@ -569,6 +569,7 @@ async def test_notion_query_database_옛_database_id는_data_source로_풀어_�
     # 재시도에도 필터·page_size가 그대로 간다
     assert calls[1].kwargs["json"] == {
         "page_size": 5,
+        "result_type": "page",
         "filter": {"property": "상태", "status": {"equals": "진행중"}},
     }
 
@@ -604,6 +605,24 @@ async def test_notion_query_database_data_source가_없는_DB는_에러(mock_cli
     assert "error" in result
     assert "404" not in result["error"]
     mock_client.get.assert_called_once()
+    assert mock_client.post.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    {"object": "database", "id": "db-old"},
+    {"object": "database", "id": "db-old", "data_sources": None},
+])
+async def test_notion_query_database_data_sources_키_없거나_null이면_원래_404(mock_client, body):
+    mock_client.post = AsyncMock(return_value=_make_response(404, {"message": "Could not find data_source."}))
+    mock_client.get = AsyncMock(return_value=_make_response(200, body))
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        result = json.loads(await notion_query_database(token="secret_test", database_id="db-old"))
+
+    assert "error" in result
+    assert "404" in result["error"]
     assert mock_client.post.call_count == 1
 
 
@@ -688,4 +707,4 @@ def test_config_바인딩되면_두_줄_설명도_통째로_빠진다():
     from tools.notion import notion_query_database, notion_search
 
     assert "옛 데이터베이스" not in _bind_config(notion_query_database, {"database_id": "x"}).__doc__
-    assert "database_id에 그대로" not in _bind_config(notion_search, {"filter_type": "page"}).__doc__
+    assert "notion_query_database의 database_id로" not in _bind_config(notion_search, {"filter_type": "page"}).__doc__
