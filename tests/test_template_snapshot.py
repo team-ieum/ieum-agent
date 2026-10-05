@@ -27,7 +27,18 @@ INTENDED_ALLOWED_ADDED: dict[str, set[str]] = {
     "http": {"_names", "webhookCredentialId"},
 }
 # spec §7.3 ① — Calendar·Drive·Notion 프리셋의 리소스 ID 슬롯
-INTENDED_NEW_SLOTS: dict[str, list[str]] = {}
+INTENDED_NEW_SLOTS: dict[str, list[str]] = {
+    "ai.google_calendar_create": ["calendar_id", "calendar_id_name"],
+    "ai.google_calendar_list": ["calendar_id", "calendar_id_name"],
+    "ai.google_calendar_update": ["event_id", "event_id_name", "calendar_id", "calendar_id_name"],
+    "ai.google_drive_read": ["file_id", "file_id_name"],
+    "ai.google_drive_upload": ["folder_id", "folder_id_name"],
+    "ai.notion_create_page": ["parent_page_id", "parent_page_id_name"],
+    "ai.notion_read_page": ["page_id", "page_id_name"],
+    "ai.notion_update_page": ["page_id", "page_id_name"],
+    "ai.notion_append_block": ["page_id", "page_id_name"],
+    "ai.notion_query_database": ["database_id", "database_id_name"],
+}
 
 
 def _roundtrip(snippet: dict) -> dict:

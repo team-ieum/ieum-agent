@@ -14,5 +14,16 @@
         }
       ]
     }
+  },
+  "fields": {
+    "database_id": {
+      "title": "데이터베이스",
+      "description": "조회할 데이터베이스",
+      "optionsSource": "notion.databases",
+      "llm": {
+        "hint": "조회할 데이터베이스 ID(사용자가 준 값·notion_search로 확인한 값). 모르면 비운다. 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
+        "name": "database_id의 표시 이름(데이터베이스 이름). database_id를 채웠을 때만 채운다."
+      }
+    }
   }
 }

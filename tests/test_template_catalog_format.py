@@ -150,3 +150,56 @@ def test_designer_prompt_uses_new_name_slot():
     from core.workflow_chat import _SYSTEM_PROMPT_BASE
     assert "spreadsheet_id_name" in _SYSTEM_PROMPT_BASE
     assert "(spreadsheet_name)" not in _SYSTEM_PROMPT_BASE
+
+
+# --- 의도된 차이 ①④ — Calendar·Drive·Notion 리소스 ID 슬롯 ---------------------------------
+
+RESOURCE_SLOTS = {
+    "ai.google_calendar_create": ["calendar_id", "calendar_id_name"],
+    "ai.google_calendar_list": ["calendar_id", "calendar_id_name"],
+    "ai.google_calendar_update": ["event_id", "event_id_name", "calendar_id", "calendar_id_name"],
+    "ai.google_drive_read": ["file_id", "file_id_name"],
+    "ai.google_drive_upload": ["folder_id", "folder_id_name"],
+    "ai.notion_create_page": ["parent_page_id", "parent_page_id_name"],
+    "ai.notion_read_page": ["page_id", "page_id_name"],
+    "ai.notion_update_page": ["page_id", "page_id_name"],
+    "ai.notion_append_block": ["page_id", "page_id_name"],
+    "ai.notion_query_database": ["database_id", "database_id_name"],
+}
+
+
+@pytest.mark.parametrize("tid, names", RESOURCE_SLOTS.items())
+def test_app_presets_gain_optional_resource_slots(tid, names):
+    slots = {s["name"]: s for s in tr.get_template(tid)["slots"]}
+    for name in names:
+        assert slots[name]["required"] is False and slots[name]["kind"] == "string", (tid, name)
+    key = names[0]
+    assert slots[key]["path"] == f"config.tools.0.config.{key}"
+    assert slots[f"{key}_name"]["path"] == f"config.tools.0.config._names.{key}"
+
+
+@pytest.mark.parametrize("blank", ["", "  ", None])
+def test_blank_calendar_slot_is_not_bound(blank):
+    node = tr.hydrate_node({"id": "n2", "templateId": "ai.google_calendar_create", "slots": {
+        "label": "l", "description": "d", "prompt": "p", "calendar_id": blank}}, provider="GEMINI")
+    assert node["config"]["tools"] == [{"name": "builtin:google_calendar_create"}]
+
+
+def test_calendar_slot_binds_with_display_name():
+    node = tr.hydrate_node({"id": "n2", "templateId": "ai.google_calendar_update", "slots": {
+        "label": "l", "description": "d", "prompt": "p",
+        "event_id": "evt1", "calendar_id": "team@group", "calendar_id_name": "팀 캘린더"}},
+        provider="GEMINI")
+    assert node["config"]["tools"] == [{"name": "builtin:google_calendar_update", "config": {
+        "event_id": "evt1", "calendar_id": "team@group", "_names": {"calendar_id": "팀 캘린더"}}}]
+
+
+def test_field_meta_removed():
+    import tools.registry as reg
+    assert not hasattr(reg, "FIELD_META")
+
+
+def test_designer_prompt_points_resource_ids_to_slots():
+    from core.workflow_chat import _SYSTEM_PROMPT_BASE
+    assert "Calendar calendar_id" in _SYSTEM_PROMPT_BASE
+    assert "(Notion·GitHub 등)" not in _SYSTEM_PROMPT_BASE

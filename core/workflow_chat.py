@@ -242,13 +242,13 @@ _SYSTEM_PROMPT_BASE = """\
      추리십시오. 그리고 message에 "원하는 저장소가 없으면 'owner/repo' 형식으로 직접 입력해 주세요"처럼
      직접 입력 안내를 덧붙입니다.
 3. 리소스 ID 기입 위치:
-   - 템플릿에 리소스 ID 슬롯(예: Sheets의 spreadsheet_id)이 있으면 ID는 그 슬롯에, 표시 이름을 알면
-     이름 슬롯(spreadsheet_id_name)에 채우고, prompt에는 ID를 쓰지 않습니다. 사용자가 직접 알려준 ID든
-     조회로 찾은 ID든 같습니다.
+   - 템플릿에 리소스 ID 슬롯(예: Sheets spreadsheet_id, Calendar calendar_id, Drive file_id, Notion page_id)이
+     있으면 ID는 그 슬롯에, 표시 이름을 알면 이름 슬롯(<ID 슬롯>_name, 예: spreadsheet_id_name)에 채우고,
+     prompt에는 ID를 쓰지 않습니다. 사용자가 직접 알려준 ID든 조회로 찾은 ID든 같습니다.
    - 선행 노드 결과로 정해지는 ID(참조식)는 슬롯에 넣지 말고 prompt에 씁니다.
    - sheet_name 슬롯은 사용자가 시트(탭) 이름을 말한 경우에만 채우고, 그때 prompt의 range에는 시트 이름 없이
      범위만(예: 'A:B') 씁니다.
-   - ID 슬롯이 없는 템플릿(Notion·GitHub 등)은 기존대로 prompt 슬롯에 자연어로 기입합니다.
+   - ID 슬롯이 없는 템플릿(GitHub 등)은 기존대로 prompt 슬롯에 자연어로 기입합니다.
    - 모르는 ID 슬롯에는 빈 문자열이나 null을 넣지 말고 슬롯 키 자체를 생략합니다.
 </resource_rules>
 

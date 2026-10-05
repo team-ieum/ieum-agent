@@ -14,5 +14,16 @@
         }
       ]
     }
+  },
+  "fields": {
+    "folder_id": {
+      "title": "폴더",
+      "description": "업로드할 폴더 (비우면 내 드라이브 루트)",
+      "optionsSource": "google.folders",
+      "llm": {
+        "hint": "업로드할 폴더 ID(사용자가 준 값·조회로 확인한 값). 모르면 비운다(내 드라이브 루트).",
+        "name": "folder_id의 표시 이름(폴더 이름). folder_id를 채웠을 때만 채운다."
+      }
+    }
   }
 }
