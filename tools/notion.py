@@ -379,8 +379,7 @@ async def notion_search(
     Args:
         token: Notion Integration Token (secret_xxx 형태)
         query: 검색어
-        filter_type: "page" 또는 "database" (기본값: "page").
-            "database" 결과의 id는 notion_query_database의 database_id에 그대로 넣는다.
+        filter_type: "page" 또는 "database" (기본값: "page"). "database" 결과 id는 notion_query_database의 database_id로 쓴다.
 
     Returns:
         검색 결과 목록 (id, title, url)을 포함한 JSON 문자열
@@ -419,10 +418,16 @@ async def notion_search(
                 for t in item["title"]:
                     title += t.get("plain_text", "")
 
+            # data source 객체엔 url이 없다 — 부모 database의 url로 대신한다
+            url = item.get("url", "")
+            parent = item.get("parent") or {}
+            if not url and parent.get("database_id"):
+                url = f"https://www.notion.so/{parent['database_id'].replace('-', '')}"
+
             results.append({
                 "id": item.get("id", ""),
                 "title": title,
-                "url": item.get("url", ""),
+                "url": url,
                 "lastEditedAt": item.get("last_edited_time", ""),
             })
 
@@ -595,8 +600,7 @@ async def notion_query_database(
 
     Args:
         token: Notion Integration Token (secret_xxx 형태)
-        database_id: 조회할 데이터베이스(데이터 소스) ID. notion_search(filter_type="database") 결과 id를 그대로 쓴다.
-            옛 데이터베이스 ID도 받는다 — 데이터 소스가 하나면 자동으로 풀고, 여러 개면 목록을 에러로 돌려준다.
+        database_id: 데이터 소스 ID(notion_search filter_type="database" 결과 id). 옛 데이터베이스 ID도 받는다(소스가 여러 개면 목록을 에러로 반환).
         filter_json: Notion 필터 객체 JSON 문자열 (optional, 예: '{"property":"상태","status":{"equals":"진행중"}}')
         page_size: 최대 결과 수 (기본값: 10)
 
@@ -632,6 +636,9 @@ async def notion_query_database(
 
         rows = []
         for item in data.get("results", []):
+            # 위키 data source는 결과에 data_source 객체가 섞인다 — properties가 스키마라 행이 아니다
+            if item.get("object", "page") != "page":
+                continue
             props = {
                 name: _simplify_property(prop)
                 for name, prop in item.get("properties", {}).items()

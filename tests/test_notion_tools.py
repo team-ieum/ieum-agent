@@ -162,7 +162,7 @@ async def test_notion_search_data_source_결과는_최상위_title이_제목(moc
     mock_client.post = AsyncMock(return_value=_make_response(200, {"results": [{
         "object": "data_source",
         "id": "ds-1",
-        "url": "https://notion.so/ds-1",
+        "parent": {"type": "database_id", "database_id": "aaaa-bbbb"},
         "title": [{"plain_text": "업무 "}, {"plain_text": "보드"}],
         "properties": {"Name": {"id": "title", "name": "Name", "type": "title", "title": {}}},
     }]}))
@@ -173,6 +173,8 @@ async def test_notion_search_data_source_결과는_최상위_title이_제목(moc
 
     assert result["results"][0]["id"] == "ds-1"
     assert result["results"][0]["title"] == "업무 보드"
+    # data source 객체엔 url이 없다 — 부모 database id로 만든다
+    assert result["results"][0]["url"] == "https://www.notion.so/aaaabbbb"
 
 
 # ---------------------------------------------------------------------------
@@ -660,3 +662,30 @@ async def test_notion_query_database_filter_dict_와_빈문자(mock_client):
         ))
         assert r2["success"] is True
         assert "filter" not in captured["payload"]
+
+
+@pytest.mark.asyncio
+async def test_notion_query_database_결과의_data_source_객체는_건너뜀(mock_client):
+    """위키 data source는 query 결과에 data_source 객체가 섞인다 — 스키마 properties라 행이 아니다."""
+    mock_client.post = AsyncMock(return_value=_make_response(200, {"results": [
+        {"object": "page", "id": "row-1", "url": "https://notion.so/row-1",
+         "properties": {"이름": {"type": "title", "title": [{"plain_text": "홍길동"}]}}},
+        {"object": "data_source", "id": "ds-x",
+         "properties": {"Tags": {"type": "multi_select", "multi_select": {"options": [{"name": "a"}]}}}},
+    ]}))
+
+    with patch("tools.notion.get_http_client", return_value=mock_client):
+        from tools.notion import notion_query_database
+        result = json.loads(await notion_query_database(token="secret_test", database_id="ds-1"))
+
+    assert result["success"] is True
+    assert [r["id"] for r in result["rows"]] == ["row-1"]
+
+
+def test_config_바인딩되면_두_줄_설명도_통째로_빠진다():
+    """_make_partial은 바인딩된 파라미터 설명을 첫 줄만 지운다 — 설명이 한 줄이어야 잔여가 없다."""
+    from tools import _bind_config
+    from tools.notion import notion_query_database, notion_search
+
+    assert "옛 데이터베이스" not in _bind_config(notion_query_database, {"database_id": "x"}).__doc__
+    assert "database_id에 그대로" not in _bind_config(notion_search, {"filter_type": "page"}).__doc__
