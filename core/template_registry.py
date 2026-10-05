@@ -6,7 +6,7 @@ ieum-workflow-design/templates/*.json 을 단일 진실 원천으로 로드·검
 소비처:
 - skill_loader(#4): menu_index() + select_by_tags() 로 항상층/검색층 주입
 - workflow_validator(#5): allowed_config_fields() 로 config 필드 화이트리스트
-- seed 스크립트(#3): all_templates() 를 MongoDB로 동기화
+- seed 스크립트(#3): all_entries() 를 MongoDB로 동기화
 """
 import os
 import copy
@@ -27,7 +27,7 @@ UNIVERSAL_CONFIG_FIELDS = {
     "brand",
 }
 
-_VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL"}
+_VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL", "ACTION"}
 _VALID_SLOT_KINDS = {"string", "enum", "provider", "model", "cron", "expr", "mapping", "http_method"}
 # LLM이 값을 쓰지 못하고 시스템이 요청 provider에서 계산해 주입하는 슬롯 kind.
 _SYSTEM_INJECTED_KINDS = {"provider", "model"}
@@ -80,6 +80,9 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
         raise TemplateSchemaError(f"{tpl.get('id', filename)}: slots는 리스트여야 합니다.")
 
     tid = tpl["id"]
+    for flag in ("builder", "generation"):
+        if flag in tpl and not isinstance(tpl[flag], bool):
+            raise TemplateSchemaError(f"{tid}: {flag}는 true/false여야 합니다.")
     expected_file = f"{tid}.json"
     if os.path.basename(filename) != expected_file:
         raise TemplateSchemaError(f"{filename}: id '{tid}'와 파일명이 불일치(기대: {expected_file})")
@@ -167,8 +170,21 @@ def validate_registry(tool_keys: set | None = None) -> None:
     load_templates(force=True, tool_keys=tool_keys)
 
 
-def all_templates() -> list:
+def _generation_templates() -> dict:
+    """생성 경로가 보는 템플릿(generation=true, 기본). builder 전용 항목(action.* 등)은 LLM 메뉴·
+    슬롯 카탈로그·hydrate·dehydrate·허용 키 검증 어디에도 나오지 않는다 — 실행 경로가 아직 없는
+    노드를 LLM이 만들지 못하게 한다."""
+    return {tid: t for tid, t in load_templates().items() if t.get("generation", True)}
+
+
+def all_entries() -> list:
+    """카탈로그 항목 전체(builder 전용 포함). seed와 카탈로그 API가 쓴다."""
     return list(load_templates().values())
+
+
+def all_templates() -> list:
+    """생성 경로 템플릿 목록(_generation_templates)."""
+    return list(_generation_templates().values())
 
 
 def get_template(template_id: str) -> dict | None:
@@ -177,18 +193,18 @@ def get_template(template_id: str) -> dict | None:
 
 def menu_index() -> str:
     """항상층에 주입할 도구 메뉴(1줄들). 노드 존재 인지 → 검색 miss 환각 방지."""
-    lines = [f"- {t['id']}: {t['menu']}" for t in load_templates().values()]
+    lines = [f"- {t['id']}: {t['menu']}" for t in _generation_templates().values()]
     return "\n".join(lines)
 
 
 def template_ids() -> set:
     """등록된 모든 템플릿 id 집합. Planner가 고른 templateId 존재 검증에 쓴다."""
-    return set(load_templates().keys())
+    return set(_generation_templates().keys())
 
 
 def node_type_of_template(template_id: str) -> str | None:
     """templateId의 node_type(TRIGGER/AI/...)을 반환한다. 없으면 None."""
-    tpl = load_templates().get(template_id)
+    tpl = _generation_templates().get(template_id)
     return tpl["node_type"] if tpl else None
 
 
@@ -198,7 +214,7 @@ def slot_catalog_text() -> str:
     각 줄: `- <id> [<node_type>] — <menu>` 다음 줄에 slots 명세.
     provider 슬롯은 시스템이 자동 주입하므로 '자동주입'으로 표기해 Builder가 채우지 않게 한다."""
     lines = []
-    for t in load_templates().values():
+    for t in _generation_templates().values():
         slot_specs = []
         for s in t["slots"]:
             if s["kind"] in _SYSTEM_INJECTED_KINDS:
@@ -215,7 +231,7 @@ def select_by_tags(text: str, limit: int | None = None) -> list:
     매칭 0건이면 빈 리스트(호출측에서 상위집합/폴백 처리)."""
     low = (text or "").lower()
     scored = []
-    for tpl in load_templates().values():
+    for tpl in _generation_templates().values():
         score = sum(1 for tag in tpl["tags"] if tag.lower() in low)
         if score > 0:
             scored.append((score, tpl))
@@ -230,7 +246,7 @@ def resolve_template_for_node(node: dict) -> dict | None:
     매칭 실패 시 None."""
     if not isinstance(node, dict):
         return None
-    templates = load_templates()
+    templates = _generation_templates()
     ntype = (node.get("type") or "").upper()
     config = node.get("config")
     if not isinstance(config, dict):
@@ -389,7 +405,7 @@ def hydrate_node(
                 desc = "이 노드가 하는 일을 설명해요."
             node["description"] = desc.strip()
         return node
-    templates = load_templates()
+    templates = _generation_templates()
     tpl = templates.get(tid)
     if tpl is None:
         raise SlotFillError(f"존재하지 않는 templateId '{tid}'. 사용 가능: {sorted(templates)}")
@@ -540,7 +556,7 @@ def allowed_config_fields_for_node(node: dict) -> set | None:
     ntype = (node.get("type") or "").upper()
     union: set = set()
     found = False
-    for t in load_templates().values():
+    for t in _generation_templates().values():
         if t["node_type"] == ntype:
             union |= set(t["allowed_config_fields"])
             found = True

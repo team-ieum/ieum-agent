@@ -38,7 +38,7 @@ async def test_seed_upserts_all_templates():
     col = FakeCollection()
     result = await seed_node_templates(collection=col)
 
-    expected = {t["id"] for t in tr.all_templates()}
+    expected = {t["id"] for t in tr.all_entries()}
     assert set(col.docs.keys()) == expected
     assert result["upserted"] == len(expected)
     assert result["deleted"] == 0
