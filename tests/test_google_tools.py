@@ -502,6 +502,37 @@ async def test_google_calendar_update_event_id_경로_인코딩():
 
 
 @pytest.mark.asyncio
+async def test_google_calendar_숫자_calendar_id도_경로로():
+    assert await _calendar_list_url(123) == f"{_CALENDAR_BASE}123/events"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_id", ["", "  "])
+async def test_google_calendar_update_빈_event_id는_호출_없이_에러(event_id):
+    """빈 event_id면 PATCH .../events/(컬렉션 경로)로 나가 원인 모를 404/405가 난다."""
+    from tools.google_calendar import google_calendar_update
+
+    patch_mock = AsyncMock()
+    client = _make_async_client(patch_mock=patch_mock)
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        result = await google_calendar_update(access_token="token", event_id=event_id, summary="변경")
+
+    assert ToolErrorCode.EXECUTION_FAILED.message in json.loads(result)["error"]
+    patch_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_google_drive_upload_공백_folder_id는_루트():
+    post_mock = AsyncMock(return_value=_make_mock_response(200, {"id": "f", "name": "n", "webViewLink": "x"}))
+    client = _make_async_client(post_mock=post_mock)
+    with patch("tools.google_drive.get_http_client", return_value=client):
+        await google_drive_upload(access_token="token", name="n.txt", content="hi", folder_id="  ")
+
+    metadata = json.loads(post_mock.call_args.kwargs["content"].decode().split("\r\n")[3])
+    assert "parents" not in metadata
+
+
+@pytest.mark.asyncio
 async def test_google_drive_read_file_id_경로_인코딩():
     meta_resp = _make_mock_response(200, {"name": "test.txt", "mimeType": "text/plain"})
     content_resp = MagicMock()

@@ -14,7 +14,7 @@ _TIMEOUT = 30.0
 def _calendar_segment(calendar_id: Optional[str]) -> str:
     # 빈 값은 기본 캘린더(스키마 설명·BE 공급원과 동일). 임베드 링크에서 복사한 %23 id도 받도록
     # unquote 후 재인코딩한다 — 캘린더 id엔 리터럴 %가 없다.
-    return quote(unquote((calendar_id or "").strip() or "primary"), safe="")
+    return quote(unquote(str(calendar_id or "").strip() or "primary"), safe="")
 
 
 def _headers(access_token: str) -> dict:
@@ -103,6 +103,12 @@ async def google_calendar_update(
     Returns:
         수정된 일정 ID, URL을 포함한 JSON 문자열
     """
+    # 빈 id면 PATCH가 .../events/(컬렉션 경로)로 나가 원인 모를 404/405가 난다.
+    if not str(event_id or "").strip():
+        return json.dumps({
+            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_calendar_update: event_id가 비어 있습니다)"
+        }, ensure_ascii=False)
+
     payload = {}
     if summary is not None:
         payload["summary"] = summary
