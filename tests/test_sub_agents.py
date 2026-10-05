@@ -131,62 +131,6 @@ async def test_github_agent_includes_toolsets_header():
     assert "X-MCP-Toolsets" in captured["params"].headers
 
 
-# ---------- GoogleAgent ----------
-
-@pytest.mark.asyncio
-async def test_google_agent_no_token_returns_empty_tools():
-    from agents.execute.sub.google_agent import build_google_agent
-    async with contextlib.AsyncExitStack() as stack:
-        agent, mcps = await build_google_agent("gemini-2.5-flash", None, stack)
-    assert agent.tools == [] or agent.tools is None
-    assert mcps == []
-
-
-@pytest.mark.asyncio
-async def test_google_agent_creates_three_mcp_toolsets():
-    """Gmail, Drive, Calendar 3개의 MCPToolset을 생성한다."""
-    from agents.execute.sub.google_agent import build_google_agent
-
-    mcp_call_count = {"count": 0}
-
-    def _count_mcp(connection_params):
-        mcp_call_count["count"] += 1
-        return MagicMock()
-
-    with patch("agents.execute.sub.google_agent.MCPToolset", side_effect=_count_mcp), \
-         patch("agents.execute.sub.google_agent.StreamableHTTPConnectionParams", MagicMock):
-        async with contextlib.AsyncExitStack() as stack:
-            with patch.object(stack, "enter_async_context", new=AsyncMock(return_value=[])):
-                agent, mcps = await build_google_agent("gemini-2.5-flash", "google-token", stack)
-
-    assert mcp_call_count["count"] == 3
-    assert len(mcps) == 3
-
-
-@pytest.mark.asyncio
-async def test_google_agent_closes_each_mcp_once():
-    """stack 종료 시 생성된 3개 MCPToolset이 각각 1회씩 close된다.
-    (루프 내 late-binding closure 버그: 전부 마지막 mcp만 close되던 회귀 방지)"""
-    from agents.execute.sub.google_agent import build_google_agent
-
-    created = []
-
-    def _make(connection_params):
-        m = MagicMock()
-        created.append(m)
-        return m
-
-    with patch("agents.execute.sub.google_agent.MCPToolset", side_effect=_make), \
-         patch("agents.execute.sub.google_agent.StreamableHTTPConnectionParams", MagicMock):
-        async with contextlib.AsyncExitStack() as stack:
-            await build_google_agent("gemini-2.5-flash", "google-token", stack)
-        # stack 종료 → push_async_callback에 등록된 close 콜백 실행
-
-    assert len(created) == 3
-    for m in created:
-        m.close.assert_called_once()
-
-
 # ---------- CommAgent ----------
 
 @pytest.mark.asyncio
@@ -202,7 +146,7 @@ async def test_comm_agent_has_slack_and_discord():
 
 @pytest.mark.asyncio
 async def test_comm_agent_does_not_have_gmail():
-    """CommAgent는 gmail 도구를 보유하지 않는다 (GoogleAgent로 이전됨)."""
+    """CommAgent는 gmail 도구를 보유하지 않는다 (Gmail 발송은 빌트인 gmail 도구)."""
     from agents.execute.sub.communication_agent import build_communication_agent
     agent, _ = await build_communication_agent("gemini-2.5-flash")
     tool_names = [getattr(t, "_func", getattr(t, "func", None)).__name__ for t in agent.tools]

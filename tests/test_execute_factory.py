@@ -238,7 +238,6 @@ async def test_run_react_agent_returns_output():
 
     with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
-         patch("agents.execute.factory.build_google_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_github_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_mcp_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
@@ -310,7 +309,6 @@ async def test_run_react_agent_deletes_session_multi_path():
 
     with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
-         patch("agents.execute.factory.build_google_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_github_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
@@ -350,14 +348,12 @@ async def test_run_react_agent_builds_helpers_for_toolless_node():
 
     web_mock = AsyncMock(return_value=(MagicMock(), []))
     notion_mock = AsyncMock(return_value=(MagicMock(), []))
-    google_mock = AsyncMock(return_value=(MagicMock(), []))
     github_mock = AsyncMock(return_value=(MagicMock(), []))
     comm_mock = AsyncMock(return_value=(MagicMock(), []))
     mcp_mock = AsyncMock(return_value=(MagicMock(), []))
 
     with patch("agents.execute.factory.build_web_agent", new=web_mock), \
          patch("agents.execute.factory.build_notion_agent", new=notion_mock), \
-         patch("agents.execute.factory.build_google_agent", new=google_mock), \
          patch("agents.execute.factory.build_github_agent", new=github_mock), \
          patch("agents.execute.factory.build_communication_agent", new=comm_mock), \
          patch("agents.execute.factory.build_mcp_agent", new=mcp_mock), \
@@ -377,14 +373,13 @@ async def test_run_react_agent_builds_helpers_for_toolless_node():
     web_mock.assert_called_once()
     comm_mock.assert_not_called()  # webhook 설정 없음 → comm 미빌드
     notion_mock.assert_not_called()
-    google_mock.assert_not_called()
     github_mock.assert_not_called()
     mcp_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_run_react_agent_builds_conditional_agents_with_tokens():
-    """토큰/설정이 모두 있을 때 6개 sub-agent가 모두 빌드된다."""
+    """토큰/설정이 모두 있을 때 조건부 sub-agent가 모두 빌드된다(Google은 원격 MCP 없이 빌트인 도구만 — IEUM-AI-63)."""
     from agents.execute.factory import run_react_agent
     from api.schemas.request import McpServerConfig
 
@@ -400,7 +395,6 @@ async def test_run_react_agent_builds_conditional_agents_with_tokens():
 
     web_mock = AsyncMock(return_value=(MagicMock(), []))
     notion_mock = AsyncMock(return_value=(MagicMock(), []))
-    google_mock = AsyncMock(return_value=(MagicMock(), []))
     github_mock = AsyncMock(return_value=(MagicMock(), []))
     comm_mock = AsyncMock(return_value=(MagicMock(), []))
     mcp_mock = AsyncMock(return_value=(MagicMock(), []))
@@ -411,7 +405,6 @@ async def test_run_react_agent_builds_conditional_agents_with_tokens():
 
     with patch("agents.execute.factory.build_web_agent", new=web_mock), \
          patch("agents.execute.factory.build_notion_agent", new=notion_mock), \
-         patch("agents.execute.factory.build_google_agent", new=google_mock), \
          patch("agents.execute.factory.build_github_agent", new=github_mock), \
          patch("agents.execute.factory.build_communication_agent", new=comm_mock), \
          patch("agents.execute.factory.build_mcp_agent", new=mcp_mock), \
@@ -434,7 +427,6 @@ async def test_run_react_agent_builds_conditional_agents_with_tokens():
     web_mock.assert_called_once()
     comm_mock.assert_not_called()  # webhook 설정 없음 → comm 미빌드
     notion_mock.assert_called_once()
-    google_mock.assert_called_once()
     github_mock.assert_called_once()
     mcp_mock.assert_called_once()
 
@@ -501,7 +493,6 @@ async def test_run_react_agent_passes_tokens_to_sub_agents():
 
     with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_notion_agent", new=notion_mock), \
-         patch("agents.execute.factory.build_google_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_github_agent", new=github_mock), \
          patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_mcp_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
@@ -735,7 +726,6 @@ async def test_run_react_agent_multi_agent_passes_cost_model_to_usage_plugin():
 
     with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
-         patch("agents.execute.factory.build_google_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_github_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.build_mcp_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
@@ -754,3 +744,92 @@ async def test_run_react_agent_multi_agent_passes_cost_model_to_usage_plugin():
     _, kwargs = mock_runner_cls.call_args
     usage = kwargs["plugins"][0]
     assert usage.model == cost_model_name("CLAUDE", "claude-sonnet-4-5", "sk-test", None)
+
+
+# ---------- Google 원격 MCP 미마운트 (IEUM-AI-63) ----------
+# Google 토큰은 노드에 builtin:google_* 도구가 있을 때만 온다(BE AgentNodeExecutor). 예전엔 여기에
+# Gmail/Drive/Calendar 원격 MCP를 덧붙였고, 그 get_tools가 실패하면 빌트인 도구로 충분한 노드가
+# 통째로 FAILED였다. 원격 MCP get_tools를 실패시켜 두고, 노드가 빌트인 도구만으로 도는지 본다.
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_single_agent", [True, False])
+async def test_run_react_agent_google_node_uses_builtin_tools_only(use_single_agent):
+    from agents.execute.factory import run_react_agent
+
+    captured = []
+
+    def _llm_agent(**kwargs):
+        captured.append(kwargs)
+        return MagicMock()
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(1, final_text="일정 3건")
+
+    mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock(); mock_session.id = "s-google"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=[{"name": "builtin:google_calendar_list"}])
+
+    with patch("google.adk.tools.mcp_tool.mcp_toolset.MCPToolset.get_tools",
+               new=AsyncMock(side_effect=TimeoutError("remote mcp"))), \
+         patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
+         patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        output, *_ = await run_react_agent(
+            model="gemini-2.5-flash",
+            provider="GEMINI",
+            request=req,
+            api_key="test-key",
+            user_id="u1",
+            google_access_token="google-token",
+            session_service=mock_ss,
+            use_single_agent=use_single_agent,
+        )
+
+    assert output == "일정 3건"
+    tool_names = [getattr(t, "name", None) for t in captured[-1]["tools"]]
+    assert tool_names == ["google_calendar_list"]
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_google_token_does_not_force_multi_agent():
+    """Google 토큰은 빌트인 도구 바인딩에만 쓰이므로 경로 분기 개수에 들지 않는다 — Google+Notion 노드도 단일 경로."""
+    from agents.execute.factory import run_react_agent
+
+    captured = []
+
+    def _llm_agent(**kwargs):
+        captured.append(kwargs)
+        return MagicMock()
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(1, final_text="ok")
+
+    mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock(); mock_session.id = "s-google-notion"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=[{"name": "builtin:google_calendar_list"}, {"name": "builtin:notion_search"}])
+
+    with patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(tools=[]), []))), \
+         patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
+         patch("agents.execute.factory.AgentTool") as mock_agent_tool, \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            provider="GEMINI",
+            request=req,
+            api_key="test-key",
+            user_id="u1",
+            google_access_token="google-token",
+            notion_token="notion-token",
+            session_service=mock_ss,
+        )
+
+    mock_agent_tool.assert_not_called()
+    assert captured[-1]["name"] == "ieum_single_agent"
