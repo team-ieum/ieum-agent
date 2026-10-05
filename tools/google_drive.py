@@ -1,4 +1,5 @@
 import json
+from urllib.parse import quote
 
 import httpx
 
@@ -40,7 +41,7 @@ async def google_drive_read(
         client = get_http_client()
         # 메타데이터 조회
         meta_response = await client.get(
-            f"{_DRIVE_API_BASE}/files/{file_id}",
+            f"{_DRIVE_API_BASE}/files/{quote(str(file_id), safe='')}",
             headers=_headers(access_token),
             params={"fields": "name,mimeType", "supportsAllDrives": "true"},
             timeout=_TIMEOUT,
@@ -59,7 +60,7 @@ async def google_drive_read(
         export_mime = _EXPORT_MIME_MAP.get(mime_type)
         if export_mime:
             content_response = await client.get(
-                f"{_DRIVE_API_BASE}/files/{file_id}/export",
+                f"{_DRIVE_API_BASE}/files/{quote(str(file_id), safe='')}/export",
                 headers=_headers(access_token),
                 params={"mimeType": export_mime},
                 timeout=_TIMEOUT,
@@ -73,7 +74,7 @@ async def google_drive_read(
                 }, ensure_ascii=False)
 
             content_response = await client.get(
-                f"{_DRIVE_API_BASE}/files/{file_id}",
+                f"{_DRIVE_API_BASE}/files/{quote(str(file_id), safe='')}",
                 headers=_headers(access_token),
                 params={"alt": "media", "supportsAllDrives": "true"},
                 timeout=_TIMEOUT,

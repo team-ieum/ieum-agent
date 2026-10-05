@@ -1,6 +1,6 @@
 import json
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -9,6 +9,12 @@ from tools.http_client import get_http_client
 
 _CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
 _TIMEOUT = 30.0
+
+
+def _calendar_segment(calendar_id: Optional[str]) -> str:
+    # 빈 값은 기본 캘린더(스키마 설명·BE 공급원과 동일). 임베드 링크에서 복사한 %23 id도 받도록
+    # unquote 후 재인코딩한다 — 캘린더 id엔 리터럴 %가 없다.
+    return quote(unquote((calendar_id or "").strip() or "primary"), safe="")
 
 
 def _headers(access_token: str) -> dict:
@@ -50,7 +56,7 @@ async def google_calendar_create(
     try:
         client = get_http_client()
         response = await client.post(
-            f"{_CALENDAR_API_BASE}/calendars/{quote(calendar_id, safe='')}/events",
+            f"{_CALENDAR_API_BASE}/calendars/{_calendar_segment(calendar_id)}/events",
             headers=_headers(access_token),
             json=payload,
             timeout=_TIMEOUT,
@@ -111,7 +117,7 @@ async def google_calendar_update(
     try:
         client = get_http_client()
         response = await client.patch(
-            f"{_CALENDAR_API_BASE}/calendars/{quote(calendar_id, safe='')}/events/{event_id}",
+            f"{_CALENDAR_API_BASE}/calendars/{_calendar_segment(calendar_id)}/events/{quote(str(event_id), safe='')}",
             headers=_headers(access_token),
             json=payload,
             timeout=_TIMEOUT,
@@ -165,7 +171,7 @@ async def google_calendar_list(
     try:
         client = get_http_client()
         response = await client.get(
-            f"{_CALENDAR_API_BASE}/calendars/{quote(calendar_id, safe='')}/events",
+            f"{_CALENDAR_API_BASE}/calendars/{_calendar_segment(calendar_id)}/events",
             headers=_headers(access_token),
             params=params,
             timeout=_TIMEOUT,

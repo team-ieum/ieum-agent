@@ -461,6 +461,63 @@ async def test_google_calendar_기본_primary_경로_그대로():
     assert call.call_args.args[0] == f"{_CALENDAR_BASE}primary/events"
 
 
+async def _calendar_list_url(calendar_id) -> str:
+    call = AsyncMock(return_value=_make_mock_response(200, {"items": []}))
+    client = _make_async_client(get_mock=call)
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        await google_calendar_list(
+            access_token="token",
+            time_min="2026-10-01T00:00:00+09:00",
+            time_max="2026-10-31T23:59:59+09:00",
+            calendar_id=calendar_id,
+        )
+    return call.call_args.args[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("calendar_id", ["", "  ", None])
+async def test_google_calendar_빈_calendar_id는_primary(calendar_id):
+    """tools[].config에 calendar_id=""가 고정돼도 /calendars//events 404가 아니라 기본 캘린더."""
+    assert await _calendar_list_url(calendar_id) == f"{_CALENDAR_BASE}primary/events"
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_이미_인코딩된_calendar_id_이중_인코딩_안함():
+    """임베드 링크에서 복사한 %23·%40 id가 %2523으로 두 번 인코딩되면 404."""
+    url = await _calendar_list_url(_HOLIDAY_ENCODED)
+    assert url == f"{_CALENDAR_BASE}{_HOLIDAY_ENCODED}/events"
+    assert "%25" not in url
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_update_event_id_경로_인코딩():
+    from tools.google_calendar import google_calendar_update
+
+    call = AsyncMock(return_value=_make_mock_response(200, {"id": "x", "htmlLink": "x"}))
+    client = _make_async_client(patch_mock=call)
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        await google_calendar_update(access_token="token", event_id="a/b?x=1", summary="변경")
+
+    assert call.call_args.args[0] == f"{_CALENDAR_BASE}primary/events/a%2Fb%3Fx%3D1"
+
+
+@pytest.mark.asyncio
+async def test_google_drive_read_file_id_경로_인코딩():
+    meta_resp = _make_mock_response(200, {"name": "test.txt", "mimeType": "text/plain"})
+    content_resp = MagicMock()
+    content_resp.is_success = True
+    content_resp.content = b"hello"
+    get_mock = AsyncMock(side_effect=[meta_resp, content_resp])
+    client = _make_async_client(get_mock=get_mock)
+
+    with patch("tools.google_drive.get_http_client", return_value=client):
+        await google_drive_read(access_token="token", file_id="a/b")
+
+    meta_call, media_call = get_mock.call_args_list
+    assert meta_call.args[0] == "https://www.googleapis.com/drive/v3/files/a%2Fb"
+    assert media_call.args[0] == "https://www.googleapis.com/drive/v3/files/a%2Fb"
+
+
 # ---------------------------------------------------------------------------
 # Google Sheets Append
 # ---------------------------------------------------------------------------
