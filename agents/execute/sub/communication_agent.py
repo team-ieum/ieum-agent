@@ -5,8 +5,7 @@ from tools.slack import send_slack_message
 from tools.discord import send_discord_webhook
 
 _INSTRUCTION = (
-    "Slack 메시지 발송(send_slack_message)과 Discord 웹훅 메시지 발송(send_discord_webhook)을 처리한다. "
-    "Gmail은 GoogleAgent가 담당한다."
+    "Slack 메시지 발송(send_slack_message)과 Discord 웹훅 메시지 발송(send_discord_webhook)을 처리한다."
 )
 
 async def build_communication_agent(

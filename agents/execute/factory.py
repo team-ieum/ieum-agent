@@ -11,7 +11,6 @@ from core.config import settings
 from agents.execute.main_agent import MAIN_INSTRUCTION
 from agents.execute.sub.web_agent import build_web_agent
 from agents.execute.sub.notion_agent import build_notion_agent
-from agents.execute.sub.google_agent import build_google_agent
 from agents.execute.sub.github_agent import build_github_agent, GITHUB_PR_RULES
 from agents.execute.sub.communication_agent import build_communication_agent
 from agents.execute.sub.transform_agent import build_transform_agent, TRANSFORM_OUTPUT_RULES
@@ -190,7 +189,7 @@ async def run_react_agent(
                 builtin_tools = _bind_notion_token(builtin_tools, notion_token)
             builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
 
-            # notion/google/web/comm/github/transform 모두 능력 서술만 남기고 .tools를
+            # notion/web/comm/github/transform 모두 능력 서술만 남기고 .tools를
             # 평탄화한다(nested LLM hop 제거). github는 원격 MCP라 도구 description을 바꿀 수
             # 없으므로, PR 조회 행동규칙(GITHUB_PR_RULES)은 아래에서 단일 에이전트 instruction에
             # 직접 병합한다. transform은 도구 docstring에 규칙이 있으나, 도구를 호출하지 않고
@@ -202,9 +201,6 @@ async def run_react_agent(
             if notion_token:
                 notion_agent, _ = await build_notion_agent(model_param, notion_token, stack)
                 mcp_tools.extend(notion_agent.tools)
-            elif google_access_token:
-                google_agent, _ = await build_google_agent(model_param, google_access_token, stack)
-                mcp_tools.extend(google_agent.tools)
             elif github_token:
                 github_agent, _ = await build_github_agent(model_param, github_token, stack)
                 mcp_tools.extend(github_agent.tools or [])
@@ -306,10 +302,6 @@ async def run_react_agent(
         if notion_token:
             notion_agent, _ = await build_notion_agent(model_param, notion_token, stack)
             sub_agent_tools.append(AgentTool(agent=notion_agent))
-
-        if google_access_token:
-            google_agent, _ = await build_google_agent(model_param, google_access_token, stack)
-            sub_agent_tools.append(AgentTool(agent=google_agent))
 
         if github_token:
             github_agent, _ = await build_github_agent(model_param, github_token, stack)

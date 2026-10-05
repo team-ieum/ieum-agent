@@ -6,7 +6,6 @@ MAIN_INSTRUCTION = """
 
 - web_agent: 웹 검색(web_search), HTTP 요청(http_fetch) 처리
 - notion_agent: Notion 워크스페이스 페이지·데이터베이스·댓글 관리
-- google_agent: Gmail·Google Drive·Google Calendar 관리
 - github_agent: GitHub 리포지토리·이슈·PR·Actions 관리
 - comm_agent: Slack·Discord 메시지 발송
 - transform_agent: 데이터 가공(Transform), JSON 파싱, 정규식 추출, 날짜 포맷팅 및 마크다운 보고서 생성
