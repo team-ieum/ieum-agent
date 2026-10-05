@@ -152,12 +152,10 @@ def test_structural_nodes_have_no_service_type():
 def test_invalid_service_type_rejected_by_schema_gate():
     """허용 목록 밖 serviceType은 템플릿 로드 단계에서 막힌다(오타 드리프트 게이트)."""
     bad = {
-        "id": "ai.bogus", "node_type": "AI", "tool_key": None,
-        "tags": ["x"], "menu": "m",
-        "fixed": {"type": "AI", "config": {"serviceType": "SLACKK"}},
-        "slots": [], "allowed_config_fields": ["serviceType"],
+        "id": "ai.bogus", "node_type": "AI", "tool_key": None, "app": "SLACKK",
+        "tags": ["x"], "menu": "m", "fixed": {"type": "AI", "config": {}},
     }
-    with pytest.raises(tr.TemplateSchemaError):
+    with pytest.raises(tr.TemplateSchemaError, match="app"):
         tr._validate_template(bad, "/tmp/ai.bogus.json", tr._tool_map_keys())
 
 

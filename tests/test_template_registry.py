@@ -87,9 +87,7 @@ def test_schema_rejects_drifted_tool_key():
     """_TOOL_MAP에 없는 tool_key는 스키마 검증에서 거부된다."""
     bad = {
         "id": "ai.fake", "node_type": "AI", "tool_key": "builtin:does_not_exist",
-        "tags": ["x"], "menu": "m",
-        "fixed": {"type": "AI", "config": {}}, "slots": [],
-        "allowed_config_fields": [],
+        "tags": ["x"], "menu": "m", "fixed": {"type": "AI", "config": {}},
     }
-    with pytest.raises(tr.TemplateSchemaError):
+    with pytest.raises(tr.TemplateSchemaError, match="드리프트"):
         tr._validate_template(bad, "/tmp/ai.fake.json", tr._tool_map_keys())

@@ -1,29 +1,40 @@
 {
   "id": "ai.google_sheets_write",
   "node_type": "AI",
+  "app": "GOOGLE",
   "tool_key": "builtin:google_sheets_write",
-  "tags": ["sheets", "스프레드시트", "시트", "구글 시트", "google sheets", "기록", "쓰기", "로그"],
+  "builder": false,
+  "tags": [
+    "sheets",
+    "스프레드시트",
+    "시트",
+    "구글 시트",
+    "google sheets",
+    "기록",
+    "쓰기",
+    "로그"
+  ],
   "menu": "Google Sheets 쓰기 (spreadsheet_id, range, values 필요)",
   "fixed": {
     "type": "AI",
     "config": {
-      "serviceType": "GOOGLE",
       "agentType": "react",
       "credentialId": "",
-      "tools": [{"name": "builtin:google_sheets_write"}]
+      "tools": [
+        {
+          "name": "builtin:google_sheets_write"
+        }
+      ]
     }
   },
-  "slots": [
-    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
-    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
-    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
-    {"name": "model", "path": "config.model", "required": true, "kind": "model", "description": "요청 provider의 기본 모델. 시스템이 자동 주입한다(작성 금지)."},
-    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "쓰기 지시. range(sheet_name 슬롯을 채웠으면 'A1'처럼 범위만), values 명시. 스프레드시트 ID는 spreadsheet_id 슬롯에 쓰고 prompt에는 쓰지 않는다. 값은 선행 노드 참조식 사용 가능."},
-    {"name": "spreadsheet_id", "path": "config.tools.0.config.spreadsheet_id", "required": false, "kind": "string", "description": "대상 스프레드시트 ID(사용자가 준 값·조회로 확인한 값). 모르면 슬롯을 생략한다. 선행 노드 결과로 정해지는 ID(참조식)는 넣지 않고 prompt에 쓴다."},
-    {"name": "spreadsheet_name", "path": "config.tools.0.config._names.spreadsheet_id", "required": false, "kind": "string", "description": "spreadsheet_id의 표시 이름(화면 표시용). spreadsheet_id 슬롯을 채웠을 때만 채운다."},
-    {"name": "sheet_name", "path": "config.tools.0.config.sheet_name", "required": false, "kind": "string", "description": "워크시트(탭) 제목. 사용자가 시트 이름을 말한 경우에만 채운다."}
+  "inputFields": [
+    {
+      "key": "prompt",
+      "llm": {
+        "hint": "쓰기 지시. range(sheet_name 슬롯을 채웠으면 'A1'처럼 범위만), values 명시. 스프레드시트 ID는 spreadsheet_id 슬롯에 쓰고 prompt에는 쓰지 않는다. 값은 선행 노드 참조식 사용 가능."
+      }
+    }
   ],
-  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage", "model", "serviceType"],
   "golden_snippet": {
     "id": "node-2",
     "type": "AI",
@@ -34,7 +45,17 @@
       "credentialId": "",
       "prompt": "현재 시각과 상태값을 range 'Sheet1!A1:B1'에 써줘. values: [[현재시각, 'OK']]",
       "agentType": "react",
-      "tools": [{"name": "builtin:google_sheets_write", "config": {"spreadsheet_id": "sheet-abc123", "_names": {"spreadsheet_id": "서버 상태 로그"}}}]
+      "tools": [
+        {
+          "name": "builtin:google_sheets_write",
+          "config": {
+            "spreadsheet_id": "sheet-abc123",
+            "_names": {
+              "spreadsheet_id": "서버 상태 로그"
+            }
+          }
+        }
+      ]
     }
   }
 }

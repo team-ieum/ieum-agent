@@ -11,10 +11,21 @@ from core import template_registry as tr
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "template_snapshot_before_ai64.json")
 
+_SHEETS = ("ai.google_sheets_read", "ai.google_sheets_write", "ai.google_sheets_append")
+_AI = (
+    "ai.discord_send", "ai.github_query", "ai.gmail_send", "ai.google_calendar_create",
+    "ai.google_calendar_list", "ai.google_calendar_update", "ai.google_drive_read",
+    "ai.google_drive_upload", *_SHEETS, "ai.http_fetch", "ai.mcp", "ai.notion_append_block",
+    "ai.notion_create_page", "ai.notion_query_database", "ai.notion_read_page", "ai.notion_search",
+    "ai.notion_update_page", "ai.reasoning", "ai.slack_send", "ai.web_search",
+)
 # spec §7.3 ② — 표시 이름 슬롯 이름 규칙 `<key>_name`
-INTENDED_SLOT_RENAMES: dict[str, str] = {}
+INTENDED_SLOT_RENAMES: dict[str, str] = {"spreadsheet_name": "spreadsheet_id_name"}
 # spec §7.3 ③ — 허용 config 키는 늘기만 한다
-INTENDED_ALLOWED_ADDED: dict[str, set[str]] = {}
+INTENDED_ALLOWED_ADDED: dict[str, set[str]] = {
+    **{tid: {"_names"} for tid in _AI},
+    "http": {"_names", "webhookCredentialId"},
+}
 # spec §7.3 ① — Calendar·Drive·Notion 프리셋의 리소스 ID 슬롯
 INTENDED_NEW_SLOTS: dict[str, list[str]] = {}
 

@@ -2,7 +2,20 @@
   "id": "ai.reasoning",
   "node_type": "AI",
   "tool_key": null,
-  "tags": ["요약", "정리", "추론", "분석", "판단", "분류", "재작성", "생성", "작성", "summarize", "reasoning", "analyze"],
+  "tags": [
+    "요약",
+    "정리",
+    "추론",
+    "분석",
+    "판단",
+    "분류",
+    "재작성",
+    "생성",
+    "작성",
+    "summarize",
+    "reasoning",
+    "analyze"
+  ],
   "menu": "순수 LLM 추론 노드(도구 없음): 선행 노드 결과를 요약·분석·판단·재작성. 외부 연동/조회 없음",
   "fixed": {
     "type": "AI",
@@ -12,14 +25,14 @@
       "tools": []
     }
   },
-  "slots": [
-    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
-    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
-    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
-    {"name": "model", "path": "config.model", "required": true, "kind": "model", "description": "요청 provider의 기본 모델. 시스템이 자동 주입한다(작성 금지)."},
-    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "추론 지시. 선행 노드 결과는 {{nodes.<id>.output.<field>}}로 참조. 출력 형식 명시."}
+  "inputFields": [
+    {
+      "key": "prompt",
+      "llm": {
+        "hint": "추론 지시. 선행 노드 결과는 {{nodes.<id>.output.<field>}}로 참조. 출력 형식 명시."
+      }
+    }
   ],
-  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage", "model"],
   "golden_snippet": {
     "id": "node-3",
     "type": "AI",

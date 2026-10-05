@@ -243,7 +243,7 @@ _SYSTEM_PROMPT_BASE = """\
      직접 입력 안내를 덧붙입니다.
 3. 리소스 ID 기입 위치:
    - 템플릿에 리소스 ID 슬롯(예: Sheets의 spreadsheet_id)이 있으면 ID는 그 슬롯에, 표시 이름을 알면
-     이름 슬롯(spreadsheet_name)에 채우고, prompt에는 ID를 쓰지 않습니다. 사용자가 직접 알려준 ID든
+     이름 슬롯(spreadsheet_id_name)에 채우고, prompt에는 ID를 쓰지 않습니다. 사용자가 직접 알려준 ID든
      조회로 찾은 ID든 같습니다.
    - 선행 노드 결과로 정해지는 ID(참조식)는 슬롯에 넣지 말고 prompt에 씁니다.
    - sheet_name 슬롯은 사용자가 시트(탭) 이름을 말한 경우에만 채우고, 그때 prompt의 range에는 시트 이름 없이

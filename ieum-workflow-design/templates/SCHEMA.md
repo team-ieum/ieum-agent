@@ -1,63 +1,59 @@
-# 노드 템플릿 레지스트리 스키마 (SSOT)
+# 노드 카탈로그 스키마 (SSOT)
 
-이 디렉토리는 워크플로우 노드 템플릿의 **단일 진실 원천(SSOT)** 이다.
-각 `*.json` 파일이 노드 템플릿 1개이며, git으로 리뷰·버전관리된다.
-MongoDB `node_templates` 컬렉션은 이 파일들을 seed로 동기화한 사본일 뿐이다(#3).
+이 디렉토리는 워크플로우 노드 **카탈로그 항목**의 단일 진실 원천이다. `*.json` 하나가 항목 하나다.
+MongoDB `node_templates`는 seed 사본일 뿐이다(읽는 곳 없음). 설계: ieum-backend
+`docs/superpowers/specs/2026-10-05-node-catalog-design.md`.
 
-## 목적
+항목은 두 곳에서 쓰인다.
+- **생성(LLM)** — `generation: true` 항목. 로더가 필드에서 `slots`(LLM이 채울 자리)와
+  `allowed_config_fields`(검증 화이트리스트)를 **파생**한다. 파일에 직접 쓰지 않는다.
+- **빌더(FE)** — `builder: true` 항목. 카탈로그 API(IEUM-AI-65)가 `inputFields`를 내보낸다.
 
-LLM이 노드를 자유 생성하며 도구 키·config 필드를 환각하는 문제를 막는다.
-템플릿은 **FIXED(불변)** 영역과 **SLOT(LLM이 채움)** 영역을 분리한다.
+## 항목 필드
 
-- FIXED: `type`, 도구 키(`tools`), `agentType`, `credentialId=""` 등 → 템플릿이 고정 → 환각 클래스 제거
-- SLOT: `prompt`, `cron`, `label`, `description`, 리소스 ID 등 → LLM이 채움
-- SLOT 중 `llmProvider`/`model`은 예외로 시스템이 주입한다(LLM 작성 금지)
+| 필드 | 필수 | 설명 |
+|---|---|---|
+| `id` | ✅ | 파일명과 일치. `<종류>.<이름>` (예: `ai.notion_create_page`, `action.slack_send`) |
+| `node_type` | ✅ | `TRIGGER` `AI` `ACTION` `HTTP` `CONDITION` `TRANSFORM` `APPROVAL` |
+| `tool_key` | ✅ | 바인딩하는 `_TOOL_MAP` 키, 없으면 `null` |
+| `fixed` | ✅ | 불변 노드 골격(`type` + `config` 불변 키). `serviceType`은 쓰지 않는다(`app`에서 주입) |
+| `app` | ⬜ | 앱 노드만 `GOOGLE`·`NOTION`·`GITHUB`·`SLACK`·`DISCORD`. 로더가 `fixed.config.serviceType`에 넣는다 |
+| `builder` / `generation` | ⬜ | 기본 `true`. 액션은 `generation: false`(실행·생성 전환 전), 앱 도구 AI 프리셋은 `builder: false` |
+| `tags` / `menu` | generation이면 ✅ | LLM 태그 검색·항상층 메뉴 |
+| `inputFields` | ⬜ | config 직속 필드(Field 목록). AI 항목은 공통 필드(llmProvider·model·prompt·credentialId·systemMessage) 뒤에 붙고, 같은 key를 쓰면 공통 필드에 병합된다(예: 템플릿별 prompt `llm.hint`) |
+| `fields` | ⬜ | 도구 필드 덮어쓰기 `{파라미터: 부분 Field}`. **도구당 한 항목만**(액션이 있으면 액션, 없으면 그 AI 항목). 시그니처 밖 키는 title·type 포함 전체 정의 |
+| `golden_snippet` | ⬜ | 완성형 노드 예시(검색층 few-shot). 그 자체로 검증을 통과해야 함 |
+| `service` | ⬜ | 동적 서브에이전트 서비스명(ai.github_query) |
 
-`description`은 모든 템플릿의 필수 슬롯이며, 개발자용 메모가 아니라 워크플로우 화면에서
-사용자에게 그대로 보여줄 자연어 1문장이다(예: "AI가 문의 내용을 읽고 알맞은 유형으로 나눠요.").
+`slots`·`allowed_config_fields`를 파일에 쓰면 로더가 거부한다.
 
-## 템플릿 필드
+## Field
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| `id` | string | ✅ | 템플릿 고유 ID. `<node_type소문자>.<이름>` 관례 (예: `ai.notion_create_page`). 파일명과 일치. |
-| `node_type` | string | ✅ | `TRIGGER` \| `AI` \| `HTTP` \| `CONDITION` \| `TRANSFORM` \| `APPROVAL` |
-| `tool_key` | string \| null | ✅ | 이 템플릿이 바인딩하는 `_TOOL_MAP` 키. 구조 노드/능력 기반 AI(GitHub 등)는 `null`. 값이 있으면 `_TOOL_MAP`에 존재해야 함(드리프트 검증). |
-| `tags` | string[] | ✅ | 태그/키워드 검색(#4)용. 한/영 동의어 포함. |
-| `menu` | string | ✅ | 항상층에 주입되는 1줄 메뉴(노드 존재 인지 → 검색 miss 환각 방지). |
-| `fixed` | object | ✅ | 불변 노드 골격. `type`과 `config`의 불변 키만 포함. |
-| `slots` | Slot[] | ✅ | LLM이 채우는 필드 명세. 아래 Slot 스펙. |
-| `allowed_config_fields` | string[] | ✅ | 이 노드 타입에서 허용되는 config 키 전체(fixed + slot + 선택 필드). #5 화이트리스트 검증의 기준. |
-| `golden_snippet` | object | ⬜ | 완성형 노드 JSON 예시(검색층에 주입, few-shot). |
+```jsonc
+{"key": "spreadsheet_id", "title": "스프레드시트", "type": "string",
+ "description": "대상 스프레드시트", "required": true, "default": "primary",
+ "choices": [{"id": "page", "name": "페이지"}], "optionsSource": "google.spreadsheets",
+ "optionsInputs": ["spreadsheet_id"], "list": false, "children": [], "dynamic": false, "ref": true,
+ "path": "config.custom.path",                       // 직속 필드의 예외 경로만
+ "llm": {"hint": "…", "slot": true, "name": "…", "kind": "expr", "inject": "model"}}
+```
+- `type`: `string` `text` `integer` `number` `boolean` `datetime` `cron` `json` `dict` `object`
+- 도구 필드의 type·required·default는 시그니처에서 파생(덮어쓰기 가능). 실행 시 주입 인자(`RUNTIME_INJECTED_PARAMS`)는 빠진다.
+- `default`는 키가 없을 때 실행이 쓰는 값이다. FE는 저장하지 않는다(키 있음 = 고정).
+- `llm`은 생성 전용이다. `hint`=슬롯 설명, `slot: false`=슬롯 만들지 않음, `name`=표시 이름 슬롯
+  `<key>_name`(경로 `…_names.<key>`), `kind`=기존 슬롯 kind 고정, `inject`=시스템 주입(provider|model).
 
-### Slot 스펙
+## 파생 규칙 (core/node_fields.py)
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| `name` | string | ✅ | 슬롯 이름 |
-| `path` | string | ✅ | 노드 JSON 내 위치. `label` / `description` 또는 `config.<key>` (점 표기) |
-| `required` | bool | ✅ | 필수 여부 |
-| `kind` | string | ✅ | `string` \| `enum` \| `provider` \| `model` \| `cron` \| `expr` \| `mapping` \| `http_method` |
-| `enum` | string[] | ⬜ | `kind=enum`일 때 허용 값 |
-| `description` | string | ⬜ | LLM 작성 가이드 |
-
-`kind=provider`: 요청자 LLM provider(CLAUDE\|OPENAI\|GEMINI)를 계승하는 특수 슬롯.
-`kind=model`: 그 provider의 기본 모델명(`provider_config.resolve_model`)을 계승하는 특수 슬롯.
-
-두 kind 모두 **시스템이 주입**한다. 카탈로그에 '자동주입(작성금지)'로 표기되고, 하이드레이션 시
-LLM이 보낸 값은 무시된다(모델명 날조 차단).
-
-### serviceType (FE 표시용 앱 메타)
-
-앱을 호출하는 AI 템플릿은 `fixed.config.serviceType`에 상수를 갖는다.
-허용값은 `GOOGLE` \| `NOTION` \| `GITHUB` \| `SLACK` \| `DISCORD`이며, 앱과 무관한 AI 노드
-(`ai.reasoning`, `ai.web_search`, `ai.http_fetch`, `ai.mcp`)와 구조 노드에는 두지 않는다.
-FE 노드 카드 표시 전용이며 실행 경로는 이 값을 읽지 않는다.
+- 경로: 직속 `config.<key>`, 도구 필드 `config.tools.0.config.<key>`.
+- 슬롯 = label·description + 직속 필드 + `optionsSource`가 있는 도구 필드(항상 선택). `llm.slot: false` 제외.
+- 슬롯 kind = `llm.kind` → `llm.inject` → choices면 enum → cron → dict면 mapping → string.
+- 허용 config 키 = fixed.config 키 ∪ 직속 필드 최상위 키 ∪ (직속 optionsSource 필드가 있으면 `_names`).
 
 ## 불변 규칙
 
 1. `id`는 전역 고유, 파일명(`<id>.json`)과 일치.
-2. `tool_key`가 null이 아니면 `_TOOL_MAP`에 반드시 존재(seed/CI 드리프트 검증).
-3. `fixed.config.tools[*].name`은 모두 `_TOOL_MAP`에 존재해야 함.
-4. `allowed_config_fields`는 `fixed.config`의 모든 키와 `slots`의 `config.*` path를 포함해야 함.
-5. `golden_snippet`이 있으면 그 자체로 `WorkflowValidator` 노드 검증을 통과해야 함(#8 회귀 테스트).
+2. `tool_key`·`fixed.config.tools[*].name`은 `_TOOL_MAP`에 존재(`mcp` 센티넬 제외).
+3. 도구 하나의 `fields`는 한 항목에만.
+4. `optionsInputs`는 같은 항목의 필드 key만 가리킨다.
+5. `golden_snippet`은 단독으로 `WorkflowValidator` 노드 검증을 통과해야 한다.

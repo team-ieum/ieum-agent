@@ -1,0 +1,18 @@
+{
+  "id": "action.google_calendar_update",
+  "node_type": "ACTION",
+  "app": "GOOGLE",
+  "tool_key": "builtin:google_calendar_update",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:google_calendar_update"
+        }
+      ]
+    }
+  }
+}

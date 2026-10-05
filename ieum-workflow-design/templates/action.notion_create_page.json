@@ -1,0 +1,18 @@
+{
+  "id": "action.notion_create_page",
+  "node_type": "ACTION",
+  "app": "NOTION",
+  "tool_key": "builtin:notion_create_page",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:notion_create_page"
+        }
+      ]
+    }
+  }
+}

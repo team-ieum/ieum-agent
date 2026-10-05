@@ -1,0 +1,18 @@
+{
+  "id": "action.google_drive_upload",
+  "node_type": "ACTION",
+  "app": "GOOGLE",
+  "tool_key": "builtin:google_drive_upload",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:google_drive_upload"
+        }
+      ]
+    }
+  }
+}

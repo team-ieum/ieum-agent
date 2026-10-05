@@ -2,6 +2,7 @@
 
 ieum-workflow-design/templates/*.json 을 단일 진실 원천으로 로드·검증한다.
 스키마 명세는 templates/SCHEMA.md 참고.
+원본 JSON은 inputFields·fields로 필드를 정의하고, slots·allowed_config_fields는 로더가 파생한다(core.node_fields).
 
 소비처:
 - skill_loader(#4): menu_index() + select_by_tags() 로 항상층/검색층 주입
@@ -28,14 +29,15 @@ UNIVERSAL_CONFIG_FIELDS = {
 }
 
 _VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL", "ACTION"}
-_VALID_SLOT_KINDS = {"string", "enum", "provider", "model", "cron", "expr", "mapping", "http_method"}
 # LLM이 값을 쓰지 못하고 시스템이 요청 provider에서 계산해 주입하는 슬롯 kind.
 _SYSTEM_INJECTED_KINDS = {"provider", "model"}
 
 # FE 노드 카드가 앱 아이콘/라벨을 그릴 때 쓰는 표시용 메타. 실행 경로는 읽지 않는다.
 # 템플릿 fixed.config에 상수로 박히며, 앱과 무관한 AI 노드에는 아예 없다.
 VALID_SERVICE_TYPES = {"GOOGLE", "NOTION", "GITHUB", "SLACK", "DISCORD"}
-_REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "tags", "menu", "fixed", "slots", "allowed_config_fields"}
+_REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "fixed"}
+_GENERATION_TOP_KEYS = {"tags", "menu"}  # generation 항목만 필수(LLM 메뉴·태그 검색용)
+_LEGACY_TOP_KEYS = {"slots", "allowed_config_fields"}  # 이제 파생값 — 파일에 쓰면 거부
 
 # resolve_template_for_node가 매칭 템플릿을 찾지 못한 노드용 센티넬 templateId.
 # dehydrate_node가 None(드롭) 대신 이 templateId를 단 draft를 반환해 MODIFY 왕복에서 노드가
@@ -68,32 +70,34 @@ def _tool_map_keys() -> set:
 
 
 def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
-    """단일 템플릿의 스키마와 _TOOL_MAP 드리프트를 검증한다."""
+    """원본 템플릿 1개의 형식·드리프트를 검증한다(정규화 전). 형식은 SCHEMA.md."""
+    from core.node_fields import AI_COMMON_KEYS, FieldError, validate_field
+
     if not isinstance(tpl, dict):
         raise TemplateSchemaError(f"{filename}: 템플릿 루트는 JSON 객체(dict)여야 합니다.")
     missing = _REQUIRED_TOP_KEYS - tpl.keys()
     if missing:
         raise TemplateSchemaError(f"{filename}: 필수 필드 누락 {sorted(missing)}")
-    if not isinstance(tpl.get("allowed_config_fields"), list):
-        raise TemplateSchemaError(f"{tpl.get('id', filename)}: allowed_config_fields는 리스트여야 합니다.")
-    if not isinstance(tpl.get("slots"), list):
-        raise TemplateSchemaError(f"{tpl.get('id', filename)}: slots는 리스트여야 합니다.")
-
     tid = tpl["id"]
+    legacy = _LEGACY_TOP_KEYS & tpl.keys()
+    if legacy:
+        raise TemplateSchemaError(
+            f"{tid}: {sorted(legacy)}는 더 이상 쓰지 않는다 — inputFields·fields에서 파생된다(SCHEMA.md).")
     for flag in ("builder", "generation"):
         if flag in tpl and not isinstance(tpl[flag], bool):
             raise TemplateSchemaError(f"{tid}: {flag}는 true/false여야 합니다.")
-    expected_file = f"{tid}.json"
-    if os.path.basename(filename) != expected_file:
-        raise TemplateSchemaError(f"{filename}: id '{tid}'와 파일명이 불일치(기대: {expected_file})")
+    if tpl.get("generation", True):
+        gm = _GENERATION_TOP_KEYS - tpl.keys()
+        if gm:
+            raise TemplateSchemaError(f"{tid}: generation 항목은 {sorted(gm)}가 필요합니다.")
+        if not isinstance(tpl["tags"], list) or not tpl["tags"]:
+            raise TemplateSchemaError(f"{tid}: tags는 비어있지 않은 리스트여야 함")
 
+    if os.path.basename(filename) != f"{tid}.json":
+        raise TemplateSchemaError(f"{filename}: id '{tid}'와 파일명이 불일치(기대: {tid}.json)")
     if tpl["node_type"] not in _VALID_NODE_TYPES:
         raise TemplateSchemaError(f"{tid}: node_type '{tpl['node_type']}' 유효하지 않음 {sorted(_VALID_NODE_TYPES)}")
 
-    if not isinstance(tpl["tags"], list) or not tpl["tags"]:
-        raise TemplateSchemaError(f"{tid}: tags는 비어있지 않은 리스트여야 함")
-
-    # tool_key 드리프트 검증
     tool_key = tpl["tool_key"]
     if tool_key is not None and tool_key not in tool_keys:
         raise TemplateSchemaError(f"{tid}: tool_key '{tool_key}'가 _TOOL_MAP에 없음(드리프트)")
@@ -103,53 +107,84 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
         raise TemplateSchemaError(f"{tid}: fixed에 type이 필요함")
     if fixed["type"] != tpl["node_type"]:
         raise TemplateSchemaError(f"{tid}: fixed.type({fixed['type']}) != node_type({tpl['node_type']})")
-
-    fixed_config = fixed.get("config", {}) or {}
-
-    # fixed.config.tools[*].name 도 _TOOL_MAP에 존재해야 함.
-    # "mcp"는 동적 도구 센티넬(런타임 catalog 주입)로 _TOOL_MAP에 없어도 허용한다.
+    fixed_config = fixed.get("config") or {}
     for tool in fixed_config.get("tools", []) or []:
         name = tool.get("name") if isinstance(tool, dict) else tool
         if name and name != "mcp" and name not in tool_keys:
             raise TemplateSchemaError(f"{tid}: fixed tools '{name}'가 _TOOL_MAP에 없음(드리프트)")
+    if "serviceType" in fixed_config:
+        raise TemplateSchemaError(f"{tid}: serviceType은 fixed.config가 아니라 최상위 app에 쓴다(로더가 주입).")
+    app = tpl.get("app")
+    if app is not None and app not in VALID_SERVICE_TYPES:
+        raise TemplateSchemaError(f"{tid}: app '{app}' 유효하지 않음 {sorted(VALID_SERVICE_TYPES)}")
 
-    # slots 검증
-    allowed = set(tpl["allowed_config_fields"])
-    for slot in tpl["slots"]:
-        for k in ("name", "path", "required", "kind"):
-            if k not in slot:
-                raise TemplateSchemaError(f"{tid}: slot에 '{k}' 누락 ({slot})")
-        if slot["kind"] not in _VALID_SLOT_KINDS:
-            raise TemplateSchemaError(f"{tid}: slot kind '{slot['kind']}' 유효하지 않음")
-        # config.* slot은 allowed_config_fields에 포함되어야 함
-        path = slot["path"]
-        if path.startswith("config."):
-            key = path.split(".")[1]
-            if key not in allowed:
-                raise TemplateSchemaError(f"{tid}: slot '{slot['name']}'의 config.{key}가 allowed_config_fields에 없음")
+    inputs = tpl.get("inputFields", [])
+    if not isinstance(inputs, list):
+        raise TemplateSchemaError(f"{tid}: inputFields는 리스트여야 합니다.")
+    for field in inputs:
+        partial = tpl["node_type"] == "AI" and isinstance(field, dict) and field.get("key") in AI_COMMON_KEYS
+        try:
+            validate_field(field, partial=partial)
+        except FieldError as e:
+            raise TemplateSchemaError(f"{tid}: inputFields {e}")
 
-    # fixed.config 키도 allowed_config_fields에 포함되어야 함
-    for key in fixed_config.keys():
-        if key not in allowed:
-            raise TemplateSchemaError(f"{tid}: fixed.config.{key}가 allowed_config_fields에 없음")
+    overrides = tpl.get("fields")
+    if overrides is not None:
+        if tool_key is None:
+            raise TemplateSchemaError(f"{tid}: fields(도구 필드 덮어쓰기)는 tool_key가 있는 항목만 쓴다.")
+        if not isinstance(overrides, dict):
+            raise TemplateSchemaError(f"{tid}: fields는 {{파라미터: 덮어쓰기}} 객체여야 합니다.")
+        for key, ov in overrides.items():
+            if not isinstance(ov, dict) or {"key", "path"} & ov.keys():
+                raise TemplateSchemaError(f"{tid}: fields.{key}는 key·path 없는 객체여야 합니다.")
+            try:
+                validate_field({"key": key, **ov}, partial=True)
+            except FieldError as e:
+                raise TemplateSchemaError(f"{tid}: fields.{key} {e}")
 
-    service_type = fixed_config.get("serviceType")
-    if service_type is not None and service_type not in VALID_SERVICE_TYPES:
-        raise TemplateSchemaError(
-            f"{tid}: fixed.config.serviceType '{service_type}' 유효하지 않음 {sorted(VALID_SERVICE_TYPES)}")
+
+def _tool_fields(tool_key: str, overrides: dict) -> list:
+    """도구 시그니처 → Field(주입 인자 제외) + 소유 항목의 덮어쓰기."""
+    from tools import _TOOL_MAP
+    from tools.registry import RUNTIME_INJECTED_PARAMS
+    from core.node_fields import apply_overrides, signature_fields
+    return apply_overrides(signature_fields(_TOOL_MAP[tool_key], RUNTIME_INJECTED_PARAMS), overrides, where=tool_key)
+
+
+def _normalize(tpl: dict, tool_fields: dict) -> dict:
+    """원본 항목 → 메모리상 항목. 기존 소비처가 읽는 slots·allowed_config_fields를 파생해 채운다."""
+    from core.node_fields import AI_COMMON_FIELDS, derive_allowed_config, derive_slots, merge_common
+
+    t = copy.deepcopy(tpl)
+    t.setdefault("builder", True)
+    t.setdefault("generation", True)
+    cfg = t["fixed"].setdefault("config", {})
+    if t.get("app"):
+        cfg["serviceType"] = t["app"]
+    common = AI_COMMON_FIELDS if t["node_type"] == "AI" else []
+    direct = [{**f, "path": f.get("path") or f"config.{f['key']}"}
+              for f in merge_common(common, t.get("inputFields") or [])]
+    tool = [{**f, "path": f"config.tools.0.config.{f['key']}"}
+            for f in copy.deepcopy(tool_fields.get(t["tool_key"], []))] if t["tool_key"] else []
+    t["inputFields"] = direct + tool
+    t["slots"] = derive_slots(direct, tool)
+    t["allowed_config_fields"] = derive_allowed_config(cfg, direct)
+    return t
 
 
 def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
-    """모든 템플릿을 로드·검증해 {id: template} dict로 반환한다(캐시).
-    tool_keys 미지정 시 _TOOL_MAP에서 lazy 로드한다."""
+    """모든 항목을 로드·검증·정규화해 {id: 항목} dict로 반환한다(캐시).
+    도구 필드 덮어쓰기(`fields`)는 도구당 한 항목만 소유한다 — 같은 tool_key의 다른 항목(생성 프리셋)은
+    그 정의를 그대로 쓴다."""
+    from core.node_fields import FieldError
+
     global _cache
     if _cache is not None and not force:
         return _cache
-
     if tool_keys is None:
         tool_keys = _tool_map_keys()
 
-    templates: dict = {}
+    raw: dict = {}
     for path in sorted(glob.glob(os.path.join(TEMPLATES_DIR, "*.json"))):
         with open(path, "r", encoding="utf-8") as f:
             try:
@@ -157,12 +192,46 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
             except json.JSONDecodeError as e:
                 raise TemplateSchemaError(f"{os.path.basename(path)}: JSON 파싱 실패 - {e}")
         _validate_template(tpl, path, tool_keys)
-        if tpl["id"] in templates:
+        if tpl["id"] in raw:
             raise TemplateSchemaError(f"중복된 템플릿 id: {tpl['id']}")
-        templates[tpl["id"]] = tpl
+        raw[tpl["id"]] = tpl
+
+    owners: dict = {}
+    for tpl in raw.values():
+        if "fields" in tpl:
+            tk = tpl["tool_key"]
+            if tk in owners:
+                raise TemplateSchemaError(
+                    f"도구 '{tk}'의 fields 덮어쓰기가 '{owners[tk]}'·'{tpl['id']}' 두 곳에 있다 — 한 항목에만 쓴다.")
+            owners[tk] = tpl["id"]
+
+    tool_fields: dict = {}
+    for tk in {t["tool_key"] for t in raw.values() if t["tool_key"]}:
+        overrides = raw[owners[tk]]["fields"] if tk in owners else {}
+        try:
+            tool_fields[tk] = _tool_fields(tk, overrides)
+        except FieldError as e:
+            raise TemplateSchemaError(f"{owners.get(tk, tk)}: {e}")
+
+    templates = {tid: _normalize(tpl, tool_fields) for tid, tpl in raw.items()}
+    for t in templates.values():
+        keys = {f["key"] for f in t["inputFields"]}
+        for f in t["inputFields"]:
+            bad = set(f.get("optionsInputs") or []) - keys
+            if bad:
+                raise TemplateSchemaError(
+                    f"{t['id']}: '{f['key']}'의 optionsInputs {sorted(bad)}가 같은 항목의 필드가 아니다.")
 
     _cache = templates
     return templates
+
+
+def tool_field_overrides(tool_key: str) -> dict:
+    """도구 필드 덮어쓰기(소유 항목의 `fields`) 사본. 소유 항목이 없으면 {}."""
+    for t in load_templates().values():
+        if t["tool_key"] == tool_key and "fields" in t:
+            return copy.deepcopy(t["fields"])
+    return {}
 
 
 def validate_registry(tool_keys: set | None = None) -> None:
@@ -198,12 +267,12 @@ def menu_index() -> str:
 
 
 def template_ids() -> set:
-    """등록된 모든 템플릿 id 집합. Planner가 고른 templateId 존재 검증에 쓴다."""
+    """생성 경로(generation) 템플릿 id 집합. Planner가 고른 templateId 존재 검증에 쓴다."""
     return set(_generation_templates().keys())
 
 
 def node_type_of_template(template_id: str) -> str | None:
-    """templateId의 node_type(TRIGGER/AI/...)을 반환한다. 없으면 None."""
+    """templateId의 node_type(TRIGGER/AI/...)을 반환한다. 없거나 builder 전용 id면 None."""
     tpl = _generation_templates().get(template_id)
     return tpl["node_type"] if tpl else None
 

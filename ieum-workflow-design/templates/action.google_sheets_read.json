@@ -1,0 +1,44 @@
+{
+  "id": "action.google_sheets_read",
+  "node_type": "ACTION",
+  "app": "GOOGLE",
+  "tool_key": "builtin:google_sheets_read",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:google_sheets_read"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "spreadsheet_id": {
+      "title": "스프레드시트",
+      "description": "대상 스프레드시트",
+      "optionsSource": "google.spreadsheets",
+      "llm": {
+        "hint": "대상 스프레드시트 ID(사용자가 준 값·조회로 확인한 값). 모르면 슬롯을 생략한다. 선행 노드 결과로 정해지는 ID(참조식)는 넣지 않고 prompt에 쓴다.",
+        "name": "spreadsheet_id의 표시 이름(화면 표시용). spreadsheet_id 슬롯을 채웠을 때만 채운다."
+      }
+    },
+    "sheet_name": {
+      "title": "워크시트",
+      "description": "대상 워크시트(탭)",
+      "optionsSource": "google.worksheets",
+      "optionsInputs": [
+        "spreadsheet_id"
+      ],
+      "llm": {
+        "hint": "워크시트(탭) 제목. 사용자가 시트 이름을 말한 경우에만 채운다."
+      }
+    },
+    "cell_range": {
+      "title": "범위",
+      "description": "예: A:C"
+    }
+  }
+}

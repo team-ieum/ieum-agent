@@ -1,0 +1,18 @@
+{
+  "id": "action.notion_append_block",
+  "node_type": "ACTION",
+  "app": "NOTION",
+  "tool_key": "builtin:notion_append_block",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:notion_append_block"
+        }
+      ]
+    }
+  }
+}
