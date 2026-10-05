@@ -44,6 +44,20 @@ FIELD_META: dict[str, dict] = {
                    "optionsSource": "google.worksheets", "optionsInputs": ["spreadsheet_id"]},
     "cell_range": {"title": "범위", "description": "예: A:C"},
     "values": {"title": "값"},
+    "calendar_id": {"title": "캘린더", "description": "대상 캘린더 (비우면 기본 캘린더)",
+                    "optionsSource": "google.calendars"},
+    "event_id": {"title": "일정", "description": "수정할 일정",
+                 "optionsSource": "google.events", "optionsInputs": ["calendar_id"]},
+    "file_id": {"title": "파일", "description": "읽을 파일",
+                "optionsSource": "google.files"},
+    "folder_id": {"title": "폴더", "description": "업로드할 폴더 (비우면 내 드라이브 루트)",
+                  "optionsSource": "google.folders"},
+    "page_id": {"title": "페이지", "description": "대상 페이지",
+                "optionsSource": "notion.pages"},
+    "parent_page_id": {"title": "상위 페이지", "description": "새 페이지를 만들 위치",
+                       "optionsSource": "notion.pages"},
+    "database_id": {"title": "데이터베이스", "description": "조회할 데이터베이스",
+                    "optionsSource": "notion.databases"},
 }
 
 # 자동 파생이 불가능한 서비스별 수동 정책. 양이 적으므로 코드에 두고 git으로 관리한다.

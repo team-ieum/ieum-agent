@@ -1,4 +1,5 @@
 import json
+from urllib.parse import quote
 
 import httpx
 
@@ -37,12 +38,13 @@ async def google_drive_read(
         파일 이름, MIME 타입, 내용을 포함한 JSON 문자열
     """
     try:
+        file_url = f"{_DRIVE_API_BASE}/files/{quote(str(file_id), safe='')}"
         client = get_http_client()
         # 메타데이터 조회
         meta_response = await client.get(
-            f"{_DRIVE_API_BASE}/files/{file_id}",
+            file_url,
             headers=_headers(access_token),
-            params={"fields": "name,mimeType"},
+            params={"fields": "name,mimeType", "supportsAllDrives": "true"},
             timeout=_TIMEOUT,
         )
         if not meta_response.is_success:
@@ -59,7 +61,7 @@ async def google_drive_read(
         export_mime = _EXPORT_MIME_MAP.get(mime_type)
         if export_mime:
             content_response = await client.get(
-                f"{_DRIVE_API_BASE}/files/{file_id}/export",
+                f"{file_url}/export",
                 headers=_headers(access_token),
                 params={"mimeType": export_mime},
                 timeout=_TIMEOUT,
@@ -73,9 +75,9 @@ async def google_drive_read(
                 }, ensure_ascii=False)
 
             content_response = await client.get(
-                f"{_DRIVE_API_BASE}/files/{file_id}",
+                file_url,
                 headers=_headers(access_token),
-                params={"alt": "media"},
+                params={"alt": "media", "supportsAllDrives": "true"},
                 timeout=_TIMEOUT,
             )
 
@@ -130,7 +132,7 @@ async def google_drive_upload(
         업로드된 파일 ID, URL을 포함한 JSON 문자열
     """
     metadata = {"name": name}
-    if folder_id:
+    if str(folder_id or "").strip():
         metadata["parents"] = [folder_id]
 
     boundary = "ieum_multipart_boundary"
@@ -155,7 +157,7 @@ async def google_drive_upload(
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": f"multipart/related; boundary={boundary}",
             },
-            params={"uploadType": "multipart", "fields": "id,name,webViewLink"},
+            params={"uploadType": "multipart", "fields": "id,name,webViewLink", "supportsAllDrives": "true"},
             content=body.encode("utf-8"),
             timeout=_TIMEOUT,
         )
