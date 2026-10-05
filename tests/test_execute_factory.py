@@ -775,7 +775,6 @@ async def test_run_react_agent_google_node_uses_builtin_tools_only(use_single_ag
 
     with patch("google.adk.tools.mcp_tool.mcp_toolset.MCPToolset.get_tools",
                new=AsyncMock(side_effect=TimeoutError("remote mcp"))), \
-         patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(tools=[]), []))), \
          patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
          patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
          patch("agents.execute.factory.Runner", return_value=mock_runner):
@@ -793,3 +792,44 @@ async def test_run_react_agent_google_node_uses_builtin_tools_only(use_single_ag
     assert output == "일정 3건"
     tool_names = [getattr(t, "name", None) for t in captured[-1]["tools"]]
     assert tool_names == ["google_calendar_list"]
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_google_token_does_not_force_multi_agent():
+    """Google 토큰은 빌트인 도구 바인딩에만 쓰이므로 경로 분기 개수에 들지 않는다 — Google+Notion 노드도 단일 경로."""
+    from agents.execute.factory import run_react_agent
+
+    captured = []
+
+    def _llm_agent(**kwargs):
+        captured.append(kwargs)
+        return MagicMock()
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(1, final_text="ok")
+
+    mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock(); mock_session.id = "s-google-notion"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=[{"name": "builtin:google_calendar_list"}, {"name": "builtin:notion_search"}])
+
+    with patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(tools=[]), []))), \
+         patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
+         patch("agents.execute.factory.AgentTool") as mock_agent_tool, \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            provider="GEMINI",
+            request=req,
+            api_key="test-key",
+            user_id="u1",
+            google_access_token="google-token",
+            notion_token="notion-token",
+            session_service=mock_ss,
+        )
+
+    mock_agent_tool.assert_not_called()
+    assert captured[-1]["name"] == "ieum_single_agent"

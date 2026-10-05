@@ -171,13 +171,14 @@ async def run_react_agent(
     if session_service is None:
         session_service = MongoSessionService()
 
-    active_tokens = [t for t in [google_access_token, notion_token, github_token] if t]
+    # Google 토큰은 빌트인 도구 바인딩에만 쓰여 서브에이전트가 없으므로 경로 분기 개수에 넣지 않는다(IEUM-AI-63)
+    active_tokens = [t for t in [notion_token, github_token] if t]
     has_custom_mcp = bool(request.mcp_servers)
     webhook_configs = _extract_webhook_configs(request.tools)
 
     model_param = build_model_param(provider, model, api_key, user_role)
 
-    # [최적화] 외부 연동 크레덴셜이 1개 이하이고 커스텀 MCP가 정의되지 않은 경우
+    # [최적화] 서브에이전트가 붙는 외부 연동 크레덴셜(Notion·GitHub)이 1개 이하이고 커스텀 MCP가 정의되지 않은 경우
     # 메인-서브 멀티에이전트 오케스트레이션을 우회하고 단일 ReAct Agent로 다이렉트 실행하여 Latency 감소
     # 단, 테스트 환경(use_single_agent가 False인 경우)에는 기존 멀티에이전트 흐름을 유지합니다.
     if len(active_tokens) <= 1 and not has_custom_mcp and use_single_agent:

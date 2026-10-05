@@ -37,7 +37,6 @@ graph TD
         Trans[Transform Agent]
         Github[Github Agent]
         Notion[Notion Agent]
-        Google[Google Agent]
     end
 
     Single -->|Execute Tools| Tools[Tools & Integrations]
@@ -121,7 +120,7 @@ graph TD
     Orchestrate --> SubWeb[web_agent]
     Orchestrate --> SubComm[comm_agent]
     Orchestrate --> SubTrans[transform_agent]
-    Orchestrate --> SubDomain[domain_agent: Github/Notion/Google/MCP]
+    Orchestrate --> SubDomain[domain_agent: Github/Notion/MCP]
     
     ExecuteSingle --> Log[4. 결과 로깅 및 민감 정보 마스킹]
     SubWeb & SubComm & SubTrans & SubDomain --> Log
