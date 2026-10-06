@@ -5,6 +5,11 @@
   "description": "AI가 GitHub에서 PR·이슈·저장소를 찾아봐요.",
   "app": "GITHUB",
   "tool_key": null,
+  "match": {
+    "type": "AI",
+    "config.tools.0": null,
+    "config.agentType": "react"
+  },
   "service": "github",
   "tags": [
     "github",

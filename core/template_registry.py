@@ -168,6 +168,9 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
         for key in ("title", "description"):
             if not (isinstance(tpl.get(key), str) and tpl[key].strip()):
                 raise TemplateSchemaError(f"{tid}: builder 항목은 {key}(사용자 표시 문구)가 필요합니다.")
+    if "match" in tpl and not (isinstance(tpl["match"], dict) and tpl["match"]
+                               and all(isinstance(k, str) for k in tpl["match"])):
+        raise TemplateSchemaError(f"{tid}: match는 {{경로: 값}} 객체여야 합니다.")
 
 
 def _tool_fields(tool_key: str, overrides: dict) -> list:
@@ -199,6 +202,7 @@ def _normalize(tpl: dict, tool_fields: dict) -> dict:
         + copy.deepcopy(t.get("outputFields") or [])
     t["slots"] = derive_slots(direct, tool)
     t["allowed_config_fields"] = derive_allowed_config(cfg, direct)
+    t["match"] = t.get("match") or _default_match(t)
     return t
 
 
@@ -251,6 +255,20 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
             if bad:
                 raise TemplateSchemaError(
                     f"{t['id']}: '{f['key']}'의 optionsInputs {sorted(bad)}가 같은 항목의 필드가 아니다.")
+    seen: dict = {}
+    for t in templates.values():
+        if not t["builder"]:
+            continue
+        key = json.dumps(t["match"], sort_keys=True)
+        if key in seen:
+            raise TemplateSchemaError(f"builder 항목 '{seen[key]}'·'{t['id']}'의 match가 같다.")
+        seen[key] = t["id"]
+    agent = templates.get(_AGENT_ENTRY_ID)
+    if agent is not None:
+        tools_field = next(f for f in agent["inputFields"] if f["key"] == "tools")
+        tools_field["choices"] = [{"id": t["tool_key"], "name": t["title"]}
+                                  for t in sorted(templates.values(), key=lambda t: t["id"])
+                                  if t["node_type"] == "ACTION"]
 
     _cache = templates
     return templates
@@ -279,6 +297,45 @@ def _generation_templates() -> dict:
 def all_entries() -> list:
     """카탈로그 항목 전체(builder 전용 포함). seed와 카탈로그 API가 쓴다."""
     return list(load_templates().values())
+
+
+# FE 빌더의 "AI 에이전트" 항목. tools 필드의 선택지는 액션 항목 목록에서 로더가 채운다.
+_AGENT_ENTRY_ID = "ai.agent"
+
+
+def _default_match(t: dict) -> dict:
+    """저장된 노드 → 항목 매칭 기본 규칙(spec §3.4). 그 밖의 조건이 필요하면 항목이 match를 직접 쓴다."""
+    match = {"type": t["node_type"]}
+    if t["tool_key"]:
+        match["config.tools.0.name"] = t["tool_key"]
+    if t["node_type"] == "TRIGGER":
+        match["config.triggerType"] = t["fixed"]["config"].get("triggerType")
+    return match
+
+
+def _matches(match: dict, node: dict) -> bool:
+    """match의 모든 (경로, 값)이 맞으면 True. 값 None은 '경로가 없거나 null·빈 문자열·빈 목록'."""
+    for path, expected in match.items():
+        actual = _get_by_path(node, path)
+        if expected is None:
+            if actual not in (None, "", []):
+                return False
+        elif actual != expected:
+            return False
+    return True
+
+
+def builder_entries() -> list:
+    """builder 항목을 match 평가 순서(조건 수 내림차순, 같으면 id)로 반환한다."""
+    return sorted((t for t in load_templates().values() if t["builder"]),
+                  key=lambda t: (-len(t["match"]), t["id"]))
+
+
+def match_entry(node: dict) -> dict | None:
+    """저장된 노드에 맞는 builder 항목(FE가 폼을 열 때). 없으면 None."""
+    if not isinstance(node, dict):
+        return None
+    return next((t for t in builder_entries() if _matches(t["match"], node)), None)
 
 
 def all_templates() -> list:

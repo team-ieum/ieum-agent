@@ -4,6 +4,10 @@
   "title": "AI 에이전트 (MCP)",
   "description": "연결한 MCP 서버의 도구로 AI가 일을 처리해요.",
   "tool_key": null,
+  "match": {
+    "type": "AI",
+    "config.tools.0.name": "mcp"
+  },
   "tags": [
     "mcp",
     "외부 도구",

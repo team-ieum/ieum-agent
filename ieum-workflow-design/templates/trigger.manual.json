@@ -4,6 +4,9 @@
   "title": "수동 실행",
   "description": "버튼을 누르면 시작해요.",
   "tool_key": null,
+  "match": {
+    "type": "TRIGGER"
+  },
   "tags": [
     "수동",
     "manual",
