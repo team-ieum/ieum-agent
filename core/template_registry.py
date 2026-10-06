@@ -274,14 +274,6 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
     return templates
 
 
-def tool_field_overrides(tool_key: str) -> dict:
-    """도구 필드 덮어쓰기(소유 항목의 `fields`) 사본. 소유 항목이 없으면 {}."""
-    for t in load_templates().values():
-        if t["tool_key"] == tool_key and "fields" in t:
-            return copy.deepcopy(t["fields"])
-    return {}
-
-
 def validate_registry(tool_keys: set | None = None) -> None:
     """레지스트리 전체를 강제 재검증한다(seed/CI 드리프트 게이트용)."""
     load_templates(force=True, tool_keys=tool_keys)
