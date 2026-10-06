@@ -51,8 +51,8 @@ SERVICE_POLICY: dict[str, dict] = {
 }
 
 # 동적 서브에이전트로 마운트되어 노드 tools:[]를 쓰는 서비스의 액션 함수.
-# _TOOL_MAP에 없으므로(노드 tools 키가 아님) 블루프린트 표현을 위해 별도로 등록한다.
-# 노드 tools에는 들어가지 않으며, 프롬프트/문서용 파라미터 스펙 파생에만 쓴다.
+# _TOOL_MAP에 없다(AI 노드 tools 키가 아님 — tools_must_be_empty 계약). 쓰는 곳은 두 갈래다:
+# 프롬프트/문서용 파라미터 스펙 파생, 그리고 ACTION 실행(resolve_action_fn이 `builtin:github_<x>`를 여기서 찾는다).
 _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
     "github": {
         "github_list_orgs": github_list_orgs,
@@ -183,7 +183,8 @@ def brand_for_node(node: dict) -> str:
     """노드의 UI brand 키를 도출한다.
 
     우선순위: 노드 tools의 tool_key에서 추출한 서비스(SERVICE_BRAND) → node_type 기본값.
-    동적 서브에이전트 서비스(github 등)는 노드 tools가 비어([]) tool_key가 없으므로,
+    ACTION 노드는 github도 tool_key(`builtin:github_<x>`)가 있어 첫 갈래로 답한다.
+    AI 노드의 동적 서브에이전트 서비스(github 등)는 tools가 비어([]) tool_key가 없으므로,
     intent(라벨+프롬프트) 태그 매칭으로 서비스를 식별한다(생성 시 분류와 동일 신호)."""
     config = node.get("config") if isinstance(node, dict) else None
     tools = config.get("tools") if isinstance(config, dict) else None

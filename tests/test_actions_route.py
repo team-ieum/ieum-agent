@@ -74,6 +74,21 @@ def test_알_수_없는_toolKey는_400_UNKNOWN_TOOL이다(tool_key):
     assert res.json()["errorCode"] == "UNKNOWN_TOOL"
 
 
+@pytest.mark.parametrize("tool_key", ["gmail", "builtin:web_search"])
+def test_카탈로그_ACTION_밖_도구는_400_UNKNOWN_TOOL이고_레코드를_남기지_않는다(fake_records, tool_key):
+    """_TOOL_MAP에 있어도 builder ACTION 항목이 아니면 거부한다(gmail smtp_host SSRF·플랫폼 Tavily 키 소모)."""
+    run = AsyncMock(return_value=RESULT)
+    res = _post({**HEADERS, "X-Idempotency-Key": KEY}, body={**BODY, "toolKey": tool_key}, run_action=run)
+    assert res.status_code == 400 and res.json()["errorCode"] == "UNKNOWN_TOOL"
+    assert run.await_count == 0 and fake_records.docs == {}
+
+
+@pytest.mark.parametrize("tool_key", ["slack", "builtin:github_list_issues"])
+def test_카탈로그_ACTION_도구는_통과한다(tool_key):
+    res = _post(body={**BODY, "toolKey": tool_key}, run_action=AsyncMock(return_value=RESULT))
+    assert res.status_code == 200 and res.json()["success"] is True
+
+
 def test_토큰_누락은_200_실패_응답이다():
     res = _post(headers={"X-User-Id": "user-1"})
     assert res.status_code == 200

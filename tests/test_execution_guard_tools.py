@@ -56,3 +56,22 @@ def test_AI_노드_GitHub_계약_tools_빈_목록은_토큰이_없어도_통과�
     request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="react", tools=tools)
     ExecutionGuard.validate_execution(request)
     ExecutionGuard.validate_execution(request, github_token="gh-token")
+
+
+@pytest.mark.parametrize("url", [
+    "http://[::1]/x", "http://[::ffff:127.0.0.1]/x", "http://[fd00::1]/x", "http://127.0.0.1/x",
+    "http://[fe80::1]/x", "http://0.0.0.0/x", "http://[::]/x",
+])
+def test_IP_리터럴_사설_루프백_매핑_주소를_DNS_조회_전에_차단한다(url, monkeypatch):
+    lookups = []
+    monkeypatch.setattr("core.execution_guard.socket.gethostbyname", lambda h: lookups.append(h) or "8.8.8.8")
+    with pytest.raises(ExecutionGuardError):
+        ExecutionGuard.validate_tools([{"name": "builtin:http_fetch", "config": {"url": url}}])
+    assert lookups == []
+
+
+def test_공인_IP_리터럴은_DNS_조회_없이_통과한다(monkeypatch):
+    lookups = []
+    monkeypatch.setattr("core.execution_guard.socket.gethostbyname", lambda h: lookups.append(h) or "8.8.8.8")
+    ExecutionGuard.validate_tools([{"name": "builtin:http_fetch", "config": {"url": "http://8.8.8.8/x"}}])
+    assert lookups == []

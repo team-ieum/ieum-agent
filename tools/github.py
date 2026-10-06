@@ -7,7 +7,7 @@ _GITHUB_API_BASE = "https://api.github.com"
 _TIMEOUT = 30.0
 
 
-# 쓰기 요청의 URL 경로 조각. `/`·`..`·공백·`?`가 들어가면 다른 GitHub API 경로로 샌다.
+# GitHub 요청의 URL 경로 조각. `/`·`..`·공백·`?`가 들어가면 다른 GitHub API 경로로 샌다.
 _PATH_NAME = re.compile(r"[A-Za-z0-9_.-]+")
 
 
@@ -66,6 +66,8 @@ async def github_list_issues(token: str, owner: str, repo: str, state: str = "op
     Returns:
         이슈 목록 (number, title, state, labels, created_at)을 포함한 JSON 문자열
     """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return json.dumps({"error": "owner/repo 형식이 올바르지 않습니다."}, ensure_ascii=False)
     try:
         client = get_http_client()
         response = await client.get(

@@ -98,3 +98,12 @@ async def test_list_issues_성공(client):
         "number": 3, "title": "첫 이슈", "state": "open", "labels": ["bug", "p1"],
         "created_at": "2026-10-01T00:00:00Z",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner, repo", [("o/../../user", "r"), ("..", "r"), ("o", "r/../x")])
+async def test_list_issues_owner_repo에_경로_문자가_있으면_요청하지_않는다(client, owner, repo):
+    client.get = AsyncMock()
+    result = json.loads(await github_list_issues(token="gh-token", owner=owner, repo=repo))
+    assert "error" in result
+    client.get.assert_not_called()
