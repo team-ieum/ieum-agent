@@ -15,7 +15,7 @@ MongoDB `node_templates`는 seed 사본일 뿐이다(읽는 곳 없음). 설계:
 |---|---|---|
 | `id` | ✅ | 파일명과 일치. `<종류>.<이름>` (예: `ai.notion_create_page`, `action.slack_send`) |
 | `node_type` | ✅ | `TRIGGER` `AI` `ACTION` `HTTP` `CONDITION` `TRANSFORM` `APPROVAL` |
-| `tool_key` | ✅ | 바인딩하는 `_TOOL_MAP` 키, 없으면 `null` |
+| `tool_key` | ✅ | 바인딩하는 도구 키, 없으면 `null`. `_TOOL_MAP` 키 또는 `builtin:github_*`(ACTION 전용 동적 서비스 액션 — `tools.registry.resolve_action_fn`이 푼다) |
 | `fixed` | ✅ | 불변 노드 골격(`type` + `config` 불변 키). `serviceType`은 쓰지 않는다(`app`에서 주입) |
 | `app` | ⬜ | 앱 노드만 `GOOGLE`·`NOTION`·`GITHUB`·`SLACK`·`DISCORD`. 로더가 `fixed.config.serviceType`에 넣는다 |
 | `builder` / `generation` | ⬜ | 기본 `true`. 액션은 `generation: false`(실행·생성 전환 전), 앱 도구 AI 프리셋은 `builder: false` |
@@ -58,7 +58,7 @@ MongoDB `node_templates`는 seed 사본일 뿐이다(읽는 곳 없음). 설계:
 ## 불변 규칙
 
 1. `id`는 전역 고유, 파일명(`<id>.json`)과 일치.
-2. `tool_key`·`fixed.config.tools[*].name`은 `_TOOL_MAP`에 존재(`mcp` 센티넬 제외).
+2. `tool_key`·`fixed.config.tools[*].name`은 `_TOOL_MAP` 키이거나 `resolve_action_fn`이 푸는 `builtin:github_*`(`mcp` 센티넬 제외).
 3. 도구 하나의 `fields`는 한 항목에만.
 4. `optionsInputs`는 같은 항목의 필드 key만 가리킨다.
 5. `golden_snippet`은 단독으로 `WorkflowValidator` 노드 검증을 통과해야 한다.

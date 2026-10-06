@@ -89,6 +89,7 @@ def test_option_source_fields_fixed_set():
         ("action.notion_create_page", "parent_page_id"), ("action.notion_read_page", "page_id"),
         ("action.notion_update_page", "page_id"), ("action.notion_append_block", "page_id"),
         ("action.notion_query_database", "database_id"),
+        *[(f"action.github_{x}", k) for x in ("list_issues", "create_issue") for k in ("owner", "repo")],
     }
     assert got == expected
 
@@ -111,6 +112,8 @@ def _field(entry_id: str, key: str) -> dict:
     ("page_id", "페이지", "notion.pages", None),
     ("parent_page_id", "상위 페이지", "notion.pages", None),
     ("database_id", "데이터베이스", "notion.databases", None),
+    ("owner", "소유자", "github.owners", None),
+    ("repo", "저장소", "github.repos", ["owner"]),
 ])
 def test_app_option_sources(field, title, source, inputs):
     """공급원 키는 BE OptionSource.key()와 1:1 계약(IEUM-BE-72·73·76). 그 필드를 가진 액션 항목 전부에서 같아야 한다."""

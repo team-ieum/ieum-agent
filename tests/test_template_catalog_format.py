@@ -137,7 +137,41 @@ def test_action_entries_mirror_app_presets():
         assert action["tool_key"] == preset["tool_key"]
         assert action["fixed"] == {"type": "ACTION", "config": {
             "tools": [{"name": preset["tool_key"]}], "serviceType": preset["app"]}}
-    assert len([t for t in entries.values() if t["node_type"] == "ACTION"]) == 17
+    # 앱 프리셋 17개의 거울 + 프리셋 없는 GitHub 액션 2개
+    assert len([t for t in entries.values() if t["node_type"] == "ACTION"]) == 19
+
+
+@pytest.mark.parametrize("tid, tool_key, keys", [
+    ("action.github_list_issues", "builtin:github_list_issues", ["owner", "repo", "state"]),
+    ("action.github_create_issue", "builtin:github_create_issue", ["owner", "repo", "title", "body"]),
+])
+def test_github_action_entries(tid, tool_key, keys):
+    t = tr.get_template(tid)
+    assert (t["node_type"], t["app"], t["tool_key"]) == ("ACTION", "GITHUB", tool_key)
+    assert (t["builder"], t["generation"]) == (True, False)
+    assert t["fixed"] == {"type": "ACTION", "config": {"tools": [{"name": tool_key}], "serviceType": "GITHUB"}}
+    # 입력 칸 = 시그니처 순서. 실행 시 주입되는 token은 칸에서 빠진다.
+    assert [f["key"] for f in t["inputFields"]] == keys
+    assert all(f["path"] == f"config.tools.0.config.{f['key']}" for f in t["inputFields"])
+
+
+def test_github_actions_hidden_from_generation_views():
+    ids = {t["id"] for t in tr.all_templates()}
+    assert not {i for i in ids if i.startswith("action.")}
+    assert "builtin:github_create_issue" not in tr.menu_index()
+
+
+def test_github_tool_key_drift_still_rejected():
+    """builtin:github_* 허용이 접두사 통과가 아니라 실제 등록된 함수 기준이어야 한다."""
+    path = os.path.join(tr.TEMPLATES_DIR, "action.github_list_issues.json")
+    raw = _raw("action.github_list_issues")
+    raw["tool_key"] = "builtin:github_nope"
+    with pytest.raises(TemplateSchemaError, match="드리프트"):
+        tr._validate_template(raw, path, tr._tool_map_keys())
+    raw = _raw("action.github_list_issues")
+    raw["fixed"]["config"]["tools"][0]["name"] = "builtin:github_nope"
+    with pytest.raises(TemplateSchemaError, match="드리프트"):
+        tr._validate_template(raw, path, tr._tool_map_keys())
 
 
 def test_tool_fields_shared_by_preset_and_action():

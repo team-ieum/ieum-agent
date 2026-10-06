@@ -72,6 +72,7 @@ def _tool_map_keys() -> set:
 def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
     """원본 템플릿 1개의 형식·드리프트를 검증한다(정규화 전). 형식은 SCHEMA.md."""
     from core.node_fields import AI_COMMON_KEYS, AI_COMMON_OUTPUTS, FieldError, validate_field
+    from tools.registry import resolve_action_fn
 
     if not isinstance(tpl, dict):
         raise TemplateSchemaError(f"{filename}: 템플릿 루트는 JSON 객체(dict)여야 합니다.")
@@ -99,7 +100,8 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
         raise TemplateSchemaError(f"{tid}: node_type '{tpl['node_type']}' 유효하지 않음 {sorted(_VALID_NODE_TYPES)}")
 
     tool_key = tpl["tool_key"]
-    if tool_key is not None and tool_key not in tool_keys:
+    # _TOOL_MAP 키 외에 builtin:github_*(ACTION 전용 동적 서비스 액션)도 실제 등록된 함수면 허용한다.
+    if tool_key is not None and tool_key not in tool_keys and resolve_action_fn(tool_key) is None:
         raise TemplateSchemaError(f"{tid}: tool_key '{tool_key}'가 _TOOL_MAP에 없음(드리프트)")
 
     fixed = tpl["fixed"]
@@ -110,7 +112,7 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
     fixed_config = fixed.get("config") or {}
     for tool in fixed_config.get("tools", []) or []:
         name = tool.get("name") if isinstance(tool, dict) else tool
-        if name and name != "mcp" and name not in tool_keys:
+        if name and name != "mcp" and name not in tool_keys and resolve_action_fn(name) is None:
             raise TemplateSchemaError(f"{tid}: fixed tools '{name}'가 _TOOL_MAP에 없음(드리프트)")
     if "serviceType" in fixed_config:
         raise TemplateSchemaError(f"{tid}: serviceType은 fixed.config가 아니라 최상위 app에 쓴다(로더가 주입).")
@@ -175,10 +177,10 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
 
 def _tool_fields(tool_key: str, overrides: dict) -> list:
     """도구 시그니처 → Field(주입 인자 제외) + 소유 항목의 덮어쓰기."""
-    from tools import _TOOL_MAP
-    from tools.registry import RUNTIME_INJECTED_PARAMS
+    from tools.registry import RUNTIME_INJECTED_PARAMS, resolve_action_fn
     from core.node_fields import apply_overrides, signature_fields
-    return apply_overrides(signature_fields(_TOOL_MAP[tool_key], RUNTIME_INJECTED_PARAMS), overrides, where=tool_key)
+    return apply_overrides(signature_fields(resolve_action_fn(tool_key), RUNTIME_INJECTED_PARAMS), overrides,
+                           where=tool_key)
 
 
 def _normalize(tpl: dict, tool_fields: dict) -> dict:
@@ -272,9 +274,10 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
         tools_field = next((f for f in agent["inputFields"] if f["key"] == "tools"), None)
         if tools_field is None:
             raise TemplateSchemaError(f"{_AGENT_ENTRY_ID}: tools 필드가 필요하다(도구 선택지를 싣는 칸).")
+        # github 액션은 _TOOL_MAP 밖(동적 서브에이전트 서비스)이라 뺀다 — AI 노드 GitHub 계약은 tools: [].
         tools_field["choices"] = [{"id": t["tool_key"], "name": t["title"]}
                                   for t in sorted(templates.values(), key=lambda t: t["id"])
-                                  if t["node_type"] == "ACTION" and t["builder"]]
+                                  if t["node_type"] == "ACTION" and t["builder"] and t["tool_key"] in tool_keys]
 
     _cache = templates
     return templates

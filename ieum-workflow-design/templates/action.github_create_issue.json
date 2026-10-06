@@ -1,0 +1,59 @@
+{
+  "id": "action.github_create_issue",
+  "node_type": "ACTION",
+  "title": "GitHub 이슈 만들기",
+  "description": "저장소에 새 이슈를 만들어요.",
+  "app": "GITHUB",
+  "tool_key": "builtin:github_create_issue",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:github_create_issue"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "owner": {
+      "title": "소유자",
+      "description": "저장소를 가진 계정 또는 조직",
+      "optionsSource": "github.owners"
+    },
+    "repo": {
+      "title": "저장소",
+      "description": "이슈를 만들 저장소",
+      "optionsSource": "github.repos",
+      "optionsInputs": [
+        "owner"
+      ]
+    },
+    "title": {
+      "title": "제목"
+    },
+    "body": {
+      "title": "내용",
+      "type": "text"
+    }
+  },
+  "outputFields": [
+    {
+      "key": "number",
+      "title": "이슈 번호",
+      "type": "integer"
+    },
+    {
+      "key": "url",
+      "title": "이슈 주소",
+      "type": "string"
+    },
+    {
+      "key": "title",
+      "title": "제목",
+      "type": "string"
+    }
+  ]
+}
