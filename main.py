@@ -7,7 +7,7 @@ setup_telemetry()
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from api.routes import execute, generate, chat, node_catalog
+from api.routes import execute, actions, generate, chat, node_catalog
 from common.exception import CodedHTTPException
 from db.mongodb import ensure_indexes, seed_node_templates
 from tools.http_client import close_http_client
@@ -51,6 +51,7 @@ from api.middleware.tracing import TraceIdMiddleware
 app.add_middleware(TraceIdMiddleware)
 
 app.include_router(execute.router, prefix="/v1")
+app.include_router(actions.router, prefix="/v1")
 app.include_router(generate.router, prefix="/v1")
 app.include_router(chat.router, prefix="/v1")
 app.include_router(node_catalog.router, prefix="/v1")

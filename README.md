@@ -141,7 +141,11 @@ graph TD
 ### 2. Workflow Generation (`POST /v1/generate-workflow`)
 - 자연어로 전달된 사용자 요구사항을 분석하여, 적절한 Node와 Edge를 갖춘 이음 워크플로우 규격을 자동으로 설계 및 생성합니다.
 
-### 3. Interactive Chat (`POST /v1/chat`)
+### 3. ACTION Node Execution (`POST /v1/actions/execute`)
+- ACTION 노드와 단일 노드 테스트가 앱 도구 하나를 LLM 없이 실행할 때 호출됩니다. LLM 헤더는 필요 없고 `X-User-Id`와 도구 토큰 헤더(`X-Google-Access-Token`·`X-Notion-Token`·`X-GitHub-Token`)만 받습니다.
+- 요청 `{nodeId, toolKey, config}` → 응답 `{success, output, errorMessage, errorCode}`. `X-Idempotency-Key`를 주면 성공 응답을 캐시해 재시도에서 쓰기 도구가 다시 실행되지 않습니다.
+
+### 4. Interactive Chat (`POST /v1/chat`)
 - 사용자와 대화를 나누며 워크플로우를 점진적으로 설계·수정하고, 필요한 외부 연동 상태를 진단 및 설정합니다.
 
 ---
