@@ -31,23 +31,39 @@ class ExecutionGuard:
         github_token: Optional[str] = None
     ) -> None:
         """실행 직전 권한/보안 가드 검사를 수행한다."""
-        
-        # 1. AI 노드의 도구 인자 및 설정 내의 모든 URL SSRF 차단 검사
-        if request.tools:
-            cls._scan_urls_recursively(request.tools)
+        cls.validate_tools(request.tools, google_access_token, notion_token, github_token)
+
+    @classmethod
+    def validate_tools(
+        cls,
+        tools: Optional[list],
+        google_access_token: Optional[str] = None,
+        notion_token: Optional[str] = None,
+        github_token: Optional[str] = None
+    ) -> None:
+        """도구 목록([{"name", "config"}, ...]) 가드. AI 노드(request.tools)와 ACTION 실행이 같이 쓴다."""
+        if not tools:
+            return
+
+        # 1. 도구 인자 및 설정 내의 모든 URL SSRF 차단 검사
+        cls._scan_urls_recursively(tools)
 
         # 2. 필수 서비스 토큰 유무 사전 검사
-        if request.tools:
-            for tool in request.tools:
-                tname = tool.get("name", "")
-                if tname.startswith("builtin:notion_") and not notion_token:
-                    raise ExecutionGuardError(
-                        f"노드 실행 시 Notion 도구({tname})를 사용하지만 Notion API Token이 주입되지 않았습니다."
-                    )
-                if tname.startswith("builtin:google_") and not google_access_token:
-                    raise ExecutionGuardError(
-                        f"노드 실행 시 Google 도구({tname})를 사용하지만 Google Access Token이 주입되지 않았습니다."
-                    )
+        # (AI 노드의 GitHub는 tools: [] + 서브에이전트 마운트라 이 검사에 걸리지 않는다.)
+        for tool in tools:
+            tname = tool.get("name", "")
+            if tname.startswith("builtin:notion_") and not notion_token:
+                raise ExecutionGuardError(
+                    f"노드 실행 시 Notion 도구({tname})를 사용하지만 Notion API Token이 주입되지 않았습니다."
+                )
+            if tname.startswith("builtin:google_") and not google_access_token:
+                raise ExecutionGuardError(
+                    f"노드 실행 시 Google 도구({tname})를 사용하지만 Google Access Token이 주입되지 않았습니다."
+                )
+            if tname.startswith("builtin:github_") and not github_token:
+                raise ExecutionGuardError(
+                    f"노드 실행 시 GitHub 도구({tname})를 사용하지만 GitHub Token이 주입되지 않았습니다."
+                )
 
     @classmethod
     def _scan_urls_recursively(cls, data) -> None:
