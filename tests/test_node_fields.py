@@ -31,6 +31,18 @@ def test_validate_field_rejects(bad, msg):
         validate_field(bad)
 
 
+@pytest.mark.parametrize("attrs", [
+    {"required": "true"}, {"ref": 0}, {"list": "yes"}, {"dynamic": 1},
+    {"llm": {"slot": "false"}}, {"llm": {"slot": 0}},
+])
+def test_validate_field_rejects_non_bool_flags(attrs):
+    """소비처가 `is False`로 비교한다 — "false"·0이 통과하면 llm.slot=false가 무시돼 슬롯이 생긴다."""
+    with pytest.raises(FieldError, match="true/false"):
+        validate_field({"key": "k", "title": "t", "type": "string", **attrs})
+    with pytest.raises(FieldError, match="true/false"):
+        validate_field({"key": "k", **attrs}, partial=True)
+
+
 def test_validate_field_partial_allows_missing_title_and_type():
     validate_field({"key": "prompt", "llm": {"hint": "h"}}, partial=True)
 
@@ -84,6 +96,14 @@ def test_merge_common_overrides_in_place_and_appends_new():
     assert [f["key"] for f in out] == ["p", "q", "z"]
     assert out[1] == {"key": "q", "title": "Q", "type": "text", "llm": {"hint": "h"}}
     assert "llm" not in common[1]  # 공통 상수 불변
+
+
+def test_merge_common_merges_llm_one_level():
+    """공통 키에 llm 일부(hint)만 줘도 공통 llm(inject)이 남아야 한다 — 빠지면 model 슬롯이 LLM 작성 대상이 된다."""
+    out = merge_common(AI_COMMON_FIELDS, [{"key": "model", "llm": {"hint": "x"}}])
+    model = next(f for f in out if f["key"] == "model")
+    assert model["llm"] == {"inject": "model", "hint": "x"}
+    assert AI_COMMON_FIELDS[1]["llm"]["hint"] != "x"  # 공통 상수 불변
 
 
 def test_ai_common_order_matches_legacy_slot_order():

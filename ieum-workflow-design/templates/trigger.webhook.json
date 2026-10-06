@@ -17,6 +17,7 @@
       "triggerType": "WEBHOOK"
     }
   },
+  "outputDynamic": true,
   "golden_snippet": {
     "id": "node-1",
     "type": "TRIGGER",

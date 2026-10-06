@@ -121,12 +121,16 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
     inputs = tpl.get("inputFields", [])
     if not isinstance(inputs, list):
         raise TemplateSchemaError(f"{tid}: inputFields는 리스트여야 합니다.")
+    seen = set()
     for field in inputs:
         partial = tpl["node_type"] == "AI" and isinstance(field, dict) and field.get("key") in AI_COMMON_KEYS
         try:
             validate_field(field, partial=partial)
         except FieldError as e:
             raise TemplateSchemaError(f"{tid}: inputFields {e}")
+        if field["key"] in seen:  # 병합(merge_common)에서 뒤 것이 조용히 이기지 않게
+            raise TemplateSchemaError(f"{tid}: inputFields key '{field['key']}' 중복")
+        seen.add(field["key"])
 
     overrides = tpl.get("fields")
     if overrides is not None:
@@ -142,6 +146,19 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
             except FieldError as e:
                 raise TemplateSchemaError(f"{tid}: fields.{key} {e}")
 
+    outputs = tpl.get("outputFields", [])
+    if not isinstance(outputs, list):
+        raise TemplateSchemaError(f"{tid}: outputFields는 리스트여야 합니다.")
+    for field in outputs:
+        try:
+            validate_field(field)
+        except FieldError as e:
+            raise TemplateSchemaError(f"{tid}: outputFields {e}")
+    if "outputDynamic" in tpl and not isinstance(tpl["outputDynamic"], bool):
+        raise TemplateSchemaError(f"{tid}: outputDynamic은 true/false여야 합니다.")
+    if "outputsFrom" in tpl and not (isinstance(tpl["outputsFrom"], str) and tpl["outputsFrom"].startswith("config.")):
+        raise TemplateSchemaError(f"{tid}: outputsFrom은 'config.'로 시작하는 경로여야 합니다.")
+
 
 def _tool_fields(tool_key: str, overrides: dict) -> list:
     """도구 시그니처 → Field(주입 인자 제외) + 소유 항목의 덮어쓰기."""
@@ -153,7 +170,8 @@ def _tool_fields(tool_key: str, overrides: dict) -> list:
 
 def _normalize(tpl: dict, tool_fields: dict) -> dict:
     """원본 항목 → 메모리상 항목. 기존 소비처가 읽는 slots·allowed_config_fields를 파생해 채운다."""
-    from core.node_fields import AI_COMMON_FIELDS, derive_allowed_config, derive_slots, merge_common
+    from core.node_fields import (AI_COMMON_FIELDS, AI_COMMON_OUTPUTS, derive_allowed_config, derive_slots,
+                                  merge_common)
 
     t = copy.deepcopy(tpl)
     t.setdefault("builder", True)
@@ -167,6 +185,8 @@ def _normalize(tpl: dict, tool_fields: dict) -> dict:
     tool = [{**f, "path": f"config.tools.0.config.{f['key']}"}
             for f in copy.deepcopy(tool_fields.get(t["tool_key"], []))] if t["tool_key"] else []
     t["inputFields"] = direct + tool
+    t["outputFields"] = (copy.deepcopy(AI_COMMON_OUTPUTS) if t["node_type"] == "AI" else []) \
+        + copy.deepcopy(t.get("outputFields") or [])
     t["slots"] = derive_slots(direct, tool)
     t["allowed_config_fields"] = derive_allowed_config(cfg, direct)
     return t

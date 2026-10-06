@@ -48,6 +48,12 @@ AI_COMMON_FIELDS = [
 ]
 AI_COMMON_KEYS = {f["key"] for f in AI_COMMON_FIELDS}
 
+# node_type AI 항목의 outputFields 앞에 로더가 붙인다(BE AgentNodeExecutor 출력 그대로).
+AI_COMMON_OUTPUTS = [
+    {"key": "output", "title": "결과", "type": "text"},
+    {"key": "metadata", "title": "메타데이터", "type": "object", "dynamic": True},
+]
+
 
 def validate_field(field: dict, *, partial: bool = False) -> None:
     """Field 하나를 검증한다. partial이면 key 말고는 선택(공통 필드 병합·도구 덮어쓰기용)."""
@@ -63,6 +69,9 @@ def validate_field(field: dict, *, partial: bool = False) -> None:
         for attr in ("title", "type"):
             if not field.get(attr):
                 raise FieldError(f"'{key}': {attr}가 필요합니다.")
+    for attr in ("required", "ref", "list", "dynamic"):
+        if attr in field and not isinstance(field[attr], bool):
+            raise FieldError(f"'{key}': {attr}는 true/false여야 합니다.")
     if "type" in field and field["type"] not in VALID_FIELD_TYPES:
         raise FieldError(f"'{key}': type '{field['type']}'는 {sorted(VALID_FIELD_TYPES)} 중 하나여야 합니다.")
     choices = field.get("choices")
@@ -77,6 +86,8 @@ def validate_field(field: dict, *, partial: bool = False) -> None:
     if llm is not None:
         if not isinstance(llm, dict) or set(llm) - _LLM_ATTRS:
             raise FieldError(f"'{key}': llm은 {sorted(_LLM_ATTRS)} 키만 갖는 객체여야 합니다.")
+        if "slot" in llm and not isinstance(llm["slot"], bool):
+            raise FieldError(f"'{key}': llm.slot은 true/false여야 합니다.")
         if "kind" in llm and llm["kind"] not in VALID_SLOT_KINDS:
             raise FieldError(f"'{key}': llm.kind '{llm['kind']}'가 유효하지 않습니다.")
         if "inject" in llm and llm["inject"] not in _INJECT:
@@ -138,10 +149,17 @@ def apply_overrides(fields: list[dict], overrides: dict, where: str) -> list[dic
 
 
 def merge_common(common: list[dict], own: list[dict]) -> list[dict]:
-    """공통 필드에 항목 inputFields를 병합한다. 같은 key는 공통 위치에서 덮어쓰고 새 key는 뒤에 붙인다."""
+    """공통 필드에 항목 inputFields를 병합한다. 같은 key는 공통 위치에서 덮어쓰고 새 key는 뒤에 붙인다.
+    llm은 한 단계 더 병합한다 — hint만 줘도 공통 llm(inject 등)이 남는다."""
     own_by_key = {f["key"]: f for f in own}
     common_keys = {c["key"] for c in common}
-    merged = [{**c, **own_by_key.get(c["key"], {})} for c in common]
+    merged = []
+    for c in common:
+        o = own_by_key.get(c["key"], {})
+        m = {**c, **o}
+        if "llm" in o:
+            m["llm"] = {**c.get("llm", {}), **o["llm"]}
+        merged.append(m)
     merged += [f for f in own if f["key"] not in common_keys]
     return copy.deepcopy(merged)
 

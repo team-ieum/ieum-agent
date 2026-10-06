@@ -27,6 +27,7 @@
       }
     }
   ],
+  "outputsFrom": "config.mappings",
   "golden_snippet": {
     "id": "node-3",
     "type": "TRANSFORM",

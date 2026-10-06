@@ -24,6 +24,18 @@
       }
     }
   ],
+  "outputFields": [
+    {
+      "key": "approvedBy",
+      "title": "승인자 ID",
+      "type": "string"
+    },
+    {
+      "key": "approvedAt",
+      "title": "승인 시각",
+      "type": "datetime"
+    }
+  ],
   "golden_snippet": {
     "id": "node-3",
     "type": "APPROVAL",

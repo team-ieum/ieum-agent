@@ -90,6 +90,13 @@
       }
     }
   ],
+  "outputFields": [
+    {
+      "key": "result",
+      "title": "조건 결과",
+      "type": "boolean"
+    }
+  ],
   "golden_snippet": {
     "id": "node-3",
     "type": "CONDITION",

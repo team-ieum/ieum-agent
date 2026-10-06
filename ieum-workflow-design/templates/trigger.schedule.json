@@ -33,6 +33,18 @@
       }
     }
   ],
+  "outputFields": [
+    {
+      "key": "triggeredAt",
+      "title": "실행 시각",
+      "type": "datetime"
+    },
+    {
+      "key": "cron",
+      "title": "크론식",
+      "type": "string"
+    }
+  ],
   "golden_snippet": {
     "id": "node-1",
     "type": "TRIGGER",

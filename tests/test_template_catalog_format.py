@@ -1,4 +1,3 @@
-import copy
 import glob
 import json
 import os
@@ -46,6 +45,13 @@ def test_service_type_in_fixed_rejected():
     raw["fixed"]["config"]["serviceType"] = "GOOGLE"
     with pytest.raises(TemplateSchemaError, match="app"):
         tr._validate_template(raw, os.path.join(tr.TEMPLATES_DIR, "ai.gmail_send.json"), tr._tool_map_keys())
+
+
+def test_duplicate_input_field_key_rejected():
+    raw = _raw("http")
+    raw["inputFields"].append({"key": "url", "title": "두 번째 URL", "type": "string"})
+    with pytest.raises(TemplateSchemaError, match="중복"):
+        tr._validate_template(raw, os.path.join(tr.TEMPLATES_DIR, "http.json"), tr._tool_map_keys())
 
 
 def test_fields_require_tool_key():

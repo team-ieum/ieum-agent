@@ -83,6 +83,19 @@
       }
     }
   ],
+  "outputFields": [
+    {
+      "key": "statusCode",
+      "title": "상태 코드",
+      "type": "integer"
+    },
+    {
+      "key": "body",
+      "title": "응답 본문",
+      "type": "object",
+      "dynamic": true
+    }
+  ],
   "golden_snippet": {
     "id": "node-2",
     "type": "HTTP",
