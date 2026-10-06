@@ -25,7 +25,7 @@ MongoDB `node_templates`는 seed 사본일 뿐이다(읽는 곳 없음). 설계:
 | `outputFields` | ⬜ | 출력 필드(Field 목록). AI 항목은 공통 출력(output·metadata)이 앞에 붙는다. 액션은 도구 성공 반환 키와 같아야 한다(성공 테스트의 `assert_matches_outputs`) |
 | `outputDynamic` | ⬜ | 최상위 출력 키가 실행마다 다름(수동·웹훅 트리거) |
 | `outputsFrom` | ⬜ | 출력 키를 노드 config에서 읽음(`config.mappings` = 그 dict의 키) |
-| `match` | ⬜ | 저장된 노드 → 항목 매칭 `{경로: 값}`(값 null = 없거나 빔). 없으면 type + tool_key + triggerType로 자동. builder 항목끼리 같으면 거부 |
+| `match` | ⬜ | 저장된 노드 → 항목 매칭 `{경로: 값}`(값 null = 없거나 빔). 평가 전 type 대문자·문자열 tools → `{name}` 정규화(FE도 같게). 없으면 type + tool_key + triggerType로 자동. builder 항목끼리 같으면 거부 |
 | `fields` | ⬜ | 도구 필드 덮어쓰기 `{파라미터: 부분 Field}`. **도구당 한 항목만**(액션이 있으면 액션, 없으면 그 AI 항목). 시그니처 밖 키는 title·type 포함 전체 정의 |
 | `golden_snippet` | ⬜ | 완성형 노드 예시(검색층 few-shot). 그 자체로 검증을 통과해야 함 |
 | `service` | ⬜ | 동적 서브에이전트 서비스명(ai.github_query) |

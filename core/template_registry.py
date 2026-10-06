@@ -249,7 +249,11 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
 
     templates = {tid: _normalize(tpl, tool_fields) for tid, tpl in raw.items()}
     for t in templates.values():
-        keys = {f["key"] for f in t["inputFields"]}
+        keys = [f["key"] for f in t["inputFields"]]
+        dup = sorted({k for k in keys if keys.count(k) > 1})
+        if dup:  # 직속 필드와 도구 필드가 같은 key — FE 폼은 key로 칸을 찾는다
+            raise TemplateSchemaError(f"{t['id']}: 최종 inputFields(직속 + 도구 필드) key {dup} 중복")
+        keys = set(keys)
         for f in t["inputFields"]:
             bad = set(f.get("optionsInputs") or []) - keys
             if bad:
@@ -265,10 +269,12 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
         seen[key] = t["id"]
     agent = templates.get(_AGENT_ENTRY_ID)
     if agent is not None:
-        tools_field = next(f for f in agent["inputFields"] if f["key"] == "tools")
+        tools_field = next((f for f in agent["inputFields"] if f["key"] == "tools"), None)
+        if tools_field is None:
+            raise TemplateSchemaError(f"{_AGENT_ENTRY_ID}: tools 필드가 필요하다(도구 선택지를 싣는 칸).")
         tools_field["choices"] = [{"id": t["tool_key"], "name": t["title"]}
                                   for t in sorted(templates.values(), key=lambda t: t["id"])
-                                  if t["node_type"] == "ACTION"]
+                                  if t["node_type"] == "ACTION" and t["builder"]]
 
     _cache = templates
     return templates
@@ -323,11 +329,24 @@ def builder_entries() -> list:
                   key=lambda t: (-len(t["match"]), t["id"]))
 
 
+def _match_view(node: dict) -> dict:
+    """매칭용 노드 사본(원본 불변). 옛 저장 모양을 맞춘다 — type 대문자, 문자열 tools 원소 → {"name": s}
+    (BE AgentNodeExecutor.parseTools·resolve_template_for_node와 같은 의미)."""
+    view = dict(node)
+    if isinstance(view.get("type"), str):
+        view["type"] = view["type"].upper()
+    config = view.get("config")
+    if isinstance(config, dict) and isinstance(config.get("tools"), list):
+        view["config"] = {**config, "tools": [{"name": t} if isinstance(t, str) else t for t in config["tools"]]}
+    return view
+
+
 def match_entry(node: dict) -> dict | None:
     """저장된 노드에 맞는 builder 항목(FE가 폼을 열 때). 없으면 None."""
     if not isinstance(node, dict):
         return None
-    return next((t for t in builder_entries() if _matches(t["match"], node)), None)
+    view = _match_view(node)
+    return next((t for t in builder_entries() if _matches(t["match"], view)), None)
 
 
 def all_templates() -> list:
