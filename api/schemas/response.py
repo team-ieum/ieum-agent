@@ -23,3 +23,11 @@ class AgentExecutionResult(BaseModel):
     errorCode: Optional[str] = None              # ErrorCode enum 이름. BE 실패 분류/재시도 판정용
     toolCalls: Optional[List[ToolCallRecord]] = None
     usage: Optional[UsageRecord] = None
+
+
+class ActionExecutionResult(BaseModel):
+    """POST /v1/actions/execute 응답. AgentExecutionResult와 별개다 — output이 문자열이 아니라 도구 반환 dict다."""
+    success: bool
+    output: Optional[Dict[str, Any]] = None
+    errorMessage: Optional[str] = None
+    errorCode: Optional[str] = None              # ErrorCode enum 이름. BE 실패 분류용

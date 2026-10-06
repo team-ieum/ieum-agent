@@ -15,6 +15,7 @@ Mongo 장애 시에는 가드를 건너뛰고 정상 실행한다(중복 위험 
 import logging
 from datetime import datetime, timedelta, timezone
 
+from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from api.schemas.response import AgentExecutionResult
@@ -36,25 +37,32 @@ def _expires_at(seconds: int) -> datetime:
     return datetime.now(timezone.utc) + timedelta(seconds=seconds)
 
 
-def _in_progress_result() -> AgentExecutionResult:
-    """앞선 요청이 아직 실행 중일 때의 응답.
+def _in_progress_result(model: type[BaseModel] = AgentExecutionResult) -> BaseModel:
+    """앞선 요청이 아직 실행 중일 때의 응답. model은 호출 엔드포인트의 응답 모델이다.
 
     재시도 대상이 아닌 errorCode를 쓴다 — 중복 방지를 재시도로 뚫으면 의미가 없다."""
-    return AgentExecutionResult(
-        success=False,
-        status="ERROR",
-        errorMessage=ErrorCode.DUPLICATE_REQUEST.message,
-        errorCode=ErrorCode.DUPLICATE_REQUEST.name,
-    )
+    fields = {
+        "success": False,
+        "errorMessage": ErrorCode.DUPLICATE_REQUEST.message,
+        "errorCode": ErrorCode.DUPLICATE_REQUEST.name,
+    }
+    if "status" in model.model_fields:  # /v1/actions/execute 응답엔 status가 없다
+        fields["status"] = "ERROR"
+    return model(**fields)
 
 
-async def claim(key: str | None) -> tuple[bool, AgentExecutionResult | None]:
+async def claim(
+    key: str | None, model: type[BaseModel] = AgentExecutionResult,
+) -> tuple[bool, BaseModel | None]:
     """실행 권한을 선점한다.
 
     반환: (선점 성공 여부, 즉시 반환할 응답)
     - (True, None)   : 이 요청이 실제로 실행해야 한다. 종료 후 complete()/release() 필수.
     - (False, 응답)  : 중복 요청. 저장된 응답이나 진행중 실패 응답을 그대로 반환한다.
     - (False, None)  : 가드 비활성(키 없음 / Mongo 장애). 기존 동작대로 실행한다.
+
+    model: 저장된 응답을 복원할 응답 모델. 엔드포인트마다 output 타입이 달라(execute: str, actions: dict)
+    기본 모델로 읽으면 역직렬화가 실패해 캐시가 영원히 미스가 된다.
     """
     if not key:
         return False, None
@@ -85,7 +93,7 @@ async def claim(key: str | None) -> tuple[bool, AgentExecutionResult | None]:
         return False, None
     if doc.get("status") == "COMPLETED" and doc.get("response") is not None:
         try:
-            cached = AgentExecutionResult(**doc["response"])
+            cached = model(**doc["response"])
         except Exception:
             # 손상·구버전 레코드는 지우지 않는다 — TTL로 소멸할 때까지 캐시 미스로 재실행한다.
             logger.warning("멱등 캐시 역직렬화 실패 — 가드를 건너뛰고 실행한다.", exc_info=True)
@@ -93,10 +101,10 @@ async def claim(key: str | None) -> tuple[bool, AgentExecutionResult | None]:
         logger.info("멱등 키 중복 — 저장된 응답을 재사용한다.")
         return False, cached
     logger.info("멱등 키 중복 — 앞선 요청이 아직 실행 중이라 재실행하지 않는다.")
-    return False, _in_progress_result()
+    return False, _in_progress_result(model)
 
 
-async def complete(key: str, result: AgentExecutionResult) -> None:
+async def complete(key: str, result: BaseModel) -> None:
     """성공 응답을 저장해 이후 같은 키의 요청이 재실행 없이 받아가게 한다.
 
     **여기에 추가 마스킹을 걸지 말 것.** 저장값은 최초 요청이 받은 응답과 바이트 단위로
