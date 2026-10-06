@@ -4,6 +4,11 @@
   "title": "AI 웹 검색",
   "description": "AI가 웹을 검색해 답을 정리해요.",
   "tool_key": "builtin:web_search",
+  "match": {
+    "type": "AI",
+    "config.tools.0.name": "builtin:web_search",
+    "config.tools.1": null
+  },
   "tags": [
     "검색",
     "web search",

@@ -287,7 +287,7 @@ def _generation_templates() -> dict:
 
 
 def all_entries() -> list:
-    """카탈로그 항목 전체(builder 전용 포함). seed와 카탈로그 API가 쓴다."""
+    """카탈로그 항목 전체(builder 전용 포함). seed가 쓴다 — 카탈로그 API는 builder_entries()."""
     return list(load_templates().values())
 
 

@@ -6,7 +6,8 @@
   "tool_key": null,
   "match": {
     "type": "AI",
-    "config.tools.0.name": "mcp"
+    "config.tools.0.name": "mcp",
+    "config.tools.1": null
   },
   "tags": [
     "mcp",

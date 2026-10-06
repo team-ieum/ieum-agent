@@ -28,6 +28,11 @@
   ],
   "outputFields": [
     {
+      "key": "approved",
+      "title": "승인 여부",
+      "type": "boolean"
+    },
+    {
       "key": "approvedBy",
       "title": "승인자 ID",
       "type": "string"

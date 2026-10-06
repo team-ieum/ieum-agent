@@ -38,6 +38,7 @@ def test_catalog_lists_builder_entries_in_match_order():
 def test_catalog_leaks_no_llm_or_injected_keys():
     for d in _walk(node_catalog()):
         assert "llm" not in d, d
+        assert not set(d) & RUNTIME_INJECTED_PARAMS, d
         if "key" in d:
             assert d["key"] not in RUNTIME_INJECTED_PARAMS, d
 

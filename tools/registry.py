@@ -1,9 +1,11 @@
 """도구 파라미터 스펙 SSOT 레지스트리.
 
 도구 함수의 시그니처(`inspect.signature`)에서 파라미터 명세를 자동 파생한다.
-검증기(workflow_validator), 노드 카탈로그(core/template_registry → GET /v1/nodes/catalog —
-RUNTIME_INJECTED_PARAMS로 주입 인자 제외), 시스템 프롬프트 도구 명세,
-(추후) RAG 색인이 모두 이 레지스트리를 단일 출처(SSOT)로 삼는다.
+현재 소비처: 노드 카탈로그·생성 슬롯 파생(core/template_registry — RUNTIME_INJECTED_PARAMS로
+실행 시 주입 인자를 뺀다, GET /v1/nodes/catalog), 생성 노드 brand 주입(apply_service_brand —
+workflow_generator·workflow_chat). 파라미터 스펙·블루프린트(tool_param_spec·service_blueprint)는
+(추후) RAG 색인용으로 지금은 테스트만 부른다. 검증기(workflow_validator)는 이 모듈이 아니라
+_TOOL_MAP과 core/template_registry를 쓴다.
 
 도구를 추가/변경하면 _TOOL_MAP에 함수만 등록하면 되고, 별도의 스펙/문서를
 손으로 관리할 필요가 없다(drift 0).

@@ -19,7 +19,7 @@ def _keys(tid):
     ("http", ["statusCode", "body"]),
     ("condition", ["result"]),
     ("transform", []),
-    ("approval", ["approvedBy", "approvedAt"]),
+    ("approval", ["approved", "approvedBy", "approvedAt"]),
     ("ai.reasoning", ["output", "metadata"]),
     ("ai.mcp", ["output", "metadata"]),
     ("ai.google_sheets_write", ["output", "metadata"]),

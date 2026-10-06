@@ -4,6 +4,11 @@
   "title": "AI 웹 페이지 읽기",
   "description": "AI가 주소의 내용을 가져와 정리해요.",
   "tool_key": "builtin:http_fetch",
+  "match": {
+    "type": "AI",
+    "config.tools.0.name": "builtin:http_fetch",
+    "config.tools.1": null
+  },
   "tags": [
     "fetch",
     "url",

@@ -16,6 +16,10 @@ from core.template_registry import TemplateSchemaError
     ({"type": "AI", "config": {"agentType": "react", "tools": []}}, "ai.github_query"),
     ({"type": "AI", "config": {"tools": [{"name": "mcp", "config": {"catalogId": "c"}}]}}, "ai.mcp"),
     ({"type": "AI", "config": {"tools": [{"name": "builtin:web_search"}]}}, "ai.web_search"),
+    # 도구 2개 이상이면 첫 도구 전용 폼이 아니라 AI 에이전트 폼으로 연다
+    ({"type": "AI", "config": {"tools": [{"name": "builtin:web_search"}, {"name": "discord"}]}}, "ai.agent"),
+    ({"type": "AI", "config": {"tools": [{"name": "mcp", "config": {"catalogId": "c"}}, {"name": "discord"}]}},
+     "ai.agent"),
     ({"type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}, "trigger.schedule"),
     ({"type": "TRIGGER", "config": {}}, "trigger.manual"),
     ({"type": "TRIGGER", "config": {"triggerType": "MANUAL"}}, "trigger.manual"),
@@ -50,7 +54,7 @@ def test_duplicate_builder_match_rejected(tmp_path, monkeypatch):
         shutil.copy(p, tmp_path)
     p = tmp_path / "ai.web_search.json"
     raw = json.loads(p.read_text(encoding="utf-8"))
-    raw["match"] = {"type": "AI", "config.tools.0.name": "builtin:http_fetch"}
+    raw["match"] = {"type": "AI", "config.tools.0.name": "builtin:http_fetch", "config.tools.1": None}
     p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(tr, "TEMPLATES_DIR", str(tmp_path))
     monkeypatch.setattr(tr, "_cache", None)

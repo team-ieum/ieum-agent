@@ -95,7 +95,8 @@
       "key": "body",
       "title": "응답 본문",
       "type": "object",
-      "dynamic": true
+      "dynamic": true,
+      "description": "JSON 객체 응답이면 객체, 아니면 문자열(빈 본문은 null)"
     }
   ],
   "golden_snippet": {
