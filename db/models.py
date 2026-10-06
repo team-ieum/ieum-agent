@@ -32,9 +32,9 @@ class ExecutionLog(BaseModel):
     """
     nodeId: str
     workflowExecutionId: Optional[str] = None
-    provider: str                                # CLAUDE | OPENAI | GEMINI
-    model: str                                   # 실제 사용된 모델명
-    agentType: str                               # simple | react
+    provider: str                                # CLAUDE | OPENAI | GEMINI (ACTION 실행은 "ACTION")
+    model: str                                   # 실제 사용된 모델명 (ACTION 실행은 tool_key)
+    agentType: str                               # simple | react (ACTION 실행은 "action")
     status: Optional[str] = None                 # COMPLETED | ERROR | MAX_ITERATIONS
     success: bool
     output: Optional[str] = None
