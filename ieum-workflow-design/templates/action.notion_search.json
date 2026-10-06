@@ -1,6 +1,8 @@
 {
   "id": "action.notion_search",
   "node_type": "ACTION",
+  "title": "Notion 검색",
+  "description": "제목으로 페이지나 데이터베이스를 찾아요.",
   "app": "NOTION",
   "tool_key": "builtin:notion_search",
   "builder": true,
@@ -11,6 +13,25 @@
       "tools": [
         {
           "name": "builtin:notion_search"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "query": {
+      "title": "검색어"
+    },
+    "filter_type": {
+      "title": "찾을 대상",
+      "ref": false,
+      "choices": [
+        {
+          "id": "page",
+          "name": "페이지"
+        },
+        {
+          "id": "database",
+          "name": "데이터베이스"
         }
       ]
     }

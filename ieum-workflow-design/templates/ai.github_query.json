@@ -1,6 +1,8 @@
 {
   "id": "ai.github_query",
   "node_type": "AI",
+  "title": "GitHub AI 에이전트",
+  "description": "AI가 GitHub에서 PR·이슈·저장소를 찾아봐요.",
   "app": "GITHUB",
   "tool_key": null,
   "service": "github",

@@ -1,6 +1,8 @@
 {
   "id": "condition",
   "node_type": "CONDITION",
+  "title": "조건 분기",
+  "description": "앞의 결과가 조건에 맞는지 보고 갈 길을 나눠요.",
   "tool_key": null,
   "tags": [
     "조건",

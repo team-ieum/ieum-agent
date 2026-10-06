@@ -43,6 +43,14 @@ def test_validate_field_rejects_non_bool_flags(attrs):
         validate_field({"key": "k", **attrs}, partial=True)
 
 
+def test_validate_field_rejects_null_llm():
+    """"llm": null이 통과하면 merge_common의 {**c["llm"], **None}이 TypeError로 로더를 죽인다."""
+    with pytest.raises(FieldError, match="llm"):
+        validate_field({"key": "k", "title": "t", "type": "string", "llm": None})
+    with pytest.raises(FieldError, match="llm"):
+        validate_field({"key": "model", "llm": None}, partial=True)
+
+
 def test_validate_field_partial_allows_missing_title_and_type():
     validate_field({"key": "prompt", "llm": {"hint": "h"}}, partial=True)
 

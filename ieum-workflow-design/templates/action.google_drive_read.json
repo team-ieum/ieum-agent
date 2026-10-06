@@ -1,6 +1,8 @@
 {
   "id": "action.google_drive_read",
   "node_type": "ACTION",
+  "title": "드라이브 파일 읽기",
+  "description": "파일 내용을 텍스트로 가져와요.",
   "app": "GOOGLE",
   "tool_key": "builtin:google_drive_read",
   "builder": true,

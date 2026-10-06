@@ -160,7 +160,8 @@ def test_tool_form_schema_sheets_append_fields():
          "type": "string", "required": True, "optionsSource": "google.spreadsheets"},
         {"name": "cell_range", "title": "범위", "description": "예: A:C",
          "type": "string", "required": True},
-        {"name": "values", "title": "값", "type": "string", "required": True},
+        {"name": "values", "title": "값", "description": '2차원 배열 JSON (예: [["홍길동", 100]])',
+         "type": "string", "required": True},
         {"name": "sheet_name", "title": "워크시트", "description": "대상 워크시트(탭)",
          "type": "string", "required": False,
          "optionsSource": "google.worksheets", "optionsInputs": ["spreadsheet_id"]},
@@ -190,9 +191,9 @@ def test_tool_form_schema_json_types(tool, field, expected_type, required):
 
 
 def test_tool_form_schema_field_without_meta_uses_param_name():
-    f = next(f for f in _schema_tool("builtin:notion_create_page")["fields"]
-             if f["name"] == "content")
-    assert f == {"name": "content", "title": "content",
+    f = next(f for f in _schema_tool("builtin:json_parse")["fields"]
+             if f["name"] == "json_string")
+    assert f == {"name": "json_string", "title": "json_string",
                  "type": "string", "required": True}
 
 

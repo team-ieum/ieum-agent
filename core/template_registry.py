@@ -71,7 +71,7 @@ def _tool_map_keys() -> set:
 
 def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
     """원본 템플릿 1개의 형식·드리프트를 검증한다(정규화 전). 형식은 SCHEMA.md."""
-    from core.node_fields import AI_COMMON_KEYS, FieldError, validate_field
+    from core.node_fields import AI_COMMON_KEYS, AI_COMMON_OUTPUTS, FieldError, validate_field
 
     if not isinstance(tpl, dict):
         raise TemplateSchemaError(f"{filename}: 템플릿 루트는 JSON 객체(dict)여야 합니다.")
@@ -149,15 +149,25 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
     outputs = tpl.get("outputFields", [])
     if not isinstance(outputs, list):
         raise TemplateSchemaError(f"{tid}: outputFields는 리스트여야 합니다.")
+    # AI 항목은 로더가 공통 출력을 앞에 붙이므로 그 키도 이미 쓰인 것으로 본다
+    seen = {f["key"] for f in AI_COMMON_OUTPUTS} if tpl["node_type"] == "AI" else set()
     for field in outputs:
         try:
             validate_field(field)
         except FieldError as e:
             raise TemplateSchemaError(f"{tid}: outputFields {e}")
+        if field["key"] in seen:
+            raise TemplateSchemaError(f"{tid}: outputFields key '{field['key']}' 중복")
+        seen.add(field["key"])
     if "outputDynamic" in tpl and not isinstance(tpl["outputDynamic"], bool):
         raise TemplateSchemaError(f"{tid}: outputDynamic은 true/false여야 합니다.")
-    if "outputsFrom" in tpl and not (isinstance(tpl["outputsFrom"], str) and tpl["outputsFrom"].startswith("config.")):
-        raise TemplateSchemaError(f"{tid}: outputsFrom은 'config.'로 시작하는 경로여야 합니다.")
+    if "outputsFrom" in tpl and not (isinstance(tpl["outputsFrom"], str) and tpl["outputsFrom"].startswith("config.")
+                                     and len(tpl["outputsFrom"]) > len("config.")):
+        raise TemplateSchemaError(f"{tid}: outputsFrom은 'config.<경로>' 형식이어야 합니다.")
+    if tpl.get("builder", True):
+        for key in ("title", "description"):
+            if not (isinstance(tpl.get(key), str) and tpl[key].strip()):
+                raise TemplateSchemaError(f"{tid}: builder 항목은 {key}(사용자 표시 문구)가 필요합니다.")
 
 
 def _tool_fields(tool_key: str, overrides: dict) -> list:

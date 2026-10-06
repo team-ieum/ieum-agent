@@ -1,6 +1,8 @@
 {
   "id": "trigger.schedule",
   "node_type": "TRIGGER",
+  "title": "스케줄",
+  "description": "정해둔 시각마다 시작해요.",
   "tool_key": null,
   "tags": [
     "스케줄",

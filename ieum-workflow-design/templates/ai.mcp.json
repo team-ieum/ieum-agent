@@ -1,6 +1,8 @@
 {
   "id": "ai.mcp",
   "node_type": "AI",
+  "title": "AI 에이전트 (MCP)",
+  "description": "연결한 MCP 서버의 도구로 AI가 일을 처리해요.",
   "tool_key": null,
   "tags": [
     "mcp",

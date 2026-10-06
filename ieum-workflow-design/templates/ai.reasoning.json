@@ -1,6 +1,8 @@
 {
   "id": "ai.reasoning",
   "node_type": "AI",
+  "title": "AI",
+  "description": "AI가 앞 단계 결과를 읽고 판단하거나 글을 써요.",
   "tool_key": null,
   "tags": [
     "요약",

@@ -1,6 +1,8 @@
 {
   "id": "ai.http_fetch",
   "node_type": "AI",
+  "title": "AI 웹 페이지 읽기",
+  "description": "AI가 주소의 내용을 가져와 정리해요.",
   "tool_key": "builtin:http_fetch",
   "tags": [
     "fetch",
@@ -31,6 +33,41 @@
       }
     }
   ],
+  "fields": {
+    "url": {
+      "title": "주소"
+    },
+    "method": {
+      "title": "메서드",
+      "ref": false,
+      "choices": [
+        {
+          "id": "GET",
+          "name": "GET"
+        },
+        {
+          "id": "POST",
+          "name": "POST"
+        },
+        {
+          "id": "PUT",
+          "name": "PUT"
+        },
+        {
+          "id": "DELETE",
+          "name": "DELETE"
+        }
+      ]
+    },
+    "headers_json": {
+      "title": "헤더",
+      "type": "json"
+    },
+    "body": {
+      "title": "본문",
+      "type": "text"
+    }
+  },
   "golden_snippet": {
     "id": "node-2",
     "type": "AI",

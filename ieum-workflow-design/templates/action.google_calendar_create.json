@@ -1,6 +1,8 @@
 {
   "id": "action.google_calendar_create",
   "node_type": "ACTION",
+  "title": "캘린더 일정 만들기",
+  "description": "구글 캘린더에 새 일정을 추가해요.",
   "app": "GOOGLE",
   "tool_key": "builtin:google_calendar_create",
   "builder": true,
@@ -24,6 +26,21 @@
         "hint": "대상 캘린더 ID(사용자가 준 값·조회로 확인한 값). 모르면 비운다(기본 캘린더). 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
         "name": "calendar_id의 표시 이름(화면 표시용). calendar_id를 채웠을 때만 채운다."
       }
+    },
+    "summary": {
+      "title": "제목"
+    },
+    "start_datetime": {
+      "title": "시작",
+      "type": "datetime"
+    },
+    "end_datetime": {
+      "title": "종료",
+      "type": "datetime"
+    },
+    "description": {
+      "title": "설명",
+      "type": "text"
     }
   },
   "outputFields": [

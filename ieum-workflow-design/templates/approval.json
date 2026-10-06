@@ -1,6 +1,8 @@
 {
   "id": "approval",
   "node_type": "APPROVAL",
+  "title": "승인 대기",
+  "description": "사람이 승인해야 다음 단계로 넘어가요.",
   "tool_key": null,
   "tags": [
     "승인",

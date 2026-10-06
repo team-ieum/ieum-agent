@@ -1,6 +1,8 @@
 {
   "id": "action.notion_create_page",
   "node_type": "ACTION",
+  "title": "Notion 페이지 만들기",
+  "description": "지정한 페이지 아래에 새 페이지를 만들어요.",
   "app": "NOTION",
   "tool_key": "builtin:notion_create_page",
   "builder": true,
@@ -24,6 +26,13 @@
         "hint": "새 페이지를 만들 상위 페이지 ID(사용자가 준 값·notion_search로 확인한 값). 모르면 비운다. 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
         "name": "parent_page_id의 표시 이름(페이지 제목). parent_page_id를 채웠을 때만 채운다."
       }
+    },
+    "title": {
+      "title": "제목"
+    },
+    "content": {
+      "title": "내용",
+      "type": "text"
     }
   },
   "outputFields": [

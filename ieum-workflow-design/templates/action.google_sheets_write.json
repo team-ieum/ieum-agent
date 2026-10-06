@@ -1,6 +1,8 @@
 {
   "id": "action.google_sheets_write",
   "node_type": "ACTION",
+  "title": "시트에 쓰기",
+  "description": "지정한 범위에 값을 써요.",
   "app": "GOOGLE",
   "tool_key": "builtin:google_sheets_write",
   "builder": true,
@@ -41,7 +43,9 @@
       "description": "예: A:C"
     },
     "values": {
-      "title": "값"
+      "title": "값",
+      "type": "json",
+      "description": "2차원 배열 JSON (예: [[\"홍길동\", 100]])"
     }
   },
   "outputFields": [

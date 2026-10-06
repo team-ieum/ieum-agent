@@ -1,6 +1,8 @@
 {
   "id": "action.notion_query_database",
   "node_type": "ACTION",
+  "title": "Notion 데이터베이스 조회",
+  "description": "데이터베이스의 행을 가져와요.",
   "app": "NOTION",
   "tool_key": "builtin:notion_query_database",
   "builder": true,
@@ -24,6 +26,14 @@
         "hint": "조회할 데이터베이스 ID(사용자가 준 값·notion_search로 확인한 값). 모르면 비운다. 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
         "name": "database_id의 표시 이름(데이터베이스 이름). database_id를 채웠을 때만 채운다."
       }
+    },
+    "filter_json": {
+      "title": "필터",
+      "type": "json",
+      "description": "Notion 필터 JSON (비우면 전체)"
+    },
+    "page_size": {
+      "title": "최대 개수"
     }
   },
   "outputFields": [

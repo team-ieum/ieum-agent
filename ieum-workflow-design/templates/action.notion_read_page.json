@@ -1,6 +1,8 @@
 {
   "id": "action.notion_read_page",
   "node_type": "ACTION",
+  "title": "Notion 페이지 읽기",
+  "description": "페이지의 제목과 본문을 가져와요.",
   "app": "NOTION",
   "tool_key": "builtin:notion_read_page",
   "builder": true,

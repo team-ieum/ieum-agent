@@ -1,6 +1,8 @@
 {
   "id": "http",
   "node_type": "HTTP",
+  "title": "HTTP 요청",
+  "description": "지정한 주소로 요청을 보내 결과를 받아와요.",
   "tool_key": null,
   "tags": [
     "http",

@@ -82,8 +82,8 @@ def validate_field(field: dict, *, partial: bool = False) -> None:
         ids = [c["id"] for c in choices]
         if len(ids) != len(set(ids)):
             raise FieldError(f"'{key}': choices id 중복")
-    llm = field.get("llm")
-    if llm is not None:
+    if "llm" in field:  # null도 거부 — merge_common이 dict로 펼친다
+        llm = field["llm"]
         if not isinstance(llm, dict) or set(llm) - _LLM_ATTRS:
             raise FieldError(f"'{key}': llm은 {sorted(_LLM_ATTRS)} 키만 갖는 객체여야 합니다.")
         if "slot" in llm and not isinstance(llm["slot"], bool):
