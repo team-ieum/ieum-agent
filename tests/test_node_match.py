@@ -14,9 +14,8 @@ from core.template_registry import TemplateSchemaError
     ({"type": "AI", "config": {"agentType": "react", "tools": [{"name": "discord"}]}}, "ai.agent"),
     ({"type": "AI", "config": {"agentType": "simple", "tools": []}}, "ai.reasoning"),
     ({"type": "AI", "config": {"agentType": "simple"}}, "ai.reasoning"),
-    ({"type": "AI", "config": {"agentType": "react", "tools": [], "serviceType": "GITHUB"}}, "ai.github_query"),
-    # 도구 없이 저장된 ai.agent 골격(react, serviceType 없음)은 GitHub 폼이 아니라 추론 폼으로 연다
-    ({"type": "AI", "config": {"agentType": "react", "tools": []}}, "ai.reasoning"),
+    # serviceType 없는 옛 GitHub 노드(AI-55 이전 저장분)도 GitHub 폼으로 연다
+    ({"type": "AI", "config": {"agentType": "react", "tools": []}}, "ai.github_query"),
     ({"type": "AI", "config": {"tools": [{"name": "mcp", "config": {"catalogId": "c"}}]}}, "ai.mcp"),
     ({"type": "AI", "config": {"tools": [{"name": "builtin:web_search"}]}}, "ai.web_search"),
     # 도구 2개 이상이면 첫 도구 전용 폼이 아니라 AI 에이전트 폼으로 연다

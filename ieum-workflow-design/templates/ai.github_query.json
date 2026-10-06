@@ -8,8 +8,7 @@
   "match": {
     "type": "AI",
     "config.tools.0": null,
-    "config.agentType": "react",
-    "config.serviceType": "GITHUB"
+    "config.agentType": "react"
   },
   "service": "github",
   "tags": [

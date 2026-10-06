@@ -66,6 +66,12 @@ def test_dynamic_markers_and_app_in_entries():
     assert by_id["action.google_sheets_write"]["fixed"]["config"]["serviceType"] == "GOOGLE"
 
 
+def test_agent_tools_field_is_not_ref():
+    """tools는 목록 구조라 참조식 칸이 아니다(BE parseTools·agent 모두 리스트를 기대한다)."""
+    agent = next(e for e in node_catalog()["entries"] if e["id"] == "ai.agent")
+    assert next(f for f in agent["inputFields"] if f["key"] == "tools")["ref"] is False
+
+
 def test_option_source_fields_fixed_set():
     """optionsSource가 붙은 (항목, 필드) 집합을 고정한다 — 의도치 않게 번지거나 빠지면 실패.
     (옛 tool_form_schema '공급원이 붙는 필드 집합' 테스트의 후신)"""
