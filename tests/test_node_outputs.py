@@ -53,3 +53,13 @@ def test_outputs_from_must_be_config_path():
     raw["outputsFrom"] = "mappings"
     with pytest.raises(TemplateSchemaError, match="outputsFrom"):
         tr._validate_template(raw, path, tr._tool_map_keys())
+
+
+def test_every_action_has_output_match_assertion():
+    """액션이 늘었는데 성공 테스트에 출력 일치 단언을 빼먹으면 실패한다."""
+    import glob
+    here = os.path.dirname(__file__)
+    src = "".join(open(p, encoding="utf-8").read() for p in glob.glob(os.path.join(here, "test_*.py")))
+    for t in tr.all_entries():
+        if t["node_type"] == "ACTION":
+            assert f'assert_matches_outputs("{t["id"]}"' in src, t["id"]

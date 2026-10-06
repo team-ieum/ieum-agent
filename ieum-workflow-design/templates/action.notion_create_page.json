@@ -25,5 +25,17 @@
         "name": "parent_page_id의 표시 이름(페이지 제목). parent_page_id를 채웠을 때만 채운다."
       }
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "pageId",
+      "title": "페이지 ID",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "title": "페이지 주소",
+      "type": "string"
+    }
+  ]
 }

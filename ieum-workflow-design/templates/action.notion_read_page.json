@@ -25,5 +25,27 @@
         "name": "page_id의 표시 이름(페이지 제목). page_id를 채웠을 때만 채운다."
       }
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "pageId",
+      "title": "페이지 ID",
+      "type": "string"
+    },
+    {
+      "key": "title",
+      "title": "제목",
+      "type": "string"
+    },
+    {
+      "key": "content",
+      "title": "본문",
+      "type": "text"
+    },
+    {
+      "key": "lastEditedAt",
+      "title": "마지막 수정",
+      "type": "datetime"
+    }
+  ]
 }

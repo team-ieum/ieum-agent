@@ -40,5 +40,17 @@
       "title": "범위",
       "description": "예: A:C"
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "range",
+      "title": "범위",
+      "type": "string"
+    },
+    {
+      "key": "values",
+      "title": "값",
+      "type": "json"
+    }
+  ]
 }

@@ -25,5 +25,22 @@
         "name": "folder_id의 표시 이름(폴더 이름). folder_id를 채웠을 때만 채운다."
       }
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "fileId",
+      "title": "파일 ID",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "title": "파일 이름",
+      "type": "string"
+    },
+    {
+      "key": "webViewLink",
+      "title": "파일 링크",
+      "type": "string"
+    }
+  ]
 }

@@ -25,5 +25,36 @@
         "name": "database_id의 표시 이름(데이터베이스 이름). database_id를 채웠을 때만 채운다."
       }
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "rows",
+      "title": "행",
+      "type": "object",
+      "list": true,
+      "children": [
+        {
+          "key": "id",
+          "title": "ID",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "title": "주소",
+          "type": "string"
+        },
+        {
+          "key": "properties",
+          "title": "속성",
+          "type": "object",
+          "dynamic": true
+        }
+      ]
+    },
+    {
+      "key": "total",
+      "title": "개수",
+      "type": "integer"
+    }
+  ]
 }

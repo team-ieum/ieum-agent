@@ -43,5 +43,17 @@
     "values": {
       "title": "값"
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "updatedRange",
+      "title": "기록된 범위",
+      "type": "string"
+    },
+    {
+      "key": "updatedRows",
+      "title": "추가된 행 수",
+      "type": "integer"
+    }
+  ]
 }

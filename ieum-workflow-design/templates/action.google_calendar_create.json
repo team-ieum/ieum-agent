@@ -25,5 +25,17 @@
         "name": "calendar_id의 표시 이름(화면 표시용). calendar_id를 채웠을 때만 채운다."
       }
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "eventId",
+      "title": "일정 ID",
+      "type": "string"
+    },
+    {
+      "key": "htmlLink",
+      "title": "일정 링크",
+      "type": "string"
+    }
+  ]
 }

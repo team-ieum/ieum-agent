@@ -25,5 +25,18 @@
         "name": "page_id의 표시 이름(페이지 제목). page_id를 채웠을 때만 채운다."
       }
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "blockIds",
+      "title": "추가된 블록 ID",
+      "type": "string",
+      "list": true
+    },
+    {
+      "key": "appendedCount",
+      "title": "추가된 블록 수",
+      "type": "integer"
+    }
+  ]
 }

@@ -26,5 +26,12 @@
         "hint": "보유 Discord 웹훅 자격증명 ID(가용 목록에서 선택). 미상이면 비움."
       }
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "message",
+      "title": "결과 메시지",
+      "type": "string"
+    }
+  ]
 }

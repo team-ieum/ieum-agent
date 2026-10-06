@@ -14,5 +14,12 @@
         }
       ]
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "message",
+      "title": "결과 메시지",
+      "type": "string"
+    }
+  ]
 }

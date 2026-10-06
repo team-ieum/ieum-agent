@@ -25,5 +25,27 @@
         "name": "file_id의 표시 이름(파일 이름). file_id를 채웠을 때만 채운다."
       }
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "fileId",
+      "title": "파일 ID",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "title": "파일 이름",
+      "type": "string"
+    },
+    {
+      "key": "mimeType",
+      "title": "파일 형식",
+      "type": "string"
+    },
+    {
+      "key": "content",
+      "title": "내용",
+      "type": "text"
+    }
+  ]
 }

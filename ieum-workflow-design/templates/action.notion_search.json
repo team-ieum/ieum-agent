@@ -14,5 +14,40 @@
         }
       ]
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "results",
+      "title": "검색 결과",
+      "type": "object",
+      "list": true,
+      "children": [
+        {
+          "key": "id",
+          "title": "ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "title": "주소",
+          "type": "string"
+        },
+        {
+          "key": "lastEditedAt",
+          "title": "마지막 수정",
+          "type": "datetime"
+        }
+      ]
+    },
+    {
+      "key": "total",
+      "title": "개수",
+      "type": "integer"
+    }
+  ]
 }

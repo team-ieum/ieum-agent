@@ -25,5 +25,40 @@
         "name": "calendar_id의 표시 이름(화면 표시용). calendar_id를 채웠을 때만 채운다."
       }
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "events",
+      "title": "일정",
+      "type": "object",
+      "list": true,
+      "children": [
+        {
+          "key": "id",
+          "title": "ID",
+          "type": "string"
+        },
+        {
+          "key": "summary",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "start",
+          "title": "시작",
+          "type": "datetime"
+        },
+        {
+          "key": "end",
+          "title": "종료",
+          "type": "datetime"
+        }
+      ]
+    },
+    {
+      "key": "total",
+      "title": "개수",
+      "type": "integer"
+    }
+  ]
 }
