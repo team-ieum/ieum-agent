@@ -1,4 +1,7 @@
+import pytest
+
 from tools.registry import (
+    resolve_action_fn,
     tool_param_spec,
     required_user_params,
     service_blueprint,
@@ -141,3 +144,46 @@ def test_toolless_ai_without_github_intent_falls_back():
         "config": {"tools": [], "prompt": "이전 결과를 세 문장으로 요약해줘"},
     }
     assert brand_for_node(node) == "openai"
+
+
+# --- ACTION 실행용 tool_key 해석 (노드 카탈로그 ②) ---------------------------------------------
+
+def test_resolve_action_fn_native_and_github():
+    from tools import _TOOL_MAP
+    from tools.github import github_create_issue, github_list_issues
+
+    assert resolve_action_fn("slack") is _TOOL_MAP["slack"]
+    assert resolve_action_fn("builtin:notion_search") is _TOOL_MAP["builtin:notion_search"]
+    assert resolve_action_fn("builtin:github_list_issues") is github_list_issues
+    assert resolve_action_fn("builtin:github_create_issue") is github_create_issue
+
+
+@pytest.mark.parametrize("key", [
+    "mcp", "github_list_issues", "builtin:github_nope", "builtin:github_", "builtin:github_list_issues ",
+    "builtin:does_not_exist", "", None, 5, ["builtin:github_list_issues"],
+])
+def test_resolve_action_fn_unknown_returns_none(key):
+    assert resolve_action_fn(key) is None
+
+
+def test_github_create_issue_stays_out_of_tool_map():
+    """github 쓰기 도구가 _TOOL_MAP에 들어가면 AI 노드 tools: [] 계약(tools_must_be_empty)이 깨진다."""
+    from tools import _TOOL_MAP, get_tools_for_request
+    from tools.github import github_create_issue
+
+    assert github_create_issue not in _TOOL_MAP.values()
+    assert get_tools_for_request([{"name": "builtin:github_create_issue"}]) == []
+
+
+def test_github_create_issue_in_dynamic_blueprint():
+    action = service_blueprint("github")["actions"]["github_create_issue"]
+    assert action["token"]["class"] == "runtime_injected"
+    assert action["title"]["class"] == "required"
+    assert action["body"]["class"] == "optional"
+
+
+@pytest.mark.parametrize("tool_key", ["builtin:github_list_issues", "builtin:github_create_issue"])
+def test_brand_for_github_action(tool_key):
+    """_service_of가 builtin:github_*를 github로 읽어야 한다 — 아니면 ACTION은 기본값 webhook으로 떨어진다."""
+    node = {"type": "ACTION", "config": {"tools": [{"name": tool_key}]}}
+    assert brand_for_node(node) == "github"
