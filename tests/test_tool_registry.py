@@ -1,6 +1,7 @@
 import pytest
 
 from tools.registry import (
+    brand_for_entry,
     resolve_action_fn,
     tool_param_spec,
     required_user_params,
@@ -187,3 +188,21 @@ def test_brand_for_github_action(tool_key):
     """_service_of가 builtin:github_*를 github로 읽어야 한다 — 아니면 ACTION은 기본값 webhook으로 떨어진다."""
     node = {"type": "ACTION", "config": {"tools": [{"name": tool_key}]}}
     assert brand_for_node(node) == "github"
+
+
+def test_brand_for_entry_ai_without_tool_uses_service_field():
+    """로더 안에서는 intent 경로를 못 탄다 — tool_key 없는 AI 항목은 service 필드로 brand를 정한다."""
+    base = {"node_type": "AI", "tool_key": None, "fixed": {"type": "AI", "config": {"tools": []}}}
+    assert brand_for_entry({**base, "service": "github"}) == "github"
+    assert brand_for_entry(base) == "openai"
+    assert brand_for_entry({**base, "service": "no-such-service"}) == "openai"
+
+
+def test_brand_for_entry_tool_and_structural_entries():
+    action = {"node_type": "ACTION", "tool_key": "builtin:github_list_issues",
+              "fixed": {"type": "ACTION", "config": {"tools": [{"name": "builtin:github_list_issues"}]}}}
+    assert brand_for_entry(action) == "github"
+    assert brand_for_entry({"node_type": "TRIGGER", "tool_key": None,
+                            "fixed": {"type": "TRIGGER", "config": {}}}) == "webhook"
+    assert brand_for_entry({"node_type": "CONDITION", "tool_key": None,
+                            "fixed": {"type": "CONDITION", "config": {}}}) == "filter"

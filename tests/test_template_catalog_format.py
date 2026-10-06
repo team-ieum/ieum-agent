@@ -298,3 +298,16 @@ def test_gmail_generation_preset_unchanged_by_hiding_action():
     """숨기는 건 빌더용 액션뿐이다 — 채팅 생성이 쓰는 ai.gmail_send 프리셋은 그대로다."""
     assert "ai.gmail_send" in {t["id"] for t in tr.all_templates()}
     assert tr.get_template("ai.gmail_send")["generation"] is True
+
+
+def test_cold_load_never_enters_intent_brand_path(monkeypatch):
+    """로더가 brand를 계산하는 중에 select_by_tags(→ load_templates 재진입 → 무한 재귀)를 부르면 기동이 실패한다."""
+    def boom(*args, **kwargs):
+        raise AssertionError("로더 안에서 intent 경로(select_by_tags)를 탔다")
+
+    monkeypatch.setattr(tr, "select_by_tags", boom)
+    monkeypatch.setattr(tr, "_cache", None)
+    templates = tr.load_templates(force=True)
+    assert templates["ai.github_query"]["brand"] == "github"
+    assert templates["ai.reasoning"]["brand"] == "openai"
+    assert templates["action.github_create_issue"]["brand"] == "github"

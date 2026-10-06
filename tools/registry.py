@@ -206,6 +206,18 @@ def brand_for_node(node: dict) -> str:
     return _NODE_TYPE_BRAND.get(ntype, _DEFAULT_BRAND)
 
 
+def brand_for_entry(entry: dict) -> str:
+    """카탈로그 항목(로더 메모리 항목)의 brand. 로더 기동 중(_normalize)에 부르므로 intent 경로를 타지 않는다.
+
+    brand_for_node의 AI 분기가 쓰는 subagent_service_for_node는 select_by_tags → load_templates를 다시 불러
+    기동 중엔 무한 재귀가 난다(fixed엔 label·prompt도 없어 매칭도 못 한다). 그래서 tool_key 없는 AI 항목은
+    템플릿의 service 필드(ai.github_query → github)로 SERVICE_BRAND를 읽고, 없으면 AI 기본값을 쓴다.
+    tool_key가 있거나 AI가 아닌 항목은 fixed의 tools(tool_key)·node_type으로 brand_for_node가 답한다."""
+    if entry["tool_key"] or entry["node_type"] != "AI":
+        return brand_for_node(entry["fixed"])
+    return SERVICE_BRAND.get(entry.get("service"), _NODE_TYPE_BRAND["AI"])
+
+
 def apply_service_brand(nodes: list) -> None:
     """각 노드 config["brand"]를 도출 값으로 주입한다(in-place).
 

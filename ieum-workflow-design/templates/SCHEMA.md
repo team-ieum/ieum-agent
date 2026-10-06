@@ -54,6 +54,7 @@ MongoDB `node_templates`는 seed 사본일 뿐이다(읽는 곳 없음). 설계:
 - 슬롯 = label·description + 직속 필드 + `optionsSource`가 있는 도구 필드(항상 선택). `llm.slot: false` 제외.
 - 슬롯 kind = `llm.kind` → `llm.inject` → choices면 enum → cron → dict면 mapping → string.
 - 허용 config 키 = fixed.config 키 ∪ 직속 필드 최상위 키 ∪ (직속 optionsSource 필드가 있으면 `_names`).
+- 카탈로그 응답의 `fixed.config.brand`는 로더가 계산한다(`tools.registry.brand_for_entry`): tool_key가 있거나 AI가 아니면 `brand_for_node(fixed)`, tool_key 없는 AI는 `service` 필드 → `SERVICE_BRAND`(없으면 `openai`). 로더 안에서는 intent 경로(`subagent_service_for_node`)를 타지 않는다 — `load_templates` 재진입으로 기동이 무한 재귀한다. 레지스트리 항목의 `fixed`에는 넣지 않고 응답 복사본에만 얹는다(생성 경로가 같은 `fixed`를 쓴다).
 
 ## 불변 규칙
 

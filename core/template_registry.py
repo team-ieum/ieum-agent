@@ -187,6 +187,7 @@ def _normalize(tpl: dict, tool_fields: dict) -> dict:
     """원본 항목 → 메모리상 항목. 기존 소비처가 읽는 slots·allowed_config_fields를 파생해 채운다."""
     from core.node_fields import (AI_COMMON_FIELDS, AI_COMMON_OUTPUTS, derive_allowed_config, derive_slots,
                                   merge_common)
+    from tools.registry import brand_for_entry
 
     t = copy.deepcopy(tpl)
     t.setdefault("builder", True)
@@ -205,6 +206,9 @@ def _normalize(tpl: dict, tool_fields: dict) -> dict:
     t["slots"] = derive_slots(direct, tool)
     t["allowed_config_fields"] = derive_allowed_config(cfg, direct)
     t["match"] = t.get("match") or _default_match(t)
+    # 카탈로그 응답이 fixed.config.brand로 내보낸다. fixed 자체엔 넣지 않는다 — 생성 경로(hydrate_node가
+    # fixed.config를 복사, 스냅샷 테스트가 fixed를 비교)가 보는 값이 바뀌기 때문이다.
+    t["brand"] = brand_for_entry(t)
     return t
 
 
