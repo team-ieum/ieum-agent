@@ -1,0 +1,31 @@
+{
+  "id": "ai.agent",
+  "node_type": "AI",
+  "title": "AI 에이전트",
+  "description": "AI가 고른 도구를 직접 써 가며 일을 처리해요.",
+  "tool_key": null,
+  "builder": true,
+  "generation": false,
+  "match": {
+    "type": "AI"
+  },
+  "fixed": {
+    "type": "AI",
+    "config": {
+      "agentType": "react",
+      "credentialId": "",
+      "tools": []
+    }
+  },
+  "inputFields": [
+    {
+      "key": "tools",
+      "title": "도구",
+      "type": "object",
+      "list": true,
+      "required": true,
+      "ref": false,
+      "description": "AI가 쓸 앱 동작을 골라요. 고른 도구의 칸은 직접 채우거나 AI에게 맡길 수 있어요."
+    }
+  ]
+}

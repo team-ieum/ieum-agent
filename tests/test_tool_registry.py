@@ -1,7 +1,3 @@
-import json
-
-import pytest
-
 from tools.registry import (
     tool_param_spec,
     required_user_params,
@@ -9,7 +5,6 @@ from tools.registry import (
     all_blueprints,
     brand_for_node,
     apply_service_brand,
-    tool_form_schema,
     RUNTIME_INJECTED_PARAMS,
 )
 
@@ -146,122 +141,3 @@ def test_toolless_ai_without_github_intent_falls_back():
         "config": {"tools": [], "prompt": "이전 결과를 세 문장으로 요약해줘"},
     }
     assert brand_for_node(node) == "openai"
-
-
-# --- 도구 필드 스키마 (IEUM-AI-60) -------------------------------------------
-
-def _schema_tool(name: str) -> dict:
-    return next(t for t in tool_form_schema()["tools"] if t["name"] == name)
-
-
-def test_tool_form_schema_sheets_append_fields():
-    assert _schema_tool("builtin:google_sheets_append")["fields"] == [
-        {"name": "spreadsheet_id", "title": "스프레드시트", "description": "대상 스프레드시트",
-         "type": "string", "required": True, "optionsSource": "google.spreadsheets"},
-        {"name": "cell_range", "title": "범위", "description": "예: A:C",
-         "type": "string", "required": True},
-        {"name": "values", "title": "값", "type": "string", "required": True},
-        {"name": "sheet_name", "title": "워크시트", "description": "대상 워크시트(탭)",
-         "type": "string", "required": False,
-         "optionsSource": "google.worksheets", "optionsInputs": ["spreadsheet_id"]},
-    ]
-
-
-def test_tool_form_schema_covers_tool_map_without_injected_params():
-    from tools import _TOOL_MAP
-
-    schema = tool_form_schema()
-    assert [t["name"] for t in schema["tools"]] == list(_TOOL_MAP)
-    for t in schema["tools"]:
-        assert not {f["name"] for f in t["fields"]} & RUNTIME_INJECTED_PARAMS, t["name"]
-    json.dumps(schema)  # 라우트 응답으로 직렬화 가능해야 한다
-
-
-@pytest.mark.parametrize("tool, field, expected_type, required", [
-    ("builtin:google_calendar_update", "summary", "string", False),   # Optional[str]
-    ("builtin:workflow_context", "node_id", "string", False),         # str | None
-    ("builtin:http_fetch", "headers_json", "string", False),          # str | dict | None → 첫 타입
-    ("builtin:web_search", "max_results", "integer", False),
-    ("builtin:text_extract", "find_all", "boolean", False),
-])
-def test_tool_form_schema_json_types(tool, field, expected_type, required):
-    f = next(f for f in _schema_tool(tool)["fields"] if f["name"] == field)
-    assert (f["type"], f["required"]) == (expected_type, required)
-
-
-def test_tool_form_schema_field_without_meta_uses_param_name():
-    f = next(f for f in _schema_tool("builtin:notion_create_page")["fields"]
-             if f["name"] == "content")
-    assert f == {"name": "content", "title": "content",
-                 "type": "string", "required": True}
-
-
-def test_tools_schema_route_returns_registry_schema():
-    """LLM 자격증명 헤더 없이 열린다(정적 메타, 사용자 인증은 BE가 맡는다)."""
-    from fastapi.testclient import TestClient
-    from main import app
-
-    resp = TestClient(app).get("/v1/tools/schema")
-    assert resp.status_code == 200
-    assert resp.json() == tool_form_schema()
-
-
-def test_tool_form_schema_hides_agent_bound_context():
-    """workflow_context_data는 agent가 실행 시 바인딩한다(agents/base.py _bind_workflow_context).
-    폼에 필수 필드로 나가면 사용자가 내부 값을 넣어야 하는 것처럼 보인다."""
-    names = {f["name"] for f in _schema_tool("builtin:workflow_context")["fields"]}
-    assert names == {"action", "node_id", "field_path"}
-
-
-def test_json_type_maps_dict_to_object():
-    from tools.registry import _json_type
-
-    assert _json_type(dict) == "object"
-
-
-# --- 앱별 드롭다운 공급원 (IEUM-AI-62) ----------------------------------------
-
-_EXPECTED_OPTION_FIELDS = {
-    ("builtin:google_sheets_read", "spreadsheet_id"), ("builtin:google_sheets_read", "sheet_name"),
-    ("builtin:google_sheets_write", "spreadsheet_id"), ("builtin:google_sheets_write", "sheet_name"),
-    ("builtin:google_sheets_append", "spreadsheet_id"), ("builtin:google_sheets_append", "sheet_name"),
-    ("builtin:google_calendar_create", "calendar_id"),
-    ("builtin:google_calendar_list", "calendar_id"),
-    ("builtin:google_calendar_update", "calendar_id"), ("builtin:google_calendar_update", "event_id"),
-    ("builtin:google_drive_read", "file_id"),
-    ("builtin:google_drive_upload", "folder_id"),
-    ("builtin:notion_create_page", "parent_page_id"),
-    ("builtin:notion_read_page", "page_id"),
-    ("builtin:notion_update_page", "page_id"),
-    ("builtin:notion_append_block", "page_id"),
-    ("builtin:notion_query_database", "database_id"),
-}
-
-
-def test_tool_form_schema_공급원이_붙는_필드_집합():
-    """도구 필드 덮어쓰기에 optionsSource가 붙은 (도구, 필드) 집합을 고정한다 — 의도치 않게 번지거나 빠지면 실패."""
-    actual = {(t["name"], f["name"])
-              for t in tool_form_schema()["tools"] for f in t["fields"] if "optionsSource" in f}
-    assert actual == _EXPECTED_OPTION_FIELDS
-
-
-@pytest.mark.parametrize("field, title, source, inputs", [
-    ("calendar_id", "캘린더", "google.calendars", None),
-    ("event_id", "일정", "google.events", ["calendar_id"]),
-    ("file_id", "파일", "google.files", None),
-    ("folder_id", "폴더", "google.folders", None),
-    ("page_id", "페이지", "notion.pages", None),
-    ("parent_page_id", "상위 페이지", "notion.pages", None),
-    ("database_id", "데이터베이스", "notion.databases", None),
-])
-def test_tool_form_schema_app_option_sources(field, title, source, inputs):
-    """공급원 키는 BE OptionSource.key()와 1:1 계약(IEUM-BE-72·73)."""
-    f = next(f for t in tool_form_schema()["tools"] for f in t["fields"] if f["name"] == field)
-    assert (f["title"], f["optionsSource"], f.get("optionsInputs")) == (title, source, inputs)
-    assert f["description"]
-
-
-def test_tool_form_schema_event_id는_뒤의_calendar_id를_가리킨다():
-    """필드 순서는 시그니처 순서 그대로 — optionsInputs가 뒤 필드를 가리킬 수 있다(FE-51 명세)."""
-    names = [f["name"] for f in _schema_tool("builtin:google_calendar_update")["fields"]]
-    assert names.index("event_id") < names.index("calendar_id")

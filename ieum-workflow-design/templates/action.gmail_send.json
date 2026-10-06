@@ -1,6 +1,8 @@
 {
   "id": "action.gmail_send",
   "node_type": "ACTION",
+  "title": "Gmail 메일 보내기",
+  "description": "Gmail로 메일을 보내요.",
   "app": "GOOGLE",
   "tool_key": "gmail",
   "builder": true,
@@ -14,5 +16,25 @@
         }
       ]
     }
-  }
+  },
+  "fields": {
+    "to": {
+      "title": "받는 사람",
+      "description": "이메일 주소"
+    },
+    "subject": {
+      "title": "제목"
+    },
+    "body": {
+      "title": "본문",
+      "type": "text"
+    }
+  },
+  "outputFields": [
+    {
+      "key": "message",
+      "title": "결과 메시지",
+      "type": "string"
+    }
+  ]
 }

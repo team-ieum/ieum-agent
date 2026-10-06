@@ -7,7 +7,7 @@ MongoDB `node_templates`는 seed 사본일 뿐이다(읽는 곳 없음). 설계:
 항목은 두 곳에서 쓰인다.
 - **생성(LLM)** — `generation: true` 항목. 로더가 필드에서 `slots`(LLM이 채울 자리)와
   `allowed_config_fields`(검증 화이트리스트)를 **파생**한다. 파일에 직접 쓰지 않는다.
-- **빌더(FE)** — `builder: true` 항목. 카탈로그 API(IEUM-AI-65)가 `inputFields`를 내보낸다.
+- **빌더(FE)** — `builder: true` 항목. 카탈로그 API(`GET /v1/nodes/catalog`)가 `inputFields`를 내보낸다.
 
 ## 항목 필드
 
@@ -19,8 +19,13 @@ MongoDB `node_templates`는 seed 사본일 뿐이다(읽는 곳 없음). 설계:
 | `fixed` | ✅ | 불변 노드 골격(`type` + `config` 불변 키). `serviceType`은 쓰지 않는다(`app`에서 주입) |
 | `app` | ⬜ | 앱 노드만 `GOOGLE`·`NOTION`·`GITHUB`·`SLACK`·`DISCORD`. 로더가 `fixed.config.serviceType`에 넣는다 |
 | `builder` / `generation` | ⬜ | 기본 `true`. 액션은 `generation: false`(실행·생성 전환 전), 앱 도구 AI 프리셋은 `builder: false` |
+| `title` / `description` | builder면 ✅ | 빌더에 보이는 항목 이름·한 문장 설명 |
 | `tags` / `menu` | generation이면 ✅ | LLM 태그 검색·항상층 메뉴 |
 | `inputFields` | ⬜ | config 직속 필드(Field 목록). AI 항목은 공통 필드(llmProvider·model·prompt·credentialId·systemMessage) 뒤에 붙고, 같은 key를 쓰면 공통 필드에 병합된다(예: 템플릿별 prompt `llm.hint`) |
+| `outputFields` | ⬜ | 출력 필드(Field 목록). AI 항목은 공통 출력(output·metadata)이 앞에 붙는다. 액션은 도구 성공 반환 키와 같아야 한다(성공 테스트의 `assert_matches_outputs`) |
+| `outputDynamic` | ⬜ | 최상위 출력 키가 실행마다 다름(수동·웹훅 트리거) |
+| `outputsFrom` | ⬜ | 출력 키를 노드 config에서 읽음(`config.mappings` = 그 dict의 키) |
+| `match` | ⬜ | 저장된 노드 → 항목 매칭 `{경로: 값}`(값 null = 없거나 빔). 평가 전 type 대문자·문자열 tools → `{name}` 정규화(FE도 같게). 없으면 type + tool_key + triggerType로 자동. builder 항목끼리 같으면 거부 |
 | `fields` | ⬜ | 도구 필드 덮어쓰기 `{파라미터: 부분 Field}`. **도구당 한 항목만**(액션이 있으면 액션, 없으면 그 AI 항목). 시그니처 밖 키는 title·type 포함 전체 정의 |
 | `golden_snippet` | ⬜ | 완성형 노드 예시(검색층 few-shot). 그 자체로 검증을 통과해야 함 |
 | `service` | ⬜ | 동적 서브에이전트 서비스명(ai.github_query) |
@@ -57,3 +62,4 @@ MongoDB `node_templates`는 seed 사본일 뿐이다(읽는 곳 없음). 설계:
 3. 도구 하나의 `fields`는 한 항목에만.
 4. `optionsInputs`는 같은 항목의 필드 key만 가리킨다.
 5. `golden_snippet`은 단독으로 `WorkflowValidator` 노드 검증을 통과해야 한다.
+6. builder 항목의 match는 서로 달라야 한다(평가 순서: 조건 수 내림차순).

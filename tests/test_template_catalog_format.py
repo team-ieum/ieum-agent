@@ -1,4 +1,3 @@
-import copy
 import glob
 import json
 import os
@@ -48,6 +47,13 @@ def test_service_type_in_fixed_rejected():
         tr._validate_template(raw, os.path.join(tr.TEMPLATES_DIR, "ai.gmail_send.json"), tr._tool_map_keys())
 
 
+def test_duplicate_input_field_key_rejected():
+    raw = _raw("http")
+    raw["inputFields"].append({"key": "url", "title": "두 번째 URL", "type": "string"})
+    with pytest.raises(TemplateSchemaError, match="중복"):
+        tr._validate_template(raw, os.path.join(tr.TEMPLATES_DIR, "http.json"), tr._tool_map_keys())
+
+
 def test_fields_require_tool_key():
     raw = {**_raw("http"), "fields": {"url": {"title": "x"}}}
     with pytest.raises(TemplateSchemaError, match="tool_key"):
@@ -82,6 +88,40 @@ def test_options_inputs_must_point_to_same_entry(tmp_path, monkeypatch):
         p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     with pytest.raises(TemplateSchemaError, match="optionsInputs"):
         _load_from(tmp_path, monkeypatch, mutate)
+
+
+def _edit_raw(d, tid, change):
+    p = d / f"{tid}.json"
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    change(raw)
+    p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+
+def test_final_input_field_keys_unique(tmp_path, monkeypatch):
+    """직속 필드와 도구 필드를 합친 최종 inputFields에서도 key가 겹치면 거부한다(FE 폼은 key로 칸을 찾는다)."""
+    def mutate(d):
+        _edit_raw(d, "ai.web_search", lambda raw: raw.setdefault("inputFields", []).append(
+            {"key": "query", "title": "검색어", "type": "string"}))
+    with pytest.raises(TemplateSchemaError, match="query"):
+        _load_from(tmp_path, monkeypatch, mutate)
+
+
+def test_agent_tool_choices_skip_builder_hidden_actions(tmp_path, monkeypatch):
+    """builder: false 액션은 빌더에 없으니 ai.agent 도구 선택지에도 없다(그 항목은 title도 필수가 아니다)."""
+    def hide(raw):
+        raw["builder"] = False
+        del raw["title"]
+    templates = _load_from(tmp_path, monkeypatch, lambda d: _edit_raw(d, "action.slack_send", hide))
+    tools = next(f for f in templates["ai.agent"]["inputFields"] if f["key"] == "tools")
+    ids = {c["id"] for c in tools["choices"]}
+    assert "slack" not in ids and "discord" in ids
+
+
+def test_agent_entry_requires_tools_field(tmp_path, monkeypatch):
+    def drop_tools(raw):
+        raw["inputFields"] = [f for f in raw["inputFields"] if f["key"] != "tools"]
+    with pytest.raises(TemplateSchemaError, match="ai.agent.*tools"):
+        _load_from(tmp_path, monkeypatch, lambda d: _edit_raw(d, "ai.agent", drop_tools))
 
 
 # --- 액션 항목 ------------------------------------------------------------------------

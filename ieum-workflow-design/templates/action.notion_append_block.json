@@ -1,6 +1,8 @@
 {
   "id": "action.notion_append_block",
   "node_type": "ACTION",
+  "title": "Notion 페이지에 내용 추가",
+  "description": "페이지 끝에 내용을 덧붙여요.",
   "app": "NOTION",
   "tool_key": "builtin:notion_append_block",
   "builder": true,
@@ -24,6 +26,23 @@
         "hint": "대상 페이지 ID(사용자가 준 값·notion_search로 확인한 값). 모르면 비운다. 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
         "name": "page_id의 표시 이름(페이지 제목). page_id를 채웠을 때만 채운다."
       }
+    },
+    "content": {
+      "title": "추가할 내용",
+      "type": "text"
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "blockIds",
+      "title": "추가된 블록 ID",
+      "type": "string",
+      "list": true
+    },
+    {
+      "key": "appendedCount",
+      "title": "추가된 블록 수",
+      "type": "integer"
+    }
+  ]
 }

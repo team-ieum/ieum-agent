@@ -1,6 +1,7 @@
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from tests.action_outputs import assert_matches_outputs
 
 
 def _make_response(status_code: int, data: dict) -> MagicMock:
@@ -40,6 +41,7 @@ async def test_notion_create_page_성공(mock_client):
             content="본문 내용",
         ))
 
+    assert_matches_outputs("action.notion_create_page", result)
     assert result["success"] is True
     assert result["pageId"] == "page-123"
     assert result["url"] == "https://notion.so/page-123"
@@ -102,6 +104,7 @@ async def test_notion_read_page_성공(mock_client):
             page_id="page-123",
         ))
 
+    assert_matches_outputs("action.notion_read_page", result)
     assert result["success"] is True
     assert result["title"] == "테스트 페이지"
     assert "본문 내용입니다." in result["content"]
@@ -133,6 +136,7 @@ async def test_notion_search_성공(mock_client):
             query="경제 뉴스",
         ))
 
+    assert_matches_outputs("action.notion_search", result)
     assert result["success"] is True
     assert result["total"] == 1
     assert result["results"][0]["title"] == "경제 뉴스"
@@ -198,6 +202,7 @@ async def test_notion_append_block_성공(mock_client):
             content="추가할 내용",
         ))
 
+    assert_matches_outputs("action.notion_append_block", result)
     assert result["success"] is True
     assert result["appendedCount"] == 2
     assert "block-1" in result["blockIds"]
@@ -223,6 +228,7 @@ async def test_notion_update_page_제목만_수정(mock_client):
             title="새 제목",
         ))
 
+    assert_matches_outputs("action.notion_update_page", result)
     assert result["success"] is True
     assert result["pageId"] == "page-123"
 
@@ -514,6 +520,7 @@ async def test_notion_query_database_성공(mock_client):
             filter_json='{"property":"상태","status":{"equals":"진행중"}}',
         ))
 
+    assert_matches_outputs("action.notion_query_database", result)
     assert result["success"] is True
     assert result["total"] == 1
     row = result["rows"][0]

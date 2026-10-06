@@ -1,6 +1,8 @@
 {
   "id": "trigger.webhook",
   "node_type": "TRIGGER",
+  "title": "웹훅",
+  "description": "외부에서 신호가 오면 시작해요.",
   "tool_key": null,
   "tags": [
     "웹훅",
@@ -17,6 +19,7 @@
       "triggerType": "WEBHOOK"
     }
   },
+  "outputDynamic": true,
   "golden_snippet": {
     "id": "node-1",
     "type": "TRIGGER",

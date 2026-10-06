@@ -1,6 +1,8 @@
 {
   "id": "action.google_drive_upload",
   "node_type": "ACTION",
+  "title": "드라이브에 파일 올리기",
+  "description": "텍스트 내용을 파일로 저장해요.",
   "app": "GOOGLE",
   "tool_key": "builtin:google_drive_upload",
   "builder": true,
@@ -24,6 +26,34 @@
         "hint": "업로드할 폴더 ID(사용자가 준 값·조회로 확인한 값). 모르면 비운다(내 드라이브 루트).",
         "name": "folder_id의 표시 이름(폴더 이름). folder_id를 채웠을 때만 채운다."
       }
+    },
+    "name": {
+      "title": "파일 이름"
+    },
+    "content": {
+      "title": "내용",
+      "type": "text"
+    },
+    "mime_type": {
+      "title": "파일 형식",
+      "description": "예: text/plain, text/csv"
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "fileId",
+      "title": "파일 ID",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "title": "파일 이름",
+      "type": "string"
+    },
+    {
+      "key": "webViewLink",
+      "title": "파일 링크",
+      "type": "string"
+    }
+  ]
 }

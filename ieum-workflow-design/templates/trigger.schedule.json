@@ -1,6 +1,8 @@
 {
   "id": "trigger.schedule",
   "node_type": "TRIGGER",
+  "title": "스케줄",
+  "description": "정해둔 시각마다 시작해요.",
   "tool_key": null,
   "tags": [
     "스케줄",
@@ -31,6 +33,18 @@
       "llm": {
         "hint": "표준 5필드 크론식. 예: 매일 9시='0 9 * * *', 매주 금 17시='0 17 * * 5'"
       }
+    }
+  ],
+  "outputFields": [
+    {
+      "key": "triggeredAt",
+      "title": "실행 시각",
+      "type": "datetime"
+    },
+    {
+      "key": "cron",
+      "title": "크론식",
+      "type": "string"
     }
   ],
   "golden_snippet": {

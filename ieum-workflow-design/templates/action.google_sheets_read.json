@@ -1,6 +1,8 @@
 {
   "id": "action.google_sheets_read",
   "node_type": "ACTION",
+  "title": "시트 읽기",
+  "description": "지정한 범위의 값을 가져와요.",
   "app": "GOOGLE",
   "tool_key": "builtin:google_sheets_read",
   "builder": true,
@@ -40,5 +42,17 @@
       "title": "범위",
       "description": "예: A:C"
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "range",
+      "title": "범위",
+      "type": "string"
+    },
+    {
+      "key": "values",
+      "title": "값",
+      "type": "json"
+    }
+  ]
 }

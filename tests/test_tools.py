@@ -13,6 +13,7 @@ from tools.http_fetch import http_fetch
 from tools.slack import send_slack_message
 from tools.web_search import web_search
 from tools import get_tools_for_request
+from tests.action_outputs import assert_matches_outputs
 
 
 def _make_async_http_client(post_mock):
@@ -168,6 +169,7 @@ async def test_send_slack_message_success():
             message="hello",
         )
 
+    assert_matches_outputs("action.slack_send", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["message"] == "Slack 메시지 발송 성공"
@@ -208,6 +210,7 @@ async def test_send_discord_webhook_success():
             content="hello",
         )
 
+    assert_matches_outputs("action.discord_send", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["message"] == "Discord 메시지 발송 성공"
@@ -276,6 +279,7 @@ async def test_send_gmail_success():
             sender_password="app-password",
         )
 
+    assert_matches_outputs("action.gmail_send", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert "recipient@example.com" in parsed["message"]

@@ -1,6 +1,8 @@
 {
   "id": "action.notion_update_page",
   "node_type": "ACTION",
+  "title": "Notion 페이지 수정",
+  "description": "페이지의 제목이나 본문을 바꿔요.",
   "app": "NOTION",
   "tool_key": "builtin:notion_update_page",
   "builder": true,
@@ -24,6 +26,27 @@
         "hint": "대상 페이지 ID(사용자가 준 값·notion_search로 확인한 값). 모르면 비운다. 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
         "name": "page_id의 표시 이름(페이지 제목). page_id를 채웠을 때만 채운다."
       }
+    },
+    "title": {
+      "title": "새 제목",
+      "description": "비우면 그대로"
+    },
+    "content": {
+      "title": "새 내용",
+      "type": "text",
+      "description": "비우면 그대로"
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "pageId",
+      "title": "페이지 ID",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "title": "페이지 주소",
+      "type": "string"
+    }
+  ]
 }

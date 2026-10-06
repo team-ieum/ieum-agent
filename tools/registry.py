@@ -1,16 +1,17 @@
 """도구 파라미터 스펙 SSOT 레지스트리.
 
 도구 함수의 시그니처(`inspect.signature`)에서 파라미터 명세를 자동 파생한다.
-검증기(workflow_validator), 프론트엔드 설정 폼 엔드포인트, 시스템 프롬프트 도구 명세,
-(추후) RAG 색인이 모두 이 레지스트리를 단일 출처(SSOT)로 삼는다.
+현재 소비처: 노드 카탈로그·생성 슬롯 파생(core/template_registry — RUNTIME_INJECTED_PARAMS로
+실행 시 주입 인자를 뺀다, GET /v1/nodes/catalog), 생성 노드 brand 주입(apply_service_brand —
+workflow_generator·workflow_chat). 파라미터 스펙·블루프린트(tool_param_spec·service_blueprint)는
+(추후) RAG 색인용으로 지금은 테스트만 부른다. 검증기(workflow_validator)는 이 모듈이 아니라
+_TOOL_MAP과 core/template_registry를 쓴다.
 
 도구를 추가/변경하면 _TOOL_MAP에 함수만 등록하면 되고, 별도의 스펙/문서를
 손으로 관리할 필요가 없다(drift 0).
 """
 
 import inspect
-import types
-import typing
 
 from tools import _TOOL_MAP
 from tools.github import (
@@ -33,11 +34,6 @@ RUNTIME_INJECTED_PARAMS: set[str] = {
     "workflow_context_data",  # agent가 바인딩(agents/base.py _bind_workflow_context)
 }
 
-# 도구 설정 폼(GET /v1/tools/schema)에 싣는 필드 메타 키. 메타 원본은 노드 카탈로그 항목의
-# 도구 필드 덮어쓰기(template_registry.tool_field_overrides)다 — 이 엔드포인트는 IEUM-AI-65에서
-# /v1/nodes/catalog로 대체된다.
-_FORM_META_KEYS = ("title", "description", "optionsSource", "optionsInputs")
-
 # 자동 파생이 불가능한 서비스별 수동 정책. 양이 적으므로 코드에 두고 git으로 관리한다.
 # (DB가 아닌 코드를 마스터로 둔다 — 정책은 코드 리뷰/배포/롤백 대상)
 SERVICE_POLICY: dict[str, dict] = {
@@ -55,7 +51,7 @@ SERVICE_POLICY: dict[str, dict] = {
 
 # 동적 서브에이전트로 마운트되어 노드 tools:[]를 쓰는 서비스의 액션 함수.
 # _TOOL_MAP에 없으므로(노드 tools 키가 아님) 블루프린트 표현을 위해 별도로 등록한다.
-# 노드 tools에는 들어가지 않으며, 프론트 폼/프롬프트/문서용 파라미터 스펙 파생에만 쓴다.
+# 노드 tools에는 들어가지 않으며, 프롬프트/문서용 파라미터 스펙 파생에만 쓴다.
 _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
     "github": {
         "github_list_orgs": github_list_orgs,
@@ -242,51 +238,9 @@ def all_blueprints() -> dict[str, dict]:
     """등록된 모든 서비스의 블루프린트를 반환한다.
 
     tool-based 서비스(_TOOL_MAP)와 policy-only 서비스(SERVICE_POLICY/동적 마운트)를 모두 포함한다.
-    프론트엔드 메타데이터 엔드포인트와 (추후) RAG 색인 빌드의 입력으로 쓴다.
+    (추후) RAG 색인 빌드의 입력으로 쓴다.
     """
     services = {_service_of(name) for name in _TOOL_MAP}
     services |= set(SERVICE_POLICY.keys())
     services |= set(_DYNAMIC_SERVICE_ACTIONS.keys())
     return {s: service_blueprint(s) for s in sorted(services)}
-
-
-_JSON_TYPES = {str: "string", int: "integer", float: "number", bool: "boolean",
-               list: "array", dict: "object"}
-
-
-def _json_type(annotation) -> str:
-    """파이썬 타입 표기를 JSON Schema type으로 바꾼다. Optional·Union은 None을 뺀 첫 타입을 쓴다."""
-    if annotation is inspect.Parameter.empty:
-        return "string"
-    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
-        annotation = next(a for a in typing.get_args(annotation) if a is not type(None))
-    return _JSON_TYPES.get(typing.get_origin(annotation) or annotation, "string")
-
-
-def tool_form_schema() -> dict:
-    """노드 tools 전체의 설정 폼 스키마(GET /v1/tools/schema → BE가 그대로 전달).
-
-    필드는 도구 함수 시그니처 순서이고, 실행 시 주입 인자(RUNTIME_INJECTED_PARAMS)는 뺀다.
-    required는 시그니처 기준이다 — AI 노드에서는 required라도 'AI가 결정'(키 없음)이 가능하다."""
-    from core.template_registry import tool_field_overrides
-
-    tools = []
-    for name, fn in _TOOL_MAP.items():
-        overrides = tool_field_overrides(name)
-        fields = []
-        for p in inspect.signature(fn).parameters.values():
-            if p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
-                continue
-            param_class = _classify(p)
-            if param_class == "runtime_injected":
-                continue
-            meta = overrides.get(p.name, {})
-            fields.append({
-                "name": p.name,
-                "title": p.name,
-                "type": _json_type(p.annotation),
-                "required": param_class == "required",
-                **{k: meta[k] for k in _FORM_META_KEYS if k in meta},
-            })
-        tools.append({"name": name, "fields": fields})
-    return {"tools": tools}

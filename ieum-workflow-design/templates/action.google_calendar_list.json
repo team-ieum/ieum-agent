@@ -1,6 +1,8 @@
 {
   "id": "action.google_calendar_list",
   "node_type": "ACTION",
+  "title": "캘린더 일정 조회",
+  "description": "기간 안의 일정을 가져와요.",
   "app": "GOOGLE",
   "tool_key": "builtin:google_calendar_list",
   "builder": true,
@@ -24,6 +26,52 @@
         "hint": "대상 캘린더 ID(사용자가 준 값·조회로 확인한 값). 모르면 비운다(기본 캘린더). 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
         "name": "calendar_id의 표시 이름(화면 표시용). calendar_id를 채웠을 때만 채운다."
       }
+    },
+    "time_min": {
+      "title": "시작 시각",
+      "type": "datetime"
+    },
+    "time_max": {
+      "title": "종료 시각",
+      "type": "datetime"
+    },
+    "max_results": {
+      "title": "최대 개수"
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "events",
+      "title": "일정",
+      "type": "object",
+      "list": true,
+      "children": [
+        {
+          "key": "id",
+          "title": "ID",
+          "type": "string"
+        },
+        {
+          "key": "summary",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "start",
+          "title": "시작",
+          "type": "datetime"
+        },
+        {
+          "key": "end",
+          "title": "종료",
+          "type": "datetime"
+        }
+      ]
+    },
+    {
+      "key": "total",
+      "title": "개수",
+      "type": "integer"
+    }
+  ]
 }

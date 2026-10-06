@@ -1,6 +1,8 @@
 {
   "id": "action.google_calendar_update",
   "node_type": "ACTION",
+  "title": "캘린더 일정 수정",
+  "description": "기존 일정의 내용을 바꿔요.",
   "app": "GOOGLE",
   "tool_key": "builtin:google_calendar_update",
   "builder": true,
@@ -36,6 +38,34 @@
         "hint": "대상 캘린더 ID(사용자가 준 값·조회로 확인한 값). 모르면 비운다(기본 캘린더). 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
         "name": "calendar_id의 표시 이름(화면 표시용). calendar_id를 채웠을 때만 채운다."
       }
+    },
+    "summary": {
+      "title": "새 제목",
+      "description": "비우면 그대로"
+    },
+    "start_datetime": {
+      "title": "새 시작",
+      "type": "datetime"
+    },
+    "end_datetime": {
+      "title": "새 종료",
+      "type": "datetime"
+    },
+    "description": {
+      "title": "새 설명",
+      "type": "text"
     }
-  }
+  },
+  "outputFields": [
+    {
+      "key": "eventId",
+      "title": "일정 ID",
+      "type": "string"
+    },
+    {
+      "key": "htmlLink",
+      "title": "일정 링크",
+      "type": "string"
+    }
+  ]
 }

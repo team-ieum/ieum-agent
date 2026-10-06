@@ -1,6 +1,8 @@
 {
   "id": "approval",
   "node_type": "APPROVAL",
+  "title": "승인 대기",
+  "description": "사람이 승인해야 다음 단계로 넘어가요.",
   "tool_key": null,
   "tags": [
     "승인",
@@ -22,6 +24,23 @@
       "llm": {
         "hint": "승인자에게 보여 줄 확인 문구(예: \"정리한 내용을 슬랙으로 보내도 될까요?\")"
       }
+    }
+  ],
+  "outputFields": [
+    {
+      "key": "approved",
+      "title": "승인 여부",
+      "type": "boolean"
+    },
+    {
+      "key": "approvedBy",
+      "title": "승인자 ID",
+      "type": "string"
+    },
+    {
+      "key": "approvedAt",
+      "title": "승인 시각",
+      "type": "datetime"
     }
   ],
   "golden_snippet": {
