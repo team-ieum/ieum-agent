@@ -19,6 +19,10 @@ APP_PRESETS = [
 ]
 
 
+# SMTP 자격증명(sender_email·sender_password) 주입 경로가 없어 실행할 수 없다 — OAuth 전환 전까지 빌더에서 숨긴다.
+HIDDEN_ACTIONS = {"ai.gmail_send"}
+
+
 def _raw(tid: str) -> dict:
     with open(os.path.join(tr.TEMPLATES_DIR, f"{tid}.json"), encoding="utf-8") as f:
         return json.load(f)
@@ -132,7 +136,7 @@ def test_action_entries_mirror_app_presets():
         preset = entries[pid]
         action = entries["action." + pid[len("ai."):]]
         assert preset["builder"] is False and preset["generation"] is True, pid
-        assert action["builder"] is True and action["generation"] is False, pid
+        assert action["builder"] is (pid not in HIDDEN_ACTIONS) and action["generation"] is False, pid
         assert action["node_type"] == "ACTION"
         assert action["tool_key"] == preset["tool_key"]
         assert action["fixed"] == {"type": "ACTION", "config": {
@@ -277,3 +281,20 @@ def test_designer_prompt_points_resource_ids_to_slots():
     from core.workflow_chat import _SYSTEM_PROMPT_BASE
     assert "Calendar calendar_id" in _SYSTEM_PROMPT_BASE
     assert "(Notion·GitHub 등)" not in _SYSTEM_PROMPT_BASE
+
+
+def test_gmail_action_hidden_from_builder():
+    from core.node_catalog import node_catalog
+
+    assert tr.get_template("action.gmail_send")["builder"] is False
+    assert "action.gmail_send" not in {e["id"] for e in node_catalog()["entries"]}
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    assert "gmail" not in {c["id"] for c in tools["choices"]}
+    # 저장된 gmail ACTION 노드는 어떤 빌더 항목에도 안 걸린다(FE가 폼을 못 연다 — 의도)
+    assert tr.match_entry({"type": "ACTION", "config": {"tools": [{"name": "gmail"}]}}) is None
+
+
+def test_gmail_generation_preset_unchanged_by_hiding_action():
+    """숨기는 건 빌더용 액션뿐이다 — 채팅 생성이 쓰는 ai.gmail_send 프리셋은 그대로다."""
+    assert "ai.gmail_send" in {t["id"] for t in tr.all_templates()}
+    assert tr.get_template("ai.gmail_send")["generation"] is True

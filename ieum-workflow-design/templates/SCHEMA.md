@@ -18,7 +18,7 @@ MongoDB `node_templates`는 seed 사본일 뿐이다(읽는 곳 없음). 설계:
 | `tool_key` | ✅ | 바인딩하는 도구 키, 없으면 `null`. `_TOOL_MAP` 키 또는 `builtin:github_*`(ACTION 전용 동적 서비스 액션 — `tools.registry.resolve_action_fn`이 푼다) |
 | `fixed` | ✅ | 불변 노드 골격(`type` + `config` 불변 키). `serviceType`은 쓰지 않는다(`app`에서 주입) |
 | `app` | ⬜ | 앱 노드만 `GOOGLE`·`NOTION`·`GITHUB`·`SLACK`·`DISCORD`. 로더가 `fixed.config.serviceType`에 넣는다 |
-| `builder` / `generation` | ⬜ | 기본 `true`. 액션은 `generation: false`(실행·생성 전환 전), 앱 도구 AI 프리셋은 `builder: false` |
+| `builder` / `generation` | ⬜ | 기본 `true`. 액션은 `generation: false`(실행·생성 전환 전), 앱 도구 AI 프리셋은 `builder: false`. 실행할 수 없는 액션(`action.gmail_send` — SMTP 자격증명 주입 경로 없음)도 `builder: false` |
 | `title` / `description` | builder면 ✅ | 빌더에 보이는 항목 이름·한 문장 설명 |
 | `tags` / `menu` | generation이면 ✅ | LLM 태그 검색·항상층 메뉴 |
 | `inputFields` | ⬜ | config 직속 필드(Field 목록). AI 항목은 공통 필드(llmProvider·model·prompt·credentialId·systemMessage) 뒤에 붙고, 같은 key를 쓰면 공통 필드에 병합된다(예: 템플릿별 prompt `llm.hint`) |
