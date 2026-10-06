@@ -2,18 +2,28 @@
   "id": "approval",
   "node_type": "APPROVAL",
   "tool_key": null,
-  "tags": ["승인", "결재", "허가", "approval", "approve"],
+  "tags": [
+    "승인",
+    "결재",
+    "허가",
+    "approval",
+    "approve"
+  ],
   "menu": "APPROVAL: 사람 승인 게이트. 사용자가 승인을 명시적으로 요청한 경우에만, 승인이 필요한 노드 바로 앞에 둔다(승인 전엔 뒤 노드가 실행되지 않음)",
   "fixed": {
     "type": "APPROVAL",
     "config": {}
   },
-  "slots": [
-    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
-    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
-    {"name": "message", "path": "config.message", "required": false, "kind": "string", "description": "승인자에게 보여 줄 확인 문구(예: \"정리한 내용을 슬랙으로 보내도 될까요?\")"}
+  "inputFields": [
+    {
+      "key": "message",
+      "title": "승인 요청 메시지",
+      "type": "text",
+      "llm": {
+        "hint": "승인자에게 보여 줄 확인 문구(예: \"정리한 내용을 슬랙으로 보내도 될까요?\")"
+      }
+    }
   ],
-  "allowed_config_fields": ["message"],
   "golden_snippet": {
     "id": "node-3",
     "type": "APPROVAL",

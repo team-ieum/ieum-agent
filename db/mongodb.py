@@ -39,12 +39,12 @@ async def seed_node_templates(collection=None) -> dict:
     - 파일에 더 이상 없는(stale) 문서는 삭제한다.
 
     collection 인자로 컬렉션을 주입할 수 있다(테스트용). 반환: {upserted, deleted, total}."""
-    from core.template_registry import all_templates, validate_registry
+    from core.template_registry import all_entries, validate_registry
 
     validate_registry()  # 드리프트/스키마 게이트 — 실패 시 동기화 중단
 
     col = collection if collection is not None else node_templates
-    templates = all_templates()
+    templates = all_entries()
     if not templates:
         raise ValueError("동기화할 템플릿이 존재하지 않습니다. 템플릿 디렉토리 경로를 확인하세요.")
     ids = [t["id"] for t in templates]

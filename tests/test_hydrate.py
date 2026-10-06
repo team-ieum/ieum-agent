@@ -190,9 +190,9 @@ def test_hydrate_nodes_assigns_sequential_ids():
 def test_dehydrate_hydrate_round_trip_all_templates():
     """모든 템플릿에 대해 hydrate(dehydrate(n)) == n(왕복 무손실). golden_snippet에서
     슬롯 값을 뽑아 유효한 완성 노드를 만든 뒤 왕복시킨다."""
-    from core.template_registry import load_templates, dehydrate_node, _get_by_path, _SYSTEM_INJECTED_KINDS
+    from core.template_registry import _generation_templates, dehydrate_node, _get_by_path, _SYSTEM_INJECTED_KINDS
 
-    for tid, tpl in load_templates().items():
+    for tid, tpl in _generation_templates().items():  # builder 전용 항목(action.*)은 hydrate 대상 아님
         snip = tpl["golden_snippet"]
         slots = {}
         for s in tpl["slots"]:
@@ -477,7 +477,7 @@ def _sheets_draft(**slots) -> dict:
 def test_sheets_slots_fill_tool_config(tid):
     from core.template_registry import hydrate_node
 
-    draft = _sheets_draft(spreadsheet_id="1Bxi", spreadsheet_name="2026 매출 장부",
+    draft = _sheets_draft(spreadsheet_id="1Bxi", spreadsheet_id_name="2026 매출 장부",
                           sheet_name="매출")
     draft["templateId"] = tid
     node = hydrate_node(draft, provider="GEMINI")
@@ -494,7 +494,7 @@ def test_blank_tool_slot_is_not_bound(blank):
     만들면 빈 값이 고정 바인딩돼 그 노드는 매번 실패한다."""
     from core.template_registry import hydrate_node
 
-    node = hydrate_node(_sheets_draft(spreadsheet_id=blank, sheet_name=blank, spreadsheet_name=blank),
+    node = hydrate_node(_sheets_draft(spreadsheet_id=blank, sheet_name=blank, spreadsheet_id_name=blank),
                         provider="GEMINI")
     assert node["config"]["tools"] == [{"name": "builtin:google_sheets_append"}]
 
@@ -540,5 +540,5 @@ def test_sheets_slots_listed_as_optional_in_catalog():
 
     lines = slot_catalog_text().splitlines()
     i = next(i for i, l in enumerate(lines) if l.startswith("- ai.google_sheets_append "))
-    for name in ("spreadsheet_id", "spreadsheet_name", "sheet_name"):
+    for name in ("spreadsheet_id", "spreadsheet_id_name", "sheet_name"):
         assert f"{name}(string,선택)" in lines[i + 1]

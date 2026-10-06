@@ -1,0 +1,29 @@
+{
+  "id": "action.notion_append_block",
+  "node_type": "ACTION",
+  "app": "NOTION",
+  "tool_key": "builtin:notion_append_block",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:notion_append_block"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "page_id": {
+      "title": "페이지",
+      "description": "대상 페이지",
+      "optionsSource": "notion.pages",
+      "llm": {
+        "hint": "대상 페이지 ID(사용자가 준 값·notion_search로 확인한 값). 모르면 비운다. 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
+        "name": "page_id의 표시 이름(페이지 제목). page_id를 채웠을 때만 채운다."
+      }
+    }
+  }
+}

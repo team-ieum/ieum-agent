@@ -33,32 +33,10 @@ RUNTIME_INJECTED_PARAMS: set[str] = {
     "workflow_context_data",  # agent가 바인딩(agents/base.py _bind_workflow_context)
 }
 
-# 도구 설정 폼(GET /v1/tools/schema)의 필드 표시 메타. 파라미터 이름 기준이다.
-# 없는 파라미터는 title=파라미터 이름, description 생략으로 내보낸다.
-# optionsSource는 BE options API 경로(/api/v1/integrations/{app}/options/{resource})의
-# `{app}.{resource}`이고, optionsInputs는 그 공급원에 넘길 다른 필드 이름이다.
-FIELD_META: dict[str, dict] = {
-    "spreadsheet_id": {"title": "스프레드시트", "description": "대상 스프레드시트",
-                       "optionsSource": "google.spreadsheets"},
-    "sheet_name": {"title": "워크시트", "description": "대상 워크시트(탭)",
-                   "optionsSource": "google.worksheets", "optionsInputs": ["spreadsheet_id"]},
-    "cell_range": {"title": "범위", "description": "예: A:C"},
-    "values": {"title": "값"},
-    "calendar_id": {"title": "캘린더", "description": "대상 캘린더 (비우면 기본 캘린더)",
-                    "optionsSource": "google.calendars"},
-    "event_id": {"title": "일정", "description": "수정할 일정",
-                 "optionsSource": "google.events", "optionsInputs": ["calendar_id"]},
-    "file_id": {"title": "파일", "description": "읽을 파일",
-                "optionsSource": "google.files"},
-    "folder_id": {"title": "폴더", "description": "업로드할 폴더 (비우면 내 드라이브 루트)",
-                  "optionsSource": "google.folders"},
-    "page_id": {"title": "페이지", "description": "대상 페이지",
-                "optionsSource": "notion.pages"},
-    "parent_page_id": {"title": "상위 페이지", "description": "새 페이지를 만들 위치",
-                       "optionsSource": "notion.pages"},
-    "database_id": {"title": "데이터베이스", "description": "조회할 데이터베이스",
-                    "optionsSource": "notion.databases"},
-}
+# 도구 설정 폼(GET /v1/tools/schema)에 싣는 필드 메타 키. 메타 원본은 노드 카탈로그 항목의
+# 도구 필드 덮어쓰기(template_registry.tool_field_overrides)다 — 이 엔드포인트는 IEUM-AI-65에서
+# /v1/nodes/catalog로 대체된다.
+_FORM_META_KEYS = ("title", "description", "optionsSource", "optionsInputs")
 
 # 자동 파생이 불가능한 서비스별 수동 정책. 양이 적으므로 코드에 두고 git으로 관리한다.
 # (DB가 아닌 코드를 마스터로 둔다 — 정책은 코드 리뷰/배포/롤백 대상)
@@ -290,8 +268,11 @@ def tool_form_schema() -> dict:
 
     필드는 도구 함수 시그니처 순서이고, 실행 시 주입 인자(RUNTIME_INJECTED_PARAMS)는 뺀다.
     required는 시그니처 기준이다 — AI 노드에서는 required라도 'AI가 결정'(키 없음)이 가능하다."""
+    from core.template_registry import tool_field_overrides
+
     tools = []
     for name, fn in _TOOL_MAP.items():
+        overrides = tool_field_overrides(name)
         fields = []
         for p in inspect.signature(fn).parameters.values():
             if p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
@@ -299,12 +280,13 @@ def tool_form_schema() -> dict:
             param_class = _classify(p)
             if param_class == "runtime_injected":
                 continue
+            meta = overrides.get(p.name, {})
             fields.append({
                 "name": p.name,
                 "title": p.name,
                 "type": _json_type(p.annotation),
                 "required": param_class == "required",
-                **FIELD_META.get(p.name, {}),
+                **{k: meta[k] for k in _FORM_META_KEYS if k in meta},
             })
         tools.append({"name": name, "fields": fields})
     return {"tools": tools}

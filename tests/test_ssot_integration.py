@@ -97,7 +97,6 @@ def test_drift_detection_fails_on_unknown_tool_key():
         "id": "ai.bogus", "node_type": "AI", "tool_key": "builtin:bogus_tool",
         "tags": ["x"], "menu": "m",
         "fixed": {"type": "AI", "config": {"tools": [{"name": "builtin:bogus_tool"}]}},
-        "slots": [], "allowed_config_fields": ["tools"],
     }
-    with pytest.raises(tr.TemplateSchemaError):
+    with pytest.raises(tr.TemplateSchemaError, match="드리프트"):
         tr._validate_template(bad, "/tmp/ai.bogus.json", tr._tool_map_keys())

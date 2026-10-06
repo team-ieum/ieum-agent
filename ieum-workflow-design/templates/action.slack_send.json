@@ -1,0 +1,30 @@
+{
+  "id": "action.slack_send",
+  "node_type": "ACTION",
+  "app": "SLACK",
+  "tool_key": "slack",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "slack"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "webhookCredentialId": {
+      "title": "웹훅",
+      "type": "string",
+      "required": true,
+      "ref": false,
+      "optionsSource": "slack.webhooks",
+      "llm": {
+        "hint": "보유 Slack 웹훅 자격증명 ID(가용 목록에서 선택). 미상이면 비움."
+      }
+    }
+  }
+}

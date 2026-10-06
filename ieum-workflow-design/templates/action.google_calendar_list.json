@@ -1,0 +1,29 @@
+{
+  "id": "action.google_calendar_list",
+  "node_type": "ACTION",
+  "app": "GOOGLE",
+  "tool_key": "builtin:google_calendar_list",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:google_calendar_list"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "calendar_id": {
+      "title": "캘린더",
+      "description": "대상 캘린더 (비우면 기본 캘린더)",
+      "optionsSource": "google.calendars",
+      "llm": {
+        "hint": "대상 캘린더 ID(사용자가 준 값·조회로 확인한 값). 모르면 비운다(기본 캘린더). 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
+        "name": "calendar_id의 표시 이름(화면 표시용). calendar_id를 채웠을 때만 채운다."
+      }
+    }
+  }
+}

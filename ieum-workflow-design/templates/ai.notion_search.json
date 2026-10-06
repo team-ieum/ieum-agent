@@ -1,26 +1,38 @@
 {
   "id": "ai.notion_search",
   "node_type": "AI",
+  "app": "NOTION",
   "tool_key": "builtin:notion_search",
-  "tags": ["notion", "노션", "검색", "search", "페이지 찾기", "query"],
+  "builder": false,
+  "tags": [
+    "notion",
+    "노션",
+    "검색",
+    "search",
+    "페이지 찾기",
+    "query"
+  ],
   "menu": "Notion 워크스페이스 검색 (query 필요). parent_page_id 미상 시 선행 탐색에 사용",
   "fixed": {
     "type": "AI",
     "config": {
-      "serviceType": "NOTION",
       "agentType": "react",
       "credentialId": "",
-      "tools": [{"name": "builtin:notion_search"}]
+      "tools": [
+        {
+          "name": "builtin:notion_search"
+        }
+      ]
     }
   },
-  "slots": [
-    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
-    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
-    {"name": "llmProvider", "path": "config.llmProvider", "required": true, "kind": "provider", "description": "요청자 provider 계승"},
-    {"name": "model", "path": "config.model", "required": true, "kind": "model", "description": "요청 provider의 기본 모델. 시스템이 자동 주입한다(작성 금지)."},
-    {"name": "prompt", "path": "config.prompt", "required": true, "kind": "string", "description": "검색 지시. query와 목적 명시. 결과에서 page_id/title만 추출하도록 지시."}
+  "inputFields": [
+    {
+      "key": "prompt",
+      "llm": {
+        "hint": "검색 지시. query와 목적 명시. 결과에서 page_id/title만 추출하도록 지시."
+      }
+    }
   ],
-  "allowed_config_fields": ["agentType", "credentialId", "tools", "llmProvider", "prompt", "systemMessage", "model", "serviceType"],
   "golden_snippet": {
     "id": "node-2",
     "type": "AI",
@@ -31,7 +43,11 @@
       "credentialId": "",
       "prompt": "'트렌드 노트' 페이지를 검색해 page_id와 title만 반환해줘.",
       "agentType": "react",
-      "tools": [{"name": "builtin:notion_search"}]
+      "tools": [
+        {
+          "name": "builtin:notion_search"
+        }
+      ]
     }
   }
 }

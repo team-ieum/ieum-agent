@@ -2,21 +2,87 @@
   "id": "http",
   "node_type": "HTTP",
   "tool_key": null,
-  "tags": ["http", "rest", "api", "외부 api", "엔드포인트", "요청"],
+  "tags": [
+    "http",
+    "rest",
+    "api",
+    "외부 api",
+    "엔드포인트",
+    "요청"
+  ],
   "menu": "HTTP: 내장 도구가 없는 임의 외부 REST API 호출 (Notion/Slack/Google/GitHub 등은 금지)",
   "fixed": {
     "type": "HTTP",
     "config": {}
   },
-  "slots": [
-    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
-    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
-    {"name": "method", "path": "config.method", "required": true, "kind": "http_method", "enum": ["GET", "POST", "PUT", "DELETE"], "description": "HTTP 메서드"},
-    {"name": "url", "path": "config.url", "required": true, "kind": "string", "description": "요청 URL (내장 도구 지원 서비스 도메인 금지)"},
-    {"name": "headers", "path": "config.headers", "required": false, "kind": "mapping", "description": "요청 헤더 dict"},
-    {"name": "body", "path": "config.body", "required": false, "kind": "string", "description": "요청 바디(POST/PUT 시)"}
+  "inputFields": [
+    {
+      "key": "method",
+      "title": "메서드",
+      "type": "string",
+      "required": true,
+      "default": "GET",
+      "ref": false,
+      "choices": [
+        {
+          "id": "GET",
+          "name": "GET"
+        },
+        {
+          "id": "POST",
+          "name": "POST"
+        },
+        {
+          "id": "PUT",
+          "name": "PUT"
+        },
+        {
+          "id": "DELETE",
+          "name": "DELETE"
+        }
+      ],
+      "llm": {
+        "kind": "http_method",
+        "hint": "HTTP 메서드"
+      }
+    },
+    {
+      "key": "url",
+      "title": "URL",
+      "type": "string",
+      "required": true,
+      "llm": {
+        "hint": "요청 URL (내장 도구 지원 서비스 도메인 금지)"
+      }
+    },
+    {
+      "key": "headers",
+      "title": "헤더",
+      "type": "dict",
+      "llm": {
+        "hint": "요청 헤더 dict"
+      }
+    },
+    {
+      "key": "body",
+      "title": "본문",
+      "type": "text",
+      "llm": {
+        "hint": "요청 바디(POST/PUT 시)"
+      }
+    },
+    {
+      "key": "webhookCredentialId",
+      "title": "등록 웹훅",
+      "type": "string",
+      "ref": false,
+      "optionsSource": "ieum.webhooks",
+      "description": "등록해 둔 웹훅 주소로 보낼 때 골라요",
+      "llm": {
+        "slot": false
+      }
+    }
   ],
-  "allowed_config_fields": ["method", "url", "headers", "body"],
   "golden_snippet": {
     "id": "node-2",
     "type": "HTTP",

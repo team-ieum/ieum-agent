@@ -1,0 +1,29 @@
+{
+  "id": "action.google_drive_read",
+  "node_type": "ACTION",
+  "app": "GOOGLE",
+  "tool_key": "builtin:google_drive_read",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:google_drive_read"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "file_id": {
+      "title": "파일",
+      "description": "읽을 파일",
+      "optionsSource": "google.files",
+      "llm": {
+        "hint": "읽을 파일 ID(사용자가 준 값·조회로 확인한 값). 모르면 비운다. 선행 노드 결과로 정해지는 ID는 넣지 않고 prompt에 쓴다.",
+        "name": "file_id의 표시 이름(파일 이름). file_id를 채웠을 때만 채운다."
+      }
+    }
+  }
+}

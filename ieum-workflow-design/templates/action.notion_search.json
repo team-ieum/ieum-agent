@@ -1,0 +1,18 @@
+{
+  "id": "action.notion_search",
+  "node_type": "ACTION",
+  "app": "NOTION",
+  "tool_key": "builtin:notion_search",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:notion_search"
+        }
+      ]
+    }
+  }
+}

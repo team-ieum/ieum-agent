@@ -2,20 +2,94 @@
   "id": "condition",
   "node_type": "CONDITION",
   "tool_key": null,
-  "tags": ["조건", "condition", "분기", "if", "판단", "true", "false"],
+  "tags": [
+    "조건",
+    "condition",
+    "분기",
+    "if",
+    "판단",
+    "true",
+    "false"
+  ],
   "menu": "CONDITION: 조건 분기. edges의 conditionType(true/false)로 경로 분리",
   "fixed": {
     "type": "CONDITION",
     "config": {}
   },
-  "slots": [
-    {"name": "label", "path": "label", "required": true, "kind": "string", "description": "노드 라벨"},
-    {"name": "description", "path": "description", "required": true, "kind": "string", "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
-    {"name": "operator", "path": "config.operator", "required": true, "kind": "string", "description": "비교 연산자 (예: equals, notEquals, contains, greaterThan, lessThan)"},
-    {"name": "left", "path": "config.left", "required": true, "kind": "expr", "description": "비교 좌변(선행 노드 참조식 가능)"},
-    {"name": "right", "path": "config.right", "required": true, "kind": "string", "description": "비교 우변(기대값)"}
+  "inputFields": [
+    {
+      "key": "operator",
+      "title": "비교 방식",
+      "type": "string",
+      "required": true,
+      "ref": false,
+      "choices": [
+        {
+          "id": "equals",
+          "name": "같음"
+        },
+        {
+          "id": "notEquals",
+          "name": "같지 않음"
+        },
+        {
+          "id": "contains",
+          "name": "포함"
+        },
+        {
+          "id": "notContains",
+          "name": "포함하지 않음"
+        },
+        {
+          "id": "greaterThan",
+          "name": "보다 큼"
+        },
+        {
+          "id": "lessThan",
+          "name": "보다 작음"
+        },
+        {
+          "id": "greaterThanOrEqual",
+          "name": "이상"
+        },
+        {
+          "id": "lessThanOrEqual",
+          "name": "이하"
+        },
+        {
+          "id": "isEmpty",
+          "name": "비어 있음"
+        },
+        {
+          "id": "isNotEmpty",
+          "name": "비어 있지 않음"
+        }
+      ],
+      "llm": {
+        "kind": "string",
+        "hint": "비교 연산자 (예: equals, notEquals, contains, greaterThan, lessThan)"
+      }
+    },
+    {
+      "key": "left",
+      "title": "비교할 값",
+      "type": "string",
+      "required": true,
+      "llm": {
+        "kind": "expr",
+        "hint": "비교 좌변(선행 노드 참조식 가능)"
+      }
+    },
+    {
+      "key": "right",
+      "title": "기준값",
+      "type": "string",
+      "required": true,
+      "llm": {
+        "hint": "비교 우변(기대값)"
+      }
+    }
   ],
-  "allowed_config_fields": ["operator", "left", "right"],
   "golden_snippet": {
     "id": "node-3",
     "type": "CONDITION",

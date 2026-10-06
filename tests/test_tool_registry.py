@@ -239,7 +239,7 @@ _EXPECTED_OPTION_FIELDS = {
 
 
 def test_tool_form_schema_공급원이_붙는_필드_집합():
-    """FIELD_META는 파라미터 이름 기준이라 같은 이름의 다른 도구 필드에 번질 수 있다 — 집합을 고정한다."""
+    """도구 필드 덮어쓰기에 optionsSource가 붙은 (도구, 필드) 집합을 고정한다 — 의도치 않게 번지거나 빠지면 실패."""
     actual = {(t["name"], f["name"])
               for t in tool_form_schema()["tools"] for f in t["fields"] if "optionsSource" in f}
     assert actual == _EXPECTED_OPTION_FIELDS
