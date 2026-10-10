@@ -1258,3 +1258,17 @@ async def test_chat_workflow_앱_트리거를_다른_템플릿으로_바꾸면_�
         result = await _call("트리거를 매일 9시로 바꿔줘",
                              current_nodes=APP_TRIGGER_FULL_NODES, current_edges=VALID_EDGES)
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
+
+
+@pytest.mark.parametrize("tid, trigger_type", [
+    ("trigger.gmail_new_email", "GMAIL_NEW_EMAIL"),
+    ("trigger.github_new_issue", "GITHUB_NEW_ISSUE"),
+])
+def test_chat_prompt_lists_app_trigger_outputs(tid, trigger_type):
+    """채팅 프롬프트의 필드명 규약이 카탈로그 outputFields와 어긋나지 않는다(어긋나면 LLM이 없는 필드를 참조)."""
+    from core import template_registry as tr
+    from core.workflow_chat import _SYSTEM_PROMPT_BASE
+
+    line = next(ln for ln in _SYSTEM_PROMPT_BASE.splitlines() if f"TRIGGER({trigger_type}" in ln)
+    for f in tr.get_template(tid)["outputFields"]:
+        assert f"`output.{f['key']}`" in line, (tid, f["key"])

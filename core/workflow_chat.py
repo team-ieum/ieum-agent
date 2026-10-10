@@ -195,6 +195,8 @@ _SYSTEM_PROMPT_BASE = """\
    - [필드명 규약] 노드 타입별 실제 출력 필드만 참조합니다(임의 필드명 results/content/data 금지):
      · AI 노드 결과 → `output.output` (예: 이중 중괄호로 nodes.node-2.output.output)
      · HTTP → `output.body`, `output.statusCode`   · TRIGGER(SCHEDULE) → `output.triggeredAt`
+     · TRIGGER(GMAIL_NEW_EMAIL) → `output.messageId`, `output.threadId`, `output.from`, `output.to`, `output.subject`, `output.snippet`, `output.bodyText`, `output.receivedAt`, `output.labels`
+     · TRIGGER(GITHUB_NEW_ISSUE) → `output.issueNumber`, `output.title`, `output.body`, `output.url`, `output.author`, `output.labels`, `output.repo`, `output.createdAt`
      · TRANSFORM → 그 노드 매핑에서 정의한 키
      · APPROVAL → `output.approvedBy`(승인자 ID), `output.approvedAt`(승인 시각)
    - [참조 전용] 이중 중괄호 안에는 'nodes.노드ID.output.필드명'만 허용됩니다. `{{#each}}`, `{{formatDate now}}`, `{{this.필드}}` 같은 헬퍼·함수·반복문은 **금지**입니다(엔진에 함수 없음). 날짜 삽입·반복·포맷팅이 필요하면 prompt에 자연어로 지시합니다.
@@ -216,6 +218,8 @@ _SYSTEM_PROMPT_BASE = """\
 5. 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 대변하는 한국어 이름을 'workflowName'에 기입하고, 수정 시에는 null로 둡니다.
 6. 모든 워크플로우는 1개의 TRIGGER 템플릿(trigger.manual / trigger.schedule / trigger.webhook)으로 시작합니다.
    trigger.schedule을 고르면 cron 슬롯에 5필드 표준 크론 표현식을 채웁니다(예: "매일 오전 9시" -> "0 9 * * *").
+   앱 트리거(GMAIL_NEW_EMAIL·GITHUB_NEW_ISSUE)는 빌더 전용이라 새로 만들지 않습니다. 수정 요청의 현재 워크플로우에서는
+   pass-through 노드로 보이며(종류는 'node.triggerType'), 후속 노드는 위 [필드명 규약]의 출력 필드로 참조합니다.
 7. [승인 게이트] 사용자가 사람의 승인·결재를 **명시적으로 요청한 경우에만** approval 템플릿을 넣습니다.
    승인이 필요한 노드(발송·저장 등) 바로 앞에 두며, 승인 전에는 그 뒤 노드가 실행되지 않습니다.
    message 슬롯에는 승인자에게 보여 줄 확인 문구를 씁니다. 요청이 없으면 발송·저장 노드 앞이라도 자동으로 넣지 않습니다.

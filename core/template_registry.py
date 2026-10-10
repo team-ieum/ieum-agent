@@ -692,15 +692,18 @@ def dehydrate_node(node: dict) -> dict | None:
         # 복원은 서버가 쥔 원본으로만 한다(hydrate_node 참고). 그래서 draft에는 LLM이 이 노드를
         # 식별하는 데 필요한 만큼만 담는다 — config를 통째로 실으면 저장된 credentialId·토큰
         # 같은 값이 프롬프트로 외부 LLM에 나가는데, 서버는 그 값을 쓰지도 않는다.
-        return {
-            "id": node.get("id"),
-            "templateId": PASSTHROUGH_TEMPLATE_ID,
-            "node": {
-                "type": node.get("type"),
-                "label": node.get("label"),
-                "description": node.get("description"),
-            },
+        ident = {
+            "type": node.get("type"),
+            "label": node.get("label"),
+            "description": node.get("description"),
         }
+        # 트리거는 종류(triggerType 열거값 하나)까지 실어 LLM이 출력 필드를 고르게 한다. 앱 트리거는
+        # 빌더 전용(generation false)이라 늘 여기로 온다. 나머지 config(query·repoId 등)는 여전히 싣지 않는다.
+        cfg = node.get("config")
+        if str(node.get("type") or "").upper() == "TRIGGER" and isinstance(cfg, dict) \
+                and isinstance(cfg.get("triggerType"), str):
+            ident["triggerType"] = cfg["triggerType"]
+        return {"id": node.get("id"), "templateId": PASSTHROUGH_TEMPLATE_ID, "node": ident}
     slots = {}
     for s in tpl["slots"]:
         if s["kind"] in _SYSTEM_INJECTED_KINDS:

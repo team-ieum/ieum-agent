@@ -542,3 +542,26 @@ def test_sheets_slots_listed_as_optional_in_catalog():
     i = next(i for i, l in enumerate(lines) if l.startswith("- ai.google_sheets_append "))
     for name in ("spreadsheet_id", "spreadsheet_id_name", "sheet_name"):
         assert f"{name}(string,선택)" in lines[i + 1]
+
+
+def test_트리거_passthrough_draft는_triggerType만_더_싣는다():
+    """LLM이 앱 트리거 종류를 알아야 출력 필드를 고른다. 나머지 config(메일 검색식·repoId)는 싣지 않는다."""
+    from core.template_registry import dehydrate_node
+
+    node = {"id": "node-1", "type": "TRIGGER", "label": "새 메일", "description": "설명",
+            "config": {"triggerType": "GITHUB_NEW_ISSUE", "serviceType": "GITHUB", "repoId": "987654",
+                       "_names": {"repoId": "secret-org/private-repo"}, "query": "from:boss@x.com"}}
+    draft = dehydrate_node(node)
+    assert draft["node"] == {"type": "TRIGGER", "label": "새 메일", "description": "설명",
+                             "triggerType": "GITHUB_NEW_ISSUE"}
+    dumped = json.dumps(draft, ensure_ascii=False)
+    for leaked in ("987654", "secret-org", "boss@x.com"):
+        assert leaked not in dumped
+
+
+def test_트리거가_아닌_passthrough_draft_모양은_그대로다():
+    from core.template_registry import dehydrate_node
+
+    node = {"id": "node-2", "type": "AI", "label": "옛노드", "description": "설명",
+            "config": {"triggerType": "GMAIL_NEW_EMAIL", "tools": [{"name": "builtin:json_parse"}]}}
+    assert set(dehydrate_node(node)["node"]) == {"type", "label", "description"}
