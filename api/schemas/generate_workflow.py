@@ -42,7 +42,7 @@ _LEGACY_CONDITION_KEYS = {"leftValue": "left", "rightValue": "right"}
 
 class WorkflowNode(BaseModel):
     id: str
-    type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM | APPROVAL
+    type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM | APPROVAL | ACTION
     label: str
     # 노드 카드에 표시할 사용자용 자연어 설명. 템플릿의 description 슬롯이 필수로 채우지만,
     # description 도입 이전에 저장된 워크플로우가 수정/채팅 요청으로 되돌아오므로 기본값을 둔다.
@@ -115,6 +115,12 @@ class WorkflowNode(BaseModel):
             message = cfg.get("message")
             if message is not None and not isinstance(message, str):
                 raise ValueError("APPROVAL 노드의 message는 문자열이어야 합니다.")
+
+        elif node_type == "ACTION":
+            # 빌더 전용 앱 액션(generation false). 채팅 수정에서는 pass-through로 서버 원본이 복원되므로
+            # config를 여기서 검증하지 않는다 — BE 저장도 검증하지 않고, tools[0].name은 BE
+            # ActionNodeExecutor가 실행 시점에 확인한다. 여기서 거부하면 그 워크플로우는 채팅 수정이 영구 422다.
+            pass
 
         else:
             raise ValueError(f"유효하지 않은 노드 type입니다: {self.type}")

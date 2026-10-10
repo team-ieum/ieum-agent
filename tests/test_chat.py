@@ -1272,3 +1272,81 @@ def test_chat_prompt_lists_app_trigger_outputs(tid, trigger_type):
     line = next(ln for ln in _SYSTEM_PROMPT_BASE.splitlines() if f"TRIGGER({trigger_type}" in ln)
     for f in tr.get_template(tid)["outputFields"]:
         assert f"`output.{f['key']}`" in line, (tid, f["key"])
+
+
+# ── ACTION 노드(빌더 전용)가 든 워크플로우 수정 ─────────────────────────────
+
+ACTION_FULL_NODES = [
+    {"id": "node-1", "type": "TRIGGER", "label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.",
+     "config": {"triggerType": "MANUAL"}},
+    {"id": "node-2", "type": "ACTION", "label": "이슈 만들기", "description": "저장소에 이슈를 만들어요.",
+     "config": {"tools": [{"name": "builtin:github_create_issue",
+                           "config": {"owner": "ieum", "repo": "demo", "title": "주간 점검",
+                                      "body": "{{nodes.node-1.output.triggeredAt}}",
+                                      "_names": {"owner": "ieum", "repo": "demo"}}}],
+                "brand": "github", "serviceType": "GITHUB"}},
+    {"id": "node-3", "type": "ACTION", "label": "슬랙 알림", "description": "슬랙으로 알려요.",
+     "config": {"tools": [{"name": "slack",
+                           "config": {"webhookCredentialId": "wh-1",
+                                      "message": "{{nodes.node-2.output.url}}"}}],
+                "brand": "slack", "serviceType": "SLACK"}},
+]
+ACTION_EDGES = [{"source": "node-1", "target": "node-2", "conditionType": None},
+                {"source": "node-2", "target": "node-3", "conditionType": None}]
+
+ACTION_KEPT_JSON = json.dumps({
+    "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
+    "changeDescription": "트리거 이름을 바꿨습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.manual",
+         "slots": {"label": "수동 시작", "description": "버튼을 누르면 시작해요."}},
+        {"id": "node-2", "templateId": "__passthrough__"},
+        {"id": "node-3", "templateId": "__passthrough__"},
+    ],
+    "edges": ACTION_EDGES,
+})
+
+
+def test_ACTION_노드는_채팅에서_passthrough로_분류된다():
+    """액션은 generation false라 채팅 수정에서 편집 대상이 아니다 — 서버 원본으로만 복원된다."""
+    from core import template_registry as tr
+
+    for node in ACTION_FULL_NODES[1:]:
+        assert tr.resolve_template_for_node(node) is None
+        draft = tr.dehydrate_node(node)
+        assert draft["templateId"] == tr.PASSTHROUGH_TEMPLATE_ID
+        assert "config" not in draft["node"]   # 도구 인자·웹훅 id는 프롬프트로 나가지 않는다
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_ACTION_노드는_원본_그대로_복원된다():
+    p1, p2, p3 = _make_patches(ACTION_KEPT_JSON)
+    with p1, p2, p3:
+        result = await _call(
+            "트리거 이름을 수동 시작으로 바꿔줘",
+            current_nodes=json.loads(json.dumps(ACTION_FULL_NODES)), current_edges=ACTION_EDGES,
+            available_webhooks=[{"webhookCredentialId": "wh-1", "provider": "SLACK", "displayName": "내 채널"}],
+        )
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    by_id = {n.id: n for n in result.nodes}
+    assert by_id["node-1"].label == "수동 시작"
+    for orig in ACTION_FULL_NODES[1:]:
+        node = by_id[orig["id"]]
+        assert node.type == "ACTION"
+        assert node.config == orig["config"]          # brand 재도출도 하지 않는다
+        assert node.description == orig["description"]
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_ACTION_웹훅은_보유분이_아니면_제거된다():
+    """pass-through여도 웹훅 크레덴셜 스트립은 적용된다(_finalize_nodes 의도 — 인가 검사는 면제 대상이 아님).
+    도구와 나머지 인자는 남는다."""
+    p1, p2, p3 = _make_patches(ACTION_KEPT_JSON)
+    with p1, p2, p3:
+        result = await _call(
+            "트리거 이름을 수동 시작으로 바꿔줘",
+            current_nodes=json.loads(json.dumps(ACTION_FULL_NODES)), current_edges=ACTION_EDGES,
+        )
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    slack = next(n for n in result.nodes if n.id == "node-3")
+    assert slack.config["tools"] == [{"name": "slack", "config": {"message": "{{nodes.node-2.output.url}}"}}]
