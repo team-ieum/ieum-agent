@@ -1261,17 +1261,38 @@ async def test_chat_workflow_앱_트리거를_다른_템플릿으로_바꾸면_�
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
 
 
-@pytest.mark.parametrize("tid, trigger_type", [
-    ("trigger.gmail_new_email", "GMAIL_NEW_EMAIL"),
-    ("trigger.github_new_issue", "GITHUB_NEW_ISSUE"),
-])
-def test_chat_prompt_lists_app_trigger_outputs(tid, trigger_type):
-    """채팅 프롬프트의 필드명 규약이 카탈로그 outputFields와 어긋나지 않는다(어긋나면 LLM이 없는 필드를 참조)."""
+@pytest.mark.asyncio
+async def test_chat_prompt_lists_app_trigger_outputs():
+    """앱 트리거 출력 필드 줄은 카탈로그 outputFields에서 렌더된다(손으로 쓰면 어긋나 LLM이 없는 필드를 참조)."""
     from core import template_registry as tr
-    from core.workflow_chat import _SYSTEM_PROMPT_BASE
+    from core.workflow_chat import _APP_TRIGGER_OUTPUTS_MARKER, _SYSTEM_PROMPT_BASE
 
-    line = next(ln for ln in _SYSTEM_PROMPT_BASE.splitlines() if f"TRIGGER({trigger_type}" in ln)
-    assert set(re.findall(r"`output\.(\w+)`", line)) == {f["key"] for f in tr.get_template(tid)["outputFields"]}, tid
+    assert _SYSTEM_PROMPT_BASE.count(_APP_TRIGGER_OUTPUTS_MARKER) == 1
+    captured = []
+
+    def _agent_factory(**kwargs):
+        captured.append(kwargs.get("instruction") or "")
+        return MagicMock()
+
+    p1, p2, p3 = _make_patches(WORKFLOW_MODIFIED_JSON)
+    with p1, p2, p3, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
+        await _call("수정해줘", current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
+    designer_instruction = captured[0]
+    assert _APP_TRIGGER_OUTPUTS_MARKER not in designer_instruction
+    for tid, trigger_type in [("trigger.gmail_new_email", "GMAIL_NEW_EMAIL"),
+                              ("trigger.github_new_issue", "GITHUB_NEW_ISSUE")]:
+        line = next(ln for ln in designer_instruction.splitlines() if f"· TRIGGER({trigger_type})" in ln)
+        assert set(re.findall(r"`output\.(\w+)`", line)) == \
+            {f["key"] for f in tr.get_template(tid)["outputFields"]}, tid
+
+
+def test_reviewer_does_not_flag_passthrough_nodes():
+    """리뷰어가 ACTION 등 pass-through 노드를 결함 판정하면 Designer가 새 id 노드로 조용히 바꿔치기한다."""
+    from core.workflow_chat import _REVIEWER_SYSTEM_PROMPT
+
+    assert ('templateId가 "__passthrough__"인 노드(ACTION·앱 트리거 등)는 사용자가 빌더에서 만든 편집 불가 노드이고'
+            " 서버가 원본을 복원합니다 — type·도구·설정이 보이지 않아도 결함으로 지적하거나 다른 노드로 바꾸라고"
+            " 요구하지 마십시오.") in _REVIEWER_SYSTEM_PROMPT
 
 
 # ── ACTION 노드(빌더 전용)가 든 워크플로우 수정 ─────────────────────────────

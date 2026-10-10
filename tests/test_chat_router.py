@@ -190,6 +190,17 @@ def test_chat_endpoint_카탈로그_ACTION_fixed는_전부_수용():
         assert response.status_code == ErrorCode.CHAT_PARSE_FAILED.status_code, (t["id"], response.text)
 
 
+def test_chat_endpoint_ACTION_tools_비리스트는_422():
+    payload = dict(CHAT_PAYLOAD, currentNodes=[
+        {"id": "node-1", "type": "TRIGGER", "label": "시작", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "ACTION", "label": "액션", "config": {"tools": 5}},
+    ], currentEdges=[])
+    with patch("api.routes.chat.chat_workflow") as chat:
+        response = client.post("/v1/chat", json=payload)
+    assert response.status_code == 422
+    chat.assert_not_called()
+
+
 @pytest.mark.parametrize("node_type", ["ACTIONS", "UNKNOWN"])
 def test_chat_endpoint_모르는_노드_type은_422(node_type):
     payload = dict(CHAT_PAYLOAD, currentNodes=[

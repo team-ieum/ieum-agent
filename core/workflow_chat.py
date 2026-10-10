@@ -36,7 +36,7 @@ from tools.slack import send_slack_message
 from agents.base import _safe_close_mcp
 from core.validators.workflow_validator import WorkflowValidator
 from core.template_registry import (
-    dehydrate_nodes, slot_catalog_text,
+    dehydrate_nodes, slot_catalog_text, all_entries,
     PASSTHROUGH_TEMPLATE_ID,
 )
 from core.node_hydration import prepare_hydrated_nodes
@@ -175,9 +175,24 @@ _REVIEWER_SYSTEM_PROMPT = """\
    - 단, 수정(WORKFLOW_MODIFIED) 초안의 approval 노드는 이전 대화에서 요청해 이미 있던 것일 수 있으므로, 이번 요청에 승인 언급이 없다는 이유만으로 결함 처리하지 마십시오.
 </verification_checklist>
 
+templateId가 "__passthrough__"인 노드(ACTION·앱 트리거 등)는 사용자가 빌더에서 만든 편집 불가 노드이고 서버가 원본을 복원합니다 — type·도구·설정이 보이지 않아도 결함으로 지적하거나 다른 노드로 바꾸라고 요구하지 마십시오.
+
 설계 초안에 결함이나 규칙 위반이 존재한다면 isValid를 false로 하고, 피드백(feedback) 필드에 구체적으로 어떤 부분을 어떻게 수정해야 하는지 피드백 메시지를 상세히 작성하여 반환하십시오.
 모든 체크리스트가 완벽히 통과되고 설계상 오류가 전혀 없다면 isValid를 true, feedback을 null로 반환하십시오.
 """
+
+
+# 앱 트리거 출력 필드 줄은 카탈로그 outputFields에서 조립 시점에 렌더한다(손으로 쓰면 카탈로그와 어긋난다).
+_APP_TRIGGER_OUTPUTS_MARKER = "<<APP_TRIGGER_OUTPUTS>>"
+
+
+def _app_trigger_output_lines() -> str:
+    """all_entries() 중 앱 트리거(TRIGGER + app)마다 '· TRIGGER(<triggerType>) → `output.k`, ...' 한 줄."""
+    return "\n".join(
+        f"     · TRIGGER({t['fixed']['config']['triggerType']}) → "
+        + ", ".join(f"`output.{f['key']}`" for f in t.get("outputFields", []))
+        for t in all_entries() if t["node_type"] == "TRIGGER" and t.get("app")
+    )
 
 
 _SYSTEM_PROMPT_BASE = """\
@@ -195,8 +210,7 @@ _SYSTEM_PROMPT_BASE = """\
    - [필드명 규약] 노드 타입별 실제 출력 필드만 참조합니다(임의 필드명 results/content/data 금지):
      · AI 노드 결과 → `output.output` (예: 이중 중괄호로 nodes.node-2.output.output)
      · HTTP → `output.body`, `output.statusCode`   · TRIGGER(SCHEDULE) → `output.triggeredAt`
-     · TRIGGER(GMAIL_NEW_EMAIL) → `output.messageId`, `output.threadId`, `output.from`, `output.to`, `output.subject`, `output.snippet`, `output.bodyText`, `output.receivedAt`, `output.labels`
-     · TRIGGER(GITHUB_NEW_ISSUE) → `output.issueNumber`, `output.title`, `output.body`, `output.url`, `output.author`, `output.labels`, `output.repo`, `output.createdAt`
+<<APP_TRIGGER_OUTPUTS>>
      · TRANSFORM → 그 노드 매핑에서 정의한 키
      · APPROVAL → `output.approvedBy`(승인자 ID), `output.approvedAt`(승인 시각)
    - [참조 전용] 이중 중괄호 안에는 'nodes.노드ID.output.필드명'만 허용됩니다. `{{#each}}`, `{{formatDate now}}`, `{{this.필드}}` 같은 헬퍼·함수·반복문은 **금지**입니다(엔진에 함수 없음). 날짜 삽입·반복·포맷팅이 필요하면 prompt에 자연어로 지시합니다.
@@ -514,7 +528,7 @@ async def chat_workflow(
                 f"templateId가 \"{PASSTHROUGH_TEMPLATE_ID}\"인 노드({', '.join(sorted(passthrough_ids))})는"
                 "\n   편집을 지원하지 않는다. 남겨 둘 거라면 templateId를 그대로 두고 반환한다(서버가"
                 "\n   원본으로 복원한다. 다른 templateId로 바꾸면 수정이 거부된다). 사용자가 이 노드의"
-                "\n   삭제를 요청했다면 출력에서 빼면 된다. 그 밖의 변경을 요청하면 수정본을 만들지 말고"
+                "\n   삭제나 다른 노드로의 교체를 요청했다면 출력에서 빼면 된다(교체할 노드는 새 id로 만든다). 그 밖의 변경을 요청하면 수정본을 만들지 말고"
                 "\n   CLARIFICATION_NEEDED로 \"이 노드는 편집을 지원하지 않는다\"고 답한다."
                 "\n   설명(description)이 비어 있을 때만 'node' 필드에 description을 채울 수 있다."
             )
@@ -542,7 +556,7 @@ async def chat_workflow(
     webhook_catalog_section = format_webhook_catalog(available_webhooks)
 
     instruction = (
-        _SYSTEM_PROMPT_BASE
+        _SYSTEM_PROMPT_BASE.replace(_APP_TRIGGER_OUTPUTS_MARKER, _app_trigger_output_lines())
         + f"\n\n## 노드 템플릿 카탈로그 (templateId + 채울 슬롯)\n{catalog}"
         + (f"\n\n{mcp_catalog_section}" if mcp_catalog_section else "")
         + (f"\n\n{webhook_catalog_section}" if webhook_catalog_section else "")

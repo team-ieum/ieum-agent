@@ -15,6 +15,8 @@ import json
 import glob
 import logging
 
+from api.schemas.generate_workflow import TRIGGER_TYPES
+
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = os.path.abspath(
@@ -119,6 +121,9 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
     app = tpl.get("app")
     if app is not None and app not in VALID_SERVICE_TYPES:
         raise TemplateSchemaError(f"{tid}: app '{app}' 유효하지 않음 {sorted(VALID_SERVICE_TYPES)}")
+    if tpl["node_type"] == "TRIGGER" and fixed_config.get("triggerType") not in TRIGGER_TYPES:
+        raise TemplateSchemaError(
+            f"{tid}: triggerType '{fixed_config.get('triggerType')}'가 BE TriggerType에 없음 {list(TRIGGER_TYPES)}")
 
     inputs = tpl.get("inputFields", [])
     if not isinstance(inputs, list):
@@ -330,10 +335,19 @@ def _matches(match: dict, node: dict) -> bool:
     return True
 
 
+# (정렬 기준이 된 load_templates() dict, 정렬 결과). dict가 바뀌면(force 재로드·_cache 교체) 다시 정렬한다.
+# lru_cache를 쓰지 않는 이유: 인자가 없어 재로드 후에도 낡은 결과를 돌려준다.
+_builder_memo: tuple = (None, ())
+
+
 def builder_entries() -> list:
-    """builder 항목을 match 평가 순서(조건 수 내림차순, 같으면 id)로 반환한다."""
-    return sorted((t for t in load_templates().values() if t["builder"]),
-                  key=lambda t: (-len(t["match"]), t["id"]))
+    """builder 항목을 match 평가 순서(조건 수 내림차순, 같으면 id)로 반환한다(노드마다 불리므로 메모)."""
+    global _builder_memo
+    templates = load_templates()
+    if _builder_memo[0] is not templates:
+        _builder_memo = (templates, tuple(sorted((t for t in templates.values() if t["builder"]),
+                                                 key=lambda t: (-len(t["match"]), t["id"]))))
+    return list(_builder_memo[1])
 
 
 def _match_view(node: dict) -> dict:
@@ -669,12 +683,6 @@ def _get_by_path(obj, path: str):
     return cur
 
 
-def _known_trigger_types() -> set:
-    """레지스트리 TRIGGER 항목들의 fixed.config.triggerType 집합(빌더 전용 포함). 런타임 전용 — 로더 안에서 부르지 않는다."""
-    return {t["fixed"].get("config", {}).get("triggerType")
-            for t in load_templates().values() if t["node_type"] == "TRIGGER"} - {None}
-
-
 def dehydrate_node(node: dict) -> dict | None:
     """완성된 노드(full-node)를 draft({id, templateId, slots})로 역변환한다(MODIFY 편집용).
 
@@ -711,7 +719,7 @@ def dehydrate_node(node: dict) -> dict | None:
         # 빌더 전용(generation false)이라 늘 여기로 온다. 나머지 config(query·repoId 등)는 여전히 싣지 않는다.
         cfg = node.get("config")
         if str(node.get("type") or "").upper() == "TRIGGER" and isinstance(cfg, dict) \
-                and isinstance(cfg.get("triggerType"), str) and cfg["triggerType"] in _known_trigger_types():
+                and isinstance(cfg.get("triggerType"), str) and cfg["triggerType"] in TRIGGER_TYPES:
             ident["triggerType"] = cfg["triggerType"]
         return {"id": node.get("id"), "templateId": PASSTHROUGH_TEMPLATE_ID, "node": ident}
     slots = {}
