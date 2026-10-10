@@ -565,8 +565,8 @@ async def chat_workflow(
         pass-through 노드에 대한 취급이 차원마다 다르다:
         - 브랜드 재도출은 **제외**. 저장돼 있던 배지가 무관한 수정 한 번에 바뀌면 안 된다
         - 웹훅 크레덴셜 스트립은 **적용**. 미보유 id를 제거하는 방식이라 레거시를 깨지 않는다.
-          현재는 도달하지 않는 조합이지만(slack/discord 도구는 tool_key가 매칭돼 pass-through가
-          되지 않는다) 제외해 둘 이유가 없다 — 이 노드도 요청 바디에서 온 값이다
+          ACTION slack·discord pass-through 노드도 실제로 이 경로를 탄다 — 이 노드도 요청 바디에서
+          온 값이다(test_chat_workflow_ACTION_웹훅은_보유분이_아니면_제거된다가 고정)
         - 내용 검증만 면제하고 MCP 인가는 유지(WorkflowValidator 참고)"""
         apply_service_brand([n for n in raw_nodes if n.get("id") not in passthrough_ids])
         _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)

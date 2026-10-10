@@ -43,7 +43,7 @@ _LEGACY_TOP_KEYS = {"slots", "allowed_config_fields"}  # 이제 파생값 — �
 # dehydrate_node가 None(드롭) 대신 이 templateId를 단 draft를 반환해 MODIFY 왕복에서 노드가
 # 소실되지 않게 한다.
 #
-# **draft["node"]에는 식별용 필드(type·label·description)만 담고, 복원은 hydrate_node가 호출부에서
+# **draft["node"]에는 식별용 필드(type·label·description, TRIGGER는 triggerType 열거값 하나 추가)만 담고, 복원은 hydrate_node가 호출부에서
 # 받은 passthrough_originals에서만 한다.** draft는 LLM 프롬프트에 실려 나가고 LLM이 그대로 되돌려
 # 보내는 값이라 신뢰 대상이 아니다 — config를 담으면 저장된 credentialId·토큰이 외부 LLM으로
 # 나가고, 복원에 쓰면 슬롯 검증이 통째로 우회된다. 둘 다 실제로 지적됐던 경로다.
@@ -675,7 +675,7 @@ def dehydrate_node(node: dict) -> dict | None:
     resolve_template_for_node로 templateId를 찾고, 각 슬롯의 path에서 현재 값을 읽어 slots를 구성한다.
     provider/model 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 노드를 버리지 않고
     pass-through draft({"id", "templateId": PASSTHROUGH_TEMPLATE_ID, "node"})를 반환한다.
-    **이때 "node"에는 LLM이 노드를 식별할 만큼(type·label·description)만 담는다** — 복원은
+    **이때 "node"에는 LLM이 노드를 식별할 만큼(type·label·description, TRIGGER는 triggerType 열거값 하나 추가)만 담는다** — 복원은
     hydrate_node가 서버 측 원본에서 하므로 config는 필요 없고, 실으면 저장된 credentialId·토큰이
     프롬프트로 외부 LLM에 나간다. node 자체가 dict가 아니면 None(역변환 불가)."""
     if not isinstance(node, dict):
