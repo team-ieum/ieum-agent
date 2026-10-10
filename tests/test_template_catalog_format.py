@@ -19,6 +19,10 @@ APP_PRESETS = [
 ]
 
 
+# SMTP 자격증명(sender_email·sender_password) 주입 경로가 없어 실행할 수 없다 — OAuth 전환 전까지 빌더에서 숨긴다.
+HIDDEN_ACTIONS = {"ai.gmail_send"}
+
+
 def _raw(tid: str) -> dict:
     with open(os.path.join(tr.TEMPLATES_DIR, f"{tid}.json"), encoding="utf-8") as f:
         return json.load(f)
@@ -132,12 +136,46 @@ def test_action_entries_mirror_app_presets():
         preset = entries[pid]
         action = entries["action." + pid[len("ai."):]]
         assert preset["builder"] is False and preset["generation"] is True, pid
-        assert action["builder"] is True and action["generation"] is False, pid
+        assert action["builder"] is (pid not in HIDDEN_ACTIONS) and action["generation"] is False, pid
         assert action["node_type"] == "ACTION"
         assert action["tool_key"] == preset["tool_key"]
         assert action["fixed"] == {"type": "ACTION", "config": {
             "tools": [{"name": preset["tool_key"]}], "serviceType": preset["app"]}}
-    assert len([t for t in entries.values() if t["node_type"] == "ACTION"]) == 17
+    # 앱 프리셋 17개의 거울 + 프리셋 없는 GitHub 액션 2개
+    assert len([t for t in entries.values() if t["node_type"] == "ACTION"]) == 19
+
+
+@pytest.mark.parametrize("tid, tool_key, keys", [
+    ("action.github_list_issues", "builtin:github_list_issues", ["owner", "repo", "state"]),
+    ("action.github_create_issue", "builtin:github_create_issue", ["owner", "repo", "title", "body"]),
+])
+def test_github_action_entries(tid, tool_key, keys):
+    t = tr.get_template(tid)
+    assert (t["node_type"], t["app"], t["tool_key"]) == ("ACTION", "GITHUB", tool_key)
+    assert (t["builder"], t["generation"]) == (True, False)
+    assert t["fixed"] == {"type": "ACTION", "config": {"tools": [{"name": tool_key}], "serviceType": "GITHUB"}}
+    # 입력 칸 = 시그니처 순서. 실행 시 주입되는 token은 칸에서 빠진다.
+    assert [f["key"] for f in t["inputFields"]] == keys
+    assert all(f["path"] == f"config.tools.0.config.{f['key']}" for f in t["inputFields"])
+
+
+def test_github_actions_hidden_from_generation_views():
+    ids = {t["id"] for t in tr.all_templates()}
+    assert not {i for i in ids if i.startswith("action.")}
+    assert "builtin:github_create_issue" not in tr.menu_index()
+
+
+def test_github_tool_key_drift_still_rejected():
+    """builtin:github_* 허용이 접두사 통과가 아니라 실제 등록된 함수 기준이어야 한다."""
+    path = os.path.join(tr.TEMPLATES_DIR, "action.github_list_issues.json")
+    raw = _raw("action.github_list_issues")
+    raw["tool_key"] = "builtin:github_nope"
+    with pytest.raises(TemplateSchemaError, match="드리프트"):
+        tr._validate_template(raw, path, tr._tool_map_keys())
+    raw = _raw("action.github_list_issues")
+    raw["fixed"]["config"]["tools"][0]["name"] = "builtin:github_nope"
+    with pytest.raises(TemplateSchemaError, match="드리프트"):
+        tr._validate_template(raw, path, tr._tool_map_keys())
 
 
 def test_tool_fields_shared_by_preset_and_action():
@@ -243,3 +281,33 @@ def test_designer_prompt_points_resource_ids_to_slots():
     from core.workflow_chat import _SYSTEM_PROMPT_BASE
     assert "Calendar calendar_id" in _SYSTEM_PROMPT_BASE
     assert "(Notion·GitHub 등)" not in _SYSTEM_PROMPT_BASE
+
+
+def test_gmail_action_hidden_from_builder():
+    from core.node_catalog import node_catalog
+
+    assert tr.get_template("action.gmail_send")["builder"] is False
+    assert "action.gmail_send" not in {e["id"] for e in node_catalog()["entries"]}
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    assert "gmail" not in {c["id"] for c in tools["choices"]}
+    # 저장된 gmail ACTION 노드는 어떤 빌더 항목에도 안 걸린다(FE가 폼을 못 연다 — 의도)
+    assert tr.match_entry({"type": "ACTION", "config": {"tools": [{"name": "gmail"}]}}) is None
+
+
+def test_gmail_generation_preset_unchanged_by_hiding_action():
+    """숨기는 건 빌더용 액션뿐이다 — 채팅 생성이 쓰는 ai.gmail_send 프리셋은 그대로다."""
+    assert "ai.gmail_send" in {t["id"] for t in tr.all_templates()}
+    assert tr.get_template("ai.gmail_send")["generation"] is True
+
+
+def test_cold_load_never_enters_intent_brand_path(monkeypatch):
+    """로더가 brand를 계산하는 중에 select_by_tags(→ load_templates 재진입 → 무한 재귀)를 부르면 기동이 실패한다."""
+    def boom(*args, **kwargs):
+        raise AssertionError("로더 안에서 intent 경로(select_by_tags)를 탔다")
+
+    monkeypatch.setattr(tr, "select_by_tags", boom)
+    monkeypatch.setattr(tr, "_cache", None)
+    templates = tr.load_templates(force=True)
+    assert templates["ai.github_query"]["brand"] == "github"
+    assert templates["ai.reasoning"]["brand"] == "openai"
+    assert templates["action.github_create_issue"]["brand"] == "github"

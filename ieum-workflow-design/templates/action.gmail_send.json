@@ -5,7 +5,7 @@
   "description": "Gmail로 메일을 보내요.",
   "app": "GOOGLE",
   "tool_key": "gmail",
-  "builder": true,
+  "builder": false,
   "generation": false,
   "fixed": {
     "type": "ACTION",

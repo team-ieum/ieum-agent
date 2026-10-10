@@ -1,0 +1,94 @@
+{
+  "id": "action.github_list_issues",
+  "node_type": "ACTION",
+  "title": "GitHub 이슈 목록 조회",
+  "description": "저장소의 이슈 목록을 가져와요.",
+  "app": "GITHUB",
+  "tool_key": "builtin:github_list_issues",
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "ACTION",
+    "config": {
+      "tools": [
+        {
+          "name": "builtin:github_list_issues"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "owner": {
+      "title": "소유자",
+      "description": "저장소를 가진 계정 또는 조직",
+      "optionsSource": "github.owners"
+    },
+    "repo": {
+      "title": "저장소",
+      "description": "이슈를 가져올 저장소",
+      "optionsSource": "github.repos",
+      "optionsInputs": [
+        "owner"
+      ]
+    },
+    "state": {
+      "title": "상태",
+      "ref": false,
+      "choices": [
+        {
+          "id": "open",
+          "name": "열림"
+        },
+        {
+          "id": "closed",
+          "name": "닫힘"
+        },
+        {
+          "id": "all",
+          "name": "전체"
+        }
+      ]
+    }
+  },
+  "outputFields": [
+    {
+      "key": "issues",
+      "title": "이슈",
+      "type": "object",
+      "list": true,
+      "children": [
+        {
+          "key": "number",
+          "title": "번호",
+          "type": "integer"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "state",
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "key": "labels",
+          "title": "라벨",
+          "type": "string",
+          "list": true
+        },
+        {
+          "key": "created_at",
+          "title": "만든 시각",
+          "type": "datetime"
+        }
+      ]
+    },
+    {
+      "key": "total",
+      "title": "개수",
+      "type": "integer"
+    }
+  ]
+}

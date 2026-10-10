@@ -65,9 +65,12 @@ def test_builder_entries_order_most_specific_first():
 
 
 def test_agent_tool_choices_cover_actions():
+    from tools import _TOOL_MAP
     agent = tr.get_template("ai.agent")
     tools = next(f for f in agent["inputFields"] if f["key"] == "tools")
-    actions = {t["tool_key"]: t["title"] for t in tr.all_entries() if t["node_type"] == "ACTION" and t["builder"]}
+    # github 액션은 _TOOL_MAP 밖(동적 서브에이전트 서비스)이라 AI 노드 도구 선택지가 아니다
+    actions = {t["tool_key"]: t["title"] for t in tr.all_entries()
+               if t["node_type"] == "ACTION" and t["builder"] and t["tool_key"] in _TOOL_MAP}
     assert {c["id"]: c["name"] for c in tools["choices"]} == actions
     assert tools["required"] is True and tools["list"] is True
     assert agent["generation"] is False
@@ -84,3 +87,16 @@ def test_duplicate_builder_match_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(tr, "_cache", None)
     with pytest.raises(TemplateSchemaError, match="match"):
         tr.load_templates(force=True)
+
+
+def test_agent_tool_choices_exclude_dynamic_mount_services():
+    """AI 노드 GitHub 계약은 tools: [] — 선택지에 github 액션이 있으면 FE가 tools에 넣어 계약이 깨진다."""
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    assert not [c for c in tools["choices"] if "github" in c["id"]]
+    assert tr.get_template("action.github_list_issues")["builder"] is True   # 카탈로그엔 따로 있다
+
+
+def test_github_action_nodes_match_their_entries():
+    for tid in ("action.github_list_issues", "action.github_create_issue"):
+        node = tr.get_template(tid)["fixed"]
+        assert tr.match_entry(node)["id"] == tid

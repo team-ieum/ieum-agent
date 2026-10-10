@@ -15,6 +15,7 @@ import inspect
 
 from tools import _TOOL_MAP
 from tools.github import (
+    github_create_issue,
     github_list_orgs,
     github_list_repos,
     github_list_issues,
@@ -50,16 +51,33 @@ SERVICE_POLICY: dict[str, dict] = {
 }
 
 # 동적 서브에이전트로 마운트되어 노드 tools:[]를 쓰는 서비스의 액션 함수.
-# _TOOL_MAP에 없으므로(노드 tools 키가 아님) 블루프린트 표현을 위해 별도로 등록한다.
-# 노드 tools에는 들어가지 않으며, 프롬프트/문서용 파라미터 스펙 파생에만 쓴다.
+# _TOOL_MAP에 없다(AI 노드 tools 키가 아님 — tools_must_be_empty 계약). 쓰는 곳은 두 갈래다:
+# 프롬프트/문서용 파라미터 스펙 파생, 그리고 ACTION 실행(resolve_action_fn이 `builtin:github_<x>`를 여기서 찾는다).
 _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
     "github": {
         "github_list_orgs": github_list_orgs,
         "github_list_repos": github_list_repos,
         "github_list_issues": github_list_issues,
         "github_list_pull_requests": github_list_pull_requests,
+        # ACTION 노드(POST /v1/actions/execute)만 쓰는 쓰기 도구. AI 서브에이전트의 도구 목록은 따로
+        # 하드코딩돼 있어 여기 등록해도 AI 쪽엔 노출되지 않는다.
+        "github_create_issue": github_create_issue,
     },
 }
+
+
+def resolve_action_fn(tool_key):
+    """ACTION 실행·카탈로그가 쓰는 tool_key → 도구 함수. 모르는 키면 None.
+
+    _TOOL_MAP 키 그대로, 또는 `builtin:github_<x>` → _DYNAMIC_SERVICE_ACTIONS["github"]["github_<x>"].
+    github 액션은 _TOOL_MAP에 넣지 않는다(AI 노드 tools_must_be_empty 계약)."""
+    if not isinstance(tool_key, str):
+        return None
+    if tool_key in _TOOL_MAP:
+        return _TOOL_MAP[tool_key]
+    if tool_key.startswith("builtin:github_"):
+        return _DYNAMIC_SERVICE_ACTIONS["github"].get(tool_key[len("builtin:"):])
+    return None
 
 
 def _classify(param: inspect.Parameter) -> str:
@@ -127,7 +145,7 @@ def required_user_params(name: str) -> list[str]:
 def _service_of(name: str) -> str:
     """도구 키에서 서비스명을 추론한다. builtin: 프리픽스와 세부 동작 접미사를 제거한다."""
     base = name.split(":", 1)[-1]  # builtin:notion_create_page -> notion_create_page
-    for service in ("notion", "google_sheets", "google_calendar", "google_drive",
+    for service in ("notion", "github", "google_sheets", "google_calendar", "google_drive",
                     "slack", "discord", "gmail", "web_search", "http_fetch",
                     "workflow_context", "json_parse", "text_extract", "date_format"):
         if base == service or base.startswith(service):
@@ -165,7 +183,8 @@ def brand_for_node(node: dict) -> str:
     """노드의 UI brand 키를 도출한다.
 
     우선순위: 노드 tools의 tool_key에서 추출한 서비스(SERVICE_BRAND) → node_type 기본값.
-    동적 서브에이전트 서비스(github 등)는 노드 tools가 비어([]) tool_key가 없으므로,
+    ACTION 노드는 github도 tool_key(`builtin:github_<x>`)가 있어 첫 갈래로 답한다.
+    AI 노드의 동적 서브에이전트 서비스(github 등)는 tools가 비어([]) tool_key가 없으므로,
     intent(라벨+프롬프트) 태그 매칭으로 서비스를 식별한다(생성 시 분류와 동일 신호)."""
     config = node.get("config") if isinstance(node, dict) else None
     tools = config.get("tools") if isinstance(config, dict) else None
@@ -186,6 +205,18 @@ def brand_for_node(node: dict) -> str:
         if service and SERVICE_BRAND.get(service):
             return SERVICE_BRAND[service]
     return _NODE_TYPE_BRAND.get(ntype, _DEFAULT_BRAND)
+
+
+def brand_for_entry(entry: dict) -> str:
+    """카탈로그 항목(로더 메모리 항목)의 brand. 로더 기동 중(_normalize)에 부르므로 intent 경로를 타지 않는다.
+
+    brand_for_node의 AI 분기가 쓰는 subagent_service_for_node는 select_by_tags → load_templates를 다시 불러
+    기동 중엔 무한 재귀가 난다(fixed엔 label·prompt도 없어 매칭도 못 한다). 그래서 tool_key 없는 AI 항목은
+    템플릿의 service 필드(ai.github_query → github)로 SERVICE_BRAND를 읽고, 없으면 AI 기본값을 쓴다.
+    tool_key가 있거나 AI가 아닌 항목은 fixed의 tools(tool_key)·node_type으로 brand_for_node가 답한다."""
+    if entry["tool_key"] or entry["node_type"] != "AI":
+        return brand_for_node(entry["fixed"])
+    return SERVICE_BRAND.get(entry.get("service"), _NODE_TYPE_BRAND["AI"])
 
 
 def apply_service_brand(nodes: list) -> None:

@@ -49,7 +49,7 @@ def test_entry_shape_and_default_attrs_omitted():
         "id": "trigger.schedule", "nodeType": "TRIGGER", "app": None,
         "title": "스케줄", "description": "정해둔 시각마다 시작해요.",
         "match": {"type": "TRIGGER", "config.triggerType": "SCHEDULE"},
-        "fixed": {"type": "TRIGGER", "config": {"triggerType": "SCHEDULE"}},
+        "fixed": {"type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "brand": "webhook"}},
         "inputFields": [{"key": "cron", "title": "실행 주기", "type": "cron", "required": True,
                          "ref": False, "path": "config.cron",
                          "description": "표준 5필드 크론식 (예: 매일 9시 = 0 9 * * *)"}],
@@ -89,6 +89,7 @@ def test_option_source_fields_fixed_set():
         ("action.notion_create_page", "parent_page_id"), ("action.notion_read_page", "page_id"),
         ("action.notion_update_page", "page_id"), ("action.notion_append_block", "page_id"),
         ("action.notion_query_database", "database_id"),
+        *[(f"action.github_{x}", k) for x in ("list_issues", "create_issue") for k in ("owner", "repo")],
     }
     assert got == expected
 
@@ -111,6 +112,8 @@ def _field(entry_id: str, key: str) -> dict:
     ("page_id", "페이지", "notion.pages", None),
     ("parent_page_id", "상위 페이지", "notion.pages", None),
     ("database_id", "데이터베이스", "notion.databases", None),
+    ("owner", "소유자", "github.owners", None),
+    ("repo", "저장소", "github.repos", ["owner"]),
 ])
 def test_app_option_sources(field, title, source, inputs):
     """공급원 키는 BE OptionSource.key()와 1:1 계약(IEUM-BE-72·73·76). 그 필드를 가진 액션 항목 전부에서 같아야 한다."""
@@ -135,3 +138,44 @@ def test_event_id는_뒤의_calendar_id를_가리킨다():
     """필드 순서는 시그니처 순서 그대로 — optionsInputs가 뒤 필드를 가리킬 수 있다(FE-51 명세)."""
     keys = [f["key"] for f in _action("action.google_calendar_update")["inputFields"]]
     assert keys.index("event_id") < keys.index("calendar_id")
+
+
+# --- fixed.config.brand (FE 목록 아이콘·BE 연동 목록은 config.brand만 본다) ---------------------
+
+EXPECTED_BRANDS = {
+    "ai.reasoning": "openai", "ai.agent": "openai", "ai.mcp": "openai", "ai.web_search": "openai",
+    "ai.http_fetch": "openai", "ai.github_query": "github",
+    "trigger.manual": "webhook", "trigger.schedule": "webhook", "trigger.webhook": "webhook",
+    "http": "webhook", "approval": "webhook", "condition": "filter", "transform": "filter",
+    "action.slack_send": "slack", "action.discord_send": "discord",
+    "action.notion_create_page": "notion", "action.notion_read_page": "notion",
+    "action.notion_search": "notion", "action.notion_update_page": "notion",
+    "action.notion_append_block": "notion", "action.notion_query_database": "notion",
+    "action.google_sheets_read": "sheets", "action.google_sheets_write": "sheets",
+    "action.google_sheets_append": "sheets",
+    "action.google_calendar_create": "google", "action.google_calendar_list": "google",
+    "action.google_calendar_update": "google", "action.google_drive_read": "google",
+    "action.google_drive_upload": "google",
+    "action.github_list_issues": "github", "action.github_create_issue": "github",
+}
+
+
+def test_catalog_fixed_brand_per_entry():
+    got = {e["id"]: e["fixed"]["config"]["brand"] for e in node_catalog()["entries"]}
+    assert got == EXPECTED_BRANDS
+
+
+def test_action_entries_never_fall_through_to_default_brand():
+    """_service_of가 서비스를 못 읽으면 ACTION이 기본값 webhook으로 떨어진다(github가 실제로 그랬다)."""
+    for e in node_catalog()["entries"]:
+        if e["nodeType"] == "ACTION":
+            assert e["fixed"]["config"]["brand"] != "webhook", e["id"]
+
+
+def test_catalog_does_not_mutate_registry_fixed():
+    """brand는 응답 복사본에만 얹는다 — 레지스트리 fixed는 생성 경로(hydrate_node)와 공유한다."""
+    node_catalog()
+    node_catalog()
+    for t in tr.all_entries():
+        assert "brand" not in t["fixed"]["config"], t["id"]
+    assert "brand" not in tr.get_template("ai.github_query")["fixed"]["config"]
