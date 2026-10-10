@@ -39,10 +39,15 @@ class WorkflowNodeDraft(BaseModel):
 # 이 스키마에서 한 번만 표준 표기로 옮긴다. 옮기기만 하므로 출력에는 구표기가 남지 않는다.
 _LEGACY_CONDITION_KEYS = {"leftValue": "left", "rightValue": "right"}
 
+# BE workflow-core TriggerType.java 미러. 레지스트리에서 파생하지 않는다(스키마는 BE 계약을 따른다) —
+# 레지스트리 TRIGGER 템플릿의 triggerType이 여기 있는지는 template_registry 로더가 검사한다.
+# tuple인 이유: frozenset이면 list 같은 unhashable 값의 `in` 검사가 TypeError(→ 500)가 된다.
+TRIGGER_TYPES = ("SCHEDULE", "MANUAL", "WEBHOOK", "GMAIL_NEW_EMAIL", "GITHUB_NEW_ISSUE")
+
 
 class WorkflowNode(BaseModel):
     id: str
-    type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM | APPROVAL
+    type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM | APPROVAL | ACTION
     label: str
     # 노드 카드에 표시할 사용자용 자연어 설명. 템플릿의 description 슬롯이 필수로 채우지만,
     # description 도입 이전에 저장된 워크플로우가 수정/채팅 요청으로 되돌아오므로 기본값을 둔다.
@@ -68,7 +73,7 @@ class WorkflowNode(BaseModel):
             trigger_type = cfg.get("triggerType")
             if not trigger_type:
                 raise ValueError("TRIGGER 노드의 config에는 triggerType이 필수입니다.")
-            if trigger_type not in ("SCHEDULE", "MANUAL", "WEBHOOK"):
+            if trigger_type not in TRIGGER_TYPES:
                 raise ValueError(f"유효하지 않은 triggerType입니다: {trigger_type}")
             if trigger_type == "SCHEDULE":
                 cron = cfg.get("cron")
@@ -115,6 +120,15 @@ class WorkflowNode(BaseModel):
             message = cfg.get("message")
             if message is not None and not isinstance(message, str):
                 raise ValueError("APPROVAL 노드의 message는 문자열이어야 합니다.")
+
+        elif node_type == "ACTION":
+            # 빌더 전용 앱 액션(generation false). 채팅 수정에서는 pass-through로 서버 원본이 복원되므로
+            # config 내용은 검증하지 않는다 — BE 저장도 검증하지 않고, tools[0].name은 BE
+            # ActionNodeExecutor가 실행 시점에 확인한다(드래프트는 이름이 비어 있을 수 있어 여기서 보면 영구 422).
+            # 타입만 AI 노드와 같이 본다.
+            tools = cfg.get("tools")
+            if tools is not None and not isinstance(tools, list):
+                raise ValueError("ACTION 노드의 tools는 리스트 형식이어야 합니다.")
 
         else:
             raise ValueError(f"유효하지 않은 노드 type입니다: {self.type}")

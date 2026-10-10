@@ -182,7 +182,7 @@ _DEFAULT_BRAND = "webhook"
 def brand_for_node(node: dict) -> str:
     """노드의 UI brand 키를 도출한다.
 
-    우선순위: 노드 tools의 tool_key에서 추출한 서비스(SERVICE_BRAND) → node_type 기본값.
+    우선순위: 노드 tools의 tool_key에서 추출한 서비스(SERVICE_BRAND) → TRIGGER는 triggerType 서비스(앱 트리거) → node_type 기본값.
     ACTION 노드는 github도 tool_key(`builtin:github_<x>`)가 있어 첫 갈래로 답한다.
     AI 노드의 동적 서브에이전트 서비스(github 등)는 tools가 비어([]) tool_key가 없으므로,
     intent(라벨+프롬프트) 태그 매칭으로 서비스를 식별한다(생성 시 분류와 동일 신호)."""
@@ -204,6 +204,12 @@ def brand_for_node(node: dict) -> str:
         service = subagent_service_for_node(node)
         if service and SERVICE_BRAND.get(service):
             return SERVICE_BRAND[service]
+    # 앱 트리거는 triggerType 접두사(GMAIL_NEW_EMAIL → gmail)로 앱 brand — BE 연동 목록이 config.brand로
+    # 워크플로우를 고르므로 webhook이면 빠진다. SCHEDULE/MANUAL/WEBHOOK은 매핑에 없어 webhook.
+    if ntype == "TRIGGER" and isinstance(config, dict) and isinstance(config.get("triggerType"), str):
+        brand = SERVICE_BRAND.get(_service_of(config["triggerType"].lower()))
+        if brand:
+            return brand
     return _NODE_TYPE_BRAND.get(ntype, _DEFAULT_BRAND)
 
 
@@ -213,7 +219,7 @@ def brand_for_entry(entry: dict) -> str:
     brand_for_node의 AI 분기가 쓰는 subagent_service_for_node는 select_by_tags → load_templates를 다시 불러
     기동 중엔 무한 재귀가 난다(fixed엔 label·prompt도 없어 매칭도 못 한다). 그래서 tool_key 없는 AI 항목은
     템플릿의 service 필드(ai.github_query → github)로 SERVICE_BRAND를 읽고, 없으면 AI 기본값을 쓴다.
-    tool_key가 있거나 AI가 아닌 항목은 fixed의 tools(tool_key)·node_type으로 brand_for_node가 답한다."""
+    tool_key가 있거나 AI가 아닌 항목(앱 트리거 포함)은 fixed로 brand_for_node가 답한다."""
     if entry["tool_key"] or entry["node_type"] != "AI":
         return brand_for_node(entry["fixed"])
     return SERVICE_BRAND.get(entry.get("service"), _NODE_TYPE_BRAND["AI"])

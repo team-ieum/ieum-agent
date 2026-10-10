@@ -74,6 +74,28 @@ def _load_from(tmp_path, monkeypatch, mutate):
     return tr.load_templates(force=True)
 
 
+def test_trigger_type_outside_be_enum_rejected(tmp_path, monkeypatch):
+    """레지스트리 트리거의 triggerType은 BE TriggerType 미러(TRIGGER_TYPES) 안이어야 한다."""
+    def mutate(d):
+        p = d / "trigger.webhook.json"
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw["fixed"]["config"]["triggerType"] = "SLACK_NEW_MESSAGE"
+        p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(TemplateSchemaError, match="SLACK_NEW_MESSAGE"):
+        _load_from(tmp_path, monkeypatch, mutate)
+
+
+def test_builder_entries_follow_reload(tmp_path, monkeypatch):
+    """builder_entries 메모는 force 재로드·_cache 교체 후 새 레지스트리를 반영한다."""
+    before = {t["id"] for t in tr.builder_entries()}
+    def mutate(d):
+        (d / "trigger.webhook.json").unlink()
+    _load_from(tmp_path, monkeypatch, mutate)
+    assert {t["id"] for t in tr.builder_entries()} == before - {"trigger.webhook"}
+    monkeypatch.setattr(tr, "_cache", {})
+    assert tr.builder_entries() == []
+
+
 def test_duplicate_tool_field_owner_rejected(tmp_path, monkeypatch):
     def mutate(d):
         p = d / "ai.google_sheets_read.json"

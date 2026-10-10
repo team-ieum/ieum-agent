@@ -15,6 +15,8 @@ import json
 import glob
 import logging
 
+from api.schemas.generate_workflow import TRIGGER_TYPES
+
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = os.path.abspath(
@@ -43,7 +45,7 @@ _LEGACY_TOP_KEYS = {"slots", "allowed_config_fields"}  # 이제 파생값 — �
 # dehydrate_node가 None(드롭) 대신 이 templateId를 단 draft를 반환해 MODIFY 왕복에서 노드가
 # 소실되지 않게 한다.
 #
-# **draft["node"]에는 식별용 필드(type·label·description)만 담고, 복원은 hydrate_node가 호출부에서
+# **draft["node"]에는 식별용 필드(type·label·description, TRIGGER는 triggerType 열거값 하나 추가)만 담고, 복원은 hydrate_node가 호출부에서
 # 받은 passthrough_originals에서만 한다.** draft는 LLM 프롬프트에 실려 나가고 LLM이 그대로 되돌려
 # 보내는 값이라 신뢰 대상이 아니다 — config를 담으면 저장된 credentialId·토큰이 외부 LLM으로
 # 나가고, 복원에 쓰면 슬롯 검증이 통째로 우회된다. 둘 다 실제로 지적됐던 경로다.
@@ -119,6 +121,9 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
     app = tpl.get("app")
     if app is not None and app not in VALID_SERVICE_TYPES:
         raise TemplateSchemaError(f"{tid}: app '{app}' 유효하지 않음 {sorted(VALID_SERVICE_TYPES)}")
+    if tpl["node_type"] == "TRIGGER" and fixed_config.get("triggerType") not in TRIGGER_TYPES:
+        raise TemplateSchemaError(
+            f"{tid}: triggerType '{fixed_config.get('triggerType')}'가 BE TriggerType에 없음 {list(TRIGGER_TYPES)}")
 
     inputs = tpl.get("inputFields", [])
     if not isinstance(inputs, list):
@@ -330,10 +335,19 @@ def _matches(match: dict, node: dict) -> bool:
     return True
 
 
+# (정렬 기준이 된 load_templates() dict, 정렬 결과). dict가 바뀌면(force 재로드·_cache 교체) 다시 정렬한다.
+# lru_cache를 쓰지 않는 이유: 인자가 없어 재로드 후에도 낡은 결과를 돌려준다.
+_builder_memo: tuple = (None, ())
+
+
 def builder_entries() -> list:
-    """builder 항목을 match 평가 순서(조건 수 내림차순, 같으면 id)로 반환한다."""
-    return sorted((t for t in load_templates().values() if t["builder"]),
-                  key=lambda t: (-len(t["match"]), t["id"]))
+    """builder 항목을 match 평가 순서(조건 수 내림차순, 같으면 id)로 반환한다(노드마다 불리므로 메모)."""
+    global _builder_memo
+    templates = load_templates()
+    if _builder_memo[0] is not templates:
+        _builder_memo = (templates, tuple(sorted((t for t in templates.values() if t["builder"]),
+                                                 key=lambda t: (-len(t["match"]), t["id"]))))
+    return list(_builder_memo[1])
 
 
 def _match_view(node: dict) -> dict:
@@ -675,7 +689,7 @@ def dehydrate_node(node: dict) -> dict | None:
     resolve_template_for_node로 templateId를 찾고, 각 슬롯의 path에서 현재 값을 읽어 slots를 구성한다.
     provider/model 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 노드를 버리지 않고
     pass-through draft({"id", "templateId": PASSTHROUGH_TEMPLATE_ID, "node"})를 반환한다.
-    **이때 "node"에는 LLM이 노드를 식별할 만큼(type·label·description)만 담는다** — 복원은
+    **이때 "node"에는 LLM이 노드를 식별할 만큼(type·label·description, TRIGGER는 triggerType 열거값 하나 추가)만 담는다** — 복원은
     hydrate_node가 서버 측 원본에서 하므로 config는 필요 없고, 실으면 저장된 credentialId·토큰이
     프롬프트로 외부 LLM에 나간다. node 자체가 dict가 아니면 None(역변환 불가)."""
     if not isinstance(node, dict):
@@ -685,22 +699,29 @@ def dehydrate_node(node: dict) -> dict | None:
         # 매칭 실패는 노드가 사라지지는 않지만 '편집 불가'로 강등되는 사건이라 흔적을 남긴다.
         # 템플릿 tool_key나 _TOOL_MAP 키를 바꿔 흔한 노드가 매칭에서 빠지면 수정 요청이 전부
         # "편집을 지원하지 않는다"로 끝나는데, 로그가 없으면 사용자 신고 전까지 알 수 없다.
-        logger.info("pass-through 강등 — 매칭 템플릿 없음 (node_id=%s, type=%s, tools=%s)",
-                    node.get("id"), node.get("type"),
-                    [t.get("name") if isinstance(t, dict) else t
-                     for t in ((node.get("config") or {}).get("tools") or [])])
+        entry = match_entry(node)
+        # 빌더 전용 항목(ACTION·앱 트리거 등)은 설계상 늘 여기로 와서 로그가 소음이다. 단 ai.agent는
+        # {'type':'AI'} catch-all이라 생성 템플릿 매칭이 깨진 AI 노드도 걸리므로 로그를 유지한다.
+        if entry is None or entry.get("generation", True) or entry["id"] == _AGENT_ENTRY_ID:
+            logger.info("pass-through 강등 — 매칭 템플릿 없음 (node_id=%s, type=%s, tools=%s)",
+                        node.get("id"), node.get("type"),
+                        [t.get("name") if isinstance(t, dict) else t
+                         for t in ((node.get("config") or {}).get("tools") or [])])
         # 복원은 서버가 쥔 원본으로만 한다(hydrate_node 참고). 그래서 draft에는 LLM이 이 노드를
         # 식별하는 데 필요한 만큼만 담는다 — config를 통째로 실으면 저장된 credentialId·토큰
         # 같은 값이 프롬프트로 외부 LLM에 나가는데, 서버는 그 값을 쓰지도 않는다.
-        return {
-            "id": node.get("id"),
-            "templateId": PASSTHROUGH_TEMPLATE_ID,
-            "node": {
-                "type": node.get("type"),
-                "label": node.get("label"),
-                "description": node.get("description"),
-            },
+        ident = {
+            "type": node.get("type"),
+            "label": node.get("label"),
+            "description": node.get("description"),
         }
+        # 트리거는 종류(triggerType 열거값 하나)까지 실어 LLM이 출력 필드를 고르게 한다. 앱 트리거는
+        # 빌더 전용(generation false)이라 늘 여기로 온다. 나머지 config(query·repoId 등)는 여전히 싣지 않는다.
+        cfg = node.get("config")
+        if str(node.get("type") or "").upper() == "TRIGGER" and isinstance(cfg, dict) \
+                and isinstance(cfg.get("triggerType"), str) and cfg["triggerType"] in TRIGGER_TYPES:
+            ident["triggerType"] = cfg["triggerType"]
+        return {"id": node.get("id"), "templateId": PASSTHROUGH_TEMPLATE_ID, "node": ident}
     slots = {}
     for s in tpl["slots"]:
         if s["kind"] in _SYSTEM_INJECTED_KINDS:

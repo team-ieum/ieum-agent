@@ -1,0 +1,36 @@
+{
+  "id": "trigger.gmail_new_email",
+  "node_type": "TRIGGER",
+  "title": "새 Gmail 메일",
+  "description": "받은편지함에 새 메일이 오면 시작해요.",
+  "app": "GOOGLE",
+  "tool_key": null,
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "TRIGGER",
+    "config": {
+      "triggerType": "GMAIL_NEW_EMAIL"
+    }
+  },
+  "inputFields": [
+    {
+      "key": "query",
+      "title": "검색 조건",
+      "type": "string",
+      "ref": false,
+      "description": "Gmail 검색식 (예: from:boss@example.com). 비우면 받은편지함 전체"
+    }
+  ],
+  "outputFields": [
+    {"key": "messageId", "title": "메일 ID", "type": "string"},
+    {"key": "threadId", "title": "스레드 ID", "type": "string"},
+    {"key": "from", "title": "보낸 사람", "type": "string"},
+    {"key": "to", "title": "받는 사람", "type": "string"},
+    {"key": "subject", "title": "제목", "type": "string"},
+    {"key": "snippet", "title": "미리보기", "type": "text"},
+    {"key": "bodyText", "title": "본문", "type": "text"},
+    {"key": "receivedAt", "title": "받은 시각", "type": "datetime"},
+    {"key": "labels", "title": "라벨 ID", "type": "string", "list": true}
+  ]
+}

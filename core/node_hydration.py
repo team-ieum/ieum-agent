@@ -85,7 +85,7 @@ def prepare_hydrated_nodes(
                 not isinstance(draft, dict) or draft.get("templateId") != PASSTHROUGH_TEMPLATE_ID):
             raise SlotFillError(
                 f"노드 '{old_id}'는 편집을 지원하지 않습니다. templateId를 "
-                f"\"{PASSTHROUGH_TEMPLATE_ID}\"로 둔 채 반환하거나, 삭제할 거라면 아예 빼십시오."
+                f"\"{PASSTHROUGH_TEMPLATE_ID}\"로 둔 채 반환하거나, 삭제하거나 다른 노드로 교체할 거라면 아예 빼십시오(교체할 노드는 새 id로 만든다)."
             )
         if old_id in legacy_desc_ids:
             backfill_legacy_description(draft)
