@@ -1350,3 +1350,14 @@ async def test_chat_workflow_ACTION_웹훅은_보유분이_아니면_제거된�
     assert result.type == ChatResponseType.WORKFLOW_MODIFIED
     slack = next(n for n in result.nodes if n.id == "node-3")
     assert slack.config["tools"] == [{"name": "slack", "config": {"message": "{{nodes.node-2.output.url}}"}}]
+
+
+def test_시스템_프롬프트는_앱_이벤트_시작_요청을_조용히_바꾸지_말고_빌더_안내를_지시한다():
+    from core.workflow_chat import _SYSTEM_PROMPT_BASE
+
+    assert "trigger.manual/trigger.schedule로 바꾸지 말고" in _SYSTEM_PROMPT_BASE
+    assert "빌더에서 앱 트리거(새 Gmail 메일·새 GitHub 이슈)를 추가해 달라" in _SYSTEM_PROMPT_BASE
+    # 시각·주기 요청은 앱 이벤트가 아니다 — 기존 schedule 경로를 막지 않는다
+    assert "시각·주기를 말한 요청(\"매일 9시에 새 메일 요약\")은 앱 이벤트가 아니므로 trigger.schedule로" in _SYSTEM_PROMPT_BASE
+    # 기존 수정 시 pass-through 유지 문구는 그대로
+    assert "pass-through 노드로 보이며(종류는 'node.triggerType')" in _SYSTEM_PROMPT_BASE

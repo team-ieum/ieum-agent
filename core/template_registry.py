@@ -669,6 +669,12 @@ def _get_by_path(obj, path: str):
     return cur
 
 
+def _known_trigger_types() -> set:
+    """레지스트리 TRIGGER 항목들의 fixed.config.triggerType 집합(빌더 전용 포함). 런타임 전용 — 로더 안에서 부르지 않는다."""
+    return {t["fixed"].get("config", {}).get("triggerType")
+            for t in load_templates().values() if t["node_type"] == "TRIGGER"} - {None}
+
+
 def dehydrate_node(node: dict) -> dict | None:
     """완성된 노드(full-node)를 draft({id, templateId, slots})로 역변환한다(MODIFY 편집용).
 
@@ -705,7 +711,7 @@ def dehydrate_node(node: dict) -> dict | None:
         # 빌더 전용(generation false)이라 늘 여기로 온다. 나머지 config(query·repoId 등)는 여전히 싣지 않는다.
         cfg = node.get("config")
         if str(node.get("type") or "").upper() == "TRIGGER" and isinstance(cfg, dict) \
-                and isinstance(cfg.get("triggerType"), str):
+                and isinstance(cfg.get("triggerType"), str) and cfg["triggerType"] in _known_trigger_types():
             ident["triggerType"] = cfg["triggerType"]
         return {"id": node.get("id"), "templateId": PASSTHROUGH_TEMPLATE_ID, "node": ident}
     slots = {}
