@@ -213,7 +213,12 @@ def brand_for_entry(entry: dict) -> str:
     brand_for_node의 AI 분기가 쓰는 subagent_service_for_node는 select_by_tags → load_templates를 다시 불러
     기동 중엔 무한 재귀가 난다(fixed엔 label·prompt도 없어 매칭도 못 한다). 그래서 tool_key 없는 AI 항목은
     템플릿의 service 필드(ai.github_query → github)로 SERVICE_BRAND를 읽고, 없으면 AI 기본값을 쓴다.
-    tool_key가 있거나 AI가 아닌 항목은 fixed의 tools(tool_key)·node_type으로 brand_for_node가 답한다."""
+    tool_key가 있거나 AI가 아닌 항목은 fixed의 tools(tool_key)·node_type으로 brand_for_node가 답한다.
+    앱 트리거(TRIGGER + app)는 triggerType 접두사(GMAIL_NEW_EMAIL → gmail)로 앱 brand를 쓴다 — BE 연동 목록이
+    nodes.config.brand로 워크플로우를 고르므로 webhook이면 빠진다."""
+    if entry["node_type"] == "TRIGGER" and entry.get("app"):
+        trigger_type = entry["fixed"]["config"].get("triggerType") or ""
+        return SERVICE_BRAND.get(_service_of(trigger_type.lower()), _NODE_TYPE_BRAND["TRIGGER"])
     if entry["tool_key"] or entry["node_type"] != "AI":
         return brand_for_node(entry["fixed"])
     return SERVICE_BRAND.get(entry.get("service"), _NODE_TYPE_BRAND["AI"])

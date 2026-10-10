@@ -1,0 +1,37 @@
+{
+  "id": "trigger.github_new_issue",
+  "node_type": "TRIGGER",
+  "title": "새 GitHub 이슈",
+  "description": "저장소에 새 이슈가 열리면 시작해요.",
+  "app": "GITHUB",
+  "tool_key": null,
+  "builder": true,
+  "generation": false,
+  "fixed": {
+    "type": "TRIGGER",
+    "config": {
+      "triggerType": "GITHUB_NEW_ISSUE"
+    }
+  },
+  "inputFields": [
+    {
+      "key": "repoId",
+      "title": "저장소",
+      "type": "string",
+      "required": true,
+      "ref": false,
+      "description": "새 이슈를 지켜볼 저장소",
+      "optionsSource": "github.installed_repos"
+    }
+  ],
+  "outputFields": [
+    {"key": "issueNumber", "title": "이슈 번호", "type": "integer"},
+    {"key": "title", "title": "제목", "type": "string"},
+    {"key": "body", "title": "본문", "type": "text"},
+    {"key": "url", "title": "링크", "type": "string"},
+    {"key": "author", "title": "작성자", "type": "string"},
+    {"key": "labels", "title": "라벨", "type": "string", "list": true},
+    {"key": "repo", "title": "저장소", "type": "string"},
+    {"key": "createdAt", "title": "만든 시각", "type": "datetime"}
+  ]
+}

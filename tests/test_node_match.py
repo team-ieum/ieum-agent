@@ -23,6 +23,10 @@ from core.template_registry import TemplateSchemaError
     ({"type": "AI", "config": {"tools": [{"name": "mcp", "config": {"catalogId": "c"}}, {"name": "discord"}]}},
      "ai.agent"),
     ({"type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}, "trigger.schedule"),
+    ({"type": "TRIGGER", "config": {"triggerType": "GMAIL_NEW_EMAIL", "query": ""}}, "trigger.gmail_new_email"),
+    ({"type": "TRIGGER", "config": {"triggerType": "GITHUB_NEW_ISSUE", "repoId": "1"}}, "trigger.github_new_issue"),
+    # serviceType이 빠진 저장분도 triggerType만으로 연다(match는 serviceType을 보지 않는다)
+    ({"type": "trigger", "config": {"triggerType": "GITHUB_NEW_ISSUE"}}, "trigger.github_new_issue"),
     ({"type": "TRIGGER", "config": {}}, "trigger.manual"),
     ({"type": "TRIGGER", "config": {"triggerType": "MANUAL"}}, "trigger.manual"),
     ({"type": "HTTP", "config": {"url": "x"}}, "http"),

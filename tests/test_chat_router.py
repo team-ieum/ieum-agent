@@ -90,11 +90,11 @@ def test_chat_endpoint_레이트리밋_429_반환():
 
 
 _APP_TRIGGER_CONFIGS = [
-    {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE", "query": "from:boss@x.com", "brand": "webhook"},
+    {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE", "query": "from:boss@x.com", "brand": "gmail"},
     {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE", "query": ""},
     {"triggerType": "GMAIL_NEW_EMAIL"},
     {"triggerType": "GITHUB_NEW_ISSUE", "serviceType": "GITHUB", "repoId": "123456",
-     "_names": {"repoId": "octo/hello"}, "brand": "webhook"},
+     "_names": {"repoId": "octo/hello"}, "brand": "github"},
     {"triggerType": "GITHUB_NEW_ISSUE", "serviceType": "GITHUB", "repo": "octo/hello", "repoId": 123456},
     {"triggerType": "GITHUB_NEW_ISSUE"},   # 빌더에서 저장소를 아직 안 고른 드래프트
 ]

@@ -1205,7 +1205,7 @@ def test_chat_prompt_puts_resource_id_in_slot_not_prompt():
 APP_TRIGGER_FULL_NODES = [
     {"id": "node-1", "type": "TRIGGER", "label": "새 메일", "description": "새 메일이 오면 시작해요.",
      "config": {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE",
-                "query": "from:boss@x.com", "brand": "webhook"}},
+                "query": "from:boss@x.com", "brand": "gmail"}},
     {"id": "node-2", "type": "AI", "label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.",
      "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리해줘",
                 "agentType": "react", "tools": [{"name": "builtin:web_search"}]}},
