@@ -1198,3 +1198,63 @@ def test_chat_prompt_puts_resource_id_in_slot_not_prompt():
     assert "노드의 prompt 슬롯에 자연어로 기입하여" not in _SYSTEM_PROMPT_BASE
     assert "ID 슬롯이 있으면 그 슬롯" in _OUTPUT_FORMAT_SPEC
     assert "prompt 슬롯에 자연어로 기입한다. 못 찾으면 비운다." not in _OUTPUT_FORMAT_SPEC
+
+
+# ── 앱 트리거(빌더 전용) 워크플로우 수정 ────────────────────────────────────
+
+APP_TRIGGER_FULL_NODES = [
+    {"id": "node-1", "type": "TRIGGER", "label": "새 메일", "description": "새 메일이 오면 시작해요.",
+     "config": {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE",
+                "query": "from:boss@x.com", "brand": "webhook"}},
+    {"id": "node-2", "type": "AI", "label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.",
+     "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리해줘",
+                "agentType": "react", "tools": [{"name": "builtin:web_search"}]}},
+]
+
+APP_TRIGGER_KEPT_JSON = json.dumps({
+    "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
+    "changeDescription": "프롬프트를 바꿨습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "__passthrough__"},
+        {"id": "node-2", "templateId": "ai.web_search",
+         "slots": {"label": "AI 처리", "description": "메일 제목으로 검색해요.",
+                   "prompt": "{{nodes.node-1.output.subject}}로 검색해줘"}},
+    ],
+    "edges": VALID_EDGES,
+})
+
+APP_TRIGGER_REPLACED_JSON = json.dumps({
+    "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
+    "changeDescription": "트리거를 스케줄로 바꿨습니다.",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.schedule",
+         "slots": {"label": "매일 9시", "description": "매일 아침 시작해요.", "cron": "0 9 * * *"}},
+        {"id": "node-2", "templateId": "ai.web_search",
+         "slots": {"label": "AI 처리", "description": "검색해요.", "prompt": "처리해줘"}},
+    ],
+    "edges": VALID_EDGES,
+})
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_앱_트리거는_원본_그대로_복원된다():
+    p1, p2, p3 = _make_patches(APP_TRIGGER_KEPT_JSON)
+    with p1, p2, p3:
+        result = await _call("메일 제목으로 검색하게 바꿔줘",
+                             current_nodes=APP_TRIGGER_FULL_NODES, current_edges=VALID_EDGES)
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    trigger = next(n for n in result.nodes if n.id == "node-1")
+    assert trigger.config == APP_TRIGGER_FULL_NODES[0]["config"]   # brand 재도출도 하지 않는다
+    assert trigger.description == "새 메일이 오면 시작해요."
+    assert next(n for n in result.nodes if n.id == "node-2").config["prompt"] == \
+        "{{nodes.node-1.output.subject}}로 검색해줘"
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_앱_트리거를_다른_템플릿으로_바꾸면_거부된다():
+    """빌더 전용 트리거는 채팅으로 편집하지 않는다 — 센티넬을 떼면 거부(→ CLARIFICATION)."""
+    p1, p2, p3 = _make_patches(APP_TRIGGER_REPLACED_JSON)
+    with p1, p2, p3:
+        result = await _call("트리거를 매일 9시로 바꿔줘",
+                             current_nodes=APP_TRIGGER_FULL_NODES, current_edges=VALID_EDGES)
+    assert result.type == ChatResponseType.CLARIFICATION_NEEDED

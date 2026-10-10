@@ -68,7 +68,7 @@ class WorkflowNode(BaseModel):
             trigger_type = cfg.get("triggerType")
             if not trigger_type:
                 raise ValueError("TRIGGER 노드의 config에는 triggerType이 필수입니다.")
-            if trigger_type not in ("SCHEDULE", "MANUAL", "WEBHOOK"):
+            if trigger_type not in ("SCHEDULE", "MANUAL", "WEBHOOK", "GMAIL_NEW_EMAIL", "GITHUB_NEW_ISSUE"):
                 raise ValueError(f"유효하지 않은 triggerType입니다: {trigger_type}")
             if trigger_type == "SCHEDULE":
                 cron = cfg.get("cron")

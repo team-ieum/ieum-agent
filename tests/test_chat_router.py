@@ -87,3 +87,47 @@ def test_chat_endpoint_레이트리밋_429_반환():
         response = client.post("/v1/chat", json=CHAT_PAYLOAD)
     assert response.status_code == 429
     assert ErrorCode.RATE_LIMITED.message in response.json()["detail"]
+
+
+_APP_TRIGGER_CONFIGS = [
+    {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE", "query": "from:boss@x.com", "brand": "webhook"},
+    {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE", "query": ""},
+    {"triggerType": "GMAIL_NEW_EMAIL"},
+    {"triggerType": "GITHUB_NEW_ISSUE", "serviceType": "GITHUB", "repoId": "123456",
+     "_names": {"repoId": "octo/hello"}, "brand": "webhook"},
+    {"triggerType": "GITHUB_NEW_ISSUE", "serviceType": "GITHUB", "repo": "octo/hello", "repoId": 123456},
+    {"triggerType": "GITHUB_NEW_ISSUE"},   # 빌더에서 저장소를 아직 안 고른 드래프트
+]
+
+
+@pytest.mark.parametrize("config", _APP_TRIGGER_CONFIGS)
+def test_chat_endpoint_앱_트리거_currentNodes_수용(config):
+    """BE가 앱 트리거를 저장한 뒤 채팅 수정 요청이 422로 막히지 않고, config가 그대로 전달된다."""
+    from api.schemas.chat import ChatResponse, ChatResponseType
+
+    captured = {}
+
+    async def _fake_chat(**kwargs):
+        captured.update(kwargs)
+        return ChatResponse(message="ok", type=ChatResponseType.WORKFLOW_MODIFIED, rawPrompt="수정")
+
+    payload = dict(CHAT_PAYLOAD, prompt="요약 노드 추가해줘", currentNodes=[
+        {"id": "node-1", "type": "TRIGGER", "label": "새 메일", "config": config},
+    ], currentEdges=[])
+
+    with patch("api.routes.chat.chat_workflow", side_effect=_fake_chat):
+        response = client.post("/v1/chat", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert captured["current_nodes"][0]["config"] == config
+
+
+@pytest.mark.parametrize("trigger_type", ["SLACK_NEW_MESSAGE", "gmail_new_email", ""])
+def test_chat_endpoint_모르는_triggerType은_422(trigger_type):
+    payload = dict(CHAT_PAYLOAD, currentNodes=[
+        {"id": "node-1", "type": "TRIGGER", "label": "시작", "config": {"triggerType": trigger_type}},
+    ], currentEdges=[])
+    with patch("api.routes.chat.chat_workflow") as chat:
+        response = client.post("/v1/chat", json=payload)
+    assert response.status_code == 422
+    chat.assert_not_called()
