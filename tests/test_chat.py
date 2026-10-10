@@ -1,4 +1,5 @@
 import json
+import re
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -1270,8 +1271,7 @@ def test_chat_prompt_lists_app_trigger_outputs(tid, trigger_type):
     from core.workflow_chat import _SYSTEM_PROMPT_BASE
 
     line = next(ln for ln in _SYSTEM_PROMPT_BASE.splitlines() if f"TRIGGER({trigger_type}" in ln)
-    for f in tr.get_template(tid)["outputFields"]:
-        assert f"`output.{f['key']}`" in line, (tid, f["key"])
+    assert set(re.findall(r"`output\.(\w+)`", line)) == {f["key"] for f in tr.get_template(tid)["outputFields"]}, tid
 
 
 # ── ACTION 노드(빌더 전용)가 든 워크플로우 수정 ─────────────────────────────

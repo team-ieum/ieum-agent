@@ -167,10 +167,6 @@ def test_catalog_fixed_brand_per_entry():
     assert got == EXPECTED_BRANDS
 
 
-def test_catalog_entry_count():
-    assert len(node_catalog()["entries"]) == 33
-
-
 def test_trigger_repo_option_source_contract():
     """github.installed_repos는 BE OptionSource.key()와 1:1 계약(BE-b). 값은 repo id(문자열), 입력 없음.
     액션의 github.repos(owner 입력, 값=name)와 다른 공급원이다."""

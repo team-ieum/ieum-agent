@@ -89,3 +89,15 @@ def test_앱_트리거_노드는_채팅에서_passthrough로_보존된다(config
     draft = tr.dehydrate_node(node)
     assert draft["templateId"] == PASSTHROUGH_TEMPLATE_ID
     assert tr.hydrate_node(draft, passthrough_originals={"node-1": node}) == node
+
+
+@pytest.mark.parametrize("node,logged", [
+    ({"id": "n1", "type": "ACTION", "config": {"tools": [{"name": "slack"}]}}, False),
+    ({"id": "n2", "type": "TRIGGER", "config": {"triggerType": "GMAIL_NEW_EMAIL"}}, False),
+    ({"id": "n3", "type": "AI", "config": {"tools": [{"name": "zzz_unknown"}]}}, True),
+])
+def test_passthrough_log_skips_builder_only_entries(node, logged, caplog):
+    """빌더 전용 항목은 설계상 늘 pass-through라 로그 생략. 미매칭 AI(ai.agent catch-all)는 회귀 신호라 유지."""
+    with caplog.at_level("INFO", logger="core.template_registry"):
+        assert tr.dehydrate_node(node)["templateId"] == PASSTHROUGH_TEMPLATE_ID
+    assert any("pass-through 강등" in r.message for r in caplog.records) is logged
