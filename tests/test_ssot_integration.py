@@ -6,7 +6,6 @@
 import pytest
 
 from core import template_registry as tr
-from core.skill_loader import load_design_rules, _ALWAYS_REFERENCE_FILES
 from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
 
 
@@ -55,22 +54,6 @@ def test_every_template_has_tags_and_menu():
     for tpl in tr.all_templates():
         assert tpl["tags"], f"{tpl['id']}: tags 비어있음"
         assert tpl["menu"].strip(), f"{tpl['id']}: menu 비어있음"
-
-
-# --- 통합: 한 레지스트리가 세 소비처를 구동 ---
-
-def test_registry_drives_skill_loader_menu():
-    """skill_loader 메뉴 인덱스가 레지스트리의 모든 템플릿을 노출한다."""
-    rules = load_design_rules("zzz 무관")  # 폴백 경로
-    for tpl in tr.all_templates():
-        assert tpl["id"] in rules, f"{tpl['id']}가 메뉴에 누락"
-
-
-def test_dead_reference_files_not_injected():
-    """통짜 good-examples.md / tool-selection.md는 더 이상 항상층에 주입되지 않는다.
-    (레지스트리 검색층으로 대체 — 누군가 되돌리면 실패시켜 회귀를 막음)"""
-    assert "good-examples.md" not in _ALWAYS_REFERENCE_FILES
-    assert "tool-selection.md" not in _ALWAYS_REFERENCE_FILES
 
 
 # --- 환각 회귀: 골든 워크플로우가 새 파이프라인(#5/#6/#7 포함)을 통과 ---

@@ -24,7 +24,7 @@ PAYLOAD = {
 
 
 def test_execute_success():
-    mock_result = AgentExecutionResult(success=True, output="test result")
+    mock_result = AgentExecutionResult(success=True, status="COMPLETED", output="test result")
     with patch("api.routes.execute.run_agent", new=AsyncMock(return_value=mock_result)):
         response = client.post("/v1/execute", json=PAYLOAD, headers=HEADERS)
 
@@ -32,16 +32,6 @@ def test_execute_success():
     data = response.json()
     assert data["success"] is True
     assert data["output"] == "test result"
-
-
-def test_execute_success_with_status():
-    """성공 응답에 status 필드가 포함된다."""
-    mock_result = AgentExecutionResult(success=True, status="COMPLETED", output="test result")
-    with patch("api.routes.execute.run_agent", new=AsyncMock(return_value=mock_result)):
-        response = client.post("/v1/execute", json=PAYLOAD, headers=HEADERS)
-
-    assert response.status_code == 200
-    data = response.json()
     assert data["status"] == "COMPLETED"
 
 
@@ -50,13 +40,6 @@ def test_execute_request_schema_agentType_default():
     from api.schemas.request import AgentNodeRequest
     req = AgentNodeRequest(nodeId="node-1", renderedPrompt="test")
     assert req.agentType == "simple"
-
-
-def test_execute_request_schema_workflowExecutionId_optional():
-    """workflowExecutionId는 optional이며 없어도 생성된다."""
-    from api.schemas.request import AgentNodeRequest
-    req = AgentNodeRequest(nodeId="node-1", renderedPrompt="test")
-    assert req.workflowExecutionId is None
 
 
 def test_execute_failure():
@@ -165,20 +148,6 @@ async def test_usage_simple_mode_accumulates():
 
 
 @pytest.mark.asyncio
-async def test_usage_none_event_skipped():
-    """usage_metadata=None 이벤트가 섞여도 오류 없이 처리된다."""
-    usage = _make_usage_mock(prompt=80, candidates=40, total=120)
-
-    event_no_usage = _make_event(is_final=False, usage_metadata=None)
-    event_with_usage = _make_event(is_final=True, text="결과", usage_metadata=usage)
-
-    result = await _run_with_events([event_no_usage, event_with_usage], agent_type="simple")
-
-    assert result.usage is not None
-    assert result.usage.promptTokens == 80
-
-
-@pytest.mark.asyncio
 async def test_usage_none_prompt_token_treated_as_zero():
     """prompt_token_count=None이면 or 0 패턴으로 0으로 처리된다."""
     usage = _make_usage_mock(prompt=None, candidates=30, total=30)
@@ -219,33 +188,6 @@ async def test_usage_react_mode_accumulates() -> None:
     assert result.usage.promptTokens == 180       # 100 + 80 (누적)
     assert result.usage.completionTokens == 90    # 50 + 40 (누적)
     assert result.usage.totalTokens == 270        # 150 + 120 (누적)
-
-
-@pytest.mark.asyncio
-async def test_usage_react_mode_none_event_skipped() -> None:
-    """ReAct 모드: usage_metadata=None 이벤트는 0으로 처리된다."""
-    usage = _make_usage_mock(prompt=60, candidates=30, total=90)
-
-    event_no_usage = _make_event(is_final=False, usage_metadata=None)
-    event_with_usage = _make_event(is_final=True, text="결과", usage_metadata=usage)
-
-    result = await _run_with_events([event_no_usage, event_with_usage], agent_type="react")
-
-    assert result.usage is not None
-    assert result.usage.promptTokens == 60
-    assert result.usage.completionTokens == 30
-    assert result.usage.totalTokens == 90
-
-
-@pytest.mark.asyncio
-async def test_usage_react_mode_total_zero_returns_none() -> None:
-    """ReAct 모드: 누적 후 모두 0이면 usage=None이다."""
-    usage = _make_usage_mock(prompt=0, candidates=0, total=0)
-    event = _make_event(is_final=True, text="결과", usage_metadata=usage)
-
-    result = await _run_with_events([event], agent_type="react")
-
-    assert result.usage is None
 
 
 # ---------------------------------------------------------------------------

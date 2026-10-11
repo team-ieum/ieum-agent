@@ -196,12 +196,6 @@ def test_legacy_node_round_trip_backfills_both_fields():
     assert node["config"]["serviceType"] == "SLACK"
 
 
-def test_hydrated_workflow_with_tech_fields_passes_validator():
-    """model/serviceType이 붙은 노드가 config 화이트리스트 검증을 통과한다."""
-    from core.validators.workflow_validator import WorkflowValidator
-    from tools.registry import apply_service_brand
-
-
 # modify 경로의 model·serviceType 후처리 테스트는 제거했다.
 # 그 후처리 자체가 리뷰 3라운드 내내 회귀를 만들어 걷어냈다 — 노드가 어느 앱인지는 full-node
 # JSON만 보고 결정론적으로 답할 수 없다. 템플릿에서 복원하는 draft 방식 전환은 IEUM-AI-58.

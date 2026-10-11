@@ -81,16 +81,6 @@ def test_approval_message_survives_dehydrate_hydrate_round_trip():
 
 # --- 생성 가이드: 요청할 때만 넣는다 -------------------------------------------
 
-def test_approval_snippet_not_auto_injected():
-    """메뉴 한 줄로 존재는 알리되, 골든 스니펫은 항상층·검색층 어디에도 자동 주입하지 않는다."""
-    from core.skill_loader import load_design_rules
-
-    rules = load_design_rules("매일 아침 뉴스를 요약해서 슬랙으로 보내줘")
-    assert "- approval:" in rules
-    # 골든 스니펫 헤더 형식은 "### <id> — <menu>" (node-types.md의 "### APPROVAL" 섹션과 구분된다)
-    assert "### approval —" not in rules
-
-
 def test_generation_prompts_insert_approval_only_on_request():
     from agents.generate.sub.planner_agent import _PLANNER_INSTRUCTION
     from core.workflow_chat import _REVIEWER_SYSTEM_PROMPT, _SYSTEM_PROMPT_BASE

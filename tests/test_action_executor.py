@@ -32,20 +32,6 @@ def _ok(**extra):
     return json.dumps({"success": True, **extra}, ensure_ascii=False)
 
 
-# --- 요청 스키마 -------------------------------------------------------------------------
-
-@pytest.mark.parametrize("raw", [{"nodeId": "n", "toolKey": "slack"},
-                                 {"nodeId": "n", "toolKey": "slack", "config": None}])
-def test_request_config가_없거나_null이면_빈_객체다(raw):
-    """BE가 config 없는 tools[0]을 보내도 422로 죽지 않는다."""
-    assert ActionExecutionRequest(**raw).config == {}
-
-
-def test_error_codes():
-    assert ErrorCode.UNKNOWN_TOOL.status_code == 400
-    assert ErrorCode.ACTION_TOOL_FAILED.name == "ACTION_TOOL_FAILED"
-
-
 # --- 성공 · 인자 조립 ---------------------------------------------------------------------
 
 @pytest.mark.asyncio

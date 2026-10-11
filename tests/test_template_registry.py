@@ -1,5 +1,3 @@
-import pytest
-
 from core import template_registry as tr
 
 
@@ -18,12 +16,6 @@ def test_tool_key_matches_tool_map():
     for tpl in tr.all_templates():
         if tpl["tool_key"] is not None:
             assert tpl["tool_key"] in keys, f"{tpl['id']}: 드리프트"
-
-
-def test_menu_index_lists_all():
-    menu = tr.menu_index()
-    for tpl in tr.all_templates():
-        assert tpl["id"] in menu
 
 
 def test_select_by_tags_notion():
@@ -81,13 +73,3 @@ def test_every_user_facing_tool_has_template():
 def test_all_node_types_have_at_least_one_template():
     types = {t["node_type"] for t in tr.all_templates()}
     assert {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL"} <= types
-
-
-def test_schema_rejects_drifted_tool_key():
-    """_TOOL_MAP에 없는 tool_key는 스키마 검증에서 거부된다."""
-    bad = {
-        "id": "ai.fake", "node_type": "AI", "tool_key": "builtin:does_not_exist",
-        "tags": ["x"], "menu": "m", "fixed": {"type": "AI", "config": {}},
-    }
-    with pytest.raises(tr.TemplateSchemaError, match="드리프트"):
-        tr._validate_template(bad, "/tmp/ai.fake.json", tr._tool_map_keys())

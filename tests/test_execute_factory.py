@@ -222,41 +222,6 @@ async def test_run_react_agent_succeeds_when_tool_called():
 # ---------- run_react_agent ----------
 
 @pytest.mark.asyncio
-async def test_run_react_agent_returns_output():
-    """run_react_agent는 멀티 에이전트 실행 후 응답 텍스트를 반환한다."""
-    from agents.execute.factory import run_react_agent
-
-    async def _fake_run_async(**kwargs):
-        yield _make_final_event("react response")
-
-    mock_runner = MagicMock()
-    mock_runner.run_async = _fake_run_async
-    mock_session = MagicMock()
-    mock_session.id = "s2"
-    mock_ss = MagicMock()
-    mock_ss.create_session = AsyncMock(return_value=mock_session)
-
-    with patch("agents.execute.factory.build_web_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
-         patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
-         patch("agents.execute.factory.build_github_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
-         patch("agents.execute.factory.build_communication_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
-         patch("agents.execute.factory.build_mcp_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
-         patch("agents.execute.factory.LlmAgent"), \
-         patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
-         patch("agents.execute.factory.Runner", return_value=mock_runner):
-        output, _, _, _ = await run_react_agent(
-            model="gemini-2.5-flash",
-            provider="GEMINI",
-            request=_make_request(),
-            api_key="test-key",
-            user_id="user-1",
-            session_service=mock_ss,
-        )
-
-    assert output == "react response"
-
-
-@pytest.mark.asyncio
 async def test_run_react_agent_deletes_session_single_path():
     """단일 ReAct 경로(토큰 ≤1, 커스텀 MCP 없음) 종료 후 세션을 폐기한다."""
     from agents.execute.factory import run_react_agent
@@ -277,7 +242,7 @@ async def test_run_react_agent_deletes_session_single_path():
          patch("agents.execute.factory.build_transform_agent", new=AsyncMock(return_value=(MagicMock(), []))), \
          patch("agents.execute.factory.LlmAgent"), \
          patch("agents.execute.factory.Runner", return_value=mock_runner):
-        await run_react_agent(
+        output, _, _, _ = await run_react_agent(
             model="gemini-2.5-flash",
             provider="GEMINI",
             request=_make_request(),
@@ -286,6 +251,7 @@ async def test_run_react_agent_deletes_session_single_path():
             session_service=mock_ss,
         )
 
+    assert output == "ok"
     mock_ss.delete_session.assert_called_once_with(
         app_name="ieum-agent", user_id="user-1", session_id="s-single"
     )

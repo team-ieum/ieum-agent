@@ -54,7 +54,7 @@ def test_service_blueprint_groups_tools_and_policy():
 
 def test_all_blueprints_covers_registered_services():
     bps = all_blueprints()
-    for svc in ("notion", "slack", "google_sheets", "gmail", "web_search"):
+    for svc in ("notion", "slack", "google_sheets", "gmail", "web_search", "github"):
         assert svc in bps
 
 
@@ -69,10 +69,6 @@ def test_github_policy_only_blueprint():
     pr = bp["actions"]["github_list_pull_requests"]
     assert pr["owner"]["class"] == "required"
     assert pr["token"]["class"] == "runtime_injected"
-
-
-def test_github_included_in_all_blueprints():
-    assert "github" in all_blueprints()
 
 
 def test_runtime_injected_set_contract():

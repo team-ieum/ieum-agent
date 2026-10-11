@@ -87,13 +87,6 @@ def test_generation_view_matches_snapshot_except_intended_diffs():
         assert actual == expected, tid
 
 
-def test_intended_new_slots_exist_exactly():
-    after = capture()["templates"]
-    for tid, names in INTENDED_NEW_SLOTS.items():
-        got = [s[0] for s in after[tid]["slots"] if s[0] in set(names)]
-        assert got == names, tid
-
-
 if __name__ == "__main__":  # 리팩터 전 dev에서 1회만 실행해 fixture를 만든다
     os.makedirs(os.path.dirname(FIXTURE), exist_ok=True)
     with open(FIXTURE, "w", encoding="utf-8") as f:

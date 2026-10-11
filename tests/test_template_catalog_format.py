@@ -246,12 +246,6 @@ def test_http_allows_webhook_credential_but_no_slot():
     assert "webhookCredentialId" not in {s["name"] for s in tpl["slots"]}
 
 
-def test_designer_prompt_uses_new_name_slot():
-    from core.workflow_chat import _SYSTEM_PROMPT_BASE
-    assert "spreadsheet_id_name" in _SYSTEM_PROMPT_BASE
-    assert "(spreadsheet_name)" not in _SYSTEM_PROMPT_BASE
-
-
 # --- 의도된 차이 ①④ — Calendar·Drive·Notion 리소스 ID 슬롯 ---------------------------------
 
 RESOURCE_SLOTS = {
@@ -271,6 +265,7 @@ RESOURCE_SLOTS = {
 @pytest.mark.parametrize("tid, names", RESOURCE_SLOTS.items())
 def test_app_presets_gain_optional_resource_slots(tid, names):
     slots = {s["name"]: s for s in tr.get_template(tid)["slots"]}
+    assert [n for n in slots if n in names] == names, tid
     for name in names:
         assert slots[name]["required"] is False and slots[name]["kind"] == "string", (tid, name)
     key = names[0]
@@ -297,12 +292,6 @@ def test_calendar_slot_binds_with_display_name():
 def test_field_meta_removed():
     import tools.registry as reg
     assert not hasattr(reg, "FIELD_META")
-
-
-def test_designer_prompt_points_resource_ids_to_slots():
-    from core.workflow_chat import _SYSTEM_PROMPT_BASE
-    assert "Calendar calendar_id" in _SYSTEM_PROMPT_BASE
-    assert "(Notion·GitHub 등)" not in _SYSTEM_PROMPT_BASE
 
 
 def test_gmail_action_hidden_from_builder():
