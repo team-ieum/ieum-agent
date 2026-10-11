@@ -36,7 +36,7 @@ from tools.slack import send_slack_message
 from agents.base import _safe_close_mcp
 from core.validators.workflow_validator import WorkflowValidator
 from core.template_registry import (
-    dehydrate_nodes, slot_catalog_text,
+    dehydrate_nodes, slot_catalog_text, all_entries,
     PASSTHROUGH_TEMPLATE_ID,
 )
 from core.node_hydration import prepare_hydrated_nodes
@@ -175,9 +175,24 @@ _REVIEWER_SYSTEM_PROMPT = """\
    - 단, 수정(WORKFLOW_MODIFIED) 초안의 approval 노드는 이전 대화에서 요청해 이미 있던 것일 수 있으므로, 이번 요청에 승인 언급이 없다는 이유만으로 결함 처리하지 마십시오.
 </verification_checklist>
 
+templateId가 "__passthrough__"인 노드(ACTION·앱 트리거 등)는 사용자가 빌더에서 만든 편집 불가 노드이고 서버가 원본을 복원합니다 — type·도구·설정이 보이지 않아도 결함으로 지적하거나 다른 노드로 바꾸라고 요구하지 마십시오.
+
 설계 초안에 결함이나 규칙 위반이 존재한다면 isValid를 false로 하고, 피드백(feedback) 필드에 구체적으로 어떤 부분을 어떻게 수정해야 하는지 피드백 메시지를 상세히 작성하여 반환하십시오.
 모든 체크리스트가 완벽히 통과되고 설계상 오류가 전혀 없다면 isValid를 true, feedback을 null로 반환하십시오.
 """
+
+
+# 앱 트리거 출력 필드 줄은 카탈로그 outputFields에서 조립 시점에 렌더한다(손으로 쓰면 카탈로그와 어긋난다).
+_APP_TRIGGER_OUTPUTS_MARKER = "<<APP_TRIGGER_OUTPUTS>>"
+
+
+def _app_trigger_output_lines() -> str:
+    """all_entries() 중 앱 트리거(TRIGGER + app)마다 '· TRIGGER(<triggerType>) → `output.k`, ...' 한 줄."""
+    return "\n".join(
+        f"     · TRIGGER({t['fixed']['config']['triggerType']}) → "
+        + ", ".join(f"`output.{f['key']}`" for f in t.get("outputFields", []))
+        for t in all_entries() if t["node_type"] == "TRIGGER" and t.get("app")
+    )
 
 
 _SYSTEM_PROMPT_BASE = """\
@@ -195,6 +210,7 @@ _SYSTEM_PROMPT_BASE = """\
    - [필드명 규약] 노드 타입별 실제 출력 필드만 참조합니다(임의 필드명 results/content/data 금지):
      · AI 노드 결과 → `output.output` (예: 이중 중괄호로 nodes.node-2.output.output)
      · HTTP → `output.body`, `output.statusCode`   · TRIGGER(SCHEDULE) → `output.triggeredAt`
+<<APP_TRIGGER_OUTPUTS>>
      · TRANSFORM → 그 노드 매핑에서 정의한 키
      · APPROVAL → `output.approvedBy`(승인자 ID), `output.approvedAt`(승인 시각)
    - [참조 전용] 이중 중괄호 안에는 'nodes.노드ID.output.필드명'만 허용됩니다. `{{#each}}`, `{{formatDate now}}`, `{{this.필드}}` 같은 헬퍼·함수·반복문은 **금지**입니다(엔진에 함수 없음). 날짜 삽입·반복·포맷팅이 필요하면 prompt에 자연어로 지시합니다.
@@ -216,6 +232,11 @@ _SYSTEM_PROMPT_BASE = """\
 5. 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 대변하는 한국어 이름을 'workflowName'에 기입하고, 수정 시에는 null로 둡니다.
 6. 모든 워크플로우는 1개의 TRIGGER 템플릿(trigger.manual / trigger.schedule / trigger.webhook)으로 시작합니다.
    trigger.schedule을 고르면 cron 슬롯에 5필드 표준 크론 표현식을 채웁니다(예: "매일 오전 9시" -> "0 9 * * *").
+   앱 트리거(GMAIL_NEW_EMAIL·GITHUB_NEW_ISSUE)는 빌더 전용이라 새로 만들지 않습니다. 수정 요청의 현재 워크플로우에서는
+   pass-through 노드로 보이며(종류는 'node.triggerType'), 후속 노드는 위 [필드명 규약]의 출력 필드로 참조합니다.
+   사용자가 "새 메일이 오면"·"이슈가 열리면"처럼 이벤트가 생기는 즉시 시작하길 요청하면(새로 만들 때든 트리거를 바꿀 때든)
+   trigger.manual/trigger.schedule로 바꾸지 말고 CLARIFICATION_NEEDED로 "빌더에서 앱 트리거(새 Gmail 메일·새 GitHub 이슈)를 추가해 달라"고
+   안내합니다. 시각·주기를 말한 요청("매일 9시에 새 메일 요약")은 앱 이벤트가 아니므로 trigger.schedule로 만듭니다.
 7. [승인 게이트] 사용자가 사람의 승인·결재를 **명시적으로 요청한 경우에만** approval 템플릿을 넣습니다.
    승인이 필요한 노드(발송·저장 등) 바로 앞에 두며, 승인 전에는 그 뒤 노드가 실행되지 않습니다.
    message 슬롯에는 승인자에게 보여 줄 확인 문구를 씁니다. 요청이 없으면 발송·저장 노드 앞이라도 자동으로 넣지 않습니다.
@@ -507,7 +528,7 @@ async def chat_workflow(
                 f"templateId가 \"{PASSTHROUGH_TEMPLATE_ID}\"인 노드({', '.join(sorted(passthrough_ids))})는"
                 "\n   편집을 지원하지 않는다. 남겨 둘 거라면 templateId를 그대로 두고 반환한다(서버가"
                 "\n   원본으로 복원한다. 다른 templateId로 바꾸면 수정이 거부된다). 사용자가 이 노드의"
-                "\n   삭제를 요청했다면 출력에서 빼면 된다. 그 밖의 변경을 요청하면 수정본을 만들지 말고"
+                "\n   삭제나 다른 노드로의 교체를 요청했다면 출력에서 빼면 된다(교체할 노드는 새 id로 만든다). 그 밖의 변경을 요청하면 수정본을 만들지 말고"
                 "\n   CLARIFICATION_NEEDED로 \"이 노드는 편집을 지원하지 않는다\"고 답한다."
                 "\n   설명(description)이 비어 있을 때만 'node' 필드에 description을 채울 수 있다."
             )
@@ -535,7 +556,7 @@ async def chat_workflow(
     webhook_catalog_section = format_webhook_catalog(available_webhooks)
 
     instruction = (
-        _SYSTEM_PROMPT_BASE
+        _SYSTEM_PROMPT_BASE.replace(_APP_TRIGGER_OUTPUTS_MARKER, _app_trigger_output_lines())
         + f"\n\n## 노드 템플릿 카탈로그 (templateId + 채울 슬롯)\n{catalog}"
         + (f"\n\n{mcp_catalog_section}" if mcp_catalog_section else "")
         + (f"\n\n{webhook_catalog_section}" if webhook_catalog_section else "")
@@ -561,8 +582,8 @@ async def chat_workflow(
         pass-through 노드에 대한 취급이 차원마다 다르다:
         - 브랜드 재도출은 **제외**. 저장돼 있던 배지가 무관한 수정 한 번에 바뀌면 안 된다
         - 웹훅 크레덴셜 스트립은 **적용**. 미보유 id를 제거하는 방식이라 레거시를 깨지 않는다.
-          현재는 도달하지 않는 조합이지만(slack/discord 도구는 tool_key가 매칭돼 pass-through가
-          되지 않는다) 제외해 둘 이유가 없다 — 이 노드도 요청 바디에서 온 값이다
+          ACTION slack·discord pass-through 노드도 실제로 이 경로를 탄다 — 이 노드도 요청 바디에서
+          온 값이다(test_chat_workflow_ACTION_웹훅은_보유분이_아니면_제거된다가 고정)
         - 내용 검증만 면제하고 MCP 인가는 유지(WorkflowValidator 참고)"""
         apply_service_brand([n for n in raw_nodes if n.get("id") not in passthrough_ids])
         _strip_invalid_webhook_credentials(raw_nodes, allowed_webhook_credential_ids)

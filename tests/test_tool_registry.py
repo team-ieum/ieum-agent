@@ -206,3 +206,11 @@ def test_brand_for_entry_tool_and_structural_entries():
                             "fixed": {"type": "TRIGGER", "config": {}}}) == "webhook"
     assert brand_for_entry({"node_type": "CONDITION", "tool_key": None,
                             "fixed": {"type": "CONDITION", "config": {}}}) == "filter"
+
+
+@pytest.mark.parametrize("trigger_type,brand", [
+    ("GMAIL_NEW_EMAIL", "gmail"), ("GITHUB_NEW_ISSUE", "github"), ("SCHEDULE", "webhook"),
+])
+def test_trigger_brand_from_trigger_type(trigger_type, brand):
+    # 앱 트리거는 triggerType 접두사로 앱 brand, 그 외 트리거는 webhook
+    assert brand_for_node({"type": "TRIGGER", "config": {"triggerType": trigger_type}}) == brand

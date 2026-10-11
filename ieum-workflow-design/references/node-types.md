@@ -2,7 +2,7 @@
 
 ### TRIGGER
 - 모든 워크플로우는 반드시 단 1개의 TRIGGER 노드로 시작합니다.
-- `config.triggerType`은 "SCHEDULE", "MANUAL", "WEBHOOK" 중 하나여야 합니다.
+- `config.triggerType`은 "SCHEDULE", "MANUAL", "WEBHOOK" 중 하나로 만듭니다. "GMAIL_NEW_EMAIL"·"GITHUB_NEW_ISSUE"(앱 트리거)는 빌더 전용이라 새로 만들지 않고, 수정 시 기존 노드를 그대로 둡니다.
 - `config.triggerType`이 "SCHEDULE"인 경우, 표준 5자리 크론 표현식(`cron` 필드)을 반드시 설정합니다. (예: "0 9 * * *")
 
 ### AI

@@ -90,6 +90,7 @@ def test_option_source_fields_fixed_set():
         ("action.notion_update_page", "page_id"), ("action.notion_append_block", "page_id"),
         ("action.notion_query_database", "database_id"),
         *[(f"action.github_{x}", k) for x in ("list_issues", "create_issue") for k in ("owner", "repo")],
+        ("trigger.github_new_issue", "repoId"),
     }
     assert got == expected
 
@@ -146,6 +147,7 @@ EXPECTED_BRANDS = {
     "ai.reasoning": "openai", "ai.agent": "openai", "ai.mcp": "openai", "ai.web_search": "openai",
     "ai.http_fetch": "openai", "ai.github_query": "github",
     "trigger.manual": "webhook", "trigger.schedule": "webhook", "trigger.webhook": "webhook",
+    "trigger.gmail_new_email": "gmail", "trigger.github_new_issue": "github",
     "http": "webhook", "approval": "webhook", "condition": "filter", "transform": "filter",
     "action.slack_send": "slack", "action.discord_send": "discord",
     "action.notion_create_page": "notion", "action.notion_read_page": "notion",
@@ -163,6 +165,14 @@ EXPECTED_BRANDS = {
 def test_catalog_fixed_brand_per_entry():
     got = {e["id"]: e["fixed"]["config"]["brand"] for e in node_catalog()["entries"]}
     assert got == EXPECTED_BRANDS
+
+
+def test_trigger_repo_option_source_contract():
+    """github.installed_repos는 BE OptionSource.key()와 1:1 계약(BE-b). 값은 repo id(문자열), 입력 없음.
+    액션의 github.repos(owner 입력, 값=name)와 다른 공급원이다."""
+    f = _field("trigger.github_new_issue", "repoId")
+    assert (f["optionsSource"], f.get("optionsInputs"), f["required"], f["ref"]) == \
+        ("github.installed_repos", None, True, False)
 
 
 def test_action_entries_never_fall_through_to_default_brand():
