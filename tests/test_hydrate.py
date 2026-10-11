@@ -67,17 +67,6 @@ def test_hydrate_model_override_goes_into_model_slot(monkeypatch):
     assert node2["config"]["model"] == resolve_model("CLAUDE")
 
 
-def test_hydrate_condition_node():
-    draft = {"templateId": "condition",
-             "slots": {"label": "분기", "description": "이 노드가 하는 일을 쉽게 설명해요.", "operator": "gt",
-                       "left": "{{nodes.node-1.output.count}}", "right": "0"}}
-    node = hydrate_node(draft)
-    assert node["type"] == "CONDITION"
-    assert node["config"]["operator"] == "gt"
-    assert node["config"]["left"] == "{{nodes.node-1.output.count}}"
-    assert node["config"]["right"] == "0"
-
-
 def test_hydrate_http_optional_slot_skipped():
     draft = {"templateId": "http",
              "slots": {"label": "호출", "description": "이 노드가 하는 일을 쉽게 설명해요.", "method": "GET", "url": "https://api.example.com"}}

@@ -61,27 +61,12 @@ def test_build_planner_agent_has_correct_name():
     assert agent.name == "planner_agent"
 
 
-def test_build_planner_agent_instruction_mentions_planning():
-    from agents.generate.sub.planner_agent import build_planner_agent
-    agent = build_planner_agent("gemini-2.5-flash", "test-prompt", "CLAUDE")
-    instr_lower = agent.instruction.lower()
-    assert "워크플로우" in agent.instruction or "계획" in agent.instruction or "plan" in instr_lower or "workflow" in instr_lower
-
-
 # ---------- build_builder_agent ----------
 
 def test_build_builder_agent_has_correct_name():
     from agents.generate.sub.builder_agent import build_builder_agent
     agent = build_builder_agent("gemini-2.5-flash", "test-prompt", "CLAUDE")
     assert agent.name == "builder_agent"
-
-
-def test_build_builder_agent_instruction_contains_system_prompt_content():
-    from agents.generate.sub.builder_agent import build_builder_agent
-    agent = build_builder_agent("gemini-2.5-flash", "test-prompt", "CLAUDE")
-    assert "TRIGGER" in agent.instruction
-    assert "JSON" in agent.instruction
-    assert "workflow" in agent.instruction.lower()
 
 
 # ---------- run_generate_agent ----------

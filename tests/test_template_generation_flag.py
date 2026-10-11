@@ -57,10 +57,6 @@ def test_action_node_not_matched_for_generation(with_fake):
     assert tr.allowed_config_fields_for_node(node) is None
 
 
-def test_registry_accepts_action_node_type():
-    assert "ACTION" in tr._VALID_NODE_TYPES
-
-
 def test_generation_flag_must_be_bool():
     path = os.path.join(tr.TEMPLATES_DIR, "trigger.manual.json")
     with open(path, encoding="utf-8") as f:

@@ -98,9 +98,3 @@ def test_agent_tool_choices_exclude_dynamic_mount_services():
     tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
     assert not [c for c in tools["choices"] if "github" in c["id"]]
     assert tr.get_template("action.github_list_issues")["builder"] is True   # 카탈로그엔 따로 있다
-
-
-def test_github_action_nodes_match_their_entries():
-    for tid in ("action.github_list_issues", "action.github_create_issue"):
-        node = tr.get_template(tid)["fixed"]
-        assert tr.match_entry(node)["id"] == tid

@@ -11,12 +11,6 @@ def test_mcp_server_config_requires_server_url():
         McpServerConfig()
 
 
-def test_mcp_server_config_headers_defaults_to_empty_dict():
-    """headers 미제공 시 {} 기본값."""
-    cfg = McpServerConfig(server_url="https://mcp.example.com/sse")
-    assert cfg.headers == {}
-
-
 def test_mcp_server_config_accepts_custom_headers():
     """커스텀 headers로 생성 성공."""
     cfg = McpServerConfig(
@@ -37,13 +31,6 @@ def test_mcp_server_config_model_dump():
 def test_agent_node_request_mcp_servers_defaults_to_none():
     """mcp_servers 미제공 시 None."""
     req = AgentNodeRequest(nodeId="node-1", renderedPrompt="test")
-    assert req.mcp_servers is None
-
-
-def test_agent_node_request_backward_compatible_without_mcp_servers():
-    """mcp_servers 없이 기존 필드만으로 생성 성공."""
-    req = AgentNodeRequest(nodeId="node-1", renderedPrompt="test")
-    assert req.nodeId == "node-1"
     assert req.mcp_servers is None
 
 

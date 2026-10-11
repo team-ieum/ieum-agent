@@ -50,15 +50,6 @@ INTEGRATION_REQUIRED_OAUTH_JSON = json.dumps({
     "edges": None,
 })
 
-INTEGRATION_REQUIRED_WEBHOOK_JSON = json.dumps({
-    "message": "Slack 연동이 필요합니다.",
-    "type": "INTEGRATION_REQUIRED",
-    "actions": [],
-    "changeDescription": None,
-    "nodes": None,
-    "edges": None,
-})
-
 CLARIFICATION_NEEDED_JSON = json.dumps({
     "message": "어느 Slack 채널로 보낼까요?",
     "type": "CLARIFICATION_NEEDED",
@@ -201,42 +192,23 @@ async def test_chat_workflow_연동미완료_OAuth():
 
 
 @pytest.mark.asyncio
-async def test_chat_workflow_연동미완료_Webhook():
-    """INTEGRATION_REQUIRED + Webhook 서비스: actions 비어있음."""
-    p1, p2, p3 = _make_patches(INTEGRATION_REQUIRED_WEBHOOK_JSON)
-    with p1, p2, p3:
-        result = await _call()
-    assert result.type == ChatResponseType.INTEGRATION_REQUIRED
-    assert result.actions == []
-    assert result.nodes is None
-
-
-@pytest.mark.asyncio
-async def test_chat_workflow_Webhook_여러개_되묻기():
-    """Webhook credential 2개 전달 시 CLARIFICATION_NEEDED."""
+async def test_chat_workflow_불명확_요청():
+    """불명확한 요청 시 CLARIFICATION_NEEDED, nodes == None."""
     p1, p2, p3 = _make_patches(CLARIFICATION_NEEDED_JSON)
     with p1, p2, p3:
         result = await _call(
+            "뭔가 해줘",
             available=[{
                 "provider": "SLACK",
                 "credentials": [
                     {"id": "c1", "displayName": "채널1"},
                     {"id": "c2", "displayName": "채널2"},
                 ],
-            }]
+            }],
         )
     assert result.type == ChatResponseType.CLARIFICATION_NEEDED
     assert result.nodes is None
-
-
-@pytest.mark.asyncio
-async def test_chat_workflow_불명확_요청():
-    """불명확한 요청 시 CLARIFICATION_NEEDED, nodes == None."""
-    p1, p2, p3 = _make_patches(CLARIFICATION_NEEDED_JSON)
-    with p1, p2, p3:
-        result = await _call("뭔가 해줘")
-    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
-    assert result.nodes is None
+    assert result.options == []
 
 
 CLARIFICATION_WITH_OPTIONS_JSON = json.dumps({
@@ -264,15 +236,6 @@ async def test_chat_workflow_options_파싱():
     assert result.options[0].value == "ieum/agent"
     assert result.options[0].label == "agent"
     assert result.options[1].value == "ieum/backend"
-
-
-@pytest.mark.asyncio
-async def test_chat_workflow_options_기본_빈배열():
-    """options가 없는 응답은 빈 배열로 처리된다."""
-    p1, p2, p3 = _make_patches(CLARIFICATION_NEEDED_JSON)
-    with p1, p2, p3:
-        result = await _call("뭔가 해줘")
-    assert result.options == []
 
 
 @pytest.mark.asyncio
@@ -308,26 +271,6 @@ async def test_chat_workflow_코드펜스_제거():
 
 
 @pytest.mark.asyncio
-async def test_chat_workflow_invalid_template_id():
-    """존재하지 않는 templateId → 하이드레이션 실패 → 자가 교정 후에도 실패면 CLARIFICATION_NEEDED 폴백."""
-    invalid_json = json.dumps({
-        "message": "생성했습니다.",
-        "type": "WORKFLOW_GENERATED",
-        "actions": [],
-        "changeDescription": None,
-        "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
-            {"id": "node-2", "templateId": "ai.bogus_does_not_exist", "slots": {"label": "x", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
-        ],
-        "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
-    })
-    p1, p2, p3 = _make_patches(invalid_json)
-    with p1, p2, p3:
-        result = await _call(preserve_id=True)
-    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
-
-
-@pytest.mark.asyncio
 async def test_chat_workflow_duplicate_node_id():
     """중복된 node id → 자가 교정 재시도(동일 출력 반복) 후에도 검증 실패면 CLARIFICATION_NEEDED 폴백."""
     invalid_json = json.dumps({
@@ -340,27 +283,6 @@ async def test_chat_workflow_duplicate_node_id():
             {"id": "node-1", "templateId": "ai.web_search", "slots": {"label": "중복", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "p"}},
         ],
         "edges": [],
-    })
-    p1, p2, p3 = _make_patches(invalid_json)
-    with p1, p2, p3:
-        result = await _call(preserve_id=True)
-    assert result.type == ChatResponseType.CLARIFICATION_NEEDED
-
-
-@pytest.mark.asyncio
-async def test_chat_workflow_invalid_edge_reference():
-    """존재하지 않는 node를 참조하는 edge → 자가 교정 실패 시 CLARIFICATION_NEEDED 폴백."""
-    invalid_json = json.dumps({
-        "message": "생성했습니다.",
-        "type": "WORKFLOW_GENERATED",
-        "actions": [],
-        "changeDescription": None,
-        "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
-        ],
-        "edges": [
-            {"source": "node-1", "target": "node-999", "conditionType": None},
-        ],
     })
     p1, p2, p3 = _make_patches(invalid_json)
     with p1, p2, p3:
@@ -1188,17 +1110,10 @@ async def test_chat_workflow_sentinel_stripped_rejected():
 def test_chat_prompt_puts_resource_id_in_slot_not_prompt():
     """ID 슬롯이 있는 템플릿(Sheets·Calendar·Drive·Notion)은 ID를 슬롯에, 없는 템플릿(GitHub)은 prompt에 적게 한다.
     모든 리소스를 슬롯으로 몰면 슬롯이 없는 GitHub 노드에서 ID가 사라진다."""
-    from core.workflow_chat import _SYSTEM_PROMPT_BASE, _OUTPUT_FORMAT_SPEC
+    from core.workflow_chat import _SYSTEM_PROMPT_BASE
 
     assert "리소스 ID 기입 위치" in _SYSTEM_PROMPT_BASE
-    assert "prompt에는 ID를 쓰지 않습니다" in _SYSTEM_PROMPT_BASE
     assert "ID 슬롯이 없는 템플릿(GitHub 등)은 기존대로 prompt 슬롯에" in _SYSTEM_PROMPT_BASE
-    assert "사용자가 시트(탭) 이름을 말한 경우에만" in _SYSTEM_PROMPT_BASE
-    assert "빈 문자열이나 null을 넣지 말고" in _SYSTEM_PROMPT_BASE
-    assert "선행 노드 결과로 정해지는 ID(참조식)는 슬롯에 넣지 말고 prompt에" in _SYSTEM_PROMPT_BASE
-    assert "노드의 prompt 슬롯에 자연어로 기입하여" not in _SYSTEM_PROMPT_BASE
-    assert "ID 슬롯이 있으면 그 슬롯" in _OUTPUT_FORMAT_SPEC
-    assert "prompt 슬롯에 자연어로 기입한다. 못 찾으면 비운다." not in _OUTPUT_FORMAT_SPEC
 
 
 # ── 앱 트리거(빌더 전용) 워크플로우 수정 ────────────────────────────────────

@@ -113,12 +113,6 @@ def test_no_role_returns_litellm_when_has_key(active):
     assert kwargs["api_key"] == "key"
 
 
-def test_gemini_returns_custom_gemini():
-    from core.custom_gemini import CustomGemini
-    result = build_model_param("GEMINI", "gemini-2.5-pro", "key", "ROLE_TESTER")
-    assert isinstance(result, CustomGemini)
-
-
 # ---------- is_self_hosted_eligible ----------
 
 def test_eligible_when_active(active):

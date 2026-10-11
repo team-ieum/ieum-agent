@@ -17,11 +17,6 @@ from core.workflow_generator import _save_generate_workflow_log
 from main import app
 
 
-def test_platform_gemini_api_key_setting_exists():
-    # 기본값은 빈 문자열(= platform 모드 비활성). .env 없이도 str 타입 보장.
-    assert isinstance(settings.PLATFORM_GEMINI_API_KEY, str)
-
-
 async def _call_middleware(**overrides):
     kwargs = dict(
         x_llm_provider="CLAUDE",

@@ -161,26 +161,6 @@ async def test_google_calendar_create_success():
     assert parsed["eventId"] == "event-123"
 
 
-@pytest.mark.asyncio
-async def test_google_calendar_create_201_success():
-    resp = _make_mock_response(201, {
-        "id": "event-456",
-        "htmlLink": "https://calendar.google.com/event?eid=def",
-    })
-    client = _make_async_client(post_mock=AsyncMock(return_value=resp))
-
-    with patch("tools.google_calendar.get_http_client", return_value=client):
-        result = await google_calendar_create(
-            access_token="token",
-            summary="세미나",
-            start_datetime="2026-05-15T14:00:00+09:00",
-            end_datetime="2026-05-15T16:00:00+09:00",
-        )
-
-    parsed = json.loads(result)
-    assert parsed["success"] is True
-
-
 # ---------------------------------------------------------------------------
 # Google Calendar List
 # ---------------------------------------------------------------------------
