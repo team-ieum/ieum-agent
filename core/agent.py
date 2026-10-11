@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -31,7 +32,14 @@ async def save_execution_log(
     key_mode: str | None = None,
 ):
     # 민감 정보가 포함되어 누출되는 것을 차단하기 위해 로그 저장 시 엄격한 마스킹 수행
-    masked_output = OutputValidator.mask_log_content(result.output)
+    # output(dict)은 문자열로 만든 뒤 마스킹한다. strict 패턴(API_KEY_PATTERN)은 `"access_token": "..."`
+    # 같은 문자열 패턴이라 dict 그대로면 키 이름이 문자열에 없어 걸리지 않는다. 저장 형식도 문자열로 유지한다.
+    # dumps 전에 값도 한 번 가린다. 텍스트 출력({"output": 텍스트}) 안의 큰따옴표가 dumps로 \"가 되면 패턴이 빗나간다.
+    output_text = (
+        json.dumps(OutputValidator.mask_log_content(result.output), ensure_ascii=False)
+        if result.output is not None else None
+    )
+    masked_output = OutputValidator.mask_log_content(output_text)
     masked_err = OutputValidator.mask_log_content(result.errorMessage)
     masked_tools = OutputValidator.mask_log_content(
         [tc.model_dump() for tc in result.toolCalls] if result.toolCalls else []
@@ -170,7 +178,7 @@ async def run_agent(
         result = AgentExecutionResult(
             success=True,
             status="COMPLETED",
-            output=output,
+            output={"output": output},
             usage=usage,
         )
 

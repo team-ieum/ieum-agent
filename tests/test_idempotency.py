@@ -8,7 +8,6 @@ Mongo는 인메모리 fake 컬렉션으로 대체한다(실 DB/실 API 키 불�
 """
 
 import asyncio
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -104,7 +103,7 @@ def test_같은_키_재요청은_재실행하지_않고_응답을_재사용한�
     assert run_agent.await_count == 1      # 두 번째 요청은 도구를 다시 돌리지 않았다
     assert second.status_code == 200
     assert second.json() == first.json()
-    assert second.json()["output"] == "메일 1건 발송"
+    assert second.json()["output"] == {"output": "메일 1건 발송"}
 
 
 def test_다른_키는_각각_실행된다(fake_records):
@@ -159,7 +158,7 @@ def test_실패_응답은_캐싱하지_않고_재시도에서_재실행된다(fa
 
     second = _post(headers, run_agent)
     assert run_agent.await_count == 2      # 재시도가 실제로 재실행됐다
-    assert second.json()["output"] == "재시도 성공"
+    assert second.json()["output"] == {"output": "재시도 성공"}
 
 
 def test_예외로_빠져도_레코드가_남지_않는다(fake_records):
@@ -185,7 +184,7 @@ def test_mongo_장애면_가드를_건너뛰고_실행한다(fake_records, caplo
             response = _post(headers, run_agent)
 
     assert response.status_code == 200
-    assert response.json()["output"] == "ok"
+    assert response.json()["output"] == {"output": "ok"}
     assert run_agent.await_count == 1
     assert any("멱등" in r.message for r in caplog.records)
 
@@ -200,7 +199,7 @@ def test_손상된_캐시_레코드는_캐시_미스로_재실행한다(fake_rec
         response = _post(headers, run_agent)
 
     assert response.status_code == 200
-    assert response.json()["output"] == "ok"
+    assert response.json()["output"] == {"output": "ok"}
     assert run_agent.await_count == 1
     assert any(r.levelname == "WARNING" and "멱등" in r.message for r in caplog.records)
 
@@ -254,15 +253,15 @@ async def test_캐시_응답은_원_응답과_동일하다(fake_records):
     original = AgentExecutionResult(
         success=True,
         status="COMPLETED",
-        output='{"access_token": "eyJhbGciOiJIUzI1NiJ9.abcdefgh", "expires_in": 3600}',
+        output={"access_token": "eyJhbGciOiJIUzI1NiJ9.abcdefgh", "expires_in": 3600},
     )
     await idempotency.claim(KEY)
     await idempotency.complete(KEY, original)
 
     _, cached = await idempotency.claim(KEY)
     assert cached is not None
-    assert cached.output == original.output
-    assert json.loads(cached.output)["access_token"] == "eyJhbGciOiJIUzI1NiJ9.abcdefgh"
+    assert cached == original
+    assert cached.output["access_token"] == "eyJhbGciOiJIUzI1NiJ9.abcdefgh"
 
 
 @pytest.mark.asyncio
@@ -298,3 +297,17 @@ async def test_재취소돼도_레코드가_해제된다(fake_records):
 
     await asyncio.sleep(0.2)   # shield된 release가 끝날 시간
     assert fake_records.docs == {}
+
+
+@pytest.mark.asyncio
+async def test_배포_전_옛_str_output_캐시도_복원된다(fake_records):
+    """배포 직후 1시간(COMPLETED_TTL) 동안 남은 옛 레코드(output: str)가 캐시 미스가 되면
+    BE 재시도가 도구 노드를 다시 실행해 발송이 중복된다."""
+    fake_records.docs[KEY] = {"_id": KEY, "status": "COMPLETED", "response": {
+        "success": True, "status": "COMPLETED", "output": "메일 1건 발송", "metadata": None,
+        "errorMessage": None, "errorCode": None, "toolCalls": None, "usage": None}}
+
+    claimed, cached = await idempotency.claim(KEY)
+
+    assert claimed is False
+    assert cached.output == {"output": "메일 1건 발송"}
