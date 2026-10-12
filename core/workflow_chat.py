@@ -161,7 +161,7 @@ _REVIEWER_SYSTEM_PROMPT = """\
 2. 노드 간 데이터 참조 정합성:
    - 이전 노드 참조(예: nodes.node-1.output.data를 이중 중괄호로 감싼 형태)가 올바른 선행 노드 ID를 가리키고 있는지 대조하십시오.
    - 정의되지 않은 임의의 시스템 변수(예: today, current_date 등)를 날조해서 사용하고 있지 않은지 감시하십시오.
-   - AI 노드 참조는 보통 output.output이지만, 출력 칸이 선언된 AI 노드는 그 칸(output.<칸 이름>)을 참조하는 것이 정상입니다. output.output이 아니라는 이유만으로 결함으로 지적하지 마십시오.
+   - AI 노드 참조는 output.output입니다. 입력 끝의 '출력 칸이 선언된 노드' 목록에 있는 AI 노드만 그 칸(output.<칸 이름>)을 참조하는 것이 정상입니다. 목록에 없는 AI 노드를 output.output 밖의 필드로 참조하면 결함입니다.
 3. 데이터 훼손 방지 및 흐름 적절성:
    - 깃허브나 노션 조회 노드의 prompt가 데이터 값을 자연어로 마음대로 훼손/왜곡하지 않으면서도, 후속 노드가 실제 사용하는 필드만 추출하도록 가이드되었는지 확인하십시오. 전체 원시 JSON을 통째로 덤프하게 설계되어 있다면 결함입니다(거대 출력은 실행 타임아웃 유발). 가능하면 조회 단계 server-side 필터(state/날짜 범위/개수 제한)와 후속 필터의 선반영이 포함되어 있는지 확인하십시오.
    - 원시 데이터를 정제하거나 마크다운 형식으로 작성할 때, 별도 TRANSFORM 노드 또는 별도 AI 노드(prompt 위임)를 거치도록 설계되었는지 확인하십시오.
@@ -499,6 +499,7 @@ async def chat_workflow(
     workflow_section = ""
     legacy_desc_ids: set = set()
     passthrough_ids: set = set()
+    field_lines: list[str] = []  # 출력 칸 선언 노드 — designer 수정 규칙과 reviewer 입력이 같이 쓴다
     if current_nodes:
         # 저장된 full-node를 draft(templateId+slots)로 역변환해 주입한다. Designer는 draft로 편집한다.
         current_drafts = dehydrate_nodes(current_nodes)
@@ -544,6 +545,8 @@ async def chat_workflow(
                 # 칸 이름이 output이면 output.output이 실제 값이라 금지 문장을 붙이면 모순이 된다.
                 if "output" not in keys:
                     line += ". 이 노드를 참조할 때 output.output을 쓰지 않는다"
+                line += " (templateId를 바꾸면 칸이 없어지고 output.output이 된다)"
+                field_lines.append(line)
                 rules.append(line)
         rules.append("type은 반드시 WORKFLOW_MODIFIED")
         if legacy_desc_ids:
@@ -801,6 +804,8 @@ async def chat_workflow(
                     f"Original User Request: {prompt}\n\n"
                     f"Drafted Workflow Configs:\n{cleaned_draft}"
                 )
+                if field_lines:
+                    review_prompt += "\n\n출력 칸이 선언된 노드:\n" + "\n".join(f"- {l}" for l in field_lines)
                 review_message = types.Content(
                     role="user",
                     parts=[types.Part(text=review_prompt)],

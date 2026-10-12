@@ -1431,3 +1431,36 @@ async def test_chat_prompt_칸_이름이_output이면_금지_문장을_뺀다():
     instruction = await _designer_instruction(_structured_full_nodes(fields))
     assert "node-2 노드의 출력은 output.output, output.urgent 이다" in instruction
     assert "output.output을 쓰지 않는다" not in instruction
+
+
+async def _review_messages(current_nodes) -> list[str]:
+    """Runner에 들어간 사용자 메시지 텍스트를 모은다(designer·reviewer 공용 mock)."""
+    sent = []
+
+    async def run_async(**kwargs):
+        msg = kwargs.get("new_message")
+        sent.append("".join(p.text or "" for p in msg.parts) if msg else "")
+        ev = MagicMock()
+        ev.is_final_response.return_value = True
+        ev.content.parts = [type("Part", (), {"text": _STRUCTURED_MODIFIED_JSON})()]
+        yield ev
+
+    runner = MagicMock()
+    runner.run_async = run_async
+    _, p2, p3 = _make_patches(_STRUCTURED_MODIFIED_JSON)
+    with patch("core.workflow_chat.Runner", return_value=runner), p2, p3:
+        await _call("수정해줘", current_nodes=current_nodes, current_edges=_STRUCTURED_EDGES[:1])
+    return [m for m in sent if m.startswith("Original User Request:")]
+
+
+@pytest.mark.asyncio
+async def test_reviewer_입력에_출력_칸_선언_노드가_실린다():
+    """reviewer는 칸 선언 노드 목록이 있어야 칸 참조와 지어낸 필드 참조를 구분한다."""
+    reviews = await _review_messages(_structured_full_nodes())
+    assert reviews and "node-2 노드의 출력은 output.urgent, output.reason 이다" in reviews[0]
+
+
+@pytest.mark.asyncio
+async def test_reviewer_입력에_칸이_없으면_목록도_없다():
+    reviews = await _review_messages(_structured_full_nodes(None))
+    assert reviews and "출력 칸이 선언된 노드" not in reviews[0]
