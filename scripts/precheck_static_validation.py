@@ -14,9 +14,6 @@ import os
 import sys
 import urllib.request
 
-from bson import ObjectId
-from pymongo import MongoClient
-
 URL = f"http://localhost:{os.environ.get('PORT', '8000')}/v1/workflows/validate"
 
 
@@ -27,7 +24,16 @@ def _validate(nodes, edges) -> dict:
         return json.load(resp)
 
 
+def _esc(value) -> str:
+    """TSV 한 줄에 싣는 사용자 값 — 인쇄 불가 문자(제어문자·탭·개행)를 \\xNN으로. 터미널 조작·줄 위조를 막는다."""
+    return "".join(c if c.isprintable() else f"\\x{ord(c):02x}" for c in str(value))
+
+
 def main() -> None:
+    # 함수 안에서 import — 테스트가 pymongo 없이 _esc만 가져갈 수 있게
+    from bson import ObjectId
+    from pymongo import MongoClient
+
     coll = MongoClient(os.environ["MONGODB_URL"])[os.environ.get("MONGODB_DB_NAME", "ieum")]["workflow_definitions"]
     by_code, broken, missing, failed, total = collections.Counter(), 0, [], [], 0
     for line in sys.stdin:
@@ -44,14 +50,14 @@ def main() -> None:
             result = _validate(doc.get("nodes") or [], doc.get("edges") or [])
         except Exception as e:  # 한 건 때문에 요약까지 잃지 않게 — 실패 목록에 남기고 계속
             failed.append(wf_id)
-            print(f"{wf_id}\tCALL_FAILED\t\t\t{type(e).__name__}", file=sys.stderr)
+            print(f"{_esc(wf_id)}\tCALL_FAILED\t\t\t{type(e).__name__}", file=sys.stderr)
             continue
         if result["valid"]:
             continue
         broken += 1
         for e in result["errors"]:
             by_code[e["code"]] += 1
-            print(f"{wf_id}\t{e['code']}\t{e['nodeId']}\t{e['field']}\t{e['message']}")
+            print(f"{_esc(wf_id)}\t{e['code']}\t{_esc(e['nodeId'])}\t{_esc(e['field'])}\t{_esc(e['message'])}")
     print(f"\n# 워크플로우 {total}개 / 에러 있는 워크플로우 {broken}개 / 정의 없음 {len(missing)}개 {missing} / 호출 실패 {len(failed)}개 {failed}")
     for code, n in by_code.most_common():
         print(f"# {code}\t{n}")

@@ -401,3 +401,138 @@ def test_닫히지_않은_중괄호가_길어도_빨리_끝난다():
     t = time.monotonic()
     validate_workflow(nodes, edges)
     assert time.monotonic() - t < 1
+
+
+# ── 상한 (spec §7-15) ──
+
+def test_노드_500개_연결_2000개까지는_검증한다():
+    assert validate_workflow([None] * 499 + [TRIGGER], []) == []
+    assert validate_workflow([TRIGGER], [None] * 2000) == []
+
+
+def test_노드_501개나_연결_2001개면_TOO_LARGE_하나만():
+    """원본 길이로 센다 — dict 아닌 원소를 거르기 전. 다른 검사는 돌지 않는다."""
+    assert validate_workflow([None] * 500 + [TRIGGER], []) == [{
+        "nodeId": None, "field": None, "code": "TOO_LARGE",
+        "message": "노드는 500개, 연결은 2000개까지 검증할 수 있어요(현재 노드 501개, 연결 0개)."}]
+    errors = validate_workflow([_ai("a")], [None] * 2001)  # 트리거 없음도 내지 않는다
+    assert _codes(errors) == [("TOO_LARGE", None, None)]
+    assert errors[0]["message"].endswith("(현재 노드 1개, 연결 2001개).")
+
+
+def test_같은_에러는_처음_하나만_순서_유지():
+    prompt = "{{nodes.gone.output.x}} {{nodes.zz.output.x}} {{nodes.gone.output.x}}"
+    errors = validate_workflow(*_chain(_ai("a", prompt=prompt)))
+    assert [e["message"] for e in errors] == ["없는 노드 'gone'를 참조해요.", "없는 노드 'zz'를 참조해요."]
+
+
+def test_에러는_최대_200건():
+    prompt = " ".join(f"{{{{nodes.gone{i}.output.x}}}}" for i in range(300))
+    errors = validate_workflow(*_chain(_ai("a", prompt=prompt)))
+    assert len(errors) == 200
+    assert errors[0]["message"] == "없는 노드 'gone0'를 참조해요."
+
+
+def test_메시지에_싣는_사용자_값은_80자로_자른다():
+    long = "x" * 200
+    cond = {"id": "c", "type": "CONDITION", "config": {"operator": "o" * 200, "left": "a", "right": "b",
+                                                       "extra": "{{" + long + "}} {{nodes." + "g" * 200 + ".output.x}}"}}
+    sched = {"id": "t", "type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "cron": "5" * 200}}
+    dup = {"id": "q" * 200, "type": "HTTP", "config": {"url": "https://x.io"}}
+    nodes = [sched, cond, dup, dup]
+    edges = [{"source": "t", "target": "c"}, {"source": "c", "target": "q" * 200}, {"source": "t", "target": "z" * 200}]
+    by_code = {}
+    for e in validate_workflow(nodes, edges):
+        by_code.setdefault(e["code"], []).append(e["message"])
+    for code in ("REF_FORMAT", "REF_UNKNOWN_NODE", "CHOICE", "CRON", "EDGE_INVALID"):
+        assert by_code.get(code), code
+        for msg in by_code[code]:
+            assert len(msg) < 200, (code, msg)
+    assert "{{" + "x" * 80 + "…}}" in by_code["REF_FORMAT"][0]
+    assert "'" + "g" * 80 + "…'" in by_code["REF_UNKNOWN_NODE"][0]
+
+
+def test_응답은_제어문자_값이나_긴_nodeId에도_바이트_예산_안():
+    """BE WebClient 기본 버퍼 256KB — 넘으면 파싱 실패 = fail-open(최종 리뷰 rv/size.py 재현)."""
+    import json
+    ctrl = [chr(c) for c in range(1, 32) if chr(c) not in "\t\n\r\b\f"]
+    ends = ["".join(ctrl[i // len(ctrl) ** k % len(ctrl)] for k in range(3)) + ctrl[0] * 97 for i in range(200)]
+    errors = validate_workflow([TRIGGER], [{"source": s, "target": s} for s in ends])
+    assert errors and len(json.dumps(errors)) <= 200_000
+    prompt = " ".join(f"{{{{nodes.gone{i}.output.x}}}}" for i in range(200))
+    for nid in ("n" * 2000, "\x01" * 300):
+        errors = validate_workflow(*_chain(_ai(nid, prompt=prompt)))
+        assert errors and len(json.dumps(errors)) <= 200_000
+    errors = validate_workflow(*_chain({"id": "n" * 300_000, "type": "HTTP", "config": {}}))
+    assert [e["code"] for e in errors] == ["REQUIRED"]  # 최소 1건은 남아 valid=false
+    assert errors[0]["nodeId"] == "n" * 80 + "…"
+
+
+def test_긴_키_아래_큰_목록도_빨리_끝난다():
+    """_iter_strings가 원소마다 긴 경로를 복사하지 않는다(rv/kp2.py 모양)."""
+    import time
+    node = {"id": "a", "type": "TRANSFORM", "config": {"k" * 1_000_000: [0] * 200_000}}
+    t = time.monotonic()
+    validate_workflow(*_chain(node))
+    assert time.monotonic() - t < 1
+
+
+def test_중복_에러가_많아도_모아_두지_않는다():
+    """에러를 다 만든 뒤 자르지 않고 수집하면서 거른다(rv/mem.py 모양)."""
+    import tracemalloc
+    nodes, edges = _chain({"id": "h", "type": "HTTP", "config": {"url": "{{a}}" * 200_000}})
+    tracemalloc.start()
+    try:
+        errors = validate_workflow(nodes, edges)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert [e["code"] for e in errors] == ["REF_FORMAT"]
+    assert peak < 10_000_000, peak
+
+
+def test_대상_출력_칸이_많아도_참조_검사는_빨리_끝난다():
+    """대상 노드 출력 칸은 대상당 한 번만 계산한다(perf_tools 모양: tools 16000 × 참조 16000)."""
+    import time
+    k = 16000
+    nodes = [{"id": "t", "type": "TRIGGER", "config": {"triggerType": "WEBHOOK"}},
+             {"id": "a", "type": "TRANSFORM", "config": {"tools": ["x"] * k}},
+             {"id": "b", "type": "TRANSFORM", "config": {"m": ["{{nodes.a.output.x}}"] * k}}]
+    edges = [{"source": "t", "target": "a"}, {"source": "a", "target": "b"}]
+    t = time.monotonic()
+    validate_workflow(nodes, edges)
+    assert time.monotonic() - t < 1
+
+
+# ── 칸 검사가 건너뛰는 칸은 참조 검사도 건너뛴다 (spec §7-16) ──
+
+def test_isEmpty_조건의_right_참조는_검사하지_않는다():
+    cond = {"id": "c", "type": "CONDITION",
+            "config": {"operator": "isEmpty", "left": "{{nodes.t.output.x}}", "right": "{{nodes.gone.output.x}}"}}
+    assert validate_workflow(*_chain(cond)) == []
+
+
+def test_웹훅_크레덴셜이_있는_HTTP의_url_참조는_검사하지_않는다():
+    http = {"id": "h", "type": "HTTP", "config": {"method": "POST", "webhookCredentialId": "614ac2ef-0000",
+                                                  "url": "https://x/{{nodes.gone.output.x}}"}}
+    assert validate_workflow(*_chain(http)) == []
+
+
+def test_건너뛴_칸의_하위_경로와_옛_표기는_건너뛰고_형제_키는_검사한다():
+    gone = "{{nodes.gone.output.x}}"
+    base = {"operator": "isEmpty", "left": "{{nodes.t.output.x}}"}
+    for extra in ({"right": {"a": [gone]}}, {"rightValue": gone}):
+        cond = {"id": "c", "type": "CONDITION", "config": {**base, **extra}}
+        assert validate_workflow(*_chain(cond)) == [], extra
+    cond = {"id": "c", "type": "CONDITION", "config": {**base, "rightX": gone}}
+    assert [e["code"] for e in validate_workflow(*_chain(cond))] == ["REF_UNKNOWN_NODE"]
+
+
+def test_재귀_한도보다_깊은_중첩도_훑는다():
+    """_iter_strings는 명시 스택이다 — 재귀 yield from은 깊이만큼 문자열을 올려 보내 깊은 중첩에서 2.6배 느렸고
+    (깊이 94 × 99만 개 3.1s → 1.2s, BE 3초 타임아웃), 재귀 한도를 넘으면 RecursionError로 500이 된다."""
+    deep = ["{{}}"]
+    for _ in range(3000):
+        deep = [deep]
+    nodes = [TRIGGER, {"id": "x", "type": "TRANSFORM", "config": {"mappings": {"a": "b"}, "x": deep}}]
+    assert [e["code"] for e in validate_workflow(nodes, [{"source": "t", "target": "x"}])] == ["REF_FORMAT"]

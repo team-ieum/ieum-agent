@@ -22,10 +22,25 @@ _CONDITION_ALIASES = {"config.left": "config.leftValue", "config.right": "config
 _TOOL_FIELD_PREFIX = "config.tools.0.config."
 # spec §1: AI 출력 칸 규칙은 실행 시점(INVALID_OUTPUT_FIELDS, core/output_fields.py) 몫 — 칸 검사에서 뺀다
 _SKIPPED_AI_FIELDS = ("config.outputFields",)
+# spec §7-15: 검증 비용(조상 탐색 O(N²))·응답 크기 상한. BE는 3초 뒤 fail-open해도 agent CPU는 계속 돌고,
+# 응답이 BE WebClient 기본 버퍼 256KB를 넘으면 파싱 실패 = fail-open으로 차단이 거꾸로 풀린다.
+MAX_NODES, MAX_EDGES, MAX_ERRORS, MAX_VALUE_LEN = 500, 2000, 200, 80
+# 200건이어도 제어문자 값(JSON에서 문자당 6바이트)이면 256KB를 넘는다 — 바이트로도 자른다. json.dumps 기본
+# ensure_ascii=True는 한글도 6바이트로 세서 실제 응답(UTF-8 3바이트)보다 크게 잡는다.
+MAX_ERROR_BYTES = 200_000
+# 위치 경로는 카탈로그 path(최대 41자)와만 비교한다 — 긴 키 아래 큰 목록에서 원소마다 긴 경로를 복사하지 않게 자른다
+_MAX_LOC = 256
 
 
 def _err(code: str, message: str, node_id=None, field: str | None = None) -> dict:
-    return {"nodeId": None if node_id is None else str(node_id), "field": field, "code": code, "message": message}
+    # nodeId도 사용자 값 — 긴 id 하나로 응답이 버퍼를 넘지 않게 자른다(정상 id는 UUID 36자)
+    return {"nodeId": None if node_id is None else _clip(node_id), "field": field, "code": code, "message": message}
+
+
+def _clip(value) -> str:
+    """메시지에 싣는 사용자 값 — MAX_VALUE_LEN자를 넘으면 자르고 '…'."""
+    s = str(value)
+    return s if len(s) <= MAX_VALUE_LEN else s[:MAX_VALUE_LEN] + "…"
 
 
 def _sid(value) -> str | None:
@@ -34,16 +49,39 @@ def _sid(value) -> str | None:
 
 
 def validate_workflow(nodes: list, edges: list) -> list[dict]:
-    """워크플로우 전체 검증. 에러가 없으면 빈 목록. 어떤 입력에도 예외를 내지 않는다."""
-    nodes = [n for n in (nodes or []) if isinstance(n, dict)]
-    edges = [e for e in (edges or []) if isinstance(e, dict)]
+    """워크플로우 전체 검증. 에러가 없으면 빈 목록. 어떤 입력에도 예외를 내지 않는다.
+    같은 에러는 처음 하나만 남기고 MAX_ERRORS건·MAX_ERROR_BYTES에서 자른다(spec §7-15). 최소 1건은 남긴다."""
+    nodes, edges = nodes or [], edges or []
+    if len(nodes) > MAX_NODES or len(edges) > MAX_EDGES:  # 원본 길이 — dict 아닌 원소를 거르기 전
+        return [_err("TOO_LARGE", f"노드는 {MAX_NODES}개, 연결은 {MAX_EDGES}개까지 검증할 수 있어요"
+                                  f"(현재 노드 {len(nodes)}개, 연결 {len(edges)}개).")]
+    nodes = [n for n in nodes if isinstance(n, dict)]
+    edges = [e for e in edges if isinstance(e, dict)]
     errors = _graph_errors(nodes, edges)
     by_id = {_sid(n.get("id")): n for n in nodes if _sid(n.get("id"))}
     preds = _predecessors(edges, set(by_id))
-    for node in nodes:
-        errors += field_errors(node)
-        errors += _ref_errors(node, by_id, preds)
-    return errors
+    outputs: dict = {}  # 대상 id → _declared_outputs, 대상당 한 번만 계산
+
+    def found():
+        yield from errors
+        for node in nodes:
+            yield from field_errors(node)  # 노드당 칸 수만큼 — 작다
+            yield from _ref_errors(node, by_id, preds, outputs)
+
+    # 수집하면서 거른다 — 다 만든 뒤 자르면 같은 참조 수백만 개가 에러 dict 수백만 개로 메모리를 먹는다.
+    # dict는 키가 처음 들어온 순서를 지킨다.
+    unique, size = {}, 0
+    for e in found():
+        key = (e["nodeId"], e["field"], e["code"], e["message"])
+        if key in unique:
+            continue
+        size += len(json.dumps(e))
+        if unique and size > MAX_ERROR_BYTES:
+            break
+        unique[key] = e
+        if len(unique) == MAX_ERRORS:
+            break
+    return list(unique.values())
 
 
 # ── 그래프 (spec §3.9) ─────────────────────────────────────────────
@@ -59,10 +97,10 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
             errors.append(_err("EDGE_INVALID", f"{idx + 1}번째 노드에 id가 없습니다."))
             continue
         if nid in seen:
-            errors.append(_err("EDGE_INVALID", f"노드 id '{nid}'가 중복됩니다.", nid))
+            errors.append(_err("EDGE_INVALID", f"노드 id '{_clip(nid)}'가 중복됩니다.", nid))
         seen.add(nid)
         if not isinstance(ntype, str) or not ntype:
-            errors.append(_err("EDGE_INVALID", f"노드 '{nid}'에 type이 없습니다.", nid))
+            errors.append(_err("EDGE_INVALID", f"노드 '{_clip(nid)}'에 type이 없습니다.", nid))
             continue
         if ntype.upper() == "TRIGGER":
             triggers.append(node)
@@ -76,7 +114,7 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
             errors.append(_err("EDGE_INVALID", f"{idx + 1}번째 연결에 출발 또는 도착 노드가 없습니다."))
         elif source not in seen or target not in seen:
             missing = source if source not in seen else target
-            errors.append(_err("EDGE_INVALID", f"연결({source} → {target})이 없는 노드 '{missing}'를 가리킵니다."))
+            errors.append(_err("EDGE_INVALID", f"연결({_clip(source)} → {_clip(target)})이 없는 노드 '{_clip(missing)}'를 가리킵니다."))
         elif target == trigger_id:
             errors.append(_err("EDGE_INVALID", "트리거로 들어오는 연결은 둘 수 없습니다.", trigger_id))
     if trigger_id is not None:
@@ -114,7 +152,7 @@ def _cron_errors(node: dict) -> list[dict]:
     # ponytail: 필드 수·문자 집합만 본다. 값 범위(분 0-59 등)는 저장 시 BE CronExpression이 검증.
     parts = cron.split()
     if len(parts) not in (5, 6, 7) or not all(_CRON_PART_RE.match(p) for p in parts):
-        return [_err("CRON", f"cron 표현식 '{cron}'이 올바르지 않습니다(5필드 또는 Quartz 6·7필드).",
+        return [_err("CRON", f"cron 표현식 '{_clip(cron)}'이 올바르지 않습니다(5필드 또는 Quartz 6·7필드).",
                      node.get("id"), "config.cron")]
     return []
 
@@ -141,15 +179,20 @@ def field_errors(node: dict) -> list[dict]:
             continue
         if value in _EMPTY and entry["node_type"] == "CONDITION" and path in _CONDITION_ALIASES:
             value = _get_by_path(view, _CONDITION_ALIASES[path])
-        if (path == "config.right" and entry["node_type"] == "CONDITION"
-                and _get_by_path(view, "config.operator") in _RIGHT_UNUSED_OPERATORS):
-            continue
-        # BE HttpNodeExecutor는 webhookCredentialId가 채워져 있으면 url을 읽지 않는다(BE-62: url에 웹훅 주소 금지)
-        if (path == "config.url" and entry["node_type"] == "HTTP"
-                and str(_get_by_path(view, "config.webhookCredentialId") or "").strip()):
+        if _unused_field(entry, view, path):
             continue
         errors += _check(f, value, path, nid)
     return errors
+
+
+def _unused_field(entry: dict, view: dict, path: str) -> bool:
+    """실행기가 읽지 않는 칸 — 칸 검사와 참조 검사가 함께 건너뛴다(spec §7-16)."""
+    if path == "config.right" and entry["node_type"] == "CONDITION":
+        return _get_by_path(view, "config.operator") in _RIGHT_UNUSED_OPERATORS
+    # BE HttpNodeExecutor는 webhookCredentialId가 채워져 있으면 url을 읽지 않는다(BE-62: url에 웹훅 주소 금지)
+    if path == "config.url" and entry["node_type"] == "HTTP":
+        return bool(str(_get_by_path(view, "config.webhookCredentialId") or "").strip())
+    return False
 
 
 def _check(f: dict, value, path: str, nid) -> list[dict]:
@@ -177,7 +220,7 @@ def _check(f: dict, value, path: str, nid) -> list[dict]:
     choices = f.get("choices")
     # 목록 칸은 위에서 끝났다 — 여기 dict·list가 오면 그 자체로 틀린 값이고, 집합 비교 전에 걸러 해시 예외를 피한다
     if choices and (isinstance(value, (dict, list)) or value not in {c["id"] for c in choices}):
-        return [_err("CHOICE", f"'{title}' 칸의 값 '{value}'은(는) 고를 수 있는 값이 아니에요.", nid, path)]
+        return [_err("CHOICE", f"'{title}' 칸의 값 '{_clip(value)}'은(는) 고를 수 있는 값이 아니에요.", nid, path)]
     return []
 
 
@@ -225,15 +268,17 @@ def _ancestors(nid, preds: dict) -> set:
 
 
 def _iter_strings(value, path: str):
-    """(위치 경로, 문자열)을 재귀로 낸다."""
-    if isinstance(value, str):
-        yield path, value
-    elif isinstance(value, dict):
-        for k, v in value.items():
-            yield from _iter_strings(v, f"{path}.{k}")
-    elif isinstance(value, list):
-        for i, v in enumerate(value):
-            yield from _iter_strings(v, f"{path}.{i}")
+    """(위치 경로, 문자열)을 전위 순서로 낸다. 명시 스택 — 재귀 yield from은 문자열 하나를 깊이만큼 올려 보내
+    깊은 중첩 × 많은 문자열에서 BE 3초 타임아웃을 넘겼다."""
+    stack = [(path, value)]
+    while stack:
+        loc, cur = stack.pop()
+        if isinstance(cur, str):
+            yield loc, cur
+        elif isinstance(cur, dict):
+            stack.extend((f"{loc}.{k}"[:_MAX_LOC], v) for k, v in reversed(list(cur.items())))
+        elif isinstance(cur, list):
+            stack.extend((f"{loc}.{i}"[:_MAX_LOC], cur[i]) for i in range(len(cur) - 1, -1, -1))
 
 
 def _declared_outputs(node: dict) -> set | None:
@@ -252,40 +297,46 @@ def _declared_outputs(node: dict) -> set | None:
     return {f["key"] for f in entry["outputFields"]}
 
 
-def _ref_errors(node: dict, by_id: dict, preds: dict) -> list[dict]:
+def _ref_errors(node: dict, by_id: dict, preds: dict, outputs: dict):
+    """참조식 에러를 하나씩 낸다(참조 수에 비례해 많을 수 있다). outputs: 대상 id → _declared_outputs 캐시."""
     nid = _sid(node.get("id"))
     config = node.get("config")
     if nid is None or not isinstance(config, dict):
-        return []
+        return
     entry = match_entry(node)
     field_paths = [f["path"] for f in entry["inputFields"]] if entry else []
-    errors, anc = [], None
+    view = _match_view(node)
+    unused = [p for p in field_paths if _unused_field(entry, view, p)]
+    unused += [_CONDITION_ALIASES[p] for p in unused if p in _CONDITION_ALIASES]  # BE는 right가 없으면 rightValue를 읽는다
+    anc = None
     for loc, text in _iter_strings(config, "config"):
-        if "{{" not in text:
+        if "{{" not in text or any(loc == p or loc.startswith(p + ".") for p in unused):
             continue
         field = next((p for p in field_paths if loc == p or loc.startswith(p + ".")), None)
         if text.rfind("{{") > text.rfind("}}"):
-            errors.append(_err("REF_FORMAT", "참조식의 '{{'가 닫히지 않았어요.", nid, field))
-        for raw in _REF_RE.findall(text):
+            yield _err("REF_FORMAT", "참조식의 '{{'가 닫히지 않았어요.", nid, field)
+        for ref in _REF_RE.finditer(text):  # findall은 참조 수백만 개를 목록으로 먼저 만든다
+            raw = ref.group(1)
             m = REF_BODY_RE.fullmatch(raw)
             if not m:
-                errors.append(_err("REF_FORMAT", f"참조식 '{{{{{raw}}}}}'의 형식이 맞지 않아요. "
-                                                 "'{{nodes.<노드ID>.output.<칸>}}' 모양이어야 해요.", nid, field))
+                yield _err("REF_FORMAT", f"참조식 '{{{{{_clip(raw)}}}}}'의 형식이 맞지 않아요. "
+                                         "'{{nodes.<노드ID>.output.<칸>}}' 모양이어야 해요.", nid, field)
                 continue
             target, out_path = m.group(1), m.group(2)
             if target not in by_id:
-                errors.append(_err("REF_UNKNOWN_NODE", f"없는 노드 '{target}'를 참조해요.", nid, field))
+                yield _err("REF_UNKNOWN_NODE", f"없는 노드 '{_clip(target)}'를 참조해요.", nid, field)
                 continue
             if target == nid:
-                errors.append(_err("REF_SELF", "자기 자신의 결과는 참조할 수 없어요.", nid, field))
+                yield _err("REF_SELF", "자기 자신의 결과는 참조할 수 없어요.", nid, field)
                 continue
             if anc is None:
                 anc = _ancestors(nid, preds)
             if target not in anc:
-                errors.append(_err("REF_NOT_UPSTREAM", f"앞 단계가 아닌 노드 '{target}'를 참조해요.", nid, field))
+                yield _err("REF_NOT_UPSTREAM", f"앞 단계가 아닌 노드 '{_clip(target)}'를 참조해요.", nid, field)
                 continue
-            declared = _declared_outputs(by_id[target])
+            if target not in outputs:
+                outputs[target] = _declared_outputs(by_id[target])
+            declared = outputs[target]
             head = out_path.split(".", 1)[0]
             if declared is not None and head not in declared:
-                errors.append(_err("REF_UNKNOWN_FIELD", f"노드 '{target}'에는 '{head}' 결과가 없어요.", nid, field))
-    return errors
+                yield _err("REF_UNKNOWN_FIELD", f"노드 '{_clip(target)}'에는 '{_clip(head)}' 결과가 없어요.", nid, field)

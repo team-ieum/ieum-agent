@@ -38,3 +38,11 @@ def test_dict가_아닌_원소가_섞여도_422가_아니다():
     resp = client.post("/v1/workflows/validate", json={"nodes": [None, "x", TRIGGER], "edges": [1]})
     assert resp.status_code == 200
     assert resp.json() == {"valid": True, "errors": []}
+
+
+def test_노드가_너무_많으면_TOO_LARGE_하나():
+    resp = client.post("/v1/workflows/validate", json={"nodes": [TRIGGER] * 501, "edges": []})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is False
+    assert [e["code"] for e in body["errors"]] == ["TOO_LARGE"]
