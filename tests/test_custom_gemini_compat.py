@@ -23,7 +23,7 @@ def test_gemini_internal_attrs_exist():
     """api_client 오버라이드가 의존하는 ADK Gemini 내부 속성이 존재한다."""
     from core.custom_gemini import CustomGemini
 
-    g = CustomGemini(model="gemini-3.5-flash", api_key="test-key")
+    g = CustomGemini(model="gemini-3.7-flash", api_key="test-key")
     for attr in ("base_url", "retry_options", "_tracking_headers"):
         assert hasattr(g, attr), f"ADK Gemini가 더 이상 '{attr}'를 노출하지 않음 — api_client 오버라이드 깨짐"
 
@@ -33,7 +33,7 @@ def test_api_client_builds_with_injected_key():
     from google.genai import Client
     from core.custom_gemini import CustomGemini
 
-    g = CustomGemini(model="gemini-3.5-flash", api_key="test-key")
+    g = CustomGemini(model="gemini-3.7-flash", api_key="test-key")
     client = g.api_client
     assert isinstance(client, Client)
 
@@ -45,7 +45,7 @@ def test_api_client_not_monkeypatched():
     from google.genai import Client
     from core.custom_gemini import CustomGemini
 
-    g = CustomGemini(model="gemini-3.5-flash", api_key="test-key")
+    g = CustomGemini(model="gemini-3.7-flash", api_key="test-key")
     client = g.api_client
     fresh = Client(api_key="test-key")
     # 래핑됐다면 함수 이름이 wrapped_* 로 바뀐다. 원본과 동일 이름이어야 한다(미패치).
@@ -69,7 +69,7 @@ async def test_generate_content_async_injects_thinking():
         if False:
             yield  # async generator로 만든다
 
-    g = CustomGemini(model="gemini-3.5-flash", api_key="test-key")
+    g = CustomGemini(model="gemini-3.7-flash", api_key="test-key")
     llm_request = SimpleNamespace(config=genai_types.GenerateContentConfig())
 
     with patch.object(Gemini, "generate_content_async", fake_super):
@@ -94,9 +94,9 @@ async def test_thinking_config_reaches_genai_client():
     from google.adk.models.llm_request import LlmRequest
     from core.custom_gemini import CustomGemini, _THINKING_BUDGET
 
-    g = CustomGemini(model="gemini-3.5-flash", api_key="test-key")
+    g = CustomGemini(model="gemini-3.7-flash", api_key="test-key")
     req = LlmRequest(
-        model="gemini-3.5-flash",
+        model="gemini-3.7-flash",
         contents=[genai_types.Content(role="user", parts=[genai_types.Part(text="hi")])],
         config=genai_types.GenerateContentConfig(),
     )

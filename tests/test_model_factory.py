@@ -168,7 +168,7 @@ def test_commercial_without_key_falls_back_to_string(api_key):
 
 def test_gemini_still_customgemini():
     # GEMINI는 변경 없음 — CustomGemini 유지
-    result = build_model_param("GEMINI", "gemini-3.5-flash", "gkey", "ROLE_USER")
+    result = build_model_param("GEMINI", "gemini-3.7-flash", "gkey", "ROLE_USER")
     from core.custom_gemini import CustomGemini
     assert isinstance(result, CustomGemini)
 
@@ -196,8 +196,8 @@ def test_cost_model_name_commercial_when_not_eligible():
 def test_cost_model_name_gemini_adds_prefix():
     # 라우팅(_litellm_model_name/CustomGemini)은 prefix 없이 그대로 두지만, cost 계산은
     # litellm 조회를 위해 "gemini/" prefix를 붙인다.
-    assert cost_model_name("GEMINI", "gemini-3.5-flash", "gkey", "ROLE_USER") == "gemini/gemini-3.5-flash"
+    assert cost_model_name("GEMINI", "gemini-3.7-flash", "gkey", "ROLE_USER") == "gemini/gemini-3.7-flash"
 
 
 def test_cost_model_name_gemini_prefix_idempotent():
-    assert cost_model_name("GEMINI", "gemini/gemini-3.5-flash", "gkey", "ROLE_USER") == "gemini/gemini-3.5-flash"
+    assert cost_model_name("GEMINI", "gemini/gemini-3.7-flash", "gkey", "ROLE_USER") == "gemini/gemini-3.7-flash"
