@@ -38,7 +38,7 @@ pytestmark = [
     ),
 ]
 
-MODEL = os.environ.get("SMOKE_MODEL", "gemini-3.5-flash")
+MODEL = os.environ.get("SMOKE_MODEL", "gemini-3.7-flash")
 
 
 def _key() -> str:

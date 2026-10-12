@@ -92,7 +92,7 @@ async def test_save_execution_log_records_key_mode():
             node_id="n1",
             workflow_execution_id=None,
             provider="GEMINI",
-            model="gemini-3.5-flash",
+            model="gemini-3.7-flash",
             agent_type="simple",
             result=AgentExecutionResult(success=True, status="COMPLETED", output="ok"),
             duration_ms=10,
@@ -148,7 +148,7 @@ async def test_generate_log_records_key_mode():
     with patch("core.workflow_generator.generate_workflow_logs") as mock_logs:
         mock_logs.insert_one = AsyncMock()
         await _save_generate_workflow_log(
-            prompt="p", provider="GEMINI", model="gemini-3.5-flash",
+            prompt="p", provider="GEMINI", model="gemini-3.7-flash",
             success=True, duration_ms=10, key_mode="platform",
         )
     assert mock_logs.insert_one.call_args.args[0]["keyMode"] == "platform"
@@ -159,7 +159,7 @@ async def test_chat_log_records_key_mode():
     with patch("core.workflow_chat.chat_logs") as mock_logs:
         mock_logs.insert_one = AsyncMock()
         await _save_chat_log(
-            prompt="p", provider="GEMINI", model="gemini-3.5-flash",
+            prompt="p", provider="GEMINI", model="gemini-3.7-flash",
             user_id="u1", success=True, duration_ms=10, key_mode="platform",
         )
     assert mock_logs.insert_one.call_args.args[0]["keyMode"] == "platform"

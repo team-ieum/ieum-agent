@@ -98,7 +98,7 @@ def test_span_cost_usd_real_litellm_claude():
 
 def test_span_cost_usd_real_litellm_gemini():
     from core.model_factory import cost_model_name
-    model = cost_model_name("GEMINI", "gemini-3.5-flash", "test-key", None)
+    model = cost_model_name("GEMINI", "gemini-3.7-flash", "test-key", None)
     cost = telemetry._span_cost_usd(model, 1000, 500)
     assert cost is not None and cost > 0
 
