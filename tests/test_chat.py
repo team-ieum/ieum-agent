@@ -1393,3 +1393,41 @@ async def test_chat_workflow_지워지는_노드를_참조한_시스템_메시�
     assert "systemMessage" not in node2.config
     assert node2.config["outputFields"] == _OUTPUT_FIELDS
     assert {n.id for n in result.nodes} == {"node-1", "node-2"}
+
+
+async def _designer_instruction(current_nodes) -> str:
+    captured = []
+
+    def _agent_factory(**kwargs):
+        captured.append(kwargs.get("instruction") or "")
+        return MagicMock()
+
+    p1, p2, p3 = _make_patches(_STRUCTURED_MODIFIED_JSON)
+    with p1, p2, p3, patch("core.workflow_chat.LlmAgent", side_effect=_agent_factory):
+        await _call("수정해줘", current_nodes=current_nodes, current_edges=_STRUCTURED_EDGES[:1])
+    return captured[0]
+
+
+@pytest.mark.asyncio
+async def test_chat_prompt_수정_규칙에_출력_칸_줄이_렌더된다():
+    instruction = await _designer_instruction(_structured_full_nodes())
+    rules = instruction.split("수정 규칙:", 1)[1]
+    assert "node-2 노드의 출력은 output.urgent, output.reason 이다. 이 노드를 참조할 때 output.output을 쓰지 않는다" in rules
+    # draft JSON에는 칸 키를 섞지 않는다(되돌려 보내면 hydrate가 모르는 슬롯으로 거부한다)
+    drafts = instruction.split("## 현재 워크플로우 (수정 요청)", 1)[1].split("수정 규칙:", 1)[0]
+    assert "outputFields" not in drafts and "urgent" not in drafts
+
+
+@pytest.mark.asyncio
+async def test_chat_prompt_출력_칸이_없거나_위반이면_줄이_없다():
+    for fields in (None, [], [{"key": "my-field", "type": "text"}]):
+        instruction = await _designer_instruction(_structured_full_nodes(fields))
+        assert "노드의 출력은" not in instruction, fields
+
+
+@pytest.mark.asyncio
+async def test_chat_prompt_칸_이름이_output이면_금지_문장을_뺀다():
+    fields = [{"key": "output", "type": "text"}, {"key": "urgent", "type": "boolean"}]
+    instruction = await _designer_instruction(_structured_full_nodes(fields))
+    assert "node-2 노드의 출력은 output.output, output.urgent 이다" in instruction
+    assert "output.output을 쓰지 않는다" not in instruction
