@@ -49,9 +49,9 @@ AI_COMMON_FIELDS = [
 AI_COMMON_KEYS = {f["key"] for f in AI_COMMON_FIELDS}
 
 # node_type AI 항목의 outputFields 앞에 로더가 붙인다(BE AgentNodeExecutor 출력 그대로).
+# 출력 칸을 선언한 ai.reasoning 노드는 outputsFrom(config.outputFields)이 이 목록을 통째로 대체한다.
 AI_COMMON_OUTPUTS = [
     {"key": "output", "title": "결과", "type": "text"},
-    {"key": "metadata", "title": "메타데이터", "type": "object", "dynamic": True},
 ]
 
 

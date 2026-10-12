@@ -24,9 +24,9 @@ def _keys(tid):
     ("condition", ["result"]),
     ("transform", []),
     ("approval", ["approved", "approvedBy", "approvedAt"]),
-    ("ai.reasoning", ["output", "metadata"]),
-    ("ai.mcp", ["output", "metadata"]),
-    ("ai.google_sheets_write", ["output", "metadata"]),
+    ("ai.reasoning", ["output"]),
+    ("ai.mcp", ["output"]),
+    ("ai.google_sheets_write", ["output"]),
 ])
 def test_declared_outputs(tid, keys):
     assert _keys(tid) == keys
@@ -38,8 +38,7 @@ def test_dynamic_outputs():
     assert tr.get_template("transform")["outputsFrom"] == "config.mappings"
     body = next(f for f in tr.get_template("http")["outputFields"] if f["key"] == "body")
     assert body["dynamic"] is True
-    meta = next(f for f in tr.get_template("ai.reasoning")["outputFields"] if f["key"] == "metadata")
-    assert meta["dynamic"] is True
+    assert tr.get_template("ai.reasoning")["outputsFrom"] == "config.outputFields"
 
 
 def test_output_field_must_be_full_definition():
