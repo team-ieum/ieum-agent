@@ -8,6 +8,10 @@ import json
 import re
 
 from core.template_registry import _get_by_path, _match_view, match_entry
+from core.validators.workflow_validator import REF_BODY_RE
+
+# 중괄호 없는 본문만 — `.*?`는 닫히지 않은 `{{` 반복에서 제곱 시간이 걸린다(모든 실행 경로가 부른다)
+_REF_RE = re.compile(r"\{\{([^{}]*)\}\}")
 
 _EMPTY = (None, "", [])
 # BE ConditionNodeExecutor: isEmpty·isNotEmpty는 right를 보지 않는다. 튜플 — 저장된 operator가 list·dict여도
@@ -34,8 +38,11 @@ def validate_workflow(nodes: list, edges: list) -> list[dict]:
     nodes = [n for n in (nodes or []) if isinstance(n, dict)]
     edges = [e for e in (edges or []) if isinstance(e, dict)]
     errors = _graph_errors(nodes, edges)
+    by_id = {_sid(n.get("id")): n for n in nodes if _sid(n.get("id"))}
+    preds = _predecessors(edges, set(by_id))
     for node in nodes:
         errors += field_errors(node)
+        errors += _ref_errors(node, by_id, preds)
     return errors
 
 
@@ -195,3 +202,90 @@ def _parses(fn, s: str) -> bool:
     except (ValueError, RecursionError):  # json.JSONDecodeError도 ValueError, 깊은 중첩 JSON은 RecursionError
         return False
 
+
+# ── 참조식 (spec §3.7) ─────────────────────────────────────────────
+
+def _predecessors(edges: list, ids: set) -> dict:
+    preds: dict = {nid: [] for nid in ids}
+    for edge in edges:
+        source, target = _sid(edge.get("source")), _sid(edge.get("target"))
+        if target in preds and source in ids:
+            preds[target].append(source)
+    return preds
+
+
+def _ancestors(nid, preds: dict) -> set:
+    seen, stack = set(), list(preds.get(nid, []))
+    while stack:
+        cur = stack.pop()
+        if cur not in seen:
+            seen.add(cur)
+            stack.extend(preds.get(cur, []))
+    return seen
+
+
+def _iter_strings(value, path: str):
+    """(위치 경로, 문자열)을 재귀로 낸다."""
+    if isinstance(value, str):
+        yield path, value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _iter_strings(v, f"{path}.{k}")
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            yield from _iter_strings(v, f"{path}.{i}")
+
+
+def _declared_outputs(node: dict) -> set | None:
+    """대상 노드가 내는 최상위 출력 키. 알 수 없으면(미매칭·outputDynamic) None = 검사 안 함."""
+    entry = match_entry(node)
+    if entry is None or entry.get("outputDynamic"):
+        return None
+    source = entry.get("outputsFrom")
+    if source:
+        value = _get_by_path(node, source)
+        if isinstance(value, dict) and value:
+            return set(value)
+        if isinstance(value, list) and value:  # 출력 칸 목록이 정적 outputFields 전체를 대체(③ spec)
+            # 칸 형식은 검사하지 않는다(spec §1) — 깨진 key(list 등)는 해시 예외 대신 버린다
+            return {f["key"] for f in value if isinstance(f, dict) and isinstance(f.get("key"), str)}
+    return {f["key"] for f in entry["outputFields"]}
+
+
+def _ref_errors(node: dict, by_id: dict, preds: dict) -> list[dict]:
+    nid = _sid(node.get("id"))
+    config = node.get("config")
+    if nid is None or not isinstance(config, dict):
+        return []
+    entry = match_entry(node)
+    field_paths = [f["path"] for f in entry["inputFields"]] if entry else []
+    errors, anc = [], None
+    for loc, text in _iter_strings(config, "config"):
+        if "{{" not in text:
+            continue
+        field = next((p for p in field_paths if loc == p or loc.startswith(p + ".")), None)
+        if text.rfind("{{") > text.rfind("}}"):
+            errors.append(_err("REF_FORMAT", "참조식의 '{{'가 닫히지 않았어요.", nid, field))
+        for raw in _REF_RE.findall(text):
+            m = REF_BODY_RE.fullmatch(raw)
+            if not m:
+                errors.append(_err("REF_FORMAT", f"참조식 '{{{{{raw}}}}}'의 형식이 맞지 않아요. "
+                                                 "'{{nodes.<노드ID>.output.<칸>}}' 모양이어야 해요.", nid, field))
+                continue
+            target, out_path = m.group(1), m.group(2)
+            if target not in by_id:
+                errors.append(_err("REF_UNKNOWN_NODE", f"없는 노드 '{target}'를 참조해요.", nid, field))
+                continue
+            if target == nid:
+                errors.append(_err("REF_SELF", "자기 자신의 결과는 참조할 수 없어요.", nid, field))
+                continue
+            if anc is None:
+                anc = _ancestors(nid, preds)
+            if target not in anc:
+                errors.append(_err("REF_NOT_UPSTREAM", f"앞 단계가 아닌 노드 '{target}'를 참조해요.", nid, field))
+                continue
+            declared = _declared_outputs(by_id[target])
+            head = out_path.split(".", 1)[0]
+            if declared is not None and head not in declared:
+                errors.append(_err("REF_UNKNOWN_FIELD", f"노드 '{target}'에는 '{head}' 결과가 없어요.", nid, field))
+    return errors

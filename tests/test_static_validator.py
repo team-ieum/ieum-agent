@@ -229,6 +229,116 @@ def test_매칭되지_않는_노드는_칸_검사를_건너뛴다():
     assert field_errors({"id": "x", "type": "LOOP", "config": {}}) == []
 
 
+# ── 참조식 ──
+
+@pytest.mark.parametrize("ref", [
+    "{{nodes.a.output}}",               # 경로 없음
+    "{{nodes.a_b.output.x}}",           # id에 밑줄 — BE가 치환 못 한다
+    "{{nodes.a.output.my-field}}",      # 경로에 하이픈
+    "{{ nodes.a.output.output }}",      # 공백 — BE 정규식은 공백을 받지 않는다
+    "{{trigger.x}}",
+])
+def test_형식이_틀린_참조는_REF_FORMAT(ref):
+    nodes, edges = _chain(_ai("a"), _ai("b", prompt=f"정리: {ref}"))
+    assert ("REF_FORMAT", "b", "config.prompt") in _codes(validate_workflow(nodes, edges))
+
+
+def test_닫히지_않은_참조는_REF_FORMAT_JSON_닫는_괄호는_무시():
+    nodes, edges = _chain(_ai("a"), _ai("b", prompt="정리: {{nodes.a.output.output"))
+    assert [e["code"] for e in validate_workflow(nodes, edges)] == ["REF_FORMAT"]
+    http = {"id": "h", "type": "HTTP", "config": {"url": "https://x.io", "body": '{"text": "{{nodes.a.output.output}}", "meta": {"k": 1}}'}}
+    nodes, edges = _chain(_ai("a"), http)
+    assert validate_workflow(nodes, edges) == []
+
+
+def test_중첩_경로_참조는_통과():
+    lst = {"id": "l", "type": "ACTION", "config": {"tools": [{"name": "builtin:github_list_issues",
+                                                              "config": {"owner": "o", "repo": "r"}}]}}
+    nodes, edges = _chain(lst, _ai("b", prompt="{{nodes.l.output.issues.0.title}}"))
+    assert validate_workflow(nodes, edges) == []
+
+
+def test_없는_노드_자기_뒤_노드_참조():
+    nodes, edges = _chain(_ai("a", prompt="{{nodes.b.output.output}} {{nodes.zz.output.x}} {{nodes.a.output.output}}"),
+                          _ai("b"))
+    assert _codes(validate_workflow(nodes, edges)) == [
+        ("REF_NOT_UPSTREAM", "a", "config.prompt"), ("REF_SELF", "a", "config.prompt"),
+        ("REF_UNKNOWN_NODE", "a", "config.prompt")]
+
+
+def test_두_칸_이상_떨어진_조상_참조는_통과():
+    nodes, edges = _chain(_ai("a"), _ai("b"), _ai("c", prompt="{{nodes.a.output.output}} {{nodes.t.output.x}}"))
+    assert validate_workflow(nodes, edges) == []
+
+
+def test_선언되지_않은_출력_칸은_REF_UNKNOWN_FIELD():
+    nodes, edges = _chain(_ai("a"), _ai("b", prompt="{{nodes.a.output.summary}}"))
+    assert _codes(validate_workflow(nodes, edges)) == [("REF_UNKNOWN_FIELD", "b", "config.prompt")]
+
+
+def test_outputsFrom_값이_있으면_정적_출력을_대체():
+    a = _ai("a", outputFields=[{"key": "title", "type": "text"}])
+    nodes, edges = _chain(a, _ai("b", prompt="{{nodes.a.output.title}} {{nodes.a.output.output}}"))
+    assert _codes(validate_workflow(nodes, edges)) == [("REF_UNKNOWN_FIELD", "b", "config.prompt")]
+    nodes, edges = _chain(a, _ai("b", prompt="{{nodes.a.output.title}}"))
+    assert validate_workflow(nodes, edges) == []
+    tr = {"id": "x", "type": "TRANSFORM", "config": {"mappings": {"pr": "{{nodes.t.output.body}}"}}}
+    nodes, edges = _chain(tr, _ai("b", prompt="{{nodes.x.output.pr}}"))
+    assert validate_workflow(nodes, edges) == []
+
+
+def test_빈_outputFields는_기본_출력_output을_유지():
+    nodes, edges = _chain(_ai("a", outputFields=[]), _ai("b", prompt="{{nodes.a.output.output}}"))
+    assert validate_workflow(nodes, edges) == []
+
+
+def test_앞_단계가_아니면_출력_칸은_보지_않는다():
+    """처음 걸린 것 하나만 — 형제 노드의 없는 칸을 가리켜도 REF_NOT_UPSTREAM 한 건."""
+    nodes = [TRIGGER, _ai("a"), _ai("b", prompt="{{nodes.a.output.zzz}}")]
+    edges = [{"source": "t", "target": "a"}, {"source": "t", "target": "b"}]
+    assert _codes(validate_workflow(nodes, edges)) == [("REF_NOT_UPSTREAM", "b", "config.prompt")]
+
+
+def test_카탈로그에_없는_노드도_참조_검사를_받는다():
+    """spec §3.2 — 미매칭 노드는 칸 검사만 건너뛰고 그래프·참조 검사는 받는다."""
+    loop = {"id": "x", "type": "LOOP", "config": {"body": "{{nodes.zz.output.x}}"}}
+    assert _codes(validate_workflow(*_chain(loop))) == [("REF_UNKNOWN_NODE", "x", None)]
+
+
+def test_칸_안에_중첩된_참조의_field는_그_칸_path():
+    http = {"id": "h", "type": "HTTP", "config": {"url": "https://x.io", "headers": {"X": "{{nodes.zz.output.x}}"}}}
+    assert _codes(validate_workflow(*_chain(http))) == [("REF_UNKNOWN_NODE", "h", "config.headers")]
+
+
+def test_outputDynamic_미매칭_대상은_출력_칸을_보지_않는다():
+    nodes, edges = _chain(_ai("b", prompt="{{nodes.t.output.anything}}"))  # trigger.manual = outputDynamic
+    assert validate_workflow(nodes, edges) == []
+    loop = {"id": "x", "type": "LOOP", "config": {}}
+    nodes, edges = _chain(loop, _ai("b", prompt="{{nodes.x.output.anything}}"))
+    assert validate_workflow(nodes, edges) == []
+
+
+def test_도구_칸_참조식의_field는_그_칸_path():
+    act = {"id": "s", "type": "ACTION", "config": {"tools": [{"name": "slack", "config": {
+        "webhookCredentialId": "wh", "message": "{{nodes.t.output.x}} {{nodes.q.output.y}}"}}]}}
+    nodes, edges = _chain(act)
+    assert _codes(validate_workflow(nodes, edges)) == [("REF_UNKNOWN_NODE", "s", "config.tools.0.config.message")]
+
+
+def test_깨진_입력에도_예외_없이_에러를_돌려준다():
+    errors = validate_workflow([{"type": "TRIGGER"}, {"id": 3, "type": None, "config": "x"}, {"id": ["x"]}, "nope"],
+                               [{"source": None}, {"source": ["t"], "target": {"a": 1}}, "nope"])
+    assert {e["code"] for e in errors} <= {"EDGE_INVALID", "TRIGGER_COUNT"}
+    assert all(e["nodeId"] is None or isinstance(e["nodeId"], str) for e in errors)
+
+
+def test_깨진_출력_칸_key에도_예외_없이_참조를_검사한다():
+    """outputFields 원소 key가 list면 버린다 — 500이면 BE가 fail-open으로 검증을 통째로 건너뛴다."""
+    a = _ai("a", outputFields=[{"key": ["x"], "type": "text"}])
+    nodes, edges = _chain(a, _ai("b", prompt="{{nodes.a.output.x}}"))
+    assert _codes(validate_workflow(nodes, edges)) == [("REF_UNKNOWN_FIELD", "b", "config.prompt")]
+
+
 # ── 카탈로그 전 항목 기본값(fixed) 노드 (spec §5-1) ──
 # 빌더가 노드를 놓는 순간의 모양에서 어떤 칸이 REQUIRED로 걸리는지 고정한다. 템플릿 변경·앱 노드 추가가
 # 여기서 드러난다 — 바뀌면 의도한 변화인지 확인하고 기대값을 고친다.
@@ -283,3 +393,11 @@ def test_카탈로그_전_항목_기본값_노드():
         assert {e["code"] for e in errors} <= {"REQUIRED"}, (t["id"], errors)  # fixed 자체는 형식이 맞아야 한다
         actual[t["id"]] = sorted(e["field"] for e in errors)
     assert actual == FIXED_NODE_REQUIRED
+
+
+def test_닫히지_않은_중괄호가_길어도_빨리_끝난다():
+    import time
+    nodes, edges = _chain(_ai("a"), _ai("b", prompt="{" * 80_000))
+    t = time.monotonic()
+    validate_workflow(nodes, edges)
+    assert time.monotonic() - t < 1
