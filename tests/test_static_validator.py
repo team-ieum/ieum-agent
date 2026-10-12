@@ -129,6 +129,16 @@ def test_webhookCredentialId_있는_HTTP는_url_없어도_통과():
     assert [(e["code"], e["field"]) for e in field_errors(blank)] == [("REQUIRED", "config.url")]
 
 
+def test_AI_노드_모델은_비어도_통과_채우면_형식_검사():
+    """dev 사전 점검 실측 모양: IEUM-AI-55 이전 Gemini 노드에 model 키가 없고, 기본 모델로 실행돼 왔다."""
+    legacy = {"id": "node-2", "type": "AI", "config": {"agentType": "simple", "brand": "x", "credentialId": "",
+                                                       "llmProvider": "GEMINI", "prompt": "요약해줘", "tools": []}}
+    assert field_errors(legacy) == []
+    assert field_errors({**legacy, "config": {**legacy["config"], "model": None}}) == []
+    bad = {**legacy, "config": {**legacy["config"], "model": "{{nodes.t.output.m}}"}}
+    assert [(e["code"], e["field"]) for e in field_errors(bad)] == [("REF_NOT_ALLOWED", "config.model")]
+
+
 def test_AI_노드_도구_칸은_비어도_통과():
     node = _ai("w", agentType="react", tools=[{"name": "builtin:web_search"}])  # query 필수지만 AI가 결정
     assert match_entry(node)["id"] == "ai.web_search"
@@ -343,10 +353,10 @@ def test_깨진_출력_칸_key에도_예외_없이_참조를_검사한다():
 # 빌더가 노드를 놓는 순간의 모양에서 어떤 칸이 REQUIRED로 걸리는지 고정한다. 템플릿 변경·앱 노드 추가가
 # 여기서 드러난다 — 바뀌면 의도한 변화인지 확인하고 기대값을 고친다.
 FIXED_NODE_REQUIRED = {
-    "ai.github_query": ["config.llmProvider", "config.model", "config.prompt"],
-    "ai.http_fetch": ["config.llmProvider", "config.model", "config.prompt"],
-    "ai.mcp": ["config.llmProvider", "config.model", "config.prompt", "config.tools.0.config.catalogId"],
-    "ai.web_search": ["config.llmProvider", "config.model", "config.prompt"],
+    "ai.github_query": ["config.llmProvider", "config.prompt"],
+    "ai.http_fetch": ["config.llmProvider", "config.prompt"],
+    "ai.mcp": ["config.llmProvider", "config.prompt", "config.tools.0.config.catalogId"],
+    "ai.web_search": ["config.llmProvider", "config.prompt"],
     "action.discord_send": ["config.tools.0.config.content", "config.tools.0.config.webhookCredentialId"],
     "action.github_create_issue": ["config.tools.0.config.owner", "config.tools.0.config.repo",
                                    "config.tools.0.config.title"],
@@ -370,13 +380,13 @@ FIXED_NODE_REQUIRED = {
     "action.notion_search": ["config.tools.0.config.query"],
     "action.notion_update_page": ["config.tools.0.config.page_id"],
     "action.slack_send": ["config.tools.0.config.message", "config.tools.0.config.webhookCredentialId"],
-    "ai.reasoning": ["config.llmProvider", "config.model", "config.prompt"],
+    "ai.reasoning": ["config.llmProvider", "config.prompt"],
     "trigger.github_new_issue": ["config.repoId"],
     "trigger.gmail_new_email": [],
     "trigger.schedule": ["config.cron"],
     "trigger.webhook": [],
     # ai.agent fixed(tools [], agentType react)는 도구가 없어 ai.github_query로 매칭된다 — 도구를 고르기 전 모양
-    "ai.agent": ["config.llmProvider", "config.model", "config.prompt"],
+    "ai.agent": ["config.llmProvider", "config.prompt"],
     "approval": [],
     "condition": ["config.left", "config.operator", "config.right"],
     "http": ["config.url"],
