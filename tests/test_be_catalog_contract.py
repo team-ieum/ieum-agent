@@ -69,7 +69,7 @@ def test_catalog_model_resolves_to_itself(provider, model):
 @pytest.mark.parametrize("provider,model", _catalog_params())
 def test_catalog_model_not_deprecated(provider, model):
     # litellm은 import 시점에 원격 model_cost를 받아오고, 실패하면 조용히 패키지 백업으로 폴백한다.
-    # 그 백업엔 카탈로그 9개 중 7개가 없어서, 네트워크가 없으면 아래 등록 단언이 무더기로 깨진다.
+    # 그 백업엔 카탈로그 모델 상당수가 없어서, 네트워크가 없으면 아래 등록 단언이 무더기로 깨진다.
     # 이 pytest는 배포 게이트라(agent-dev-server.yml) 코드와 무관하게 배포가 막힌다 — skip이 맞다.
     info = get_model_cost_map_source_info()
     if info["source"] != "remote":
