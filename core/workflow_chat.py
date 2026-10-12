@@ -39,7 +39,7 @@ from core.template_registry import (
     dehydrate_nodes, slot_catalog_text, all_entries,
     PASSTHROUGH_TEMPLATE_ID,
 )
-from core.node_hydration import prepare_hydrated_nodes, preserved_config
+from core.node_hydration import prepare_hydrated_nodes
 from tools.registry import apply_service_brand
 
 logger = logging.getLogger(__name__)
@@ -161,7 +161,6 @@ _REVIEWER_SYSTEM_PROMPT = """\
 2. 노드 간 데이터 참조 정합성:
    - 이전 노드 참조(예: nodes.node-1.output.data를 이중 중괄호로 감싼 형태)가 올바른 선행 노드 ID를 가리키고 있는지 대조하십시오.
    - 정의되지 않은 임의의 시스템 변수(예: today, current_date 등)를 날조해서 사용하고 있지 않은지 감시하십시오.
-   - AI 노드 참조는 output.output입니다. 입력 끝의 '출력 칸이 선언된 노드' 목록에 있는 AI 노드만 그 칸(output.<칸 이름>)을 참조하는 것이 정상입니다. 목록에 없는 AI 노드를 output.output 밖의 필드로 참조하면 결함입니다.
 3. 데이터 훼손 방지 및 흐름 적절성:
    - 깃허브나 노션 조회 노드의 prompt가 데이터 값을 자연어로 마음대로 훼손/왜곡하지 않으면서도, 후속 노드가 실제 사용하는 필드만 추출하도록 가이드되었는지 확인하십시오. 전체 원시 JSON을 통째로 덤프하게 설계되어 있다면 결함입니다(거대 출력은 실행 타임아웃 유발). 가능하면 조회 단계 server-side 필터(state/날짜 범위/개수 제한)와 후속 필터의 선반영이 포함되어 있는지 확인하십시오.
    - 원시 데이터를 정제하거나 마크다운 형식으로 작성할 때, 별도 TRANSFORM 노드 또는 별도 AI 노드(prompt 위임)를 거치도록 설계되었는지 확인하십시오.
@@ -209,7 +208,7 @@ _SYSTEM_PROMPT_BASE = """\
 2. 노드 간 데이터 참조 및 무결성:
    - prompt 등 슬롯 값에서 선행 노드 결과는 이중 중괄호 'nodes.노드ID.output.필드명' 형식만 사용합니다. 정의되지 않은 변수를 날조하지 마십시오.
    - [필드명 규약] 노드 타입별 실제 출력 필드만 참조합니다(임의 필드명 results/content/data 금지):
-     · AI 노드 결과 → `output.output` (예: 이중 중괄호로 nodes.node-2.output.output. 단 수정 규칙에 출력 칸이 적힌 노드는 그 칸만)
+     · AI 노드 결과 → `output.output` (예: 이중 중괄호로 nodes.node-2.output.output)
      · HTTP → `output.body`, `output.statusCode`   · TRIGGER(SCHEDULE) → `output.triggeredAt`
 <<APP_TRIGGER_OUTPUTS>>
      · TRANSFORM → 그 노드 매핑에서 정의한 키
@@ -499,7 +498,6 @@ async def chat_workflow(
     workflow_section = ""
     legacy_desc_ids: set = set()
     passthrough_ids: set = set()
-    field_lines: list[str] = []  # 출력 칸 선언 노드 — designer 수정 규칙과 reviewer 입력이 같이 쓴다
     if current_nodes:
         # 저장된 full-node를 draft(templateId+slots)로 역변환해 주입한다. Designer는 draft로 편집한다.
         current_drafts = dehydrate_nodes(current_nodes)
@@ -521,8 +519,7 @@ async def chat_workflow(
         # 규칙은 조건부로 빠지는 항목이 있어 번호를 직접 쓰지 않는다(결번이 생기면 모델이 못 받은
         # 규칙이 있다고 해석해 지시 준수율이 떨어진다).
         rules = [
-            # 지운 노드의 id를 새 노드가 다시 쓰면 서버가 같은 노드로 보고 옛 outputFields·systemMessage를 되붙인다
-            "기존 노드 id 체계 유지. 새 노드는 위 JSON에서 가장 큰 번호 + 1부터 부여(지운 노드의 id는 다시 쓰지 않는다)",
+            "기존 노드 id 체계 유지. 새 노드는 가장 큰 번호 + 1로 부여",
             "수정 요청과 무관한 노드는 위 JSON의 templateId·slots를 그대로 유지한다"
             "(값을 임의로 바꾸지 않는다)",
         ]
@@ -535,19 +532,6 @@ async def chat_workflow(
                 "\n   CLARIFICATION_NEEDED로 \"이 노드는 편집을 지원하지 않는다\"고 답한다."
                 "\n   설명(description)이 비어 있을 때만 'node' 필드에 description을 채울 수 있다."
             )
-        # 출력 칸이 선언된 노드는 output.output이 없다(ExecutionCursor가 오류 없이 ""로 치환한다).
-        # 줄은 서버가 렌더한다 — draft JSON에 키를 섞으면 LLM이 되돌려 보낼 때 hydrate가 모르는 슬롯으로 거부한다.
-        # 대상은 재조립 때 칸이 실제로 되붙는 노드(preserved_config)와 같다.
-        for nid, (_, kept) in preserved_config(current_nodes, passthrough_ids).items():
-            if "outputFields" in kept:
-                keys = [f["key"] for f in kept["outputFields"]]
-                line = f"{nid} 노드의 출력은 {', '.join(f'output.{k}' for k in keys)} 이다"
-                # 칸 이름이 output이면 output.output이 실제 값이라 금지 문장을 붙이면 모순이 된다.
-                if "output" not in keys:
-                    line += ". 이 노드를 참조할 때 output.output을 쓰지 않는다"
-                line += " (templateId를 바꾸면 칸이 없어지고 output.output이 된다)"
-                field_lines.append(line)
-                rules.append(line)
         rules.append("type은 반드시 WORKFLOW_MODIFIED")
         if legacy_desc_ids:
             rules.append(
@@ -804,8 +788,6 @@ async def chat_workflow(
                     f"Original User Request: {prompt}\n\n"
                     f"Drafted Workflow Configs:\n{cleaned_draft}"
                 )
-                if field_lines:
-                    review_prompt += "\n\n출력 칸이 선언된 노드:\n" + "\n".join(f"- {l}" for l in field_lines)
                 review_message = types.Content(
                     role="user",
                     parts=[types.Part(text=review_prompt)],
