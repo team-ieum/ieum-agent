@@ -36,18 +36,6 @@ async def test_dict_output_캐시는_ActionExecutionResult로_복원된다(fake_
 
 
 @pytest.mark.asyncio
-async def test_기본_모델로는_dict_output_캐시를_못_읽는다(fake_records, caplog):
-    """claim(model) 인자가 필요한 이유. 기본 모델(AgentExecutionResult.output: str)로 읽으면 캐시 미스가 돼
-    재시도마다 쓰기 액션이 다시 실행된다."""
-    await idempotency.claim(KEY, ActionExecutionResult)
-    await idempotency.complete(KEY, ActionExecutionResult(success=True, output={"number": 7}))
-
-    with caplog.at_level("WARNING"):
-        assert await idempotency.claim(KEY) == (False, None)
-    assert any("멱등 캐시 역직렬화 실패" in r.message for r in caplog.records)
-
-
-@pytest.mark.asyncio
 async def test_진행중_응답은_요청한_모델로_만든다(fake_records):
     fake_records.docs[KEY] = {"_id": KEY, "status": "IN_PROGRESS"}
 

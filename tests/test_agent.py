@@ -240,7 +240,7 @@ async def test_run_agent_success_returns_output():
         )
 
     assert result.success is True
-    assert result.output == "Hello from agent"
+    assert result.output == {"output": "Hello from agent"}
     assert result.errorMessage is None
 
 
@@ -282,7 +282,7 @@ async def test_run_agent_success_multiple_parts_joined():
         )
 
     assert result.success is True
-    assert result.output == "Line 1\nLine 2"
+    assert result.output == {"output": "Line 1\nLine 2"}
 
 
 @pytest.mark.asyncio
@@ -315,7 +315,7 @@ async def test_run_agent_success_non_final_events_ignored():
         )
 
     assert result.success is True
-    assert result.output == ""
+    assert result.output == {"output": ""}
 
 
 # ---------------------------------------------------------------------------
@@ -442,10 +442,10 @@ async def test_run_agent_exception_metadata_not_exposed():
             session_service=mock_session_service
         )
 
-    # metadata가 None이거나, 있더라도 내부 에러 문자열을 포함하지 않아야 한다
-    if result.metadata is not None:
-        metadata_str = str(result.metadata)
-        assert "internal secret error detail" not in metadata_str
+    # metadata 필드는 응답에서 빠졌다. 응답 어디에도 내부 에러 문자열이 없어야 한다
+    dumped = result.model_dump()
+    assert "metadata" not in dumped
+    assert "internal secret error detail" not in str(dumped)
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +482,7 @@ async def test_run_agent_mongodb_failure_still_returns_result():
         )
 
     assert result.success is True
-    assert result.output == "result despite db failure"
+    assert result.output == {"output": "result despite db failure"}
 
 
 @pytest.mark.asyncio
@@ -509,3 +509,42 @@ async def test_run_agent_mongodb_failure_on_error_result_still_returns():
 
     assert result.success is False
     assert result.errorMessage == ErrorCode.AGENT_EXECUTION_FAILED.message
+
+
+@pytest.mark.asyncio
+async def test_save_execution_log_dict_output은_문자열로_만든_뒤_마스킹한다():
+    """execution_logs.output은 문자열로 남는다. dict 그대로 마스킹하면 키 이름이 문자열에 없어
+    strict 패턴(`"access_token": "..."`)이 걸리지 않는다."""
+    from core.agent import save_execution_log
+
+    insert_one = AsyncMock()
+    with patch("core.agent.execution_logs.insert_one", new=insert_one):
+        await save_execution_log(
+            user_id="u1", node_id="n1", workflow_execution_id=None, provider="GEMINI",
+            model="m", agent_type="simple",
+            result=AgentExecutionResult(success=True, output={"access_token": "abcdefgh12345", "n": 4}),
+            duration_ms=1,
+        )
+
+    stored = insert_one.await_args.args[0]["output"]
+    assert isinstance(stored, str)
+    assert "abcdefgh12345" not in stored and "[MASKED_KEY]" in stored
+    assert '"n": 4' in stored
+
+
+@pytest.mark.asyncio
+async def test_save_execution_log_텍스트_output_안의_토큰도_마스킹한다():
+    """텍스트 출력은 {"output": 텍스트}로 감싸여 dumps되며 큰따옴표가 이스케이프된다. 그래도 가려져야 한다."""
+    from core.agent import save_execution_log
+
+    insert_one = AsyncMock()
+    with patch("core.agent.execution_logs.insert_one", new=insert_one):
+        await save_execution_log(
+            user_id="u1", node_id="n1", workflow_execution_id=None, provider="GEMINI",
+            model="m", agent_type="simple",
+            result=AgentExecutionResult(success=True, output='{"access_token": "abcdefgh12345"}'),
+            duration_ms=1,
+        )
+
+    stored = insert_one.await_args.args[0]["output"]
+    assert "abcdefgh12345" not in stored

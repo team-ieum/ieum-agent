@@ -8,6 +8,9 @@ class ErrorCode(Enum):
     AGENT_EXECUTION_FAILED       = (500, "에이전트 실행에 실패했습니다.")
     AGENT_TIMEOUT                = (504, "에이전트 실행 시간이 초과되었습니다. 조회 범위를 줄이거나 프롬프트를 단순화해주세요.")
     AGENT_TOOL_NOT_CALLED        = (500, "노드에 지정된 도구가 한 번도 호출되지 않았습니다. 도구 설정 또는 프롬프트를 확인해주세요.")
+    # 숫자는 enum 메타데이터일 뿐이다 — /v1/execute는 이 두 코드도 HTTP 200 + success:false 본문으로 돌려준다.
+    INVALID_OUTPUT_FIELDS        = (400, "AI 노드의 출력 칸 설정이 올바르지 않습니다.")
+    AI_OUTPUT_MISMATCH           = (502, "AI 응답이 선언한 출력 칸 형식과 맞지 않습니다.")
     DUPLICATE_REQUEST            = (409, "앞선 동일 요청이 아직 실행 중입니다.")
     UNKNOWN_TOOL                 = (400, "지원하지 않는 도구입니다.")
     ACTION_TOOL_FAILED           = (502, "앱 도구 실행에 실패했습니다.")

@@ -189,3 +189,37 @@ def test_catalog_does_not_mutate_registry_fixed():
     for t in tr.all_entries():
         assert "brand" not in t["fixed"]["config"], t["id"]
     assert "brand" not in tr.get_template("ai.github_query")["fixed"]["config"]
+
+
+def test_ai_reasoning_출력_칸_입력과_outputsFrom():
+    """구조화 출력 spec §2.7. children도 non-partial 검증을 거쳐 title이 필수다(빠지면 카탈로그 전체가 죽는다)."""
+    e = next(e for e in node_catalog()["entries"] if e["id"] == "ai.reasoning")
+    field = next(f for f in e["inputFields"] if f["key"] == "outputFields")
+    assert field == {
+        "key": "outputFields", "title": "출력 칸", "type": "object", "list": True, "ref": False,
+        "path": "config.outputFields",
+        "description": "AI가 이 칸들로만 답해요. 다음 단계에서 칸 하나씩 골라 쓸 수 있어요. 비우면 결과 한 칸이에요.",
+        "children": [
+            {"key": "key", "title": "이름", "type": "string", "required": True},
+            {"key": "type", "title": "타입", "type": "string", "required": True,
+             "choices": [{"id": "text", "name": "텍스트"}, {"id": "number", "name": "숫자"},
+                         {"id": "boolean", "name": "참/거짓"}]},
+            {"key": "description", "title": "설명", "type": "text"},
+        ],
+    }
+    assert e["outputsFrom"] == "config.outputFields"
+    assert e["outputFields"] == [{"key": "output", "title": "결과", "type": "text"}]
+
+
+def test_출력_칸은_생성_슬롯이_아니다():
+    """LLM이 칸을 설계하는 건 ⑤단계다. 슬롯이 되면 채팅 draft에 실려 LLM이 날조·삭제할 수 있다."""
+    assert "outputFields" not in {s["name"] for s in tr.get_template("ai.reasoning")["slots"]}
+    assert "outputFields" in tr.get_template("ai.reasoning")["allowed_config_fields"]
+
+
+def test_출력_칸_타입_선택지는_agent_규칙과_같다():
+    from core.output_fields import _SCHEMA_TYPES
+    e = next(e for e in node_catalog()["entries"] if e["id"] == "ai.reasoning")
+    type_child = next(c for f in e["inputFields"] if f["key"] == "outputFields" for c in f["children"]
+                      if c["key"] == "type")
+    assert {c["id"] for c in type_child["choices"]} == set(_SCHEMA_TYPES)

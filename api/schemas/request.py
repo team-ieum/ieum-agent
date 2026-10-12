@@ -25,6 +25,9 @@ class AgentNodeRequest(BaseModel):
     tools: Optional[List[Dict[str, Any]]] = None
     workflowContext: Optional[Dict[str, Any]] = None
     mcp_servers: Optional[List[McpServerConfig]] = None  # 커스텀 MCP 서버 목록 (신규)
+    # 노드 config.outputFields 그대로(BE는 검사 없이 싣는다). 규칙 검사는 core.output_fields 한 곳 —
+    # 여기서 타입을 좁히면 위반 값이 422가 돼 INVALID_OUTPUT_FIELDS(재시도 안 함)로 분류되지 않는다.
+    outputFields: Optional[Any] = None
 
 
 class ActionExecutionRequest(BaseModel):

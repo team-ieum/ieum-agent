@@ -31,7 +31,7 @@ def test_execute_success():
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
-    assert data["output"] == "test result"
+    assert data["output"] == {"output": "test result"}
     assert data["status"] == "COMPLETED"
 
 

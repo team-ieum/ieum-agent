@@ -61,8 +61,8 @@ async def claim(
     - (False, 응답)  : 중복 요청. 저장된 응답이나 진행중 실패 응답을 그대로 반환한다.
     - (False, None)  : 가드 비활성(키 없음 / Mongo 장애). 기존 동작대로 실행한다.
 
-    model: 저장된 응답을 복원할 응답 모델. 엔드포인트마다 output 타입이 달라(execute: str, actions: dict)
-    기본 모델로 읽으면 역직렬화가 실패해 캐시가 영원히 미스가 된다.
+    model: 저장된 응답을 복원할 응답 모델. 엔드포인트마다 응답 모델이 달라(execute: AgentExecutionResult,
+    actions: ActionExecutionResult) 호출부가 자기 모델을 넘겨야 같은 모양으로 돌려준다.
     """
     if not key:
         return False, None

@@ -24,6 +24,7 @@ INTENDED_SLOT_RENAMES: dict[str, str] = {"spreadsheet_name": "spreadsheet_id_nam
 # spec §7.3 ③ — 허용 config 키는 늘기만 한다
 INTENDED_ALLOWED_ADDED: dict[str, set[str]] = {
     **{tid: {"_names"} for tid in _AI},
+    "ai.reasoning": {"_names", "outputFields"},  # 구조화 출력 spec §2.7 — 슬롯 아님(llm.slot false)
     "http": {"_names", "webhookCredentialId"},
 }
 # spec §7.3 ① — Calendar·Drive·Notion 프리셋의 리소스 ID 슬롯

@@ -37,8 +37,53 @@
       "llm": {
         "hint": "추론 지시. 선행 노드 결과는 {{nodes.<id>.output.<field>}}로 참조. 출력 형식 명시."
       }
+    },
+    {
+      "key": "outputFields",
+      "title": "출력 칸",
+      "type": "object",
+      "list": true,
+      "ref": false,
+      "description": "AI가 이 칸들로만 답해요. 다음 단계에서 칸 하나씩 골라 쓸 수 있어요. 비우면 결과 한 칸이에요.",
+      "llm": {
+        "slot": false
+      },
+      "children": [
+        {
+          "key": "key",
+          "title": "이름",
+          "type": "string",
+          "required": true
+        },
+        {
+          "key": "type",
+          "title": "타입",
+          "type": "string",
+          "required": true,
+          "choices": [
+            {
+              "id": "text",
+              "name": "텍스트"
+            },
+            {
+              "id": "number",
+              "name": "숫자"
+            },
+            {
+              "id": "boolean",
+              "name": "참/거짓"
+            }
+          ]
+        },
+        {
+          "key": "description",
+          "title": "설명",
+          "type": "text"
+        }
+      ]
     }
   ],
+  "outputsFrom": "config.outputFields",
   "golden_snippet": {
     "id": "node-3",
     "type": "AI",

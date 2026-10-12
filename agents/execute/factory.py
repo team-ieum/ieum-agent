@@ -94,8 +94,12 @@ async def run_simple_agent(
     provider: str,
     user_role: str | None = None,
     session_service: BaseSessionService | None = None,
+    output_schema: dict | None = None,
 ) -> tuple[str, int, int, int]:
-    """simple 타입: 단일 LlmAgent로 실행. 도구 없이 빠른 LLM 호출."""
+    """simple 타입: 단일 LlmAgent로 실행. 도구 없이 빠른 LLM 호출.
+
+    output_schema(출력 칸 JSON Schema)가 있으면 provider 기본 스키마 강제를 건다(Gemini response_schema,
+    LiteLlm response_format). 원문 텍스트를 그대로 돌려주고 검증·객체화는 run_agent가 한다."""
     cleanup_session_id = None
 
     try:
@@ -110,6 +114,7 @@ async def run_simple_agent(
             model=model_param,
             instruction=(request.systemMessage or "You are a helpful assistant.") + get_current_time_info(),
             tools=builtin_tools,
+            **({"output_schema": output_schema} if output_schema else {}),
         )
 
         if session_service is None:
@@ -145,9 +150,14 @@ async def run_simple_agent(
             if event.is_final_response() and event.content and event.content.parts:
                 for part in event.content.parts:
                     if hasattr(part, "text") and part.text:
+                        if output_schema and part.thought:
+                            continue  # 사고 텍스트가 JSON 앞에 붙으면 파싱이 깨진다
                         output_parts.append(part.text)
 
-        return "\n".join(output_parts), usage.total_input, usage.total_output, usage.total_count
+        # 스키마 경로는 ADK output_schema 처리(llm_agent.py)와 같이 ""로 잇는다 — 한 응답이 여러 파트로
+        # 쪼개질 때 "\n"을 끼우면 JSON 문자열 리터럴 안에 개행이 들어간다.
+        joiner = "" if output_schema else "\n"
+        return joiner.join(output_parts), usage.total_input, usage.total_output, usage.total_count
 
     finally:
         if cleanup_session_id is not None:

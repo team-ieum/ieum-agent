@@ -121,7 +121,7 @@ async def run_action(
             result=AgentExecutionResult(
                 success=result.success,
                 status="COMPLETED" if result.success else "ERROR",
-                output=json.dumps(result.output, ensure_ascii=False) if result.output is not None else None,
+                output=result.output,
                 errorMessage=result.errorMessage,
                 errorCode=result.errorCode,
             ),

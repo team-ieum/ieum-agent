@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -15,6 +16,10 @@ from google.adk.sessions import BaseSessionService
 from agents.execute.factory import run_simple_agent, run_react_agent, ToolNotCalledError
 from core.execution_guard import ExecutionGuard, ExecutionGuardError
 from core.output_validator import OutputValidator
+from core.output_fields import (
+    InvalidOutputFieldsError, OutputMismatchError,
+    build_output_schema, parse_structured_output, validate_output_fields,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +36,14 @@ async def save_execution_log(
     key_mode: str | None = None,
 ):
     # 민감 정보가 포함되어 누출되는 것을 차단하기 위해 로그 저장 시 엄격한 마스킹 수행
-    masked_output = OutputValidator.mask_log_content(result.output)
+    # output(dict)은 문자열로 만든 뒤 마스킹한다. strict 패턴(API_KEY_PATTERN)은 `"access_token": "..."`
+    # 같은 문자열 패턴이라 dict 그대로면 키 이름이 문자열에 없어 걸리지 않는다. 저장 형식도 문자열로 유지한다.
+    # dumps 전에 값도 한 번 가린다. 텍스트 출력({"output": 텍스트}) 안의 큰따옴표가 dumps로 \"가 되면 패턴이 빗나간다.
+    output_text = (
+        json.dumps(OutputValidator.mask_log_content(result.output), ensure_ascii=False)
+        if result.output is not None else None
+    )
+    masked_output = OutputValidator.mask_log_content(output_text)
     masked_err = OutputValidator.mask_log_content(result.errorMessage)
     masked_tools = OutputValidator.mask_log_content(
         [tc.model_dump() for tc in result.toolCalls] if result.toolCalls else []
@@ -123,8 +135,15 @@ async def run_agent(
         return result
 
     model = resolve_model(provider, model_override)
+    usage = None
+    output = None
 
     try:
+        # 출력 칸은 도구 없는 simple 노드에서만 — react·도구 있음은 InvalidOutputFieldsError(spec §2.2).
+        # 그래서 칸이 있으면 항상 simple 경로이고, 칸이 없는 노드의 실행 경로는 그대로다.
+        fields = validate_output_fields(request.outputFields, request.tools, request.agentType)
+        output_schema = build_output_schema(fields) if fields else None
+
         async def _execute() -> tuple[str, int, int, int]:
             if request.agentType == "react":
                 return await run_react_agent(
@@ -148,6 +167,7 @@ async def run_agent(
                     provider=provider,
                     user_role=user_role,
                     session_service=session_service,
+                    output_schema=output_schema,
                 )
 
         output, input_tokens, output_tokens, total_tokens = await asyncio.wait_for(
@@ -170,7 +190,30 @@ async def run_agent(
         result = AgentExecutionResult(
             success=True,
             status="COMPLETED",
-            output=output,
+            output=parse_structured_output(output, fields) if fields else {"output": output},
+            usage=usage,
+        )
+
+    except InvalidOutputFieldsError as e:
+        logger.warning("Invalid outputFields for node %s: %s", request.nodeId, e)
+        result = AgentExecutionResult(
+            success=False,
+            status="ERROR",
+            errorMessage=str(e),
+            errorCode=ErrorCode.INVALID_OUTPUT_FIELDS.name,
+        )
+
+    except OutputMismatchError as e:
+        # 모델 원문은 응답에 싣지 않고 로그에만 앞 200자를 남긴다. 토큰은 이미 썼으므로 usage를 싣는다.
+        logger.warning(
+            "AI output mismatch for node %s (provider=%s, model=%s): %s | raw[:200]=%r",
+            request.nodeId, provider, model, e, OutputValidator.mask_log_content(output or "")[:200],
+        )
+        result = AgentExecutionResult(
+            success=False,
+            status="ERROR",
+            errorMessage=str(e),
+            errorCode=ErrorCode.AI_OUTPUT_MISMATCH.name,
             usage=usage,
         )
 
