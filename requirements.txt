@@ -6,7 +6,7 @@ sse-starlette>=2.1.0
 # AI Agent
 google-adk>=2.3.0,<3.0.0
 google-genai>=2.8,<3  # ADK 2.3이 genai 2.x 강제
-litellm>=1.105.0  # ADK LiteLlm 래퍼. 1.105 미만은 Claude 5.5세대 구조화 출력이 강제 도구 호출(400)로 나간다
+litellm>=1.105.0  # ADK LiteLlm 래퍼. 1.105 미만은 Claude 5.5세대·Fable 5.1 구조화 출력이 강제 도구 호출(400)로 나간다
 openinference-instrumentation-google-adk  # ADK span을 OpenInference 규약으로 (Phoenix 연동)
 opentelemetry-exporter-otlp               # OTLP exporter (→ Phoenix)
 
