@@ -177,6 +177,10 @@ def field_errors(node: dict) -> list[dict]:
         if (value in _EMPTY and entry["node_type"] == "AI" and entry["tool_key"]
                 and path.startswith(_TOOL_FIELD_PREFIX)):
             continue
+        # 모델은 비우면 agent가 provider 기본 모델로 실행한다(BE AgentNodeExecutor는 null을 그대로 넘김).
+        # IEUM-AI-55 이전 저장분은 model 키가 없다 — dev 사전 점검에서 13건 모두 이 오탐이었다(spec §7-17).
+        if value in _EMPTY and entry["node_type"] == "AI" and path == "config.model":
+            continue
         if value in _EMPTY and entry["node_type"] == "CONDITION" and path in _CONDITION_ALIASES:
             value = _get_by_path(view, _CONDITION_ALIASES[path])
         if _unused_field(entry, view, path):
