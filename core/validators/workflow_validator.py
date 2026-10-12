@@ -349,11 +349,14 @@ class WorkflowValidator:
                         )
 
     @classmethod
-    def check_restored_references(cls, text: str, node_id: str, node_ids: set, edges: list) -> None:
-        """채팅 재조립이 저장분에서 되살린 문자열을 붙이기 전에, validate()가 그 문자열에 걸 참조 검사 두 개
-        (_validate_variable_references 형식, _validate_reference_targets 대상 존재·자기 참조·선행 관계)를
-        미리 건다. 위반이면 WorkflowValidationError. node_ids = 출력 draft의 노드 id 집합, edges = 같은 기준 엣지."""
-        cls._validate_variable_references(text, node_id)
+    def check_restored_references(cls, text: str, node_id: str, node_ids: set, edges: list,
+                                  *, check_format: bool = True) -> None:
+        """채팅 재조립이 저장분에서 되살린 문자열을 붙이기 전에, validate()가 그 문자열에 걸 참조 검사
+        (_validate_reference_targets 대상 존재·자기 참조·선행 관계)를 미리 건다. 형식 검사
+        (_validate_variable_references)는 check_format일 때만 — validate()도 prompt·systemMessage에만 건다.
+        위반이면 WorkflowValidationError. node_ids = 출력 draft의 노드 id 집합, edges = 같은 기준 엣지."""
+        if check_format:
+            cls._validate_variable_references(text, node_id)
         nodes = [{"id": i} for i in node_ids if i != node_id] + [{"id": node_id, "config": {"text": text}}]
         cls._validate_reference_targets(nodes, edges)
 

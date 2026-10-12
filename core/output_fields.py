@@ -90,7 +90,7 @@ def build_output_schema(fields: list[dict]) -> dict:
 
 
 def _preview(value) -> str:
-    return OutputValidator.mask_response_content(json.dumps(value, ensure_ascii=False)[:_PREVIEW_CHARS])
+    return OutputValidator.mask_response_content(json.dumps(value, ensure_ascii=False))[:_PREVIEW_CHARS]
 
 
 def _type_ok(ftype: str, value) -> bool:

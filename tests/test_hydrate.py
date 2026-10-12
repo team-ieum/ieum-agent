@@ -636,10 +636,6 @@ def test_rerender_tool_less_react_keeps_system_message_only():
     assert nodes[0]["config"]["systemMessage"] == "지시"
 
 
-_TRIGGER = {"id": "node-1", "type": "TRIGGER", "label": "트리거", "description": "직접 시작해요.",
-            "config": {"triggerType": "MANUAL"}}
-
-
 def test_rerender_drops_system_message_with_bad_reference_format_only():
     """{{이름}}은 검증기 형식 검사(_validate_variable_references)에 걸린다 — 그 키만 빼고 칸은 붙인다."""
     stored = [_TRIGGER, _stored_reasoning(outputFields=_OUTPUT_FIELDS, systemMessage="{{이름}}님께 존댓말로")]
@@ -660,3 +656,18 @@ def test_preserved_config_skips_passthrough_and_empty():
               {**_stored_reasoning(), "id": "node-3"}]
     assert preserved_config(stored, passthrough_ids={"node-2"}) == {}
     assert set(preserved_config(stored)) == {"node-2"}
+
+
+def test_rerender_keeps_output_fields_whose_description_has_bad_format_only():
+    """검증기는 description에 형식 검사를 걸지 않는다(대상 검사만) — {{이름}}이 있어도 칸을 붙인다."""
+    fields = [{"key": "a", "type": "text", "description": "{{이름}} 형식"}]
+    stored = [_TRIGGER, _stored_reasoning(outputFields=fields)]
+    cfg = _rerender(stored, edges=[{"source": "node-1", "target": "node-2"}])[1]["config"]
+    assert cfg["outputFields"] == fields
+
+
+def test_rerender_drops_output_fields_whose_description_references_removed_node():
+    fields = [{"key": "a", "type": "text", "description": "{{nodes.node-9.output.x}} 기준"}]
+    stored = [_TRIGGER, _stored_reasoning(outputFields=fields, systemMessage="유지")]
+    cfg = _rerender(stored, edges=[{"source": "node-1", "target": "node-2"}])[1]["config"]
+    assert "outputFields" not in cfg and cfg["systemMessage"] == "유지"

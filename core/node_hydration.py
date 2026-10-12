@@ -50,17 +50,19 @@ def preserved_config(current_nodes: list | None, passthrough_ids: set | None = N
 
 
 def _drop_unresolvable_refs(node_id: str, kept: dict, draft_ids: set, edges: list) -> dict:
-    """되살린 문자열(systemMessage, outputFields[].description)이 검증기의 참조 두 검사를 통과하는 키만 남긴다.
+    """되살린 문자열(systemMessage, outputFields[].description)이 검증기의 참조 검사를 통과하는 키만 남긴다.
 
-    검증기는 config의 모든 문자열을 훑는다. 저장분이 이번 수정에서 지워지는 노드를 참조하거나 형식이
-    틀리면, 그대로 붙인 순간 수정이 영구히 거부된다(LLM은 슬롯 밖 값을 고칠 수 없다). 걸린 키만 뺀다
+    검증기는 config의 모든 문자열을 훑는다(systemMessage는 형식·대상, description은 대상만). 저장분이
+    이번 수정에서 지워지는 노드를 참조하거나 systemMessage 형식이 틀리면, 그대로 붙인 순간 수정이 영구히
+    거부된다(LLM은 슬롯 밖 값을 고칠 수 없다). 걸린 키만 뺀다
     (spec §3.3 조건 4). node_id·draft_ids·edges는 id 재부여 전 기준 — 참조 리맵은 그 뒤에 일관되게 돈다."""
     out = {}
     for key, value in kept.items():
         texts = [value] if key == "systemMessage" else [f.get("description") or "" for f in value]
         try:
             for text in texts:
-                WorkflowValidator.check_restored_references(text, node_id, draft_ids, edges)
+                WorkflowValidator.check_restored_references(text, node_id, draft_ids, edges,
+                                                            check_format=(key == "systemMessage"))
         except WorkflowValidationError as e:
             logger.warning("채팅 수정: 되살린 %s의 참조가 이번 수정과 맞지 않아 붙이지 않는다 (node_id=%s): %s",
                            key, node_id, e)

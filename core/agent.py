@@ -207,7 +207,7 @@ async def run_agent(
         # 모델 원문은 응답에 싣지 않고 로그에만 앞 200자를 남긴다. 토큰은 이미 썼으므로 usage를 싣는다.
         logger.warning(
             "AI output mismatch for node %s (provider=%s, model=%s): %s | raw[:200]=%r",
-            request.nodeId, provider, model, e, OutputValidator.mask_log_content((output or "")[:200]),
+            request.nodeId, provider, model, e, OutputValidator.mask_log_content(output or "")[:200],
         )
         result = AgentExecutionResult(
             success=False,

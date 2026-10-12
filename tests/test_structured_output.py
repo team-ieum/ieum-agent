@@ -82,6 +82,17 @@ async def test_불일치는_AI_OUTPUT_MISMATCH_와_usage():
 
 
 @pytest.mark.asyncio
+async def test_불일치_로그는_자르기_전에_마스킹한다(caplog):
+    raw = "x" * 180 + ' "api_key": "abcdefgh12345678"}'
+    with caplog.at_level("WARNING", logger="core.agent"):
+        result, _, _, _ = await _run(_req(outputFields=FIELDS), simple_return=(raw, 1, 1, 2))
+
+    assert result.errorCode == "AI_OUTPUT_MISMATCH"
+    # 200자 경계에서 잘리면 시크릿 앞 7자('abcdefg')가 남는다 — 마스킹을 먼저 해야 사라진다.
+    assert caplog.records and not any("abcdefg" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_규칙_위반은_INVALID_OUTPUT_FIELDS_이고_모델을_부르지_않는다():
     result, simple, react, insert_one = await _run(_req(outputFields=[{"key": "my-field", "type": "text"}]))
 
@@ -95,10 +106,10 @@ async def test_규칙_위반은_INVALID_OUTPUT_FIELDS_이고_모델을_부르지
 
 @pytest.mark.asyncio
 async def test_칸과_도구가_같이_있으면_INVALID_OUTPUT_FIELDS():
-    result, simple, react, _ = await _run(
-        _req(agentType="react", tools=[{"name": "builtin:web_search"}], outputFields=FIELDS))
+    result, simple, react, _ = await _run(_req(tools=[{"name": "builtin:web_search"}], outputFields=FIELDS))
 
     assert result.errorCode == "INVALID_OUTPUT_FIELDS"
+    assert "도구" in result.errorMessage
     simple.assert_not_awaited()
     react.assert_not_awaited()
 
