@@ -4,6 +4,10 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# 참조식 본문 {{ 여기 }}. BE 실행기(ExecutionCursor.VARIABLE_PATTERN)와 같은 규칙 — 실제로 치환하는 쪽이 진실이다.
+# id [a-zA-Z0-9-]+, 경로 [a-zA-Z0-9_.]+(중첩 issues.0.title 허용).
+REF_BODY_RE = re.compile(r"nodes\.([a-zA-Z0-9-]+)\.output\.([a-zA-Z0-9_.]+)")
+
 class WorkflowValidationError(ValueError):
     """워크플로우 검증 실패 시 발생하는 예외"""
     pass
@@ -311,7 +315,6 @@ class WorkflowValidator:
                 stack.extend(preds.get(cur, []))
             return seen
 
-        node_ref_pattern = re.compile(r"^nodes\.([a-zA-Z0-9_-]+)\.output\.[a-zA-Z0-9_-]+$")
         ref_pattern = re.compile(r"\{\{(.*?)\}\}")
 
         for node in nodes:
@@ -325,7 +328,7 @@ class WorkflowValidator:
             anc = None  # 조상 집합은 참조가 실제 있을 때만 lazy 계산
             for text in cls._iter_config_strings(config):
                 for raw_ref in ref_pattern.findall(text):
-                    m = node_ref_pattern.match(raw_ref.strip())
+                    m = REF_BODY_RE.fullmatch(raw_ref.strip())
                     if not m:
                         # 형식 불일치는 _validate_variable_references 책임 영역이므로 여기선 건너뜀
                         continue
@@ -364,7 +367,7 @@ class WorkflowValidator:
         for ref in references:
             ref_clean = ref.strip()
             # nodes.node-X.output.field 형태여야 함
-            if not re.match(r"^nodes\.[a-zA-Z0-9_-]+\.output\.[a-zA-Z0-9_-]+$", ref_clean):
+            if not REF_BODY_RE.fullmatch(ref_clean):
                 # 간혹 output 누락이나 nodes 누락 등 오타가 나는 경우 검출
                 raise WorkflowValidationError(
                     f"AI 노드 '{node_id}'의 변수 참조 구문 '{{{{{ref_clean}}}}}' 형식이 올바르지 않습니다. "

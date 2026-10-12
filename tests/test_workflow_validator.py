@@ -380,3 +380,42 @@ def test_config_manual_trigger_with_cron_rejected():
     with pytest.raises(WorkflowValidationError) as e:
         WorkflowValidator.validate(nodes, edges)
     assert "cron" in str(e.value)
+
+
+# --- 정규식 통일: BE ExecutionCursor.VARIABLE_PATTERN과 같은 규칙 (노드 정적 검증 spec §3.7-1) ---
+def _wf_with_prompt(prompt, ai_id="node-2"):
+    return (
+        [
+            {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+            {"id": ai_id, "type": "AI", "label": "AI 노드",
+             "config": {"llmProvider": "GEMINI", "agentType": "simple", "tools": [], "prompt": prompt}},
+        ],
+        [{"source": "node-1", "target": ai_id}],
+    )
+
+
+def test_중첩_경로_참조는_통과한다():
+    """BE는 issues.0.title 같은 중첩 경로를 치환한다 — 예전 agent 정규식은 거부했다."""
+    WorkflowValidator.validate(*_wf_with_prompt("{{nodes.node-1.output.issues.0.title}}"))
+
+
+@pytest.mark.parametrize("prompt", [
+    "{{nodes.node_1.output.x}}",        # id 밑줄 — BE가 치환하지 못한다
+    "{{nodes.node-1.output.my-field}}",  # 경로 하이픈 — BE가 치환하지 못한다
+])
+def test_BE가_치환_못_하는_참조는_형식_오류(prompt):
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowValidator.validate(*_wf_with_prompt(prompt))
+    assert "형식이 올바르지 않습니다" in str(excinfo.value)
+
+
+def test_참조_대상_검사도_같은_정규식():
+    """AI 밖(TRANSFORM)의 중첩 경로 참조도 대상 존재 검사를 받는다 — 예전엔 형식 불일치로 건너뛰었다."""
+    nodes = [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "TRANSFORM", "label": "변환",
+         "config": {"mappings": {"t": "{{nodes.node-9.output.issues.0.title}}"}}},
+    ]
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowValidator.validate(nodes, [{"source": "node-1", "target": "node-2"}])
+    assert "존재하지 않는 노드 'node-9'" in str(excinfo.value)
