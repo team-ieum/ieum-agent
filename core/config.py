@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # Provider 기본 모델명 (.env에서 오버라이드 가능)
-    CLAUDE_DEFAULT_MODEL: str = "claude-sonnet-5"
+    CLAUDE_DEFAULT_MODEL: str = "claude-sonnet-5-5"
     OPENAI_DEFAULT_MODEL: str = "gpt-5.6-terra"
     GEMINI_DEFAULT_MODEL: str = "gemini-3.7-flash"
 

@@ -385,8 +385,8 @@ def test_rerender_preserves_user_model(monkeypatch):
     from core.template_registry import dehydrate_nodes, PASSTHROUGH_TEMPLATE_ID
     from core.provider_config import resolve_model
 
-    # litellm 카탈로그상 claude-haiku-4-5의 폐기일은 2026-10-15다. 그날이 오면 보존값이 정당하게
-    # 기본값으로 강등돼 이 테스트가 코드 변경 없이 빨개진다 — 폐기 판정을 비워 날짜에서 떼어낸다.
+    # litellm이 claude-haiku-4-5에 폐기일을 달면 그날부터 보존값이 정당하게 기본값으로 강등돼
+    # 이 테스트가 코드 변경 없이 빨개진다 — 폐기 판정을 비워 날짜에서 떼어낸다.
     monkeypatch.setitem(litellm.model_cost, "claude-haiku-4-5", {})
     # 기본값을 고정해 개발자 .env(CLAUDE_DEFAULT_MODEL)와 무관하게 "기본값 ≠ 보존값"을 보장한다.
     monkeypatch.setattr(settings, "CLAUDE_DEFAULT_MODEL", "claude-sonnet-5")
