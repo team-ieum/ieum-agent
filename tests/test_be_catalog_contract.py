@@ -23,20 +23,26 @@ CATALOG = [
     ("CLAUDE", "claude-haiku-4-5"),
     ("CLAUDE", "claude-sonnet-5"),
     ("CLAUDE", "claude-opus-5"),
+    ("CLAUDE", "claude-sonnet-5-5"),
+    ("CLAUDE", "claude-opus-5-5"),
+    ("CLAUDE", "claude-fable-5-1"),
     ("OPENAI", "gpt-5.6-luna"),
     ("OPENAI", "gpt-5.6-terra"),
     ("OPENAI", "gpt-5.6-sol"),
     ("GEMINI", "gemini-3.5-flash-lite"),
     ("GEMINI", "gemini-3.7-flash"),
     ("GEMINI", "gemini-2.5-pro"),
+    ("GEMINI", "gemini-3.8-flash"),
+    ("GEMINI", "gemini-3.1-pro-preview"),
 ]
 
 # BE 카탈로그가 광고하는 모델의 알려진 폐기 예정일(litellm model_cost 기준).
 # 폐기일이 지나면 resolve_model이 그 id를 기본 모델로 강등하므로 아래 두 테스트가 함께 깨진다.
 # 그런데 이 pytest는 .github/workflows/agent-dev-server.yml의 배포 게이트라, 그대로 두면
 # 그날부터 무관한 PR까지 dev 배포가 막힌다. 배포를 막는 대신 xfail로 신호만 남긴다.
-# 교체 후속 이슈: https://app.notion.com/p/3c66db85d7f3816999ccf0807bd1f8cd
-SUNSET_DATES = {"claude-haiku-4-5": date(2026, 10, 15)}
+# 2026-10-12 현재 비어 있다: claude-haiku-4-5의 2026-10-15는 vertex_ai/·eu.anthropic. 행의 날짜였고
+# 우리가 조회하는 Anthropic API 행(claude-haiku-4-5)에는 deprecation_date가 없다(litellm 1.88.1·1.105.0 실측).
+SUNSET_DATES: dict = {}
 
 
 def _catalog_params():
