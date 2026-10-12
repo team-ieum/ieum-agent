@@ -1297,3 +1297,99 @@ def test_시스템_프롬프트는_앱_이벤트_시작_요청을_조용히_바�
     assert "시각·주기를 말한 요청(\"매일 9시에 새 메일 요약\")은 앱 이벤트가 아니므로 trigger.schedule로" in _SYSTEM_PROMPT_BASE
     # 기존 수정 시 pass-through 유지 문구는 그대로
     assert "pass-through 노드로 보이며(종류는 'node.triggerType')" in _SYSTEM_PROMPT_BASE
+
+
+# --- 구조화 출력: 채팅 수정 시 출력 칸·시스템 메시지 보존 + 칸 목록 프롬프트 (spec §3.3·§3.4) -------------
+
+_OUTPUT_FIELDS = [{"key": "urgent", "type": "boolean"}, {"key": "reason", "type": "text"}]
+
+
+def _structured_full_nodes(output_fields=_OUTPUT_FIELDS):
+    return [
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "description": "직접 시작해요.",
+         "config": {"triggerType": "MANUAL"}},
+        {"id": "node-2", "type": "AI", "label": "판단", "description": "긴급한지 판단해요.",
+         "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "긴급한지 판단해",
+                    "agentType": "simple", "tools": [], "outputFields": output_fields,
+                    "systemMessage": "한국어로만 답한다"}},
+    ]
+
+
+_STRUCTURED_EDGES = [{"source": "node-1", "target": "node-2", "conditionType": None},
+                     {"source": "node-2", "target": "node-3", "conditionType": None}]
+
+# 판단 노드는 그대로 두고 뒤에 요약 노드를 붙인 수정본. 새 노드는 선언된 칸을 참조한다.
+_STRUCTURED_MODIFIED_JSON = json.dumps({
+    "message": "요약 노드를 추가했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
+    "changeDescription": "node-3 추가",
+    "nodes": [
+        {"id": "node-1", "templateId": "trigger.manual",
+         "slots": {"label": "트리거", "description": "직접 시작해요."}},
+        {"id": "node-2", "templateId": "ai.reasoning",
+         "slots": {"label": "판단", "description": "긴급한지 판단해요.", "prompt": "긴급한지 판단해"}},
+        {"id": "node-3", "templateId": "ai.reasoning",
+         "slots": {"label": "요약", "description": "이유를 한 줄로 정리해요.",
+                   "prompt": "{{nodes.node-2.output.reason}}을 한 줄로 정리해줘"}},
+    ],
+    "edges": _STRUCTURED_EDGES,
+})
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_출력_칸과_시스템_메시지가_채팅_수정에서_남는다():
+    p1, p2, p3 = _make_patches(_STRUCTURED_MODIFIED_JSON)
+    with p1, p2, p3:
+        result = await _call("요약 노드를 붙여줘", current_nodes=_structured_full_nodes(),
+                             current_edges=_STRUCTURED_EDGES[:1])
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    by_id = {n.id: n for n in result.nodes}
+    assert by_id["node-2"].config["outputFields"] == _OUTPUT_FIELDS
+    assert by_id["node-2"].config["systemMessage"] == "한국어로만 답한다"
+    assert "outputFields" not in by_id["node-3"].config
+    assert by_id["node-3"].config["prompt"] == "{{nodes.node-2.output.reason}}을 한 줄로 정리해줘"
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_규칙_위반_출력_칸은_버리고_수정은_성공한다():
+    """위반 값을 되살려 검증기가 거부하면 LLM은 고칠 수 없다(슬롯 아님) — 영구 자가 고착."""
+    p1, p2, p3 = _make_patches(_STRUCTURED_MODIFIED_JSON)
+    with p1, p2, p3:
+        result = await _call("요약 노드를 붙여줘",
+                             current_nodes=_structured_full_nodes([{"key": "my-field", "type": "text"}]),
+                             current_edges=_STRUCTURED_EDGES[:1])
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    node2 = next(n for n in result.nodes if n.id == "node-2")
+    assert "outputFields" not in node2.config
+    assert node2.config["systemMessage"] == "한국어로만 답한다"
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_지워지는_노드를_참조한_시스템_메시지만_빠지고_수정은_성공한다():
+    """되살린 systemMessage가 이번 수정에서 지워지는 노드를 참조하면 검증기가 수정을 영구히 거부한다(LLM은
+    그 값을 고칠 수 없다) — 그 키만 빼고 붙인다. 칸은 그대로 남는다."""
+    full = _structured_full_nodes()
+    full[1]["config"]["systemMessage"] = "{{nodes.node-3.output.output}}를 참고한다"
+    full.insert(1, {"id": "node-3", "type": "AI", "label": "조회", "description": "자료를 정리해요.",
+                    "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "정리해줘",
+                               "agentType": "simple", "tools": []}})
+    edges = [{"source": "node-1", "target": "node-3", "conditionType": None},
+             {"source": "node-3", "target": "node-2", "conditionType": None}]
+    removed = json.dumps({
+        "message": "조회 노드를 지웠습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
+        "changeDescription": "node-3 삭제",
+        "nodes": [
+            {"id": "node-1", "templateId": "trigger.manual",
+             "slots": {"label": "트리거", "description": "직접 시작해요."}},
+            {"id": "node-2", "templateId": "ai.reasoning",
+             "slots": {"label": "판단", "description": "긴급한지 판단해요.", "prompt": "긴급한지 판단해"}},
+        ],
+        "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
+    })
+    p1, p2, p3 = _make_patches(removed)
+    with p1, p2, p3:
+        result = await _call("조회 노드를 지워줘", current_nodes=full, current_edges=edges)
+    assert result.type == ChatResponseType.WORKFLOW_MODIFIED
+    node2 = next(n for n in result.nodes if n.id == "node-2")
+    assert "systemMessage" not in node2.config
+    assert node2.config["outputFields"] == _OUTPUT_FIELDS
+    assert {n.id for n in result.nodes} == {"node-1", "node-2"}

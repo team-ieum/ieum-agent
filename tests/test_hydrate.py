@@ -565,3 +565,98 @@ def test_트리거_passthrough_draft는_레지스트리에_없는_triggerType을
     assert "triggerType" not in dehydrate_node(node)["node"]
     node["config"]["triggerType"] = ["GMAIL_NEW_EMAIL"]  # 해시 불가 값도 터지지 않고 빠진다
     assert "triggerType" not in dehydrate_node(node)["node"]
+
+
+# --- 채팅 재조립: 슬롯 밖 config(outputFields·systemMessage) 보존 (구조화 출력 spec §3.3) -------------
+
+_OUTPUT_FIELDS = [{"key": "urgent", "type": "boolean", "description": "긴급하면 true"},
+                  {"key": "reason", "type": "text"}]
+
+
+def _stored_reasoning(**cfg) -> dict:
+    return {"id": "node-2", "type": "AI", "label": "판단", "description": "긴급한지 판단해요.",
+            "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "긴급한지 판단해",
+                       "agentType": "simple", "tools": [], **cfg}}
+
+
+def _rerender(stored: list, drafts: list | None = None, edges: list | None = None):
+    from core.node_hydration import prepare_hydrated_nodes
+    from core.template_registry import dehydrate_nodes
+    nodes, _ = prepare_hydrated_nodes(drafts or dehydrate_nodes(stored), edges or [], provider="CLAUDE",
+                                      current_nodes=stored)
+    return nodes
+
+
+def test_rerender_preserves_output_fields_and_system_message():
+    stored = [_stored_reasoning(outputFields=_OUTPUT_FIELDS, systemMessage="한국어로만 답한다")]
+    cfg = _rerender(stored)[0]["config"]
+    assert cfg["outputFields"] == _OUTPUT_FIELDS
+    assert cfg["systemMessage"] == "한국어로만 답한다"
+
+
+def test_rerender_does_not_share_preserved_list_with_request_body():
+    stored = [_stored_reasoning(outputFields=_OUTPUT_FIELDS)]
+    cfg = _rerender(stored)[0]["config"]
+    cfg["outputFields"].append({"key": "x", "type": "text"})
+    assert len(stored[0]["config"]["outputFields"]) == 2
+
+
+def test_rerender_does_not_attach_when_llm_changed_template():
+    """같은 id를 다른 AI 템플릿으로 바꾸면 옛 지시문·칸을 붙이지 않는다."""
+    stored = [_stored_reasoning(outputFields=_OUTPUT_FIELDS, systemMessage="옛 지시")]
+    drafts = [{"id": "node-2", "templateId": "ai.web_search",
+               "slots": {"label": "검색", "description": "웹에서 찾아요.", "prompt": "찾아줘"}}]
+    cfg = _rerender(stored, drafts)[0]["config"]
+    assert "outputFields" not in cfg and "systemMessage" not in cfg
+
+
+@pytest.mark.parametrize("bad", ["urgent", [{"key": "my-field", "type": "text"}], {"key": "a"}])
+def test_rerender_drops_invalid_output_fields_but_keeps_system_message(bad):
+    stored = [_stored_reasoning(outputFields=bad, systemMessage="유지")]
+    cfg = _rerender(stored)[0]["config"]
+    assert "outputFields" not in cfg
+    assert cfg["systemMessage"] == "유지"
+
+
+def test_rerender_new_node_gets_nothing_preserved():
+    stored = [_stored_reasoning(outputFields=_OUTPUT_FIELDS, systemMessage="옛 지시")]
+    drafts = [{"id": "node-3", "templateId": "ai.reasoning",
+               "slots": {"label": "새 노드", "description": "새로 만들어요.", "prompt": "p"}}]
+    cfg = _rerender(stored, drafts)[0]["config"]
+    assert "outputFields" not in cfg and "systemMessage" not in cfg
+
+
+def test_rerender_tool_less_react_keeps_system_message_only():
+    """도구 없는 react 노드의 칸은 되살리지 않는다 — 규칙 위반(react, 정정 C1)이고, ai.github_query로 재조립돼
+    허용 키에도 없다."""
+    stored = [_stored_reasoning(agentType="react", outputFields=_OUTPUT_FIELDS, systemMessage="지시")]
+    nodes = _rerender(stored)
+    assert nodes[0]["config"]["agentType"] == "react"
+    assert "outputFields" not in nodes[0]["config"]
+    assert nodes[0]["config"]["systemMessage"] == "지시"
+
+
+_TRIGGER = {"id": "node-1", "type": "TRIGGER", "label": "트리거", "description": "직접 시작해요.",
+            "config": {"triggerType": "MANUAL"}}
+
+
+def test_rerender_drops_system_message_with_bad_reference_format_only():
+    """{{이름}}은 검증기 형식 검사(_validate_variable_references)에 걸린다 — 그 키만 빼고 칸은 붙인다."""
+    stored = [_TRIGGER, _stored_reasoning(outputFields=_OUTPUT_FIELDS, systemMessage="{{이름}}님께 존댓말로")]
+    cfg = _rerender(stored, edges=[{"source": "node-1", "target": "node-2"}])[1]["config"]
+    assert "systemMessage" not in cfg
+    assert cfg["outputFields"] == _OUTPUT_FIELDS
+
+
+def test_rerender_keeps_system_message_referencing_upstream_node():
+    stored = [_TRIGGER, _stored_reasoning(systemMessage="{{nodes.node-1.output.subject}} 기준으로 판단한다")]
+    cfg = _rerender(stored, edges=[{"source": "node-1", "target": "node-2"}])[1]["config"]
+    assert cfg["systemMessage"] == "{{nodes.node-1.output.subject}} 기준으로 판단한다"
+
+
+def test_preserved_config_skips_passthrough_and_empty():
+    from core.node_hydration import preserved_config
+    stored = [_stored_reasoning(outputFields=_OUTPUT_FIELDS),
+              {**_stored_reasoning(), "id": "node-3"}]
+    assert preserved_config(stored, passthrough_ids={"node-2"}) == {}
+    assert set(preserved_config(stored)) == {"node-2"}
