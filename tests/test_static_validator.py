@@ -546,3 +546,8 @@ def test_재귀_한도보다_깊은_중첩도_훑는다():
         deep = [deep]
     nodes = [TRIGGER, {"id": "x", "type": "TRANSFORM", "config": {"mappings": {"a": "b"}, "x": deep}}]
     assert [e["code"] for e in validate_workflow(nodes, [{"source": "t", "target": "x"}])] == ["REF_FORMAT"]
+
+
+def test_event만_있는_schedule도_cron_형식을_검사한다():
+    bad = {"id": "t", "type": "TRIGGER", "event": "schedule.every", "config": {"cron": "매일 9시"}}
+    assert _codes(validate_workflow([bad], [])) == [("CRON", "t", "config.cron")]

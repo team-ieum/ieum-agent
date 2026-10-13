@@ -182,10 +182,18 @@ _DEFAULT_BRAND = "webhook"
 def brand_for_node(node: dict) -> str:
     """노드의 UI brand 키를 도출한다.
 
-    우선순위: 노드 tools의 tool_key에서 추출한 서비스(SERVICE_BRAND) → TRIGGER는 triggerType 서비스(앱 트리거) → node_type 기본값.
+    우선순위: event만 있는 TRIGGER·ACTION은 event의 앱 brand → 노드 tools의 tool_key에서 추출한 서비스(SERVICE_BRAND) → TRIGGER는 triggerType 서비스(앱 트리거) → node_type 기본값.
     ACTION 노드는 github도 tool_key(`builtin:github_<x>`)가 있어 첫 갈래로 답한다.
     AI 노드의 동적 서브에이전트 서비스(github 등)는 tools가 비어([]) tool_key가 없으므로,
     intent(라벨+프롬프트) 태그 매칭으로 서비스를 식별한다(생성 시 분류와 동일 신호)."""
+    # 레거시 필드가 없는 TRIGGER·ACTION 노드는 event의 apps.json brand(spec §5.3). AI·구조 노드와 레거시 필드가
+    # 있는 노드는 event_identity가 None이라 아래 기존 규칙을 탄다.
+    # 재진입 주의: 로더(_normalize)는 앱 없는 항목(모두 AI 프리셋)에만 brand_for_entry→brand_for_node를 부르고,
+    # AI는 event_identity가 load_templates를 부르기 전에 None을 돌려준다.
+    from core.template_registry import event_identity
+    entry = event_identity(node)
+    if entry is not None:
+        return entry["brand"]
     config = node.get("config") if isinstance(node, dict) else None
     tools = config.get("tools") if isinstance(config, dict) else None
     if isinstance(tools, list):

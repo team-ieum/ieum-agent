@@ -208,3 +208,15 @@ def test_brand_for_entry_tool_preset_without_app():
 def test_trigger_brand_from_trigger_type(trigger_type, brand):
     # 앱 트리거는 triggerType 접두사로 앱 brand, 그 외 트리거는 webhook
     assert brand_for_node({"type": "TRIGGER", "config": {"triggerType": trigger_type}}) == brand
+
+
+def test_brand_for_node_prefers_event_app_brand():
+    from tools.registry import brand_for_node
+    assert brand_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {}}) == "gmail"
+    assert brand_for_node({"type": "ACTION", "event": "google_sheets.read", "config": {}}) == "sheets"
+    # 모르는 event → 지금 규칙(triggerType 접두사)
+    assert brand_for_node({"type": "TRIGGER", "event": "nope.x", "config": {"triggerType": "GITHUB_NEW_ISSUE"}}) == "github"
+    # 레거시 필드가 있으면 그것을 따른다(낡은 event — "spec과 다른 점" 1)
+    assert brand_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {"triggerType": "MANUAL"}}) == "webhook"
+    # AI는 event가 아니라 도구로 정한다(프리셋 노드의 event는 늘 ai.agent라 앱을 말해 주지 않는다)
+    assert brand_for_node({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "slack"}]}}) == "slack"
