@@ -93,6 +93,7 @@ def test_hydrate_old_template_id_follows_alias():
                                  "slots": {"label": "매일 9시", "description": "정해둔 시각에 시작해요.",
                                            "cron": "0 9 * * *"}})
     assert node["type"] == "TRIGGER" and node["config"]["triggerType"] == "SCHEDULE"
+    assert node["event"] == "schedule.every"
 
 
 def test_hydrate_preset_id_unchanged_and_unknown_still_rejected():
@@ -593,3 +594,28 @@ def test_트리거_passthrough_draft는_레지스트리에_없는_triggerType을
     assert "triggerType" not in dehydrate_node(node)["node"]
     node["config"]["triggerType"] = ["GMAIL_NEW_EMAIL"]  # 해시 불가 값도 터지지 않고 빠진다
     assert "triggerType" not in dehydrate_node(node)["node"]
+
+
+def test_hydrate_writes_event_and_keeps_legacy_trigger_type():
+    node = hydrate_node({"id": "n1", "templateId": "schedule.every",
+                         "slots": {"label": "매일", "description": "매일 시작해요.", "cron": "0 9 * * *"}})
+    assert node["event"] == "schedule.every"
+    assert node["config"]["triggerType"] == "SCHEDULE"          # 레거시 기록 유지(spec §6.3)
+
+
+def test_hydrate_preset_writes_ai_agent_event():
+    node = hydrate_node({"id": "n2", "templateId": "ai.reasoning",
+                         "slots": {"label": "요약", "description": "요약해요.", "prompt": "요약해"}}, provider="GEMINI")
+    assert node["event"] == "ai.reasoning"
+    node = hydrate_node({"id": "n3", "templateId": "ai.notion_create_page",
+                         "slots": {"label": "저장", "description": "저장해요.", "prompt": "저장해"}}, provider="GEMINI")
+    assert node["event"] == "ai.agent"
+
+
+def test_passthrough_keeps_original_event():
+    from core.template_registry import PASSTHROUGH_TEMPLATE_ID
+    original = {"id": "n1", "type": "TRIGGER", "label": "새 메일", "description": "d",
+                "event": "gmail.new_email", "config": {"triggerType": "GMAIL_NEW_EMAIL"}}
+    node = hydrate_node({"id": "n1", "templateId": PASSTHROUGH_TEMPLATE_ID, "node": {}},
+                        passthrough_originals={"n1": original})
+    assert node["event"] == "gmail.new_email"

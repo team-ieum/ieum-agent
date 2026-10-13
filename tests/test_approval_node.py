@@ -70,7 +70,7 @@ def test_approval_message_survives_dehydrate_hydrate_round_trip():
                          "slots": {"label": "발송 전 승인",
                                    "description": "보내기 전에 담당자가 확인하고 승인해요.",
                                    "message": "슬랙으로 보내도 될까요?"}})
-    assert node == {"id": "node-2", "type": "APPROVAL", "label": "발송 전 승인",
+    assert node == {"id": "node-2", "type": "APPROVAL", "event": "approval.request", "label": "발송 전 승인",
                     "description": "보내기 전에 담당자가 확인하고 승인해요.",
                     "config": {"message": "슬랙으로 보내도 될까요?"}}
     draft = dehydrate_node(node)

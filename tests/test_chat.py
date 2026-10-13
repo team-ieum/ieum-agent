@@ -621,6 +621,7 @@ async def test_chat_workflow_schedule_trigger_correction():
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
     assert result.nodes[0].config["triggerType"] == "SCHEDULE"
     assert result.nodes[0].config["cron"] == "0 17 * * 5"
+    assert result.nodes[0].event == "schedule.every"
 
 
 # ── 역하이드레이션(MODIFY) + 웹훅 자격 검증 ─────────────────────────────────

@@ -96,6 +96,8 @@ def test_generation_view_matches_snapshot_except_intended_diffs():
     for tid, b in before_templates.items():
         expected = copy.deepcopy(b)
         expected["fixed"] = {**expected["fixed"], "event": tr.get_template(tid)["event"]}  # 카탈로그 전환: fixed.event
+        if expected["golden_roundtrip"] is not None:  # hydrate가 event를 기록한다(Task 8)
+            expected["golden_roundtrip"]["event"] = tr.get_template(tid)["event"]
         expected["slots"] = [[INTENDED_SLOT_RENAMES.get(s[0], s[0]), *s[1:]] for s in expected["slots"]]
         expected["allowed_config_fields"] = sorted(
             set(expected["allowed_config_fields"]) | INTENDED_ALLOWED_ADDED.get(tid, set()))

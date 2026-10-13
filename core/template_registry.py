@@ -736,6 +736,7 @@ def hydrate_node(
     node = {
         "id": draft.get("id"),
         "type": tpl["fixed"]["type"],
+        "event": tpl["fixed"]["event"],
         "config": copy.deepcopy(tpl["fixed"].get("config") or {}),
     }
 
