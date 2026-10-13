@@ -430,3 +430,9 @@ def test_event_schedule_cron_errors_raise():
     with pytest.raises(WorkflowValidationError) as excinfo:
         WorkflowValidator.validate(bad, [])
     assert "표준 5필드" in str(excinfo.value)
+
+
+def test_낡은_event는_레거시_triggerType에_진다():
+    stale = [{"id": "t", "type": "TRIGGER", "label": "t", "event": "schedule.every",
+              "config": {"triggerType": "MANUAL"}}]
+    WorkflowValidator.validate(stale, [])

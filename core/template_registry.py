@@ -479,9 +479,13 @@ def trigger_type_of(node: dict) -> str | None:
 
 
 def match_entry(node: dict) -> dict | None:
-    """저장된 노드에 맞는 매칭 항목(builder + match 보유 프리셋, FE가 폼을 열 때). 없으면 None."""
+    """저장된 노드에 맞는 매칭 항목(builder + match 보유 프리셋). 레거시 필드 없이 event만 있는 TRIGGER·ACTION은
+    그 event 항목이고(catch-all match에 빠지지 않게), 나머지는 match 규칙. 둘 다 없으면 None."""
     if not isinstance(node, dict):
         return None
+    entry = event_identity(node)
+    if entry is not None and entry["builder"]:
+        return entry
     view = _match_view(node)
     return next((t for t in _match_entries() if _matches(t["match"], view)), None)
 
@@ -556,6 +560,12 @@ def resolve_template_for_node(node: dict) -> dict | None:
     if not isinstance(config, dict):
         config = {}
 
+    entry = event_identity(node)
+    if entry is not None:
+        # event_identity는 AI를 제외한다 — 프리셋 노드의 event는 ai.agent(generation:false)라 event로 찾으면 전부
+        # pass-through가 된다. generation:false 이벤트(앱 트리거·액션)는 None — 지금처럼 pass-through다.
+        return templates.get(entry["id"])
+
     if ntype == "AI":
         tool_names = [
             (t.get("name") if isinstance(t, dict) else t)
@@ -590,7 +600,7 @@ def resolve_template_for_node(node: dict) -> dict | None:
 
     # TRIGGER: triggerType로 정확히 매칭(schedule/manual/webhook)
     if ntype == "TRIGGER":
-        trigger_type = config.get("triggerType")
+        trigger_type = trigger_type_of(node)
         for tpl in templates.values():
             if tpl["node_type"] == "TRIGGER" and \
                     tpl["fixed"].get("config", {}).get("triggerType") == trigger_type:
@@ -837,10 +847,9 @@ def dehydrate_node(node: dict) -> dict | None:
         }
         # 트리거는 종류(triggerType 열거값 하나)까지 실어 LLM이 출력 필드를 고르게 한다. 앱 트리거는
         # 빌더 전용(generation false)이라 늘 여기로 온다. 나머지 config(query·repoId 등)는 여전히 싣지 않는다.
-        cfg = node.get("config")
-        if str(node.get("type") or "").upper() == "TRIGGER" and isinstance(cfg, dict) \
-                and isinstance(cfg.get("triggerType"), str) and cfg["triggerType"] in TRIGGER_TYPES:
-            ident["triggerType"] = cfg["triggerType"]
+        trigger_type = trigger_type_of(node)
+        if str(node.get("type") or "").upper() == "TRIGGER" and trigger_type in TRIGGER_TYPES:
+            ident["triggerType"] = trigger_type
         return {"id": node.get("id"), "templateId": PASSTHROUGH_TEMPLATE_ID, "node": ident}
     slots = {}
     for s in tpl["slots"]:

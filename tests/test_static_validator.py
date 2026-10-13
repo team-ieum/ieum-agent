@@ -551,3 +551,13 @@ def test_재귀_한도보다_깊은_중첩도_훑는다():
 def test_event만_있는_schedule도_cron_형식을_검사한다():
     bad = {"id": "t", "type": "TRIGGER", "event": "schedule.every", "config": {"cron": "매일 9시"}}
     assert _codes(validate_workflow([bad], [])) == [("CRON", "t", "config.cron")]
+
+
+def test_낡은_event는_레거시_triggerType에_진다():
+    stale = {"id": "t", "type": "TRIGGER", "event": "schedule.every", "config": {"triggerType": "MANUAL"}}
+    assert validate_workflow([stale], []) == []
+
+
+def test_event만_있는_schedule의_빈_cron은_REQUIRED():
+    empty = {"id": "t", "type": "TRIGGER", "event": "schedule.every", "config": {"cron": ""}}
+    assert _codes(validate_workflow([empty], [])) == [("REQUIRED", "t", "config.cron")]

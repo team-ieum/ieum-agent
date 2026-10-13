@@ -99,3 +99,52 @@ def test_agent_tool_choices_exclude_dynamic_mount_services():
     tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
     assert not [c for c in tools["choices"] if "github" in c["id"]]
     assert tr.get_template("github.list_issues")["builder"] is True   # 카탈로그엔 따로 있다
+
+
+def test_event_only_app_trigger_does_not_fall_into_manual_catch_all():
+    from core.template_registry import match_entry
+    node = {"type": "TRIGGER", "event": "gmail.new_email", "config": {"query": "is:unread"}}
+    assert match_entry(node)["id"] == "gmail.new_email"
+
+
+def test_unknown_event_falls_back_to_match_rules():
+    from core.template_registry import match_entry
+    node = {"type": "TRIGGER", "event": "nope.x", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}
+    assert match_entry(node)["id"] == "schedule.every"
+
+
+def test_event_only_schedule_resolves_generation_template():
+    from core.template_registry import resolve_template_for_node
+    node = {"type": "TRIGGER", "event": "schedule.every", "config": {"cron": "0 9 * * *"}}
+    assert resolve_template_for_node(node)["id"] == "schedule.every"
+
+
+def test_event_only_builder_only_event_stays_unresolved():
+    # 앱 트리거·액션은 generation:false — 지금처럼 pass-through 대상이다.
+    from core.template_registry import resolve_template_for_node
+    assert resolve_template_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {}}) is None
+
+
+def test_preset_node_with_ai_agent_event_still_resolves_by_tools():
+    from core.template_registry import resolve_template_for_node
+    node = {"type": "AI", "event": "ai.agent",
+            "config": {"agentType": "react", "tools": [{"name": "builtin:notion_create_page"}]}}
+    assert resolve_template_for_node(node)["id"] == "ai.notion_create_page"
+
+
+def test_preset_node_with_ai_agent_event_keeps_preset_match_and_passes_static_check():
+    # event로 ai.agent 항목을 고르면 tools 필수 칸에 걸려 실행이 400이 된다(Review Focus 2).
+    from core.template_registry import match_entry
+    from core.validators.static_validator import field_errors
+    node = {"id": "a", "type": "AI", "event": "ai.agent",
+            "config": {"llmProvider": "GEMINI", "model": "m", "prompt": "p", "agentType": "react", "tools": []}}
+    assert match_entry(node)["id"] == "ai.github_query"
+    assert field_errors(node) == []
+
+
+def test_stale_event_loses_to_legacy_fields():
+    # 빌더로 MANUAL로 바꿨는데 BE 병합이 옛 event를 이어받은 노드(Review Focus 1)
+    from core.template_registry import match_entry, resolve_template_for_node
+    node = {"type": "TRIGGER", "event": "schedule.every", "config": {"triggerType": "MANUAL"}}
+    assert match_entry(node)["id"] == "manual.run"
+    assert resolve_template_for_node(node)["id"] == "manual.run"

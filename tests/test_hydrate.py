@@ -567,6 +567,15 @@ def test_트리거_passthrough_draft는_triggerType만_더_싣는다():
         assert leaked not in dumped
 
 
+def test_event만_있는_앱_트리거_passthrough_draft도_종류를_싣는다():
+    from core.template_registry import PASSTHROUGH_TEMPLATE_ID, dehydrate_node
+    node = {"id": "n1", "type": "TRIGGER", "label": "새 메일", "event": "gmail.new_email", "config": {"query": "x"}}
+    draft = dehydrate_node(node)
+    assert draft["templateId"] == PASSTHROUGH_TEMPLATE_ID
+    assert draft["node"]["triggerType"] == "GMAIL_NEW_EMAIL"
+    assert "config" not in draft["node"]
+
+
 def test_트리거가_아닌_passthrough_draft_모양은_그대로다():
     from core.template_registry import dehydrate_node
 
