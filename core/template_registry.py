@@ -426,6 +426,54 @@ def _match_view(node: dict) -> dict:
     return view
 
 
+def event_entry(node: dict) -> dict | None:
+    """노드 event가 가리키는 카탈로그 이벤트 항목. event가 없거나, 모르는 이름이거나, 프리셋 id면 None.
+    BE 카탈로그 ⊇ agent 카탈로그라 agent가 모르는 event가 올 수 있다(spec §5.4) — 그때는 호출자가 레거시
+    필드(config.triggerType·tools)로 판단한다."""
+    event = node.get("event") if isinstance(node, dict) else None
+    if not isinstance(event, str):
+        return None
+    entry = load_templates().get(event)
+    return entry if entry is not None and not entry.get("preset") else None
+
+
+def _legacy_identified(node: dict) -> bool:
+    """레거시 필드만으로 노드 종류가 정해지는지. 2~4단계엔 agent·BE가 레거시 필드를 계속 기록하고 FE는 레거시
+    필드만 고친다 — 둘이 다르면 event가 낡은 쪽이다(계획 2 전 BE 병합이 옛 event를 이어받는다). AI·구조 노드는
+    event가 종류를 더 알려 주지 않으므로(AI는 도구로, 구조 노드는 type 하나로 정해진다) 늘 True."""
+    ntype = str(node.get("type") or "").upper()
+    config = node.get("config") if isinstance(node.get("config"), dict) else {}
+    if ntype == "TRIGGER":
+        value = config.get("triggerType")
+        return isinstance(value, str) and value in TRIGGER_TYPES
+    if ntype == "ACTION":
+        tools = config.get("tools")
+        first = tools[0] if isinstance(tools, list) and tools else None
+        return bool(first.get("name") if isinstance(first, dict) else first)
+    return True
+
+
+def event_identity(node: dict) -> dict | None:
+    """판정(매칭·역변환·brand)에 event를 써야 하는 노드면 그 이벤트 항목, 아니면 None.
+    레거시 필드가 없는 TRIGGER·ACTION 노드만 해당한다 — "event만 있는 노드"가 catch-all에 빠지지 않게 한다."""
+    if not isinstance(node, dict) or _legacy_identified(node):
+        return None
+    return event_entry(node)
+
+
+def trigger_type_of(node: dict) -> str | None:
+    """트리거 종류. 유효한 레거시 config.triggerType이 이기고(_legacy_identified 참고), 없으면 알려진 event의
+    trigger_type, 그것도 없으면 config.triggerType 문자열 그대로(검증기가 '모르는 값'으로 다룬다)."""
+    config = node.get("config") if isinstance(node, dict) else None
+    value = config.get("triggerType") if isinstance(config, dict) else None
+    if isinstance(value, str) and value in TRIGGER_TYPES:
+        return value
+    entry = event_entry(node)
+    if entry is not None:
+        return entry.get("trigger_type")
+    return value if isinstance(value, str) else None
+
+
 def match_entry(node: dict) -> dict | None:
     """저장된 노드에 맞는 매칭 항목(builder + match 보유 프리셋, FE가 폼을 열 때). 없으면 None."""
     if not isinstance(node, dict):

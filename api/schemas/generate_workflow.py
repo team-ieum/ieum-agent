@@ -52,6 +52,8 @@ class WorkflowNode(BaseModel):
     # 노드 카드에 표시할 사용자용 자연어 설명. 템플릿의 description 슬롯이 필수로 채우지만,
     # description 도입 이전에 저장된 워크플로우가 수정/채팅 요청으로 되돌아오므로 기본값을 둔다.
     description: str = ""
+    # 카탈로그 이벤트 이름(앱.이벤트, spec §4). 옛 저장분엔 없다 — 필수로 두면 수정 요청이 전부 422가 된다.
+    event: Optional[str] = None
     config: Dict[str, Any]
 
     @field_validator("description", mode="before")
@@ -70,11 +72,15 @@ class WorkflowNode(BaseModel):
         cfg = self.config or {}
 
         if node_type == "TRIGGER":
-            trigger_type = cfg.get("triggerType")
-            if not trigger_type:
-                raise ValueError("TRIGGER 노드의 config에는 triggerType이 필수입니다.")
-            if trigger_type not in TRIGGER_TYPES:
-                raise ValueError(f"유효하지 않은 triggerType입니다: {trigger_type}")
+            # 순환 import 회피: template_registry가 이 모듈의 TRIGGER_TYPES를 import한다.
+            from core.template_registry import trigger_type_of
+            raw = cfg.get("triggerType")
+            # event가 있으면 레거시 값이 agent가 모르는 값이어도 받는다 — BE가 event에서 계산해 기록한 값일 수 있다.
+            if not self.event and raw is not None and raw not in TRIGGER_TYPES:
+                raise ValueError(f"유효하지 않은 triggerType입니다: {raw}")
+            trigger_type = trigger_type_of({"event": self.event, "config": cfg})
+            if not trigger_type and not self.event:
+                raise ValueError("TRIGGER 노드에는 event 또는 config.triggerType이 필요합니다.")
             if trigger_type == "SCHEDULE":
                 cron = cfg.get("cron")
                 if not cron or not isinstance(cron, str):
