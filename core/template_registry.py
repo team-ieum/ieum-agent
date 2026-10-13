@@ -231,6 +231,8 @@ def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
 
 
 def _read_json(path: str):
+    if not os.path.exists(path):
+        raise TemplateSchemaError(f"{os.path.relpath(path, CATALOG_DIR)}가 없다 — {_SUBMODULE_HINT}.")
     with open(path, "r", encoding="utf-8") as f:
         try:
             return json.load(f)
@@ -247,6 +249,8 @@ def _read_catalog() -> tuple[dict, list, dict]:
     if not paths:
         raise TemplateSchemaError(f"카탈로그 이벤트가 없다({events_dir}) — {_SUBMODULE_HINT}.")
     apps = _read_json(os.path.join(CATALOG_DIR, "apps.json"))
+    if not isinstance(apps, dict):
+        raise TemplateSchemaError("apps.json은 객체여야 한다.")
     entries = []
     for path in paths:
         app, event = os.path.basename(os.path.dirname(path)), os.path.basename(path)[:-len(".json")]
@@ -269,7 +273,10 @@ def _read_catalog() -> tuple[dict, list, dict]:
         entries.append({**p, "node_type": "AI", "builder": False, "preset": True})
     # id 정렬 — select_by_tags 동점·subagent_service_for_node의 "첫 AI 항목"이 이 순서를 따른다("spec과 다른 점" 3).
     entries.sort(key=lambda e: e.get("id", ""))
-    return apps, entries, _read_json(os.path.join(CATALOG_DIR, "aliases.json"))
+    aliases = _read_json(os.path.join(CATALOG_DIR, "aliases.json"))
+    if not (isinstance(aliases, dict) and all(isinstance(v, str) for v in aliases.values())):
+        raise TemplateSchemaError("aliases.json은 {옛 templateId: 이벤트 이름} 객체여야 한다.")
+    return apps, entries, aliases
 
 
 def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:

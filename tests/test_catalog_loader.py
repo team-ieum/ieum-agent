@@ -73,3 +73,18 @@ def test_event_file_must_not_carry_id(tmp_path, monkeypatch):
     p.write_text(json.dumps({**json.loads(p.read_text()), "id": "trigger.manual"}))
     with pytest.raises(tr.TemplateSchemaError, match="경로"):
         tr.load_templates(force=True)
+
+
+def test_aliases_must_be_str_map(tmp_path, monkeypatch):
+    root = copy_catalog(tmp_path, monkeypatch)
+    (root / "aliases.json").write_text("[]")
+    with pytest.raises(tr.TemplateSchemaError, match="aliases.json"):
+        tr.load_templates(force=True)
+
+
+def test_missing_apps_json_fails_with_submodule_hint(tmp_path, monkeypatch):
+    root = copy_catalog(tmp_path, monkeypatch)
+    (root / "apps.json").unlink()
+    with pytest.raises(tr.TemplateSchemaError) as e:
+        tr.load_templates(force=True)
+    assert "apps.json" in str(e.value) and "submodule update --init" in str(e.value)
