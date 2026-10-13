@@ -7,7 +7,7 @@ def _plan(nodes, edges=None):
     return WorkflowPlanSchema(nodes=nodes, edges=edges or [], justification="테스트 근거")
 
 
-TRIGGER = {"id": "node-1", "templateId": "trigger.manual", "role": "트리거", "description": "수동 시작"}
+TRIGGER = {"id": "node-1", "templateId": "manual.run", "role": "트리거", "description": "수동 시작"}
 
 
 # --- 기본 구조 검증 ---
@@ -46,7 +46,7 @@ def test_first_node_must_be_trigger():
 
 def test_multiple_triggers_raises():
     plan = _plan(
-        [TRIGGER, {"id": "node-2", "templateId": "trigger.schedule", "role": "t2", "description": "d"}],
+        [TRIGGER, {"id": "node-2", "templateId": "schedule.every", "role": "t2", "description": "d"}],
         [{"source": "node-1", "target": "node-2"}],
     )
     with pytest.raises(PlanValidationError):

@@ -194,14 +194,12 @@ def test_brand_for_entry_ai_without_tool_uses_service_field():
     assert brand_for_entry({**base, "service": "no-such-service"}) == "openai"
 
 
-def test_brand_for_entry_tool_and_structural_entries():
-    action = {"node_type": "ACTION", "tool_key": "builtin:github_list_issues",
-              "fixed": {"type": "ACTION", "config": {"tools": [{"name": "builtin:github_list_issues"}]}}}
-    assert brand_for_entry(action) == "github"
-    assert brand_for_entry({"node_type": "TRIGGER", "tool_key": None,
-                            "fixed": {"type": "TRIGGER", "config": {}}}) == "webhook"
-    assert brand_for_entry({"node_type": "CONDITION", "tool_key": None,
-                            "fixed": {"type": "CONDITION", "config": {}}}) == "filter"
+def test_brand_for_entry_tool_preset_without_app():
+    """앱 없는 도구 프리셋(ai.web_search·ai.http_fetch)은 fixed로 brand_for_node가 답한다.
+    이벤트·앱 프리셋 brand는 apps.json에서 온다(test_catalog_loader.test_brand_from_apps_json)."""
+    for tool in ("builtin:web_search", "builtin:http_fetch"):
+        entry = {"node_type": "AI", "tool_key": tool, "fixed": {"type": "AI", "config": {"tools": [{"name": tool}]}}}
+        assert brand_for_entry(entry) == "openai", tool
 
 
 @pytest.mark.parametrize("trigger_type,brand", [
@@ -210,3 +208,15 @@ def test_brand_for_entry_tool_and_structural_entries():
 def test_trigger_brand_from_trigger_type(trigger_type, brand):
     # 앱 트리거는 triggerType 접두사로 앱 brand, 그 외 트리거는 webhook
     assert brand_for_node({"type": "TRIGGER", "config": {"triggerType": trigger_type}}) == brand
+
+
+def test_brand_for_node_prefers_event_app_brand():
+    from tools.registry import brand_for_node
+    assert brand_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {}}) == "gmail"
+    assert brand_for_node({"type": "ACTION", "event": "google_sheets.read", "config": {}}) == "sheets"
+    # 모르는 event → 지금 규칙(triggerType 접두사)
+    assert brand_for_node({"type": "TRIGGER", "event": "nope.x", "config": {"triggerType": "GITHUB_NEW_ISSUE"}}) == "github"
+    # 레거시 필드가 있으면 그것을 따른다(낡은 event — "spec과 다른 점" 1)
+    assert brand_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {"triggerType": "MANUAL"}}) == "webhook"
+    # AI는 event가 아니라 도구로 정한다(프리셋 노드의 event는 늘 ai.agent라 앱을 말해 주지 않는다)
+    assert brand_for_node({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "slack"}]}}) == "slack"

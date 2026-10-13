@@ -1,11 +1,12 @@
 """SSOT 통합 + 드리프트 방지 (#8)
 
 노드 템플릿 레지스트리(파일 SSOT) 하나에서 프롬프트(skill_loader)·검증(validator)·
-검색(태그)·DB(seed)가 일관되게 파생되는지, 그리고 드리프트가 생기면 CI가 실패하는지 검증한다.
+검색(태그)이 일관되게 파생되는지, 그리고 드리프트가 생기면 CI가 실패하는지 검증한다.
 """
 import pytest
 
 from core import template_registry as tr
+from tests.catalog_paths import apps
 from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
 
 
@@ -60,7 +61,7 @@ def test_every_template_has_tags_and_menu():
 
 def _wf_from_structural_and_tool(struct_tpl_id, tool_tpl_id):
     """구조 트리거 + 도구 노드 1개로 최소 워크플로우를 조립한다(참조식 없는 스니펫만)."""
-    trigger = dict(tr.get_template("trigger.schedule")["golden_snippet"])
+    trigger = dict(tr.get_template("schedule.every")["golden_snippet"])
     trigger["id"] = "node-1"
     tool_snip = dict(tr.get_template(tool_tpl_id)["golden_snippet"])
     tool_snip = {**tool_snip, "id": "node-2",
@@ -70,7 +71,7 @@ def _wf_from_structural_and_tool(struct_tpl_id, tool_tpl_id):
 
 def test_no_reference_tool_snippet_validates_end_to_end():
     """참조식이 없는 도구 스니펫(web_search)은 트리거와 결합해 전체 검증을 통과한다."""
-    nodes, edges = _wf_from_structural_and_tool("trigger.schedule", "ai.web_search")
+    nodes, edges = _wf_from_structural_and_tool("schedule.every", "ai.web_search")
     WorkflowValidator.validate(nodes, edges)
 
 
@@ -82,4 +83,4 @@ def test_drift_detection_fails_on_unknown_tool_key():
         "fixed": {"type": "AI", "config": {"tools": [{"name": "builtin:bogus_tool"}]}},
     }
     with pytest.raises(tr.TemplateSchemaError, match="드리프트"):
-        tr._validate_template(bad, "/tmp/ai.bogus.json", tr._tool_map_keys())
+        tr._validate_template(bad, bad["id"], tr._tool_map_keys(), apps())

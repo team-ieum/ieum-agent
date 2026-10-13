@@ -3,7 +3,7 @@ import copy
 
 import pytest
 
-from core.template_registry import builder_entries, match_entry
+from core.template_registry import _match_entries, match_entry
 from core.validators.static_validator import _check, field_errors, validate_workflow
 
 TRIGGER = {"id": "t", "type": "TRIGGER", "config": {"triggerType": "MANUAL"}}
@@ -321,7 +321,7 @@ def test_칸_안에_중첩된_참조의_field는_그_칸_path():
 
 
 def test_outputDynamic_미매칭_대상은_출력_칸을_보지_않는다():
-    nodes, edges = _chain(_ai("b", prompt="{{nodes.t.output.anything}}"))  # trigger.manual = outputDynamic
+    nodes, edges = _chain(_ai("b", prompt="{{nodes.t.output.anything}}"))  # manual.run = outputDynamic
     assert validate_workflow(nodes, edges) == []
     loop = {"id": "x", "type": "LOOP", "config": {}}
     nodes, edges = _chain(loop, _ai("b", prompt="{{nodes.x.output.anything}}"))
@@ -357,47 +357,47 @@ FIXED_NODE_REQUIRED = {
     "ai.http_fetch": ["config.llmProvider", "config.prompt"],
     "ai.mcp": ["config.llmProvider", "config.prompt", "config.tools.0.config.catalogId"],
     "ai.web_search": ["config.llmProvider", "config.prompt"],
-    "action.discord_send": ["config.tools.0.config.content", "config.tools.0.config.webhookCredentialId"],
-    "action.github_create_issue": ["config.tools.0.config.owner", "config.tools.0.config.repo",
+    "discord.send_message": ["config.tools.0.config.content", "config.tools.0.config.webhookCredentialId"],
+    "github.create_issue": ["config.tools.0.config.owner", "config.tools.0.config.repo",
                                    "config.tools.0.config.title"],
-    "action.github_list_issues": ["config.tools.0.config.owner", "config.tools.0.config.repo"],
-    "action.google_calendar_create": ["config.tools.0.config.end_datetime", "config.tools.0.config.start_datetime",
+    "github.list_issues": ["config.tools.0.config.owner", "config.tools.0.config.repo"],
+    "google_calendar.create": ["config.tools.0.config.end_datetime", "config.tools.0.config.start_datetime",
                                       "config.tools.0.config.summary"],
-    "action.google_calendar_list": ["config.tools.0.config.time_max", "config.tools.0.config.time_min"],
-    "action.google_calendar_update": ["config.tools.0.config.event_id"],
-    "action.google_drive_read": ["config.tools.0.config.file_id"],
-    "action.google_drive_upload": ["config.tools.0.config.content", "config.tools.0.config.name"],
-    "action.google_sheets_append": ["config.tools.0.config.cell_range", "config.tools.0.config.spreadsheet_id",
+    "google_calendar.list": ["config.tools.0.config.time_max", "config.tools.0.config.time_min"],
+    "google_calendar.update": ["config.tools.0.config.event_id"],
+    "google_drive.read": ["config.tools.0.config.file_id"],
+    "google_drive.upload": ["config.tools.0.config.content", "config.tools.0.config.name"],
+    "google_sheets.append": ["config.tools.0.config.cell_range", "config.tools.0.config.spreadsheet_id",
                                     "config.tools.0.config.values"],
-    "action.google_sheets_read": ["config.tools.0.config.cell_range", "config.tools.0.config.spreadsheet_id"],
-    "action.google_sheets_write": ["config.tools.0.config.cell_range", "config.tools.0.config.spreadsheet_id",
+    "google_sheets.read": ["config.tools.0.config.cell_range", "config.tools.0.config.spreadsheet_id"],
+    "google_sheets.write": ["config.tools.0.config.cell_range", "config.tools.0.config.spreadsheet_id",
                                    "config.tools.0.config.values"],
-    "action.notion_append_block": ["config.tools.0.config.content", "config.tools.0.config.page_id"],
-    "action.notion_create_page": ["config.tools.0.config.content", "config.tools.0.config.parent_page_id",
+    "notion.append_block": ["config.tools.0.config.content", "config.tools.0.config.page_id"],
+    "notion.create_page": ["config.tools.0.config.content", "config.tools.0.config.parent_page_id",
                                   "config.tools.0.config.title"],
-    "action.notion_query_database": ["config.tools.0.config.database_id"],
-    "action.notion_read_page": ["config.tools.0.config.page_id"],
-    "action.notion_search": ["config.tools.0.config.query"],
-    "action.notion_update_page": ["config.tools.0.config.page_id"],
-    "action.slack_send": ["config.tools.0.config.message", "config.tools.0.config.webhookCredentialId"],
+    "notion.query_database": ["config.tools.0.config.database_id"],
+    "notion.read_page": ["config.tools.0.config.page_id"],
+    "notion.search": ["config.tools.0.config.query"],
+    "notion.update_page": ["config.tools.0.config.page_id"],
+    "slack.send_message": ["config.tools.0.config.message", "config.tools.0.config.webhookCredentialId"],
     "ai.reasoning": ["config.llmProvider", "config.prompt"],
-    "trigger.github_new_issue": ["config.repoId"],
-    "trigger.gmail_new_email": [],
-    "trigger.schedule": ["config.cron"],
-    "trigger.webhook": [],
+    "github.new_issue": ["config.repoId"],
+    "gmail.new_email": [],
+    "schedule.every": ["config.cron"],
+    "webhook.catch": [],
     # ai.agent fixed(tools [], agentType react)는 도구가 없어 ai.github_query로 매칭된다 — 도구를 고르기 전 모양
     "ai.agent": ["config.llmProvider", "config.prompt"],
-    "approval": [],
-    "condition": ["config.left", "config.operator", "config.right"],
-    "http": ["config.url"],
-    "transform": ["config.mappings"],
-    "trigger.manual": [],
+    "approval.request": [],
+    "branch.if": ["config.left", "config.operator", "config.right"],
+    "http.request": ["config.url"],
+    "transform.map": ["config.mappings"],
+    "manual.run": [],
 }
 
 
 def test_카탈로그_전_항목_기본값_노드():
     actual = {}
-    for t in builder_entries():
+    for t in _match_entries():  # 매칭 후보 = builder 항목 + match 보유 프리셋(빌더 목록엔 프리셋이 없다)
         node = {"id": "n", "type": t["fixed"]["type"], "config": copy.deepcopy(t["fixed"].get("config") or {})}
         errors = field_errors(node)
         assert {e["code"] for e in errors} <= {"REQUIRED"}, (t["id"], errors)  # fixed 자체는 형식이 맞아야 한다
@@ -546,3 +546,18 @@ def test_재귀_한도보다_깊은_중첩도_훑는다():
         deep = [deep]
     nodes = [TRIGGER, {"id": "x", "type": "TRANSFORM", "config": {"mappings": {"a": "b"}, "x": deep}}]
     assert [e["code"] for e in validate_workflow(nodes, [{"source": "t", "target": "x"}])] == ["REF_FORMAT"]
+
+
+def test_event만_있는_schedule도_cron_형식을_검사한다():
+    bad = {"id": "t", "type": "TRIGGER", "event": "schedule.every", "config": {"cron": "매일 9시"}}
+    assert _codes(validate_workflow([bad], [])) == [("CRON", "t", "config.cron")]
+
+
+def test_낡은_event는_레거시_triggerType에_진다():
+    stale = {"id": "t", "type": "TRIGGER", "event": "schedule.every", "config": {"triggerType": "MANUAL"}}
+    assert validate_workflow([stale], []) == []
+
+
+def test_event만_있는_schedule의_빈_cron은_REQUIRED():
+    empty = {"id": "t", "type": "TRIGGER", "event": "schedule.every", "config": {"cron": ""}}
+    assert _codes(validate_workflow([empty], [])) == [("REQUIRED", "t", "config.cron")]

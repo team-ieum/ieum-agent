@@ -419,3 +419,20 @@ def test_참조_대상_검사도_같은_정규식():
     with pytest.raises(WorkflowValidationError) as excinfo:
         WorkflowValidator.validate(nodes, [{"source": "node-1", "target": "node-2"}])
     assert "존재하지 않는 노드 'node-9'" in str(excinfo.value)
+
+
+def test_event_schedule_cron_errors_raise():
+    missing = [{"id": "node-1", "type": "TRIGGER", "label": "t", "event": "schedule.every", "config": {}}]
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowValidator.validate(missing, [])
+    assert "cron 표현식이 누락" in str(excinfo.value)
+    bad = [{"id": "node-1", "type": "TRIGGER", "label": "t", "event": "schedule.every", "config": {"cron": "0 9 * *"}}]
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowValidator.validate(bad, [])
+    assert "표준 5필드" in str(excinfo.value)
+
+
+def test_낡은_event는_레거시_triggerType에_진다():
+    stale = [{"id": "t", "type": "TRIGGER", "label": "t", "event": "schedule.every",
+              "config": {"triggerType": "MANUAL"}}]
+    WorkflowValidator.validate(stale, [])

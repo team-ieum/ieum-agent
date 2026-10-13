@@ -9,7 +9,7 @@ from core.workflow_generator import generate_workflow
 
 VALID_PLAN_JSON = """{
   "nodes": [
-    {"id": "node-1", "templateId": "trigger.schedule", "role": "매일 오전 9시", "description": "스케줄 트리거"},
+    {"id": "node-1", "templateId": "schedule.every", "role": "매일 오전 9시", "description": "스케줄 트리거"},
     {"id": "node-2", "templateId": "ai.web_search", "role": "경제 뉴스 검색", "description": "경제 뉴스를 검색해줘"}
   ],
   "edges": [
@@ -21,7 +21,7 @@ VALID_PLAN_JSON = """{
 # Builder는 draft({id, templateId, slots})를 출력하고, 시스템이 템플릿으로 하이드레이션한다.
 VALID_WORKFLOW_JSON = json.dumps({
     "nodes": [
-        {"id": "node-1", "templateId": "trigger.schedule",
+        {"id": "node-1", "templateId": "schedule.every",
          "slots": {"label": "매일 오전 9시", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}},
         {"id": "node-2", "templateId": "ai.web_search",
          "slots": {"label": "경제 뉴스 검색", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "경제 뉴스를 검색해 핵심만 반환해줘"}}
@@ -91,7 +91,7 @@ async def test_generate_workflow_description_누락시_실패():
     (실서비스에서는 이 오류가 Builder Reflexion 루프로 되먹여져 재작성된다.)"""
     broken = json.dumps({
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.schedule",
+            {"id": "node-1", "templateId": "schedule.every",
              "slots": {"label": "매일 오전 9시", "cron": "0 9 * * *"}},
             {"id": "node-2", "templateId": "ai.web_search",
              "slots": {"label": "검색", "prompt": "경제 뉴스를 검색해줘"}},
@@ -113,7 +113,7 @@ async def test_generate_workflow_passthrough_draft_거부됨():
     (LLM이 슬롯 검증을 우회해 임의 model·systemMessage를 주입하는 것 차단)."""
     forged = json.dumps({
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.schedule",
+            {"id": "node-1", "templateId": "schedule.every",
              "slots": {"label": "매일 오전 9시", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}},
             {"id": "node-2", "templateId": "__passthrough__",
              "node": {"id": "node-2", "type": "AI", "label": "검색", "description": "설명",
@@ -145,16 +145,16 @@ async def test_generate_workflow_프롬프트_내_중괄호_보존():
     """노드 프롬프트의 변수참조({{...}})로 중괄호가 섞여도 JSON 추출이 깨지지 않는다 (A1)."""
     workflow_with_braces = json.dumps({
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "수동", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "수동", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.web_search",
              "slots": {"label": "요약", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "이전 결과 {{nodes.node-1.output.triggeredAt}}를 요약"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2"}],
     })
-    # 이 워크플로우와 정합하는 Plan(node-1=trigger.manual). _apply_plan_templates가 plan templateId를 강제하므로.
+    # 이 워크플로우와 정합하는 Plan(node-1=manual.run). _apply_plan_templates가 plan templateId를 강제하므로.
     manual_plan = json.dumps({
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "role": "수동", "description": "수동 시작"},
+            {"id": "node-1", "templateId": "manual.run", "role": "수동", "description": "수동 시작"},
             {"id": "node-2", "templateId": "ai.web_search", "role": "요약", "description": "요약"},
         ],
         "edges": [{"source": "node-1", "target": "node-2"}],

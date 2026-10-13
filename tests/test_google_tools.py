@@ -54,7 +54,7 @@ async def test_google_sheets_read_success():
             cell_range="Sheet1!A1:B2",
         )
 
-    assert_matches_outputs("action.google_sheets_read", result)
+    assert_matches_outputs("google_sheets.read", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert len(parsed["values"]) == 2
@@ -96,7 +96,7 @@ async def test_google_sheets_write_success():
             values='[["이름","점수"],["홍길동","100"]]',
         )
 
-    assert_matches_outputs("action.google_sheets_write", result)
+    assert_matches_outputs("google_sheets.write", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["updatedCells"] == 4
@@ -155,7 +155,7 @@ async def test_google_calendar_create_success():
             end_datetime="2026-05-14T10:00:00+09:00",
         )
 
-    assert_matches_outputs("action.google_calendar_create", result)
+    assert_matches_outputs("google_calendar.create", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["eventId"] == "event-123"
@@ -184,7 +184,7 @@ async def test_google_calendar_list_success():
             time_max="2026-05-14T23:59:59+09:00",
         )
 
-    assert_matches_outputs("action.google_calendar_list", result)
+    assert_matches_outputs("google_calendar.list", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["total"] == 1
@@ -227,7 +227,7 @@ async def test_google_drive_read_plain_text_success():
     with patch("tools.google_drive.get_http_client", return_value=client):
         result = await google_drive_read(access_token="token", file_id="file-1")
 
-    assert_matches_outputs("action.google_drive_read", result)
+    assert_matches_outputs("google_drive.read", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["content"] == "hello world"
@@ -298,7 +298,7 @@ async def test_google_drive_upload_success():
             content="hello world",
         )
 
-    assert_matches_outputs("action.google_drive_upload", result)
+    assert_matches_outputs("google_drive.upload", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["fileId"] == "file-123"
@@ -348,7 +348,7 @@ async def test_google_calendar_update_success():
             end_datetime="2026-06-11T16:00:00+09:00",
         )
 
-    assert_matches_outputs("action.google_calendar_update", result)
+    assert_matches_outputs("google_calendar.update", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["eventId"] == "event-123"
@@ -559,7 +559,7 @@ async def test_google_sheets_append_success():
             values='[["홍길동","100"]]',
         )
 
-    assert_matches_outputs("action.google_sheets_append", result)
+    assert_matches_outputs("google_sheets.append", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["updatedRows"] == 1

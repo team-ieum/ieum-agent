@@ -31,9 +31,9 @@ def _gated_workflow(approval_config: dict):
 
 def test_approval_template_registered():
     tr.validate_registry()
-    tpl = tr.get_template("approval")
+    tpl = tr.get_template("approval.request")
     assert tpl is not None and tpl["node_type"] == "APPROVAL"
-    assert tr.resolve_template_for_node({"type": "APPROVAL", "config": {}})["id"] == "approval"
+    assert tr.resolve_template_for_node({"type": "APPROVAL", "config": {}})["id"] == "approval.request"
 
 
 def test_validator_accepts_gated_workflow_with_message():
@@ -66,15 +66,15 @@ def test_workflow_node_schema_rejects_non_string_message():
 
 
 def test_approval_message_survives_dehydrate_hydrate_round_trip():
-    node = hydrate_node({"id": "node-2", "templateId": "approval",
+    node = hydrate_node({"id": "node-2", "templateId": "approval.request",
                          "slots": {"label": "발송 전 승인",
                                    "description": "보내기 전에 담당자가 확인하고 승인해요.",
                                    "message": "슬랙으로 보내도 될까요?"}})
-    assert node == {"id": "node-2", "type": "APPROVAL", "label": "발송 전 승인",
+    assert node == {"id": "node-2", "type": "APPROVAL", "event": "approval.request", "label": "발송 전 승인",
                     "description": "보내기 전에 담당자가 확인하고 승인해요.",
                     "config": {"message": "슬랙으로 보내도 될까요?"}}
     draft = dehydrate_node(node)
-    assert draft["templateId"] == "approval"
+    assert draft["templateId"] == "approval.request"
     assert draft["slots"]["message"] == "슬랙으로 보내도 될까요?"
     assert hydrate_node(draft) == node
 

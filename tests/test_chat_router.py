@@ -211,3 +211,29 @@ def test_chat_endpoint_모르는_노드_type은_422(node_type):
         response = client.post("/v1/chat", json=payload)
     assert response.status_code == 422
     chat.assert_not_called()
+
+
+def test_chat_endpoint_currentNodes_event_보존():
+    """event가 chat_workflow(current_nodes=...)까지 가야 pass-through 원본이 event를 잃지 않는다.
+    옛 노드(event 없음)는 422 없이 None으로 간다."""
+    from api.schemas.chat import ChatResponse, ChatResponseType
+
+    captured = {}
+
+    async def _fake_chat(**kwargs):
+        captured.update(kwargs)
+        return ChatResponse(message="ok", type=ChatResponseType.WORKFLOW_MODIFIED, rawPrompt="수정")
+
+    payload = dict(CHAT_PAYLOAD, prompt="요약 노드 추가해줘", currentNodes=[
+        {"id": "node-1", "type": "TRIGGER", "label": "새 메일", "event": "gmail.new_email",
+         "config": {"triggerType": "GMAIL_NEW_EMAIL"}},
+        {"id": "node-2", "type": "TRIGGER", "label": "옛 노드", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-3", "type": "TRIGGER", "label": "모르는 이벤트", "event": "stripe.new_payment", "config": {}},
+        {"id": "node-4", "type": "TRIGGER", "label": "null 되돌림", "event": None, "config": {"triggerType": "MANUAL"}},
+    ], currentEdges=[])
+
+    with patch("api.routes.chat.chat_workflow", side_effect=_fake_chat):
+        response = client.post("/v1/chat", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert [n["event"] for n in captured["current_nodes"]] == ["gmail.new_email", None, "stripe.new_payment", None]

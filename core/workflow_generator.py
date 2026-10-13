@@ -21,7 +21,7 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
 
 {
   "nodes": [
-    {"id": "node-1", "templateId": "trigger.schedule",
+    {"id": "node-1", "templateId": "schedule.every",
      "slots": {"label": "매일 9시", "description": "정해둔 시각이 되면 자동으로 시작돼요.", "cron": "0 9 * * *"}},
     {"id": "node-2", "templateId": "ai.notion_search",
      "slots": {"label": "검색", "description": "노션에서 찾고 있는 페이지를 검색해요.", "prompt": "..."}}

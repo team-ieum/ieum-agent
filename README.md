@@ -175,6 +175,7 @@ cp .env.example .env
 
 ### 2. 가상환경 구축 및 패키지 설치
 ```bash
+git submodule update --init   # catalog/ (ieum-node-catalog)
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

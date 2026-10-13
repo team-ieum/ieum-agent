@@ -1,13 +1,10 @@
 import copy
-import glob
-import json
-import os
-import shutil
 
 import pytest
 
 from core import template_registry as tr
 from core.template_registry import TemplateSchemaError
+from tests.catalog_paths import copy_catalog, edit_entry
 
 
 @pytest.mark.parametrize("node, expected", [
@@ -22,15 +19,15 @@ from core.template_registry import TemplateSchemaError
     ({"type": "AI", "config": {"tools": [{"name": "builtin:web_search"}, {"name": "discord"}]}}, "ai.agent"),
     ({"type": "AI", "config": {"tools": [{"name": "mcp", "config": {"catalogId": "c"}}, {"name": "discord"}]}},
      "ai.agent"),
-    ({"type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}, "trigger.schedule"),
-    ({"type": "TRIGGER", "config": {"triggerType": "GMAIL_NEW_EMAIL", "query": ""}}, "trigger.gmail_new_email"),
-    ({"type": "TRIGGER", "config": {"triggerType": "GITHUB_NEW_ISSUE", "repoId": "1"}}, "trigger.github_new_issue"),
+    ({"type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}, "schedule.every"),
+    ({"type": "TRIGGER", "config": {"triggerType": "GMAIL_NEW_EMAIL", "query": ""}}, "gmail.new_email"),
+    ({"type": "TRIGGER", "config": {"triggerType": "GITHUB_NEW_ISSUE", "repoId": "1"}}, "github.new_issue"),
     # serviceType이 빠진 저장분도 triggerType만으로 연다(match는 serviceType을 보지 않는다)
-    ({"type": "trigger", "config": {"triggerType": "GITHUB_NEW_ISSUE"}}, "trigger.github_new_issue"),
-    ({"type": "TRIGGER", "config": {}}, "trigger.manual"),
-    ({"type": "TRIGGER", "config": {"triggerType": "MANUAL"}}, "trigger.manual"),
-    ({"type": "HTTP", "config": {"url": "x"}}, "http"),
-    ({"type": "ACTION", "config": {"tools": [{"name": "slack", "config": {}}]}}, "action.slack_send"),
+    ({"type": "trigger", "config": {"triggerType": "GITHUB_NEW_ISSUE"}}, "github.new_issue"),
+    ({"type": "TRIGGER", "config": {}}, "manual.run"),
+    ({"type": "TRIGGER", "config": {"triggerType": "MANUAL"}}, "manual.run"),
+    ({"type": "HTTP", "config": {"url": "x"}}, "http.request"),
+    ({"type": "ACTION", "config": {"tools": [{"name": "slack", "config": {}}]}}, "slack.send_message"),
 ])
 def test_match_saved_nodes(node, expected):
     assert tr.match_entry(node)["id"] == expected
@@ -62,9 +59,13 @@ def test_match_unknown_node_type_is_none():
     assert tr.match_entry({"type": "LOOP", "config": {}}) is None
 
 
-def test_builder_entries_order_most_specific_first():
-    ids = [t["id"] for t in tr.builder_entries()]
+def test_match_and_builder_entries_order_most_specific_first():
+    # 매칭 후보(builder + match 보유 프리셋)의 평가 순서. 프리셋은 빌더 목록엔 없다(설계 결정 4).
+    ids = [t["id"] for t in tr._match_entries()]
     assert ids.index("ai.github_query") < ids.index("ai.reasoning") < ids.index("ai.agent")
+    # 카탈로그 API(builder_entries)도 같은 match 평가 순서다(id 정렬이면 ai.agent가 먼저 온다)
+    b = [t["id"] for t in tr.builder_entries()]
+    assert b.index("ai.reasoning") < b.index("ai.agent")
     assert all(t["builder"] for t in tr.builder_entries())
 
 
@@ -80,15 +81,15 @@ def test_agent_tool_choices_cover_actions():
     assert agent["generation"] is False
 
 
-def test_duplicate_builder_match_rejected(tmp_path, monkeypatch):
-    for p in glob.glob(os.path.join(tr.TEMPLATES_DIR, "*.json")):
-        shutil.copy(p, tmp_path)
-    p = tmp_path / "ai.web_search.json"
-    raw = json.loads(p.read_text(encoding="utf-8"))
-    raw["match"] = {"type": "AI", "config.tools.0.name": "builtin:http_fetch", "config.tools.1": None}
-    p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(tr, "TEMPLATES_DIR", str(tmp_path))
-    monkeypatch.setattr(tr, "_cache", None)
+@pytest.mark.parametrize("name, match", [
+    # branch.if는 match 키가 없다 — 로더 _default_match가 {type: CONDITION}을 만든다.
+    ("http.request", {"type": "CONDITION"}),
+    # match 보유 프리셋끼리도 매칭 후보라 겹치면 거부한다(ai.http_fetch의 match 그대로)
+    ("ai.web_search", {"type": "AI", "config.tools.0.name": "builtin:http_fetch", "config.tools.1": None}),
+])
+def test_duplicate_matchable_match_rejected(tmp_path, monkeypatch, name, match):
+    root = copy_catalog(tmp_path, monkeypatch)
+    edit_entry(root, name, lambda raw: raw.__setitem__("match", match))
     with pytest.raises(TemplateSchemaError, match="match"):
         tr.load_templates(force=True)
 
@@ -97,4 +98,53 @@ def test_agent_tool_choices_exclude_dynamic_mount_services():
     """AI 노드 GitHub 계약은 tools: [] — 선택지에 github 액션이 있으면 FE가 tools에 넣어 계약이 깨진다."""
     tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
     assert not [c for c in tools["choices"] if "github" in c["id"]]
-    assert tr.get_template("action.github_list_issues")["builder"] is True   # 카탈로그엔 따로 있다
+    assert tr.get_template("github.list_issues")["builder"] is True   # 카탈로그엔 따로 있다
+
+
+def test_event_only_app_trigger_does_not_fall_into_manual_catch_all():
+    from core.template_registry import match_entry
+    node = {"type": "TRIGGER", "event": "gmail.new_email", "config": {"query": "is:unread"}}
+    assert match_entry(node)["id"] == "gmail.new_email"
+
+
+def test_unknown_event_falls_back_to_match_rules():
+    from core.template_registry import match_entry
+    node = {"type": "TRIGGER", "event": "nope.x", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}
+    assert match_entry(node)["id"] == "schedule.every"
+
+
+def test_event_only_schedule_resolves_generation_template():
+    from core.template_registry import resolve_template_for_node
+    node = {"type": "TRIGGER", "event": "schedule.every", "config": {"cron": "0 9 * * *"}}
+    assert resolve_template_for_node(node)["id"] == "schedule.every"
+
+
+def test_event_only_builder_only_event_stays_unresolved():
+    # 앱 트리거·액션은 generation:false — 지금처럼 pass-through 대상이다.
+    from core.template_registry import resolve_template_for_node
+    assert resolve_template_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {}}) is None
+
+
+def test_preset_node_with_ai_agent_event_still_resolves_by_tools():
+    from core.template_registry import resolve_template_for_node
+    node = {"type": "AI", "event": "ai.agent",
+            "config": {"agentType": "react", "tools": [{"name": "builtin:notion_create_page"}]}}
+    assert resolve_template_for_node(node)["id"] == "ai.notion_create_page"
+
+
+def test_preset_node_with_ai_agent_event_keeps_preset_match_and_passes_static_check():
+    # event로 ai.agent 항목을 고르면 tools 필수 칸에 걸려 실행이 400이 된다(Review Focus 2).
+    from core.template_registry import match_entry
+    from core.validators.static_validator import field_errors
+    node = {"id": "a", "type": "AI", "event": "ai.agent",
+            "config": {"llmProvider": "GEMINI", "model": "m", "prompt": "p", "agentType": "react", "tools": []}}
+    assert match_entry(node)["id"] == "ai.github_query"
+    assert field_errors(node) == []
+
+
+def test_stale_event_loses_to_legacy_fields():
+    # 빌더로 MANUAL로 바꿨는데 BE 병합이 옛 event를 이어받은 노드(Review Focus 1)
+    from core.template_registry import match_entry, resolve_template_for_node
+    node = {"type": "TRIGGER", "event": "schedule.every", "config": {"triggerType": "MANUAL"}}
+    assert match_entry(node)["id"] == "manual.run"
+    assert resolve_template_for_node(node)["id"] == "manual.run"

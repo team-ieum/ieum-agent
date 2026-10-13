@@ -35,7 +35,7 @@ async def test_create_issue_성공(client):
     result = json.loads(await github_create_issue(
         token="gh-token", owner="o", repo="r", title="버그", body="재현 방법"))
 
-    assert_matches_outputs("action.github_create_issue", result)
+    assert_matches_outputs("github.create_issue", result)
     assert result == {"success": True, "number": 7, "url": "https://github.com/o/r/issues/7", "title": "버그"}
     args, kwargs = client.post.call_args
     assert args[0] == "https://api.github.com/repos/o/r/issues"
@@ -92,7 +92,7 @@ async def test_list_issues_성공(client):
 
     result = json.loads(await github_list_issues(token="gh-token", owner="o", repo="r"))
 
-    assert_matches_outputs("action.github_list_issues", result)
+    assert_matches_outputs("github.list_issues", result)
     assert result["total"] == 1
     assert result["issues"][0] == {
         "number": 3, "title": "첫 이슈", "state": "open", "labels": ["bug", "p1"],

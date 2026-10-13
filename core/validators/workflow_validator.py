@@ -89,7 +89,8 @@ class WorkflowValidator:
 
             if ntype.upper() == "TRIGGER":
                 # SCHEDULE 트리거의 상세 cron 검증
-                trigger_type = config.get("triggerType")
+                from core.template_registry import trigger_type_of  # 이 파일의 registry import 관례(lazy)
+                trigger_type = trigger_type_of(node)
                 if trigger_type == "SCHEDULE":
                     cron = config.get("cron")
                     if not cron:

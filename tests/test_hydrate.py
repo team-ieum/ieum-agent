@@ -68,7 +68,7 @@ def test_hydrate_model_override_goes_into_model_slot(monkeypatch):
 
 
 def test_hydrate_http_optional_slot_skipped():
-    draft = {"templateId": "http",
+    draft = {"templateId": "http.request",
              "slots": {"label": "호출", "description": "이 노드가 하는 일을 쉽게 설명해요.", "method": "GET", "url": "https://api.example.com"}}
     node = hydrate_node(draft)
     assert node["config"]["method"] == "GET"
@@ -77,12 +77,32 @@ def test_hydrate_http_optional_slot_skipped():
 
 
 def test_hydrate_schedule_trigger():
-    draft = {"templateId": "trigger.schedule",
+    draft = {"templateId": "schedule.every",
              "slots": {"label": "매일 9시", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}}
     node = hydrate_node(draft)
     assert node["type"] == "TRIGGER"
     assert node["config"]["triggerType"] == "SCHEDULE"  # fixed
     assert node["config"]["cron"] == "0 9 * * *"
+
+
+def test_hydrate_old_template_id_follows_alias():
+    """옛 대화 기록의 옛 templateId(trigger.schedule)는 별칭이 가리키는 이벤트로 hydrate된다."""
+    node = hydrate_node({"id": "n1", "templateId": "trigger.schedule",
+                         "slots": {"label": "매일 9시", "description": "정해둔 시각에 시작해요.", "cron": "0 9 * * *"}})
+    assert node == hydrate_node({"id": "n1", "templateId": "schedule.every",
+                                 "slots": {"label": "매일 9시", "description": "정해둔 시각에 시작해요.",
+                                           "cron": "0 9 * * *"}})
+    assert node["type"] == "TRIGGER" and node["config"]["triggerType"] == "SCHEDULE"
+    assert node["event"] == "schedule.every"
+
+
+def test_hydrate_preset_id_unchanged_and_unknown_still_rejected():
+    node = hydrate_node({"id": "n1", "templateId": "ai.notion_create_page",
+                         "slots": {"label": "저장", "description": "노션에 저장해요.", "prompt": "저장해줘"}},
+                        provider="GEMINI")
+    assert node["config"]["tools"][0]["name"] == "builtin:notion_create_page"
+    with pytest.raises(SlotFillError, match="존재하지 않는 templateId"):
+        hydrate_node({"id": "n1", "templateId": "nope", "slots": {"label": "x", "description": "y"}})
 
 
 def test_hydrate_reasoning_node():
@@ -167,7 +187,7 @@ def test_hydrate_provider_required_without_provider():
 
 def test_hydrate_nodes_assigns_sequential_ids():
     drafts = [
-        {"templateId": "trigger.manual", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"templateId": "manual.run", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         {"templateId": "ai.notion_search", "slots": {"label": "검색", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "p"}},
     ]
     nodes = hydrate_nodes(drafts, provider="CLAUDE")
@@ -303,7 +323,7 @@ def test_passthrough_ignores_llm_supplied_node():
 
 def test_hydrated_workflow_passes_validator():
     drafts = [
-        {"templateId": "trigger.manual", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"templateId": "manual.run", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         {"templateId": "ai.notion_search", "slots": {"label": "검색", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "노션 검색"}},
     ]
     nodes = hydrate_nodes(drafts, provider="CLAUDE")
@@ -331,7 +351,7 @@ def test_ref_remap_does_not_double_rewrite():
     from core.node_hydration import prepare_hydrated_nodes
 
     drafts = [
-        {"id": "node-2", "templateId": "trigger.manual",
+        {"id": "node-2", "templateId": "manual.run",
          "slots": {"label": "시작", "description": "설명"}},
         {"id": "node-1", "templateId": "ai.reasoning",
          "slots": {"label": "요약", "description": "설명",
@@ -548,6 +568,15 @@ def test_트리거_passthrough_draft는_triggerType만_더_싣는다():
         assert leaked not in dumped
 
 
+def test_event만_있는_앱_트리거_passthrough_draft도_종류를_싣는다():
+    from core.template_registry import PASSTHROUGH_TEMPLATE_ID, dehydrate_node
+    node = {"id": "n1", "type": "TRIGGER", "label": "새 메일", "event": "gmail.new_email", "config": {"query": "x"}}
+    draft = dehydrate_node(node)
+    assert draft["templateId"] == PASSTHROUGH_TEMPLATE_ID
+    assert draft["node"]["triggerType"] == "GMAIL_NEW_EMAIL"
+    assert "config" not in draft["node"]
+
+
 def test_트리거가_아닌_passthrough_draft_모양은_그대로다():
     from core.template_registry import dehydrate_node
 
@@ -565,3 +594,28 @@ def test_트리거_passthrough_draft는_레지스트리에_없는_triggerType을
     assert "triggerType" not in dehydrate_node(node)["node"]
     node["config"]["triggerType"] = ["GMAIL_NEW_EMAIL"]  # 해시 불가 값도 터지지 않고 빠진다
     assert "triggerType" not in dehydrate_node(node)["node"]
+
+
+def test_hydrate_writes_event_and_keeps_legacy_trigger_type():
+    node = hydrate_node({"id": "n1", "templateId": "schedule.every",
+                         "slots": {"label": "매일", "description": "매일 시작해요.", "cron": "0 9 * * *"}})
+    assert node["event"] == "schedule.every"
+    assert node["config"]["triggerType"] == "SCHEDULE"          # 레거시 기록 유지(spec §6.3)
+
+
+def test_hydrate_preset_writes_ai_agent_event():
+    node = hydrate_node({"id": "n2", "templateId": "ai.reasoning",
+                         "slots": {"label": "요약", "description": "요약해요.", "prompt": "요약해"}}, provider="GEMINI")
+    assert node["event"] == "ai.reasoning"
+    node = hydrate_node({"id": "n3", "templateId": "ai.notion_create_page",
+                         "slots": {"label": "저장", "description": "저장해요.", "prompt": "저장해"}}, provider="GEMINI")
+    assert node["event"] == "ai.agent"
+
+
+def test_passthrough_keeps_original_event():
+    from core.template_registry import PASSTHROUGH_TEMPLATE_ID
+    original = {"id": "n1", "type": "TRIGGER", "label": "새 메일", "description": "d",
+                "event": "gmail.new_email", "config": {"triggerType": "GMAIL_NEW_EMAIL"}}
+    node = hydrate_node({"id": "n1", "templateId": PASSTHROUGH_TEMPLATE_ID, "node": {}},
+                        passthrough_originals={"n1": original})
+    assert node["event"] == "gmail.new_email"

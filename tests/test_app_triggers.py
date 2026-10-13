@@ -6,7 +6,7 @@ from core import template_registry as tr
 from core.node_catalog import node_catalog
 from core.template_registry import PASSTHROUGH_TEMPLATE_ID, SlotFillError
 
-GMAIL, GITHUB = "trigger.gmail_new_email", "trigger.github_new_issue"
+GMAIL, GITHUB = "gmail.new_email", "github.new_issue"
 
 
 def _entry(tid: str) -> dict:
@@ -15,10 +15,11 @@ def _entry(tid: str) -> dict:
 
 def test_gmail_entry_shape():
     assert _entry(GMAIL) == {
-        "id": GMAIL, "nodeType": "TRIGGER", "app": "GOOGLE",
+        "id": GMAIL, "kind": "trigger", "provider": "google",
+        "nodeType": "TRIGGER", "app": "gmail",
         "title": "새 Gmail 메일", "description": "받은편지함에 새 메일이 오면 시작해요.",
         "match": {"type": "TRIGGER", "config.triggerType": "GMAIL_NEW_EMAIL"},
-        "fixed": {"type": "TRIGGER",
+        "fixed": {"type": "TRIGGER", "event": GMAIL,
                   "config": {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE", "brand": "gmail"}},
         "inputFields": [{"key": "query", "title": "검색 조건", "type": "string", "ref": False,
                          "path": "config.query",
@@ -39,10 +40,11 @@ def test_gmail_entry_shape():
 
 def test_github_entry_shape():
     assert _entry(GITHUB) == {
-        "id": GITHUB, "nodeType": "TRIGGER", "app": "GITHUB",
+        "id": GITHUB, "kind": "trigger", "provider": "github",
+        "nodeType": "TRIGGER", "app": "github",
         "title": "새 GitHub 이슈", "description": "저장소에 새 이슈가 열리면 시작해요.",
         "match": {"type": "TRIGGER", "config.triggerType": "GITHUB_NEW_ISSUE"},
-        "fixed": {"type": "TRIGGER",
+        "fixed": {"type": "TRIGGER", "event": GITHUB,
                   "config": {"triggerType": "GITHUB_NEW_ISSUE", "serviceType": "GITHUB", "brand": "github"}},
         "inputFields": [{"key": "repoId", "title": "저장소", "type": "string", "required": True, "ref": False,
                          "path": "config.repoId", "optionsSource": "github.installed_repos",

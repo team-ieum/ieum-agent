@@ -1,0 +1,3 @@
+[submodule "catalog"]
+	path = catalog
+	url = ../ieum-node-catalog.git

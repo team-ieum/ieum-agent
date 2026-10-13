@@ -32,7 +32,9 @@ def test_catalog_lists_builder_entries_in_match_order():
     ids = [e["id"] for e in node_catalog()["entries"]]
     assert ids == [t["id"] for t in tr.builder_entries()]
     assert "ai.google_sheets_write" not in ids      # 생성 프리셋은 빌더에 없다
-    assert {"action.slack_send", "ai.agent", "trigger.schedule"} <= set(ids)
+    assert {"slack.send_message", "ai.agent", "schedule.every"} <= set(ids)
+    # 프리셋은 빌더 목록에 없다(설계 결정 4) — match를 쓴 프리셋도 매칭 후보로만 남는다
+    assert not {"ai.web_search", "ai.http_fetch", "ai.mcp", "ai.github_query"} & set(ids)
 
 
 def test_catalog_leaks_no_llm_or_injected_keys():
@@ -44,12 +46,14 @@ def test_catalog_leaks_no_llm_or_injected_keys():
 
 
 def test_entry_shape_and_default_attrs_omitted():
-    e = next(e for e in node_catalog()["entries"] if e["id"] == "trigger.schedule")
+    e = next(e for e in node_catalog()["entries"] if e["id"] == "schedule.every")
     assert e == {
-        "id": "trigger.schedule", "nodeType": "TRIGGER", "app": None,
+        "id": "schedule.every", "kind": "trigger", "provider": "ieum",
+        "nodeType": "TRIGGER", "app": "schedule",
         "title": "스케줄", "description": "정해둔 시각마다 시작해요.",
         "match": {"type": "TRIGGER", "config.triggerType": "SCHEDULE"},
-        "fixed": {"type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "brand": "webhook"}},
+        "fixed": {"type": "TRIGGER", "event": "schedule.every",
+                  "config": {"triggerType": "SCHEDULE", "brand": "webhook"}},
         "inputFields": [{"key": "cron", "title": "실행 주기", "type": "cron", "required": True,
                          "ref": False, "path": "config.cron",
                          "description": "표준 5필드 크론식 (예: 매일 9시 = 0 9 * * *)"}],
@@ -60,10 +64,12 @@ def test_entry_shape_and_default_attrs_omitted():
 
 def test_dynamic_markers_and_app_in_entries():
     by_id = {e["id"]: e for e in node_catalog()["entries"]}
-    assert by_id["trigger.webhook"]["outputDynamic"] is True
-    assert by_id["transform"]["outputsFrom"] == "config.mappings"
-    assert by_id["action.google_sheets_write"]["app"] == "GOOGLE"
-    assert by_id["action.google_sheets_write"]["fixed"]["config"]["serviceType"] == "GOOGLE"
+    assert by_id["webhook.catch"]["outputDynamic"] is True
+    assert by_id["transform.map"]["outputsFrom"] == "config.mappings"
+    assert by_id["google_sheets.write"]["app"] == "google_sheets"
+    assert by_id["gmail.new_email"]["app"] == "gmail"
+    assert by_id["manual.run"]["app"] == "manual"      # 내장 항목도 앱 키가 있다
+    assert by_id["google_sheets.write"]["fixed"]["config"]["serviceType"] == "GOOGLE"
 
 
 def test_agent_tools_field_is_not_ref():
@@ -77,20 +83,20 @@ def test_option_source_fields_fixed_set():
     (옛 tool_form_schema '공급원이 붙는 필드 집합' 테스트의 후신)"""
     got = {(e["id"], f["key"]) for e in node_catalog()["entries"]
            for f in e["inputFields"] if "optionsSource" in f}
-    ai = {"ai.reasoning", "ai.agent", "ai.mcp", "ai.github_query", "ai.web_search", "ai.http_fetch"}
+    ai = {"ai.reasoning", "ai.agent"}  # 프리셋은 빌더 목록에 없다(설계 결정 4)
     expected = {(a, k) for a in ai for k in ("model", "credentialId")} | {
-        ("ai.mcp", "catalogId"), ("http", "webhookCredentialId"),
-        ("action.slack_send", "webhookCredentialId"), ("action.discord_send", "webhookCredentialId"),
-        *[(f"action.google_sheets_{x}", k) for x in ("read", "write", "append")
+        ("http.request", "webhookCredentialId"),
+        ("slack.send_message", "webhookCredentialId"), ("discord.send_message", "webhookCredentialId"),
+        *[(f"google_sheets.{x}", k) for x in ("read", "write", "append")
           for k in ("spreadsheet_id", "sheet_name")],
-        ("action.google_calendar_create", "calendar_id"), ("action.google_calendar_list", "calendar_id"),
-        ("action.google_calendar_update", "calendar_id"), ("action.google_calendar_update", "event_id"),
-        ("action.google_drive_read", "file_id"), ("action.google_drive_upload", "folder_id"),
-        ("action.notion_create_page", "parent_page_id"), ("action.notion_read_page", "page_id"),
-        ("action.notion_update_page", "page_id"), ("action.notion_append_block", "page_id"),
-        ("action.notion_query_database", "database_id"),
-        *[(f"action.github_{x}", k) for x in ("list_issues", "create_issue") for k in ("owner", "repo")],
-        ("trigger.github_new_issue", "repoId"),
+        ("google_calendar.create", "calendar_id"), ("google_calendar.list", "calendar_id"),
+        ("google_calendar.update", "calendar_id"), ("google_calendar.update", "event_id"),
+        ("google_drive.read", "file_id"), ("google_drive.upload", "folder_id"),
+        ("notion.create_page", "parent_page_id"), ("notion.read_page", "page_id"),
+        ("notion.update_page", "page_id"), ("notion.append_block", "page_id"),
+        ("notion.query_database", "database_id"),
+        *[(f"github.{x}", k) for x in ("list_issues", "create_issue") for k in ("owner", "repo")],
+        ("github.new_issue", "repoId"),
     }
     assert got == expected
 
@@ -127,38 +133,37 @@ def test_app_option_sources(field, title, source, inputs):
 
 
 def test_sheets_append_option_source_contract():
-    sid = _field("action.google_sheets_append", "spreadsheet_id")
+    sid = _field("google_sheets.append", "spreadsheet_id")
     assert (sid["title"], sid["optionsSource"], sid.get("optionsInputs"), sid.get("required")) == \
         ("스프레드시트", "google.spreadsheets", None, True)
-    sheet = _field("action.google_sheets_append", "sheet_name")
+    sheet = _field("google_sheets.append", "sheet_name")
     assert (sheet["title"], sheet["optionsSource"], sheet["optionsInputs"]) == \
         ("워크시트", "google.worksheets", ["spreadsheet_id"])
 
 
 def test_event_id는_뒤의_calendar_id를_가리킨다():
     """필드 순서는 시그니처 순서 그대로 — optionsInputs가 뒤 필드를 가리킬 수 있다(FE-51 명세)."""
-    keys = [f["key"] for f in _action("action.google_calendar_update")["inputFields"]]
+    keys = [f["key"] for f in _action("google_calendar.update")["inputFields"]]
     assert keys.index("event_id") < keys.index("calendar_id")
 
 
 # --- fixed.config.brand (FE 목록 아이콘·BE 연동 목록은 config.brand만 본다) ---------------------
 
 EXPECTED_BRANDS = {
-    "ai.reasoning": "openai", "ai.agent": "openai", "ai.mcp": "openai", "ai.web_search": "openai",
-    "ai.http_fetch": "openai", "ai.github_query": "github",
-    "trigger.manual": "webhook", "trigger.schedule": "webhook", "trigger.webhook": "webhook",
-    "trigger.gmail_new_email": "gmail", "trigger.github_new_issue": "github",
-    "http": "webhook", "approval": "webhook", "condition": "filter", "transform": "filter",
-    "action.slack_send": "slack", "action.discord_send": "discord",
-    "action.notion_create_page": "notion", "action.notion_read_page": "notion",
-    "action.notion_search": "notion", "action.notion_update_page": "notion",
-    "action.notion_append_block": "notion", "action.notion_query_database": "notion",
-    "action.google_sheets_read": "sheets", "action.google_sheets_write": "sheets",
-    "action.google_sheets_append": "sheets",
-    "action.google_calendar_create": "google", "action.google_calendar_list": "google",
-    "action.google_calendar_update": "google", "action.google_drive_read": "google",
-    "action.google_drive_upload": "google",
-    "action.github_list_issues": "github", "action.github_create_issue": "github",
+    "ai.reasoning": "openai", "ai.agent": "openai",
+    "manual.run": "webhook", "schedule.every": "webhook", "webhook.catch": "webhook",
+    "gmail.new_email": "gmail", "github.new_issue": "github",
+    "http.request": "webhook", "approval.request": "webhook", "branch.if": "filter", "transform.map": "filter",
+    "slack.send_message": "slack", "discord.send_message": "discord",
+    "notion.create_page": "notion", "notion.read_page": "notion",
+    "notion.search": "notion", "notion.update_page": "notion",
+    "notion.append_block": "notion", "notion.query_database": "notion",
+    "google_sheets.read": "sheets", "google_sheets.write": "sheets",
+    "google_sheets.append": "sheets",
+    "google_calendar.create": "google", "google_calendar.list": "google",
+    "google_calendar.update": "google", "google_drive.read": "google",
+    "google_drive.upload": "google",
+    "github.list_issues": "github", "github.create_issue": "github",
 }
 
 
@@ -170,7 +175,7 @@ def test_catalog_fixed_brand_per_entry():
 def test_trigger_repo_option_source_contract():
     """github.installed_repos는 BE OptionSource.key()와 1:1 계약(BE-b). 값은 repo id(문자열), 입력 없음.
     액션의 github.repos(owner 입력, 값=name)와 다른 공급원이다."""
-    f = _field("trigger.github_new_issue", "repoId")
+    f = _field("github.new_issue", "repoId")
     assert (f["optionsSource"], f.get("optionsInputs"), f["required"], f["ref"]) == \
         ("github.installed_repos", None, True, False)
 
@@ -223,3 +228,21 @@ def test_출력_칸_타입_선택지는_agent_규칙과_같다():
     type_child = next(c for f in e["inputFields"] if f["key"] == "outputFields" for c in f["children"]
                       if c["key"] == "type")
     assert {c["id"] for c in type_child["choices"]} == set(_SCHEMA_TYPES)
+
+
+def test_entry_has_kind_provider_app_and_fixed_event():
+    entries = {e["id"]: e for e in node_catalog()["entries"]}
+    gmail = entries["gmail.new_email"]
+    assert (gmail["kind"], gmail["provider"], gmail["app"]) == ("trigger", "google", "gmail")
+    assert gmail["fixed"]["event"] == "gmail.new_email"
+    assert entries["notion.search"]["kind"] == "search"
+    assert (entries["manual.run"]["provider"], entries["manual.run"]["app"]) == ("ieum", "manual")
+
+
+def test_catalog_entries_snapshot():
+    """빌더가 보는 모양을 통째로 고정한다(spec §7). 의도한 변경이면 fixture를 다시 만든다:
+    python -c "import json; from core.node_catalog import node_catalog; print(json.dumps(node_catalog(), ensure_ascii=False, indent=2, sort_keys=True))" > tests/fixtures/node_catalog_snapshot.json"""
+    import json, os
+    path = os.path.join(os.path.dirname(__file__), "fixtures", "node_catalog_snapshot.json")
+    with open(path, encoding="utf-8") as f:
+        assert node_catalog() == json.load(f)

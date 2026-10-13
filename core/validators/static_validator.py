@@ -7,7 +7,7 @@ POST /v1/workflows/validate가 쓴다. 채팅·generate 경로(WorkflowValidator
 import json
 import re
 
-from core.template_registry import _get_by_path, _match_view, match_entry
+from core.template_registry import _get_by_path, _match_view, match_entry, trigger_type_of
 from core.validators.workflow_validator import REF_BODY_RE
 
 # 중괄호 없는 본문만 — `.*?`는 닫히지 않은 `{{` 반복에서 제곱 시간이 걸린다(모든 실행 경로가 부른다)
@@ -140,10 +140,10 @@ _CRON_PART_RE = re.compile(r"^[0-9A-Za-z*/,\-?LW#]+$")
 
 
 def _cron_errors(node: dict) -> list[dict]:
-    """SCHEDULE 트리거의 cron 형식. 비어 있으면 REQUIRED 몫(trigger.schedule 항목의 cron 칸)."""
+    """SCHEDULE 트리거의 cron 형식. 비어 있으면 REQUIRED 몫(schedule.every 항목의 cron 칸)."""
     config = node.get("config") if isinstance(node.get("config"), dict) else {}
     cron = config.get("cron")
-    if config.get("triggerType") != "SCHEDULE" or cron in _EMPTY:
+    if trigger_type_of(node) != "SCHEDULE" or cron in _EMPTY:
         return []
     if not isinstance(cron, str):
         return [_err("CRON", "cron 표현식은 문자열이어야 합니다.", node.get("id"), "config.cron")]
