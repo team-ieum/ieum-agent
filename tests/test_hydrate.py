@@ -85,6 +85,25 @@ def test_hydrate_schedule_trigger():
     assert node["config"]["cron"] == "0 9 * * *"
 
 
+def test_hydrate_old_template_id_follows_alias():
+    """옛 대화 기록의 옛 templateId(trigger.schedule)는 별칭이 가리키는 이벤트로 hydrate된다."""
+    node = hydrate_node({"id": "n1", "templateId": "trigger.schedule",
+                         "slots": {"label": "매일 9시", "description": "정해둔 시각에 시작해요.", "cron": "0 9 * * *"}})
+    assert node == hydrate_node({"id": "n1", "templateId": "schedule.every",
+                                 "slots": {"label": "매일 9시", "description": "정해둔 시각에 시작해요.",
+                                           "cron": "0 9 * * *"}})
+    assert node["type"] == "TRIGGER" and node["config"]["triggerType"] == "SCHEDULE"
+
+
+def test_hydrate_preset_id_unchanged_and_unknown_still_rejected():
+    node = hydrate_node({"id": "n1", "templateId": "ai.notion_create_page",
+                         "slots": {"label": "저장", "description": "노션에 저장해요.", "prompt": "저장해줘"}},
+                        provider="GEMINI")
+    assert node["config"]["tools"][0]["name"] == "builtin:notion_create_page"
+    with pytest.raises(SlotFillError, match="존재하지 않는 templateId"):
+        hydrate_node({"id": "n1", "templateId": "nope", "slots": {"label": "x", "description": "y"}})
+
+
 def test_hydrate_reasoning_node():
     draft = {"templateId": "ai.reasoning", "slots": {"label": "요약", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "결과를 요약해줘"}}
     node = hydrate_node(draft, provider="CLAUDE")

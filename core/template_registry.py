@@ -53,6 +53,8 @@ PASSTHROUGH_TEMPLATE_ID = "__passthrough__"
 
 # 모듈 캐시 (파일은 기동 중 불변)
 _cache: dict | None = None
+# 옛 이름 → 이벤트(catalog/aliases.json). _cache와 함께 갱신한다.
+_aliases: dict = {}
 
 
 class TemplateSchemaError(ValueError):
@@ -236,8 +238,8 @@ def _read_json(path: str):
             raise TemplateSchemaError(f"{os.path.relpath(path, CATALOG_DIR)}: JSON 파싱 실패 - {e}")
 
 
-def _read_catalog() -> tuple[dict, list]:
-    """카탈로그 → (apps, 원본 항목 목록). 이벤트 이름은 경로에서 계산해 id·app으로 넣고, 프리셋은
+def _read_catalog() -> tuple[dict, list, dict]:
+    """카탈로그 → (apps, 원본 항목 목록, aliases). 이벤트 이름은 경로에서 계산해 id·app으로 넣고, 프리셋은
     node_type AI·빌더 비노출로 표시한다. 카탈로그가 비면 기동 실패다(spec §5.3) — 서브모듈 미초기화를
     빈 카탈로그로 조용히 넘기면 생성·검증이 엉뚱하게 돈다."""
     events_dir = os.path.join(CATALOG_DIR, "events")
@@ -267,7 +269,7 @@ def _read_catalog() -> tuple[dict, list]:
         entries.append({**p, "node_type": "AI", "builder": False, "preset": True})
     # id 정렬 — select_by_tags 동점·subagent_service_for_node의 "첫 AI 항목"이 이 순서를 따른다("spec과 다른 점" 3).
     entries.sort(key=lambda e: e.get("id", ""))
-    return apps, entries
+    return apps, entries, _read_json(os.path.join(CATALOG_DIR, "aliases.json"))
 
 
 def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
@@ -276,13 +278,13 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
     그 정의를 그대로 쓴다."""
     from core.node_fields import FieldError
 
-    global _cache
+    global _cache, _aliases
     if _cache is not None and not force:
         return _cache
     if tool_keys is None:
         tool_keys = _tool_map_keys()
 
-    apps, entries = _read_catalog()
+    apps, entries, aliases = _read_catalog()
     raw: dict = {}
     for tpl in entries:
         _validate_template(tpl, tpl.get("id", "?"), tool_keys, apps)
@@ -338,6 +340,7 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
                                   if t["node_type"] == "ACTION" and t["builder"] and t["tool_key"] in tool_keys]
 
     _cache = templates
+    _aliases = aliases
     return templates
 
 
@@ -347,7 +350,7 @@ def validate_registry(tool_keys: set | None = None) -> None:
 
 
 def _generation_templates() -> dict:
-    """생성 경로가 보는 템플릿(generation=true, 기본). builder 전용 항목(action.* 등)은 LLM 메뉴·
+    """생성 경로가 보는 템플릿(generation=true, 기본). ACTION 항목·앱 트리거 등은 LLM 메뉴·
     슬롯 카탈로그·hydrate·dehydrate·허용 키 검증 어디에도 나오지 않는다 — 실행 경로가 아직 없는
     노드를 LLM이 만들지 못하게 한다."""
     return {tid: t for tid, t in load_templates().items() if t.get("generation", True)}
@@ -656,6 +659,10 @@ def hydrate_node(
         return node
     templates = _generation_templates()
     tpl = templates.get(tid)
+    alias = _aliases.get(tid) if isinstance(tid, str) else None
+    if tpl is None and alias not in (None, PRESET_EVENT, tid):
+        # 옛 대화 기록(agent_sessions)의 옛 templateId 대비 — 5단계까지. 프리셋 별칭(ai.agent)은 잇지 않는다.
+        tpl = templates.get(alias)
     if tpl is None:
         raise SlotFillError(f"존재하지 않는 templateId '{tid}'. 사용 가능: {sorted(templates)}")
     slots_in = draft.get("slots")

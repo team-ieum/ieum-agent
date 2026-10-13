@@ -59,10 +59,13 @@ def test_match_unknown_node_type_is_none():
     assert tr.match_entry({"type": "LOOP", "config": {}}) is None
 
 
-def test_builder_entries_order_most_specific_first():
+def test_match_and_builder_entries_order_most_specific_first():
     # 매칭 후보(builder + match 보유 프리셋)의 평가 순서. 프리셋은 빌더 목록엔 없다(설계 결정 4).
     ids = [t["id"] for t in tr._match_entries()]
     assert ids.index("ai.github_query") < ids.index("ai.reasoning") < ids.index("ai.agent")
+    # 카탈로그 API(builder_entries)도 같은 match 평가 순서다(id 정렬이면 ai.agent가 먼저 온다)
+    b = [t["id"] for t in tr.builder_entries()]
+    assert b.index("ai.reasoning") < b.index("ai.agent")
     assert all(t["builder"] for t in tr.builder_entries())
 
 
@@ -78,10 +81,15 @@ def test_agent_tool_choices_cover_actions():
     assert agent["generation"] is False
 
 
-def test_duplicate_builder_match_rejected(tmp_path, monkeypatch):
-    root = copy_catalog(tmp_path, monkeypatch)
+@pytest.mark.parametrize("name, match", [
     # branch.if는 match 키가 없다 — 로더 _default_match가 {type: CONDITION}을 만든다.
-    edit_entry(root, "http.request", lambda raw: raw.__setitem__("match", {"type": "CONDITION"}))
+    ("http.request", {"type": "CONDITION"}),
+    # match 보유 프리셋끼리도 매칭 후보라 겹치면 거부한다(ai.http_fetch의 match 그대로)
+    ("ai.web_search", {"type": "AI", "config.tools.0.name": "builtin:http_fetch", "config.tools.1": None}),
+])
+def test_duplicate_matchable_match_rejected(tmp_path, monkeypatch, name, match):
+    root = copy_catalog(tmp_path, monkeypatch)
+    edit_entry(root, name, lambda raw: raw.__setitem__("match", match))
     with pytest.raises(TemplateSchemaError, match="match"):
         tr.load_templates(force=True)
 
