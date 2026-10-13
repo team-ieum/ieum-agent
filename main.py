@@ -9,7 +9,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from api.routes import execute, actions, generate, chat, node_catalog, validate
 from common.exception import CodedHTTPException
-from db.mongodb import ensure_indexes, seed_node_templates
+from core.template_registry import validate_registry
+from db.mongodb import ensure_indexes
 from tools.http_client import close_http_client
 
 logging.basicConfig(
@@ -22,14 +23,13 @@ logger = logging.getLogger(__name__)
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 카탈로그 오류는 기동 실패다(spec §5.3) — 경고로 넘기면 첫 생성·검증 요청에서야 500으로 드러난다.
+    # Mongo보다 먼저 본다: 카탈로그 문제를 DB 장애와 섞지 않는다.
+    validate_registry()
     try:
         await ensure_indexes()
     except Exception:
         logger.warning("인덱스 생성 실패 — 계속 진행합니다.", exc_info=True)
-    try:
-        await seed_node_templates()
-    except Exception:
-        logger.warning("노드 템플릿 동기화 실패 — 계속 진행합니다.", exc_info=True)
     yield
     await close_http_client()
 

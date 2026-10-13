@@ -345,7 +345,7 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
 
 
 def validate_registry(tool_keys: set | None = None) -> None:
-    """레지스트리 전체를 강제 재검증한다(seed/CI 드리프트 게이트용)."""
+    """레지스트리 전체를 강제 재검증한다(기동·CI 게이트용)."""
     load_templates(force=True, tool_keys=tool_keys)
 
 
@@ -357,7 +357,7 @@ def _generation_templates() -> dict:
 
 
 def all_entries() -> list:
-    """카탈로그 항목 전체(builder 전용 포함). seed가 쓴다 — 카탈로그 API는 builder_entries()."""
+    """카탈로그 항목 전체(builder 전용 포함). 카탈로그 API는 builder_entries()."""
     return list(load_templates().values())
 
 
