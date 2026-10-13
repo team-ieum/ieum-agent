@@ -58,6 +58,17 @@ def test_event_entry_and_trigger_type_of():
     assert trigger_type_of({"event": "schedule.every", "config": {"triggerType": "MANUAL"}}) == "MANUAL"
 
 
+def test_stale_event_with_valid_legacy_trigger_type_passes():
+    # 빌더로 MANUAL로 바꾼 뒤 BE 병합이 옛 event를 이어받은 노드 — 레거시가 이기므로 cron 검사가 돌지 않는다.
+    _trigger(event="schedule.every", config={"triggerType": "MANUAL"})
+
+
+def test_explicit_null_event_passes():
+    # agent 응답이 모든 노드에 "event": null을 실어 FE가 그대로 되보낸다.
+    node = _trigger(event=None, config={"triggerType": "MANUAL"})
+    assert node.event is None
+
+
 def test_event_identity_only_when_legacy_fields_missing():
     from core.template_registry import event_identity
     assert event_identity({"type": "TRIGGER", "event": "gmail.new_email", "config": {}})["id"] == "gmail.new_email"
@@ -67,3 +78,10 @@ def test_event_identity_only_when_legacy_fields_missing():
                            "config": {"tools": [{"name": "discord"}]}}) is None
     assert event_identity({"type": "AI", "event": "ai.reasoning", "config": {}}) is None
     assert event_identity({"type": "HTTP", "event": "http.request", "config": {}}) is None
+
+
+def test_event_identity_requires_matching_node_type():
+    from core.template_registry import event_identity
+    assert event_identity({"type": "TRIGGER", "event": "slack.send_message", "config": {}}) is None
+    assert event_identity({"type": "ACTION", "event": "manual.run", "config": {}}) is None
+    assert event_identity({"type": "trigger", "event": "gmail.new_email", "config": {}})["id"] == "gmail.new_email"

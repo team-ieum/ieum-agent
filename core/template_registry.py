@@ -455,10 +455,14 @@ def _legacy_identified(node: dict) -> bool:
 
 def event_identity(node: dict) -> dict | None:
     """판정(매칭·역변환·brand)에 event를 써야 하는 노드면 그 이벤트 항목, 아니면 None.
-    레거시 필드가 없는 TRIGGER·ACTION 노드만 해당한다 — "event만 있는 노드"가 catch-all에 빠지지 않게 한다."""
+    레거시 필드가 없는 TRIGGER·ACTION 노드만 해당한다 — "event만 있는 노드"가 catch-all에 빠지지 않게 한다.
+    항목의 node_type이 노드 type과 다르면(TRIGGER 노드에 액션 이벤트 등) None — 레거시 규칙으로 판단한다."""
     if not isinstance(node, dict) or _legacy_identified(node):
         return None
-    return event_entry(node)
+    entry = event_entry(node)
+    if entry is None or entry.get("node_type") != str(node.get("type") or "").upper():
+        return None
+    return entry
 
 
 def trigger_type_of(node: dict) -> str | None:

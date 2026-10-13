@@ -229,10 +229,11 @@ def test_chat_endpoint_currentNodes_event_보존():
          "config": {"triggerType": "GMAIL_NEW_EMAIL"}},
         {"id": "node-2", "type": "TRIGGER", "label": "옛 노드", "config": {"triggerType": "MANUAL"}},
         {"id": "node-3", "type": "TRIGGER", "label": "모르는 이벤트", "event": "stripe.new_payment", "config": {}},
+        {"id": "node-4", "type": "TRIGGER", "label": "null 되돌림", "event": None, "config": {"triggerType": "MANUAL"}},
     ], currentEdges=[])
 
     with patch("api.routes.chat.chat_workflow", side_effect=_fake_chat):
         response = client.post("/v1/chat", json=payload)
 
     assert response.status_code == 200, response.text
-    assert [n["event"] for n in captured["current_nodes"]] == ["gmail.new_email", None, "stripe.new_payment"]
+    assert [n["event"] for n in captured["current_nodes"]] == ["gmail.new_email", None, "stripe.new_payment", None]
