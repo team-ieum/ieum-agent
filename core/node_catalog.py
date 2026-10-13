@@ -31,8 +31,10 @@ def node_catalog() -> dict:
     for t in builder_entries():
         entry = {
             "id": t["id"],
+            "kind": t["kind"],
+            "provider": t["provider"],
+            "app": t["app"],
             "nodeType": t["node_type"],
-            "app": t.get("app"),
             "title": t["title"],
             "description": t["description"],
             "match": t["match"],

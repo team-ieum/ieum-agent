@@ -48,7 +48,8 @@ def test_catalog_leaks_no_llm_or_injected_keys():
 def test_entry_shape_and_default_attrs_omitted():
     e = next(e for e in node_catalog()["entries"] if e["id"] == "schedule.every")
     assert e == {
-        "id": "schedule.every", "nodeType": "TRIGGER", "app": "schedule",
+        "id": "schedule.every", "kind": "trigger", "provider": "ieum",
+        "nodeType": "TRIGGER", "app": "schedule",
         "title": "스케줄", "description": "정해둔 시각마다 시작해요.",
         "match": {"type": "TRIGGER", "config.triggerType": "SCHEDULE"},
         "fixed": {"type": "TRIGGER", "event": "schedule.every",
@@ -227,3 +228,21 @@ def test_출력_칸_타입_선택지는_agent_규칙과_같다():
     type_child = next(c for f in e["inputFields"] if f["key"] == "outputFields" for c in f["children"]
                       if c["key"] == "type")
     assert {c["id"] for c in type_child["choices"]} == set(_SCHEMA_TYPES)
+
+
+def test_entry_has_kind_provider_app_and_fixed_event():
+    entries = {e["id"]: e for e in node_catalog()["entries"]}
+    gmail = entries["gmail.new_email"]
+    assert (gmail["kind"], gmail["provider"], gmail["app"]) == ("trigger", "google", "gmail")
+    assert gmail["fixed"]["event"] == "gmail.new_email"
+    assert entries["notion.search"]["kind"] == "search"
+    assert (entries["manual.run"]["provider"], entries["manual.run"]["app"]) == ("ieum", "manual")
+
+
+def test_catalog_entries_snapshot():
+    """빌더가 보는 모양을 통째로 고정한다(spec §7). 의도한 변경이면 fixture를 다시 만든다:
+    python -c "import json; from core.node_catalog import node_catalog; print(json.dumps(node_catalog(), ensure_ascii=False, indent=2, sort_keys=True))" > tests/fixtures/node_catalog_snapshot.json"""
+    import json, os
+    path = os.path.join(os.path.dirname(__file__), "fixtures", "node_catalog_snapshot.json")
+    with open(path, encoding="utf-8") as f:
+        assert node_catalog() == json.load(f)
