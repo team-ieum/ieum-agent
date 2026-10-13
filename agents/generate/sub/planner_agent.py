@@ -11,12 +11,12 @@ _PLANNER_INSTRUCTION = """
 ## 규칙
 
 1. 각 노드는 카탈로그에 존재하는 templateId 중 하나를 정확히 선택한다(없는 id를 만들지 않는다).
-2. 워크플로우는 반드시 TRIGGER 템플릿(trigger.manual / trigger.schedule / trigger.webhook)으로 시작한다.
+2. 워크플로우는 반드시 TRIGGER 템플릿(manual.run / schedule.every / webhook.catch)으로 시작한다.
    nodes의 첫 번째 요소는 TRIGGER 템플릿이어야 한다.
-3. Notion·Google·Slack·Discord·GitHub·Gmail 등 외부 서비스 연동에는 http 템플릿을 절대 쓰지 않고
-   해당 서비스의 ai.* 템플릿을 선택한다. (http 템플릿은 전용 도구가 없는 임의 REST 호출에만)
+3. Notion·Google·Slack·Discord·GitHub·Gmail 등 외부 서비스 연동에는 http.request 템플릿을 절대 쓰지 않고
+   해당 서비스의 ai.* 템플릿을 선택한다. (http.request 템플릿은 전용 도구가 없는 임의 REST 호출에만)
 4. 서로 다른 외부 서비스 작업은 반드시 별도 노드로 분리한다.
-5. 분기가 필요하면 condition 템플릿을 적절히 배치한다.
+5. 분기가 필요하면 branch.if 템플릿을 적절히 배치한다.
 6. MCP 의사 템플릿(ai.mcp)은 아래 '사용 가능한 MCP 서버'가 제공된 경우에만 선택할 수 있다.
 7. [요약·가공과 발송·저장 분리] 발송/저장 노드(ai.slack_send / ai.discord_send / ai.gmail_send /
    ai.notion_create_page 등)에서 콘텐츠를 직접 요약·분석·포맷하지 않는다. 요약/판단/정리가 필요하면
@@ -24,7 +24,7 @@ _PLANNER_INSTRUCTION = """
    전달만 하도록 노드를 분리한다. (예: web_search → ai.reasoning(요약) → ai.discord_send(발송만))
 8. 출력은 WorkflowPlanSchema에 부합하는 JSON Plan만 작성한다.
    각 노드는 {id, templateId, role, description} 형식이며, role/description에 노드가 할 일을 구체적으로 적는다.
-9. [승인 게이트] 사용자가 사람의 승인·결재를 **명시적으로 요청한 경우에만** approval 템플릿을 넣는다.
+9. [승인 게이트] 사용자가 사람의 승인·결재를 **명시적으로 요청한 경우에만** approval.request 템플릿을 넣는다.
    승인이 필요한 노드(발송·저장 등) 바로 앞에 두며, 승인 전에는 그 뒤 노드가 실행되지 않는다.
    요청이 없으면 발송·저장 노드 앞이라도 자동으로 넣지 않는다.
 """

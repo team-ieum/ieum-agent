@@ -8,7 +8,7 @@ from core.workflow_chat import chat_workflow
 
 # Designer가 출력하는 draft 노드(templateId + slots). provider 슬롯은 시스템 자동 주입.
 DRAFT_NODES = [
-    {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+    {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
     {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리해줘"}},
 ]
 # 저장된 full-node(수정 요청 시 current_nodes로 들어오는 영속 포맷). dehydrate 대상.
@@ -279,7 +279,7 @@ async def test_chat_workflow_duplicate_node_id():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-1", "templateId": "ai.web_search", "slots": {"label": "중복", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "p"}},
         ],
         "edges": [],
@@ -300,7 +300,7 @@ async def test_chat_workflow_static_validation_self_correction_success():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.web_search",
              "slots": {"label": "처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "오늘은 {{formatDate now 'YYYY-MM-DD'}}"}},
         ],
@@ -366,7 +366,7 @@ async def test_chat_workflow_id_translation():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "trigger_node", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "trigger_node", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "ai_node", "templateId": "ai.web_search",
              "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "이전 데이터: {{nodes.trigger_node.output.data}}"}},
         ],
@@ -467,8 +467,8 @@ async def test_chat_workflow_self_correction_loop():
         "message": "초안 생성",
         "type": "WORKFLOW_GENERATED",
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
-            {"id": "node-2", "templateId": "http",
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-2", "templateId": "http.request",
              "slots": {"label": "디스코드 전송", "description": "이 노드가 하는 일을 쉽게 설명해요.", "method": "POST", "url": "https://discord.com/api/webhooks/x"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
@@ -481,7 +481,7 @@ async def test_chat_workflow_self_correction_loop():
         "message": "교정 완료",
         "type": "WORKFLOW_GENERATED",
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.discord_send", "slots": {"label": "디스코드 전송", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "발송"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
@@ -539,7 +539,7 @@ async def test_chat_workflow_schedule_trigger_success():
         "actions": [],
         "changeDescription": None,
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 17 * * 5"}},
+            {"id": "node-1", "templateId": "schedule.every", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 17 * * 5"}},
             {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리해줘"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
@@ -557,25 +557,25 @@ async def test_chat_workflow_schedule_trigger_success():
 @pytest.mark.asyncio
 async def test_chat_workflow_schedule_trigger_correction():
     """SCHEDULE 트리거에 cron 슬롯이 없어 하이드레이션 실패 → 자가 교정으로 cron을 채워 성공한다."""
-    # 1. 초안: trigger.schedule인데 cron 슬롯 누락 → 필수 슬롯 누락으로 하이드레이션 실패
+    # 1. 초안: schedule.every인데 cron 슬롯 누락 → 필수 슬롯 누락으로 하이드레이션 실패
     faulty_draft_json = json.dumps({
         "message": "초안 생성",
         "type": "WORKFLOW_GENERATED",
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "schedule.every", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리해줘"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
     })
     reviewer_feedback_json = json.dumps({
         "isValid": False,
-        "feedback": "trigger.schedule 노드에 cron 슬롯이 누락되었습니다.",
+        "feedback": "schedule.every 노드에 cron 슬롯이 누락되었습니다.",
     })
     corrected_workflow_json = json.dumps({
         "message": "교정 완료",
         "type": "WORKFLOW_GENERATED",
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 17 * * 5"}},
+            {"id": "node-1", "templateId": "schedule.every", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 17 * * 5"}},
             {"id": "node-2", "templateId": "ai.web_search", "slots": {"label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리해줘"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
@@ -629,7 +629,7 @@ def test_dehydrate_nodes_round_trip():
     """full-node를 draft로 역변환하면 templateId와 가변 슬롯이 추출된다(provider 슬롯 제외)."""
     from core.template_registry import dehydrate_nodes
     drafts = dehydrate_nodes(FULL_NODES)
-    assert drafts[0] == {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}}
+    assert drafts[0] == {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}}
     assert drafts[1]["templateId"] == "ai.web_search"
     assert drafts[1]["slots"]["prompt"] == "처리해줘"
     assert "llmProvider" not in drafts[1]["slots"]  # provider 슬롯은 제외
@@ -651,7 +651,7 @@ LEGACY_COPIED_MODIFIED_JSON = json.dumps({
     "actions": [],
     "changeDescription": "node-2 프롬프트를 수정했습니다.",
     "nodes": [
-        {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+        {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거"}},
         {"id": "node-2", "templateId": "ai.web_search",
          "slots": {"label": "AI 처리", "prompt": "다르게 처리해줘"}},
     ],
@@ -682,7 +682,7 @@ async def test_chat_workflow_레거시_보정은_기존_노드에만_적용된�
         "message": "수정", "type": "WORKFLOW_MODIFIED", "actions": [],
         "changeDescription": "노드 추가",
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거"}},
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거"}},
             {"id": "node-2", "templateId": "ai.web_search",
              "slots": {"label": "AI 처리", "prompt": "처리해줘"}},
             {"id": "node-3", "templateId": "ai.reasoning", "slots": {"label": "요약", "prompt": "요약해줘"}},
@@ -741,7 +741,7 @@ async def test_chat_workflow_mcp_assigned_when_catalog_available():
     payload = json.dumps({
         "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.mcp", "slots": {"label": "MCP 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리", "catalogId": "cat-abc"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
@@ -762,7 +762,7 @@ async def test_chat_workflow_mcp_rejected_when_no_catalog():
     payload = json.dumps({
         "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.mcp", "slots": {"label": "처리", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "처리", "catalogId": "nonexistent"}},
         ],
         "edges": [{"source": "node-1", "target": "node-2", "conditionType": None}],
@@ -779,7 +779,7 @@ async def test_chat_workflow_webhook_assigned_when_credential_available():
     payload = json.dumps({
         "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.discord_send",
              "slots": {"label": "디스코드 발송", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "발송", "webhookCredentialId": "wh-1"}},
         ],
@@ -801,7 +801,7 @@ async def test_chat_workflow_webhook_hallucinated_credential_stripped():
     payload = json.dumps({
         "message": "생성", "type": "WORKFLOW_GENERATED", "actions": [],
         "nodes": [
-            {"id": "node-1", "templateId": "trigger.manual", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+            {"id": "node-1", "templateId": "manual.run", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
             {"id": "node-2", "templateId": "ai.discord_send",
              "slots": {"label": "발송", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "발송", "webhookCredentialId": "hallucinated"}},
         ],
@@ -947,7 +947,7 @@ FORGED_PASSTHROUGH_MODIFIED_JSON = json.dumps({
     "actions": [],
     "changeDescription": "가공 노드를 손봤습니다.",
     "nodes": [
-        {"id": "node-1", "templateId": "trigger.manual",
+        {"id": "node-1", "templateId": "manual.run",
          "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         {"id": "node-2", "templateId": "__passthrough__",
          "node": {"id": "node-2", "type": "AI",
@@ -965,7 +965,7 @@ FORGED_NEW_PASSTHROUGH_JSON = json.dumps({
     "actions": [],
     "changeDescription": "노드를 추가했습니다.",
     "nodes": [
-        {"id": "node-1", "templateId": "trigger.manual",
+        {"id": "node-1", "templateId": "manual.run",
          "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         {"id": "node-2", "templateId": "__passthrough__",
          "node": {"id": "node-2", "type": "AI",
@@ -1030,7 +1030,7 @@ DISGUISED_PASSTHROUGH_JSON = json.dumps({
     "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
     "changeDescription": "프롬프트를 바꿨습니다.",
     "nodes": [
-        {"id": "node-1", "templateId": "trigger.manual",
+        {"id": "node-1", "templateId": "manual.run",
          "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         {"id": "node-2", "templateId": "__passthrough__"},  # 편집 가능한 노드인데 위장
     ],
@@ -1042,7 +1042,7 @@ DELETED_PASSTHROUGH_JSON = json.dumps({
     "message": "삭제했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
     "changeDescription": "가공 노드를 지웠습니다.",
     "nodes": [
-        {"id": "node-1", "templateId": "trigger.manual",
+        {"id": "node-1", "templateId": "manual.run",
          "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
     ],
     "edges": [],
@@ -1054,7 +1054,7 @@ SENTINEL_STRIPPED_JSON = json.dumps({
     "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
     "changeDescription": "가공 노드를 슬랙으로 바꿨습니다.",
     "nodes": [
-        {"id": "node-1", "templateId": "trigger.manual",
+        {"id": "node-1", "templateId": "manual.run",
          "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         {"id": "node-2", "templateId": "ai.slack_send",
          "slots": {"label": "슬랙", "description": "설명", "prompt": "보내줘",
@@ -1143,7 +1143,7 @@ APP_TRIGGER_REPLACED_JSON = json.dumps({
     "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
     "changeDescription": "트리거를 스케줄로 바꿨습니다.",
     "nodes": [
-        {"id": "node-1", "templateId": "trigger.schedule",
+        {"id": "node-1", "templateId": "schedule.every",
          "slots": {"label": "매일 9시", "description": "매일 아침 시작해요.", "cron": "0 9 * * *"}},
         {"id": "node-2", "templateId": "ai.web_search",
          "slots": {"label": "AI 처리", "description": "검색해요.", "prompt": "처리해줘"}},
@@ -1194,8 +1194,8 @@ async def test_chat_prompt_lists_app_trigger_outputs():
         await _call("수정해줘", current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
     designer_instruction = captured[0]
     assert _APP_TRIGGER_OUTPUTS_MARKER not in designer_instruction
-    for tid, trigger_type in [("trigger.gmail_new_email", "GMAIL_NEW_EMAIL"),
-                              ("trigger.github_new_issue", "GITHUB_NEW_ISSUE")]:
+    for tid, trigger_type in [("gmail.new_email", "GMAIL_NEW_EMAIL"),
+                              ("github.new_issue", "GITHUB_NEW_ISSUE")]:
         line = next(ln for ln in designer_instruction.splitlines() if f"· TRIGGER({trigger_type})" in ln)
         assert set(re.findall(r"`output\.(\w+)`", line)) == \
             {f["key"] for f in tr.get_template(tid)["outputFields"]}, tid
@@ -1234,7 +1234,7 @@ ACTION_KEPT_JSON = json.dumps({
     "message": "수정했습니다.", "type": "WORKFLOW_MODIFIED", "actions": [],
     "changeDescription": "트리거 이름을 바꿨습니다.",
     "nodes": [
-        {"id": "node-1", "templateId": "trigger.manual",
+        {"id": "node-1", "templateId": "manual.run",
          "slots": {"label": "수동 시작", "description": "버튼을 누르면 시작해요."}},
         {"id": "node-2", "templateId": "__passthrough__"},
         {"id": "node-3", "templateId": "__passthrough__"},
@@ -1291,9 +1291,9 @@ async def test_chat_workflow_ACTION_웹훅은_보유분이_아니면_제거된�
 def test_시스템_프롬프트는_앱_이벤트_시작_요청을_조용히_바꾸지_말고_빌더_안내를_지시한다():
     from core.workflow_chat import _SYSTEM_PROMPT_BASE
 
-    assert "trigger.manual/trigger.schedule로 바꾸지 말고" in _SYSTEM_PROMPT_BASE
+    assert "manual.run/schedule.every로 바꾸지 말고" in _SYSTEM_PROMPT_BASE
     assert "빌더에서 앱 트리거(새 Gmail 메일·새 GitHub 이슈)를 추가해 달라" in _SYSTEM_PROMPT_BASE
     # 시각·주기 요청은 앱 이벤트가 아니다 — 기존 schedule 경로를 막지 않는다
-    assert "시각·주기를 말한 요청(\"매일 9시에 새 메일 요약\")은 앱 이벤트가 아니므로 trigger.schedule로" in _SYSTEM_PROMPT_BASE
+    assert "시각·주기를 말한 요청(\"매일 9시에 새 메일 요약\")은 앱 이벤트가 아니므로 schedule.every로" in _SYSTEM_PROMPT_BASE
     # 기존 수정 시 pass-through 유지 문구는 그대로
     assert "pass-through 노드로 보이며(종류는 'node.triggerType')" in _SYSTEM_PROMPT_BASE

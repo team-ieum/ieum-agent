@@ -68,7 +68,7 @@ def test_hydrate_model_override_goes_into_model_slot(monkeypatch):
 
 
 def test_hydrate_http_optional_slot_skipped():
-    draft = {"templateId": "http",
+    draft = {"templateId": "http.request",
              "slots": {"label": "호출", "description": "이 노드가 하는 일을 쉽게 설명해요.", "method": "GET", "url": "https://api.example.com"}}
     node = hydrate_node(draft)
     assert node["config"]["method"] == "GET"
@@ -77,7 +77,7 @@ def test_hydrate_http_optional_slot_skipped():
 
 
 def test_hydrate_schedule_trigger():
-    draft = {"templateId": "trigger.schedule",
+    draft = {"templateId": "schedule.every",
              "slots": {"label": "매일 9시", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}}
     node = hydrate_node(draft)
     assert node["type"] == "TRIGGER"
@@ -167,7 +167,7 @@ def test_hydrate_provider_required_without_provider():
 
 def test_hydrate_nodes_assigns_sequential_ids():
     drafts = [
-        {"templateId": "trigger.manual", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"templateId": "manual.run", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         {"templateId": "ai.notion_search", "slots": {"label": "검색", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "p"}},
     ]
     nodes = hydrate_nodes(drafts, provider="CLAUDE")
@@ -303,7 +303,7 @@ def test_passthrough_ignores_llm_supplied_node():
 
 def test_hydrated_workflow_passes_validator():
     drafts = [
-        {"templateId": "trigger.manual", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
+        {"templateId": "manual.run", "slots": {"label": "시작", "description": "이 노드가 하는 일을 쉽게 설명해요."}},
         {"templateId": "ai.notion_search", "slots": {"label": "검색", "description": "이 노드가 하는 일을 쉽게 설명해요.", "prompt": "노션 검색"}},
     ]
     nodes = hydrate_nodes(drafts, provider="CLAUDE")
@@ -331,7 +331,7 @@ def test_ref_remap_does_not_double_rewrite():
     from core.node_hydration import prepare_hydrated_nodes
 
     drafts = [
-        {"id": "node-2", "templateId": "trigger.manual",
+        {"id": "node-2", "templateId": "manual.run",
          "slots": {"label": "시작", "description": "설명"}},
         {"id": "node-1", "templateId": "ai.reasoning",
          "slots": {"label": "요약", "description": "설명",

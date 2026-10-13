@@ -25,7 +25,8 @@ INTENDED_SLOT_RENAMES: dict[str, str] = {"spreadsheet_name": "spreadsheet_id_nam
 INTENDED_ALLOWED_ADDED: dict[str, set[str]] = {
     **{tid: {"_names"} for tid in _AI},
     "ai.reasoning": {"_names", "outputFields"},  # 구조화 출력 spec §2.7 — 슬롯 아님(llm.slot false)
-    "http": {"_names", "webhookCredentialId"},
+    "http.request": {"_names", "webhookCredentialId"},
+    "webhook.catch": {"includeRaw"},  # AI-76 — derive_allowed_config는 llm.slot과 무관하게 직속 필드를 허용 키에 넣는다
 }
 # spec §7.3 ① — Calendar·Drive·Notion 프리셋의 리소스 ID 슬롯
 INTENDED_NEW_SLOTS: dict[str, list[str]] = {
@@ -40,6 +41,19 @@ INTENDED_NEW_SLOTS: dict[str, list[str]] = {
     "ai.notion_append_block": ["page_id", "page_id_name"],
     "ai.notion_query_database": ["database_id", "database_id_name"],
 }
+
+
+with open(os.path.join(tr.CATALOG_DIR, "aliases.json"), encoding="utf-8") as _f:
+    # 이름이 바뀐 이벤트만 번역한다. 프리셋은 옛 id 그대로다(별칭 값 ai.agent).
+    RENAMED = {old: new for old, new in json.load(_f).items() if new != "ai.agent" and old != new}
+
+
+def _renamed_menu(menu: str) -> list[str]:
+    out = []
+    for line in menu.splitlines():
+        tid, sep, rest = line[len("- "):].partition(":")
+        out.append(f"- {RENAMED.get(tid, tid)}{sep}{rest}")
+    return sorted(out)
 
 
 def _roundtrip(snippet: dict) -> dict:
@@ -74,11 +88,14 @@ def _load_fixture() -> dict:
 
 def test_generation_view_matches_snapshot_except_intended_diffs():
     before = _load_fixture()
-    after = json.loads(json.dumps(capture(), ensure_ascii=False))  # 튜플·키 순서 정규화
-    assert after["menu_index"] == before["menu_index"]
-    assert after["templates"].keys() == before["templates"].keys()
-    for tid, b in before["templates"].items():
+    after = json.loads(json.dumps(capture(), ensure_ascii=False))
+    # 로드 순서는 id 정렬이라 이름이 바뀌면 메뉴 줄 순서도 바뀐다 — 줄 집합으로 비교한다.
+    assert sorted(after["menu_index"].splitlines()) == _renamed_menu(before["menu_index"])
+    before_templates = {RENAMED.get(tid, tid): b for tid, b in before["templates"].items()}
+    assert after["templates"].keys() == before_templates.keys()
+    for tid, b in before_templates.items():
         expected = copy.deepcopy(b)
+        expected["fixed"] = {**expected["fixed"], "event": tr.get_template(tid)["event"]}  # 카탈로그 전환: fixed.event
         expected["slots"] = [[INTENDED_SLOT_RENAMES.get(s[0], s[0]), *s[1:]] for s in expected["slots"]]
         expected["allowed_config_fields"] = sorted(
             set(expected["allowed_config_fields"]) | INTENDED_ALLOWED_ADDED.get(tid, set()))

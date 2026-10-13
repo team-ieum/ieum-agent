@@ -57,7 +57,7 @@ def test_every_golden_snippet_has_user_facing_description():
 def test_hydrate_sets_top_level_description():
     """description 슬롯은 config가 아니라 노드 최상위에 채워진다(FE 계약)."""
     node = hydrate_node({
-        "id": "node-1", "templateId": "trigger.manual",
+        "id": "node-1", "templateId": "manual.run",
         "slots": {"label": "시작", "description": "버튼을 누르면 시작돼요."},
     })
     assert node["description"] == "버튼을 누르면 시작돼요."
@@ -66,8 +66,8 @@ def test_hydrate_sets_top_level_description():
 
 
 @pytest.mark.parametrize("template_id,slots", [
-    ("trigger.manual", {"label": "시작"}),
-    ("condition", {"label": "분기", "operator": "equals",
+    ("manual.run", {"label": "시작"}),
+    ("branch.if", {"label": "분기", "operator": "equals",
                    "left": "{{nodes.node-1.output.output}}", "right": "x"}),
     ("ai.reasoning", {"label": "요약", "prompt": "요약해줘"}),
 ])

@@ -1,15 +1,15 @@
 """노드 템플릿 레지스트리 (SSOT 로더)
 
-ieum-workflow-design/templates/*.json 을 단일 진실 원천으로 로드·검증한다.
-스키마 명세는 templates/SCHEMA.md 참고.
+카탈로그 서브모듈 `catalog/`(ieum-node-catalog)의 `events/<앱>/<이벤트>.json`·`presets.json`·`apps.json`을
+단일 진실 원천으로 로드·검증한다. 스키마는 catalog/SCHEMA.md.
 원본 JSON은 inputFields·fields로 필드를 정의하고, slots·allowed_config_fields는 로더가 파생한다(core.node_fields).
 
 소비처:
 - skill_loader(#4): menu_index() + select_by_tags() 로 항상층/검색층 주입
 - workflow_validator(#5): allowed_config_fields() 로 config 필드 화이트리스트
-- seed 스크립트(#3): all_entries() 를 MongoDB로 동기화
 """
 import os
+import re
 import copy
 import json
 import glob
@@ -19,9 +19,12 @@ from api.schemas.generate_workflow import TRIGGER_TYPES
 
 logger = logging.getLogger(__name__)
 
-TEMPLATES_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(os.path.dirname(__file__)), "ieum-workflow-design", "templates")
-)
+CATALOG_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "catalog"))
+# 프리셋으로 만든 노드의 event. 프리셋은 이벤트가 아니다(spec §3) — 출처 프리셋은 저장하지 않는다.
+PRESET_EVENT = "ai.agent"
+_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_KINDS = {"trigger", "action", "search"}
+_SUBMODULE_HINT = "`git submodule update --init`으로 catalog/를 받아라"
 
 # 플랫폼이 모든 노드 config에 주입/정규화하는 공통 필드(_normalize_node 참고).
 # 노드 타입과 무관하게 허용된다(런타임 주입 또는 리소스 ID 플레이스홀더).
@@ -34,9 +37,6 @@ _VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVA
 # LLM이 값을 쓰지 못하고 시스템이 요청 provider에서 계산해 주입하는 슬롯 kind.
 _SYSTEM_INJECTED_KINDS = {"provider", "model"}
 
-# FE 노드 카드가 앱 아이콘/라벨을 그릴 때 쓰는 표시용 메타. 실행 경로는 읽지 않는다.
-# 템플릿 fixed.config에 상수로 박히며, 앱과 무관한 AI 노드에는 아예 없다.
-VALID_SERVICE_TYPES = {"GOOGLE", "NOTION", "GITHUB", "SLACK", "DISCORD"}
 _REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "fixed"}
 _GENERATION_TOP_KEYS = {"tags", "menu"}  # generation 항목만 필수(LLM 메뉴·태그 검색용)
 _LEGACY_TOP_KEYS = {"slots", "allowed_config_fields"}  # 이제 파생값 — 파일에 쓰면 거부
@@ -71,16 +71,16 @@ def _tool_map_keys() -> set:
     return set(_TOOL_MAP.keys())
 
 
-def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
+def _validate_template(tpl: dict, where: str, tool_keys: set, apps: dict) -> None:
     """원본 템플릿 1개의 형식·드리프트를 검증한다(정규화 전). 형식은 SCHEMA.md."""
     from core.node_fields import AI_COMMON_KEYS, AI_COMMON_OUTPUTS, FieldError, validate_field
     from tools.registry import resolve_action_fn
 
     if not isinstance(tpl, dict):
-        raise TemplateSchemaError(f"{filename}: 템플릿 루트는 JSON 객체(dict)여야 합니다.")
+        raise TemplateSchemaError(f"{where}: 템플릿 루트는 JSON 객체(dict)여야 합니다.")
     missing = _REQUIRED_TOP_KEYS - tpl.keys()
     if missing:
-        raise TemplateSchemaError(f"{filename}: 필수 필드 누락 {sorted(missing)}")
+        raise TemplateSchemaError(f"{where}: 필수 필드 누락 {sorted(missing)}")
     tid = tpl["id"]
     legacy = _LEGACY_TOP_KEYS & tpl.keys()
     if legacy:
@@ -96,8 +96,6 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
         if not isinstance(tpl["tags"], list) or not tpl["tags"]:
             raise TemplateSchemaError(f"{tid}: tags는 비어있지 않은 리스트여야 함")
 
-    if os.path.basename(filename) != f"{tid}.json":
-        raise TemplateSchemaError(f"{filename}: id '{tid}'와 파일명이 불일치(기대: {tid}.json)")
     if tpl["node_type"] not in _VALID_NODE_TYPES:
         raise TemplateSchemaError(f"{tid}: node_type '{tpl['node_type']}' 유효하지 않음 {sorted(_VALID_NODE_TYPES)}")
 
@@ -117,13 +115,18 @@ def _validate_template(tpl: dict, filename: str, tool_keys: set) -> None:
         if name and name != "mcp" and name not in tool_keys and resolve_action_fn(name) is None:
             raise TemplateSchemaError(f"{tid}: fixed tools '{name}'가 _TOOL_MAP에 없음(드리프트)")
     if "serviceType" in fixed_config:
-        raise TemplateSchemaError(f"{tid}: serviceType은 fixed.config가 아니라 최상위 app에 쓴다(로더가 주입).")
+        raise TemplateSchemaError(f"{tid}: serviceType은 쓰지 않는다 — apps.json에서 로더가 넣는다.")
     app = tpl.get("app")
-    if app is not None and app not in VALID_SERVICE_TYPES:
-        raise TemplateSchemaError(f"{tid}: app '{app}' 유효하지 않음 {sorted(VALID_SERVICE_TYPES)}")
-    if tpl["node_type"] == "TRIGGER" and fixed_config.get("triggerType") not in TRIGGER_TYPES:
-        raise TemplateSchemaError(
-            f"{tid}: triggerType '{fixed_config.get('triggerType')}'가 BE TriggerType에 없음 {list(TRIGGER_TYPES)}")
+    if app is not None and app not in apps:
+        raise TemplateSchemaError(f"{tid}: 앱 '{app}'가 apps.json에 없다.")
+    if not tpl.get("preset"):
+        if tpl.get("kind") not in _KINDS:
+            raise TemplateSchemaError(f"{tid}: kind '{tpl.get('kind')}'가 {sorted(_KINDS)}에 없다.")
+        if (tpl["node_type"] == "TRIGGER") != (tpl["kind"] == "trigger"):
+            raise TemplateSchemaError(f"{tid}: TRIGGER 노드와 kind 'trigger'는 함께 다닌다.")
+        if tpl["node_type"] == "TRIGGER" and tpl.get("trigger_type") not in TRIGGER_TYPES:
+            raise TemplateSchemaError(
+                f"{tid}: trigger_type '{tpl.get('trigger_type')}'가 BE TriggerType에 없음 {list(TRIGGER_TYPES)}")
 
     inputs = tpl.get("inputFields", [])
     if not isinstance(inputs, list):
@@ -188,7 +191,7 @@ def _tool_fields(tool_key: str, overrides: dict) -> list:
                            where=tool_key)
 
 
-def _normalize(tpl: dict, tool_fields: dict) -> dict:
+def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
     """원본 항목 → 메모리상 항목. 기존 소비처가 읽는 slots·allowed_config_fields를 파생해 채운다."""
     from core.node_fields import (AI_COMMON_FIELDS, AI_COMMON_OUTPUTS, derive_allowed_config, derive_slots,
                                   merge_common)
@@ -197,9 +200,17 @@ def _normalize(tpl: dict, tool_fields: dict) -> dict:
     t = copy.deepcopy(tpl)
     t.setdefault("builder", True)
     t.setdefault("generation", True)
+    t["event"] = PRESET_EVENT if t.get("preset") else t["id"]
+    t["fixed"]["event"] = t["event"]
     cfg = t["fixed"].setdefault("config", {})
-    if t.get("app"):
-        cfg["serviceType"] = t["app"]
+    if t["node_type"] == "TRIGGER" and not t.get("preset"):
+        cfg["triggerType"] = t["trigger_type"]  # 레거시 파생 값(spec §6.3) — 5단계+1릴리스까지 기록한다
+    # match를 직접 쓴 프리셋은 빌더엔 안 나와도 저장 노드 매칭 후보로 남는다("spec과 다른 점" 2).
+    t["matchable"] = t["builder"] or (bool(t.get("preset")) and "match" in tpl)
+    app = apps.get(t["app"]) if t.get("app") else None
+    t["provider"] = app["provider"] if app else None
+    if app and app["serviceType"]:
+        cfg["serviceType"] = app["serviceType"]
     common = AI_COMMON_FIELDS if t["node_type"] == "AI" else []
     direct = [{**f, "path": f.get("path") or f"config.{f['key']}"}
               for f in merge_common(common, t.get("inputFields") or [])]
@@ -213,8 +224,50 @@ def _normalize(tpl: dict, tool_fields: dict) -> dict:
     t["match"] = t.get("match") or _default_match(t)
     # 카탈로그 응답이 fixed.config.brand로 내보낸다. fixed 자체엔 넣지 않는다 — 생성 경로(hydrate_node가
     # fixed.config를 복사, 스냅샷 테스트가 fixed를 비교)가 보는 값이 바뀌기 때문이다.
-    t["brand"] = brand_for_entry(t)
+    t["brand"] = app["brand"] if app else brand_for_entry(t)
     return t
+
+
+def _read_json(path: str):
+    with open(path, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError as e:
+            raise TemplateSchemaError(f"{os.path.relpath(path, CATALOG_DIR)}: JSON 파싱 실패 - {e}")
+
+
+def _read_catalog() -> tuple[dict, list]:
+    """카탈로그 → (apps, 원본 항목 목록). 이벤트 이름은 경로에서 계산해 id·app으로 넣고, 프리셋은
+    node_type AI·빌더 비노출로 표시한다. 카탈로그가 비면 기동 실패다(spec §5.3) — 서브모듈 미초기화를
+    빈 카탈로그로 조용히 넘기면 생성·검증이 엉뚱하게 돈다."""
+    events_dir = os.path.join(CATALOG_DIR, "events")
+    paths = sorted(glob.glob(os.path.join(events_dir, "*", "*.json")))
+    if not paths:
+        raise TemplateSchemaError(f"카탈로그 이벤트가 없다({events_dir}) — {_SUBMODULE_HINT}.")
+    apps = _read_json(os.path.join(CATALOG_DIR, "apps.json"))
+    entries = []
+    for path in paths:
+        app, event = os.path.basename(os.path.dirname(path)), os.path.basename(path)[:-len(".json")]
+        name = f"{app}.{event}"
+        if not (_NAME_RE.match(app) and _NAME_RE.match(event)):
+            raise TemplateSchemaError(f"{name}: 경로는 events/<앱>/<이벤트>.json, 각 부분은 소문자·숫자·밑줄이다.")
+        tpl = _read_json(path)
+        if not isinstance(tpl, dict):
+            raise TemplateSchemaError(f"{name}: 템플릿 루트는 JSON 객체(dict)여야 합니다.")
+        if {"id", "app"} & tpl.keys():
+            raise TemplateSchemaError(f"{name}: id·app은 경로에서 계산한다 — 파일에 쓰지 않는다.")
+        entries.append({"id": name, "app": app, **tpl})
+    presets = _read_json(os.path.join(CATALOG_DIR, "presets.json"))
+    if not isinstance(presets, list):
+        raise TemplateSchemaError("presets.json은 배열이어야 한다.")
+    for p in presets:
+        if not isinstance(p, dict) or {"node_type", "builder", "event", "kind"} & p.keys():
+            raise TemplateSchemaError(f"프리셋 {p.get('id') if isinstance(p, dict) else p!r}: "
+                                      "node_type·builder·event·kind는 로더가 정한다.")
+        entries.append({**p, "node_type": "AI", "builder": False, "preset": True})
+    # id 정렬 — select_by_tags 동점·subagent_service_for_node의 "첫 AI 항목"이 이 순서를 따른다("spec과 다른 점" 3).
+    entries.sort(key=lambda e: e.get("id", ""))
+    return apps, entries
 
 
 def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
@@ -229,14 +282,10 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
     if tool_keys is None:
         tool_keys = _tool_map_keys()
 
+    apps, entries = _read_catalog()
     raw: dict = {}
-    for path in sorted(glob.glob(os.path.join(TEMPLATES_DIR, "*.json"))):
-        with open(path, "r", encoding="utf-8") as f:
-            try:
-                tpl = json.load(f)
-            except json.JSONDecodeError as e:
-                raise TemplateSchemaError(f"{os.path.basename(path)}: JSON 파싱 실패 - {e}")
-        _validate_template(tpl, path, tool_keys)
+    for tpl in entries:
+        _validate_template(tpl, tpl.get("id", "?"), tool_keys, apps)
         if tpl["id"] in raw:
             raise TemplateSchemaError(f"중복된 템플릿 id: {tpl['id']}")
         raw[tpl["id"]] = tpl
@@ -258,7 +307,7 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
         except FieldError as e:
             raise TemplateSchemaError(f"{owners.get(tk, tk)}: {e}")
 
-    templates = {tid: _normalize(tpl, tool_fields) for tid, tpl in raw.items()}
+    templates = {tid: _normalize(tpl, tool_fields, apps) for tid, tpl in raw.items()}
     for t in templates.values():
         keys = [f["key"] for f in t["inputFields"]]
         dup = sorted({k for k in keys if keys.count(k) > 1})
@@ -272,11 +321,11 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
                     f"{t['id']}: '{f['key']}'의 optionsInputs {sorted(bad)}가 같은 항목의 필드가 아니다.")
     seen: dict = {}
     for t in templates.values():
-        if not t["builder"]:
+        if not t["matchable"]:
             continue
         key = json.dumps(t["match"], sort_keys=True)
         if key in seen:
-            raise TemplateSchemaError(f"builder 항목 '{seen[key]}'·'{t['id']}'의 match가 같다.")
+            raise TemplateSchemaError(f"매칭 항목 '{seen[key]}'·'{t['id']}'의 match가 같다.")
         seen[key] = t["id"]
     agent = templates.get(_AGENT_ENTRY_ID)
     if agent is not None:
@@ -335,19 +384,31 @@ def _matches(match: dict, node: dict) -> bool:
     return True
 
 
-# (정렬 기준이 된 load_templates() dict, 정렬 결과). dict가 바뀌면(force 재로드·_cache 교체) 다시 정렬한다.
-# lru_cache를 쓰지 않는 이유: 인자가 없어 재로드 후에도 낡은 결과를 돌려준다.
+# (정렬 기준 dict, 결과). dict가 바뀌면 다시 정렬한다 — lru_cache는 인자가 없어 재로드 후에도 낡은 결과를 준다.
 _builder_memo: tuple = (None, ())
+_match_memo: tuple = (None, ())
+
+
+def _by_specificity(entries) -> tuple:
+    return tuple(sorted(entries, key=lambda t: (-len(t["match"]), t["id"])))
 
 
 def builder_entries() -> list:
-    """builder 항목을 match 평가 순서(조건 수 내림차순, 같으면 id)로 반환한다(노드마다 불리므로 메모)."""
+    """빌더 목록(카탈로그 API·액션 허용 목록·도구 선택지). 프리셋은 없다(설계 결정 4). match 평가 순서."""
     global _builder_memo
     templates = load_templates()
     if _builder_memo[0] is not templates:
-        _builder_memo = (templates, tuple(sorted((t for t in templates.values() if t["builder"]),
-                                                 key=lambda t: (-len(t["match"]), t["id"]))))
+        _builder_memo = (templates, _by_specificity(t for t in templates.values() if t["builder"]))
     return list(_builder_memo[1])
+
+
+def _match_entries() -> list:
+    """저장 노드 매칭 후보 = builder 항목 + match를 직접 쓴 프리셋. 조건 수 내림차순(구체적인 것 먼저)."""
+    global _match_memo
+    templates = load_templates()
+    if _match_memo[0] is not templates:
+        _match_memo = (templates, _by_specificity(t for t in templates.values() if t["matchable"]))
+    return list(_match_memo[1])
 
 
 def _match_view(node: dict) -> dict:
@@ -363,11 +424,11 @@ def _match_view(node: dict) -> dict:
 
 
 def match_entry(node: dict) -> dict | None:
-    """저장된 노드에 맞는 builder 항목(FE가 폼을 열 때). 없으면 None."""
+    """저장된 노드에 맞는 매칭 항목(builder + match 보유 프리셋, FE가 폼을 열 때). 없으면 None."""
     if not isinstance(node, dict):
         return None
     view = _match_view(node)
-    return next((t for t in builder_entries() if _matches(t["match"], view)), None)
+    return next((t for t in _match_entries() if _matches(t["match"], view)), None)
 
 
 def all_templates() -> list:

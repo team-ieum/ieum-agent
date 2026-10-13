@@ -7,7 +7,7 @@ def test_all_templates_load_and_validate():
     templates = tr.all_templates()
     assert len(templates) >= 4
     ids = {t["id"] for t in templates}
-    assert {"trigger.schedule", "ai.notion_create_page", "ai.github_query", "transform"} <= ids
+    assert {"schedule.every", "ai.notion_create_page", "ai.github_query", "transform.map"} <= ids
 
 
 def test_tool_key_matches_tool_map():
@@ -37,7 +37,7 @@ def test_resolve_template_for_ai_tool_node():
 def test_resolve_template_for_structural_node():
     node = {"type": "TRANSFORM", "config": {"mappings": {}}}
     tpl = tr.resolve_template_for_node(node)
-    assert tpl and tpl["id"] == "transform"
+    assert tpl and tpl["id"] == "transform.map"
 
 
 def test_golden_snippets_pass_node_validation():

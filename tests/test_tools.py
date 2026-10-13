@@ -169,7 +169,7 @@ async def test_send_slack_message_success():
             message="hello",
         )
 
-    assert_matches_outputs("action.slack_send", result)
+    assert_matches_outputs("slack.send_message", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["message"] == "Slack 메시지 발송 성공"
@@ -210,7 +210,7 @@ async def test_send_discord_webhook_success():
             content="hello",
         )
 
-    assert_matches_outputs("action.discord_send", result)
+    assert_matches_outputs("discord.send_message", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert parsed["message"] == "Discord 메시지 발송 성공"
@@ -279,7 +279,7 @@ async def test_send_gmail_success():
             sender_password="app-password",
         )
 
-    assert_matches_outputs("action.gmail_send", result)
+    assert_matches_outputs("gmail.send_email", result)
     parsed = json.loads(result)
     assert parsed["success"] is True
     assert "recipient@example.com" in parsed["message"]

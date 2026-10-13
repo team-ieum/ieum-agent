@@ -1,7 +1,7 @@
 """노드 카탈로그 필드(Field) — 형식 검증과 파생 규칙.
 
-템플릿 JSON(ieum-workflow-design/templates)과 도구 시그니처에서 입력 필드를 만들고, 그 필드에서
-생성 슬롯·허용 config 키를 파생한다. 형식은 templates/SCHEMA.md와 spec(ieum-backend
+템플릿 JSON(catalog/(ieum-node-catalog))과 도구 시그니처에서 입력 필드를 만들고, 그 필드에서
+생성 슬롯·허용 config 키를 파생한다. 형식은 catalog/SCHEMA.md와 spec(ieum-backend
 docs/superpowers/specs/2026-10-05-node-catalog-design.md §2·§5). 템플릿·도구 모듈을 import하지
 않는 순수 함수만 둔다 — 로더(core.template_registry)가 이 함수들을 조립한다."""
 import copy

@@ -194,14 +194,12 @@ def test_brand_for_entry_ai_without_tool_uses_service_field():
     assert brand_for_entry({**base, "service": "no-such-service"}) == "openai"
 
 
-def test_brand_for_entry_tool_and_structural_entries():
-    action = {"node_type": "ACTION", "tool_key": "builtin:github_list_issues",
-              "fixed": {"type": "ACTION", "config": {"tools": [{"name": "builtin:github_list_issues"}]}}}
-    assert brand_for_entry(action) == "github"
-    assert brand_for_entry({"node_type": "TRIGGER", "tool_key": None,
-                            "fixed": {"type": "TRIGGER", "config": {}}}) == "webhook"
-    assert brand_for_entry({"node_type": "CONDITION", "tool_key": None,
-                            "fixed": {"type": "CONDITION", "config": {}}}) == "filter"
+def test_brand_for_entry_tool_preset_without_app():
+    """앱 없는 도구 프리셋(ai.web_search·ai.http_fetch)은 fixed로 brand_for_node가 답한다.
+    이벤트·앱 프리셋 brand는 apps.json에서 온다(test_catalog_loader.test_brand_from_apps_json)."""
+    for tool in ("builtin:web_search", "builtin:http_fetch"):
+        entry = {"node_type": "AI", "tool_key": tool, "fixed": {"type": "AI", "config": {"tools": [{"name": tool}]}}}
+        assert brand_for_entry(entry) == "openai", tool
 
 
 @pytest.mark.parametrize("trigger_type,brand", [

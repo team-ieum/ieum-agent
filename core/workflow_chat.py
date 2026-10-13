@@ -187,11 +187,11 @@ _APP_TRIGGER_OUTPUTS_MARKER = "<<APP_TRIGGER_OUTPUTS>>"
 
 
 def _app_trigger_output_lines() -> str:
-    """all_entries() 중 앱 트리거(TRIGGER + app)마다 '· TRIGGER(<triggerType>) → `output.k`, ...' 한 줄."""
+    """all_entries() 중 앱 트리거(공급자가 ieum이 아닌 TRIGGER)마다 '· TRIGGER(<triggerType>) → `output.k`, ...' 한 줄."""
     return "\n".join(
-        f"     · TRIGGER({t['fixed']['config']['triggerType']}) → "
+        f"     · TRIGGER({t['trigger_type']}) → "
         + ", ".join(f"`output.{f['key']}`" for f in t.get("outputFields", []))
-        for t in all_entries() if t["node_type"] == "TRIGGER" and t.get("app")
+        for t in all_entries() if t["node_type"] == "TRIGGER" and t.get("provider") not in (None, "ieum")
     )
 
 
@@ -204,7 +204,7 @@ _SYSTEM_PROMPT_BASE = """\
 그 템플릿이 정의한 슬롯(slots)만 채웁니다. 노드의 타입·도구·고정 설정은 템플릿이 결정합니다.
 '자동주입(작성금지)' 표기 슬롯(llmProvider, model)은 시스템이 채우므로 작성하지 않습니다.
 
-1. 외부 연동(Notion/Gmail/Slack/Discord/GitHub 등)은 해당 서비스의 ai.* 템플릿을 선택합니다. http 템플릿으로 직접 호출하지 않습니다.
+1. 외부 연동(Notion/Gmail/Slack/Discord/GitHub 등)은 해당 서비스의 ai.* 템플릿을 선택합니다. http.request 템플릿으로 직접 호출하지 않습니다.
 2. 노드 간 데이터 참조 및 무결성:
    - prompt 등 슬롯 값에서 선행 노드 결과는 이중 중괄호 'nodes.노드ID.output.필드명' 형식만 사용합니다. 정의되지 않은 변수를 날조하지 마십시오.
    - [필드명 규약] 노드 타입별 실제 출력 필드만 참조합니다(임의 필드명 results/content/data 금지):
@@ -215,7 +215,7 @@ _SYSTEM_PROMPT_BASE = """\
      · APPROVAL → `output.approvedBy`(승인자 ID), `output.approvedAt`(승인 시각)
    - [참조 전용] 이중 중괄호 안에는 'nodes.노드ID.output.필드명'만 허용됩니다. `{{#each}}`, `{{formatDate now}}`, `{{this.필드}}` 같은 헬퍼·함수·반복문은 **금지**입니다(엔진에 함수 없음). 날짜 삽입·반복·포맷팅이 필요하면 prompt에 자연어로 지시합니다.
    - [데이터 보존·출력 최소화] 조회 노드 prompt는 후속 노드가 실제 쓰는 필드만 추출하도록 지시합니다. 전체 raw JSON 덤프 금지(타임아웃 유발), 임의 요약/왜곡 금지. 목록 조회(깃허브 PR/이슈, 노션 검색 등)는 반드시 단일 페이지·개수 상한을 명시합니다("최신순 1페이지(per_page=30, page=1)만 조회"). 날짜 필터는 그 1페이지 결과에 적용합니다.
-   - [데이터 가공 위임] 요약·날짜 포맷·JSON 파싱 등 변환은 transform 템플릿 또는 별도 AI 노드 prompt에 위임합니다(실행 시 서브 에이전트 자동 처리).
+   - [데이터 가공 위임] 요약·날짜 포맷·JSON 파싱 등 변환은 transform.map 템플릿 또는 별도 AI 노드 prompt에 위임합니다(실행 시 서브 에이전트 자동 처리).
 3. prompt 슬롯은 핵심 지시(동작·입력 참조·출력 형식) 위주 2~3문장 이내로 간결히 작성합니다.
 3-1. [description 슬롯] 모든 템플릿의 description 슬롯은 필수이며, 워크플로우 화면에서 사용자에게 그대로
    보여줄 안내 문장입니다. 그 노드가 무슨 일을 하는지 쉬운 1문장으로 씁니다
@@ -230,14 +230,14 @@ _SYSTEM_PROMPT_BASE = """\
    - [발송 prompt 명령형] 발송/저장 노드의 prompt는 **참조식만 단독으로 두지 마십시오.** 반드시 발송·저장
      지시문과 보낼 내용 참조를 함께 씁니다. (예: "다음 내용을 디스코드로 보내줘: {{nodes.node-3.output.output}}")
 5. 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 대변하는 한국어 이름을 'workflowName'에 기입하고, 수정 시에는 null로 둡니다.
-6. 모든 워크플로우는 1개의 TRIGGER 템플릿(trigger.manual / trigger.schedule / trigger.webhook)으로 시작합니다.
-   trigger.schedule을 고르면 cron 슬롯에 5필드 표준 크론 표현식을 채웁니다(예: "매일 오전 9시" -> "0 9 * * *").
+6. 모든 워크플로우는 1개의 TRIGGER 템플릿(manual.run / schedule.every / webhook.catch)으로 시작합니다.
+   schedule.every를 고르면 cron 슬롯에 5필드 표준 크론 표현식을 채웁니다(예: "매일 오전 9시" -> "0 9 * * *").
    앱 트리거(GMAIL_NEW_EMAIL·GITHUB_NEW_ISSUE)는 빌더 전용이라 새로 만들지 않습니다. 수정 요청의 현재 워크플로우에서는
    pass-through 노드로 보이며(종류는 'node.triggerType'), 후속 노드는 위 [필드명 규약]의 출력 필드로 참조합니다.
    사용자가 "새 메일이 오면"·"이슈가 열리면"처럼 이벤트가 생기는 즉시 시작하길 요청하면(새로 만들 때든 트리거를 바꿀 때든)
-   trigger.manual/trigger.schedule로 바꾸지 말고 CLARIFICATION_NEEDED로 "빌더에서 앱 트리거(새 Gmail 메일·새 GitHub 이슈)를 추가해 달라"고
-   안내합니다. 시각·주기를 말한 요청("매일 9시에 새 메일 요약")은 앱 이벤트가 아니므로 trigger.schedule로 만듭니다.
-7. [승인 게이트] 사용자가 사람의 승인·결재를 **명시적으로 요청한 경우에만** approval 템플릿을 넣습니다.
+   manual.run/schedule.every로 바꾸지 말고 CLARIFICATION_NEEDED로 "빌더에서 앱 트리거(새 Gmail 메일·새 GitHub 이슈)를 추가해 달라"고
+   안내합니다. 시각·주기를 말한 요청("매일 9시에 새 메일 요약")은 앱 이벤트가 아니므로 schedule.every로 만듭니다.
+7. [승인 게이트] 사용자가 사람의 승인·결재를 **명시적으로 요청한 경우에만** approval.request 템플릿을 넣습니다.
    승인이 필요한 노드(발송·저장 등) 바로 앞에 두며, 승인 전에는 그 뒤 노드가 실행되지 않습니다.
    message 슬롯에는 승인자에게 보여 줄 확인 문구를 씁니다. 요청이 없으면 발송·저장 노드 앞이라도 자동으로 넣지 않습니다.
 </workflow_design_rules>

@@ -10,6 +10,7 @@ import os
 import pytest
 
 from core import template_registry as tr
+from tests.catalog_paths import apps
 from core.provider_config import resolve_model
 from core.template_registry import (
     SlotFillError,
@@ -156,7 +157,7 @@ def test_invalid_service_type_rejected_by_schema_gate():
         "tags": ["x"], "menu": "m", "fixed": {"type": "AI", "config": {}},
     }
     with pytest.raises(tr.TemplateSchemaError, match="app"):
-        tr._validate_template(bad, "/tmp/ai.bogus.json", tr._tool_map_keys())
+        tr._validate_template(bad, bad["id"], tr._tool_map_keys(), apps())
 
 
 # --- 실행 경로 무관성 -----------------------------------------------------------

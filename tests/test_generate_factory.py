@@ -7,16 +7,16 @@ from core.validators.plan_validator import PlanValidationError
 
 VALID_PLAN_JSON = """{
   "nodes": [
-    {"id": "node-1", "templateId": "trigger.schedule", "role": "매일 아침 9시 트리거", "description": "스케줄러"}
+    {"id": "node-1", "templateId": "schedule.every", "role": "매일 아침 9시 트리거", "description": "스케줄러"}
   ],
   "edges": [],
-  "justification": "스케줄 트리거로 시작해야 하므로 node-1에 trigger.schedule을 구성함."
+  "justification": "스케줄 트리거로 시작해야 하므로 node-1에 schedule.every을 구성함."
 }"""
 
 # Builder는 draft({id, templateId, slots})를 출력한다.
 VALID_WORKFLOW_JSON = """{
   "nodes": [
-    {"id": "node-1", "templateId": "trigger.schedule", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}}
+    {"id": "node-1", "templateId": "schedule.every", "slots": {"label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}}
   ],
   "edges": []
 }"""

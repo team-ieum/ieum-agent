@@ -1,11 +1,11 @@
 import os
-import json
 import pathlib
 
 import pytest
 
 from core import template_registry as tr
 from core.template_registry import TemplateSchemaError
+from tests.catalog_paths import apps, read_raw
 
 
 def _keys(tid):
@@ -13,17 +13,17 @@ def _keys(tid):
 
 
 @pytest.mark.parametrize("tid, keys", [
-    ("trigger.schedule", ["triggeredAt", "cron"]),
-    ("trigger.manual", []),
-    ("trigger.webhook", []),
-    ("trigger.gmail_new_email", ["messageId", "threadId", "from", "to", "subject", "snippet",
+    ("schedule.every", ["triggeredAt", "cron"]),
+    ("manual.run", []),
+    ("webhook.catch", []),
+    ("gmail.new_email", ["messageId", "threadId", "from", "to", "subject", "snippet",
                                  "bodyText", "receivedAt", "labels"]),
-    ("trigger.github_new_issue", ["issueNumber", "title", "body", "url", "author", "labels",
+    ("github.new_issue", ["issueNumber", "title", "body", "url", "author", "labels",
                                   "repo", "createdAt"]),
-    ("http", ["statusCode", "body"]),
-    ("condition", ["result"]),
-    ("transform", []),
-    ("approval", ["approved", "approvedBy", "approvedAt"]),
+    ("http.request", ["statusCode", "body"]),
+    ("branch.if", ["result"]),
+    ("transform.map", []),
+    ("approval.request", ["approved", "approvedBy", "approvedAt"]),
     ("ai.reasoning", ["output"]),
     ("ai.mcp", ["output"]),
     ("ai.google_sheets_write", ["output"]),
@@ -33,31 +33,27 @@ def test_declared_outputs(tid, keys):
 
 
 def test_dynamic_outputs():
-    assert tr.get_template("trigger.manual")["outputDynamic"] is True
-    assert tr.get_template("trigger.webhook")["outputDynamic"] is True
-    assert tr.get_template("transform")["outputsFrom"] == "config.mappings"
-    body = next(f for f in tr.get_template("http")["outputFields"] if f["key"] == "body")
+    assert tr.get_template("manual.run")["outputDynamic"] is True
+    assert tr.get_template("webhook.catch")["outputDynamic"] is True
+    assert tr.get_template("transform.map")["outputsFrom"] == "config.mappings"
+    body = next(f for f in tr.get_template("http.request")["outputFields"] if f["key"] == "body")
     assert body["dynamic"] is True
     assert tr.get_template("ai.reasoning")["outputsFrom"] == "config.outputFields"
 
 
 def test_output_field_must_be_full_definition():
-    path = os.path.join(tr.TEMPLATES_DIR, "condition.json")
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
+    raw = read_raw("branch.if")
     raw["outputFields"] = [{"key": "result"}]
     with pytest.raises(TemplateSchemaError, match="outputFields"):
-        tr._validate_template(raw, path, tr._tool_map_keys())
+        tr._validate_template(raw, raw["id"], tr._tool_map_keys(), apps())
 
 
 @pytest.mark.parametrize("value", ["mappings", "config."])
 def test_outputs_from_must_be_config_path(value):
-    path = os.path.join(tr.TEMPLATES_DIR, "transform.json")
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
+    raw = read_raw("transform.map")
     raw["outputsFrom"] = value
     with pytest.raises(TemplateSchemaError, match="outputsFrom"):
-        tr._validate_template(raw, path, tr._tool_map_keys())
+        tr._validate_template(raw, raw["id"], tr._tool_map_keys(), apps())
 
 
 def test_every_action_has_output_match_assertion():
@@ -71,16 +67,14 @@ def test_every_action_has_output_match_assertion():
 
 
 @pytest.mark.parametrize("tid, dup", [
-    ("condition", {"key": "result", "title": "두 번째 결과", "type": "boolean"}),
+    ("branch.if", {"key": "result", "title": "두 번째 결과", "type": "boolean"}),
     ("ai.reasoning", {"key": "output", "title": "결과", "type": "text"}),  # 로더가 공통 출력을 앞에 붙인다
 ])
 def test_duplicate_output_field_key_rejected(tid, dup):
-    path = os.path.join(tr.TEMPLATES_DIR, f"{tid}.json")
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
+    raw = read_raw(tid)
     raw.setdefault("outputFields", []).append(dup)
     with pytest.raises(TemplateSchemaError, match="중복"):
-        tr._validate_template(raw, path, tr._tool_map_keys())
+        tr._validate_template(raw, raw["id"], tr._tool_map_keys(), apps())
 
 
 def test_builder_entries_have_user_copy():
@@ -99,9 +93,7 @@ def test_builder_tool_fields_have_korean_titles():
 
 
 def test_builder_title_required_by_schema():
-    path = os.path.join(tr.TEMPLATES_DIR, "http.json")
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
+    raw = read_raw("http.request")
     raw.pop("title")
     with pytest.raises(TemplateSchemaError, match="title"):
-        tr._validate_template(raw, path, tr._tool_map_keys())
+        tr._validate_template(raw, raw["id"], tr._tool_map_keys(), apps())

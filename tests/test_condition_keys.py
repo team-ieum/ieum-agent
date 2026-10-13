@@ -30,13 +30,13 @@ def _condition_node(config: dict) -> dict:
 def _condition_draft(**slots) -> dict:
     base = {"label": "분기", "description": "앞의 결과에 따라 갈 길을 나눠요."}
     base.update(slots)
-    return {"id": "node-2", "templateId": "condition", "slots": base}
+    return {"id": "node-2", "templateId": "branch.if", "slots": base}
 
 
 # ── 템플릿(SSOT) ────────────────────────────────────────────────────────────
 
 def test_condition_template_uses_canonical_keys():
-    tpl = tr.get_template("condition")
+    tpl = tr.get_template("branch.if")
     by_name = {s["name"]: s for s in tpl["slots"]}
     assert by_name["left"]["path"] == "config.left"
     assert by_name["right"]["path"] == "config.right"
@@ -50,8 +50,11 @@ def test_no_legacy_condition_keys_in_design_assets():
     한 곳이라도 남으면 모델이 그대로 따라 써 표기가 다시 갈라진다."""
     from core.workflow_chat import _SYSTEM_PROMPT_BASE
 
-    paths = glob.glob(os.path.join(tr.TEMPLATES_DIR, "*.json"))
-    ref_dir = os.path.join(os.path.dirname(tr.TEMPLATES_DIR), "references")
+    import core.skill_loader
+
+    paths = glob.glob(os.path.join(tr.CATALOG_DIR, "events", "*", "*.json"))
+    paths.append(os.path.join(tr.CATALOG_DIR, "presets.json"))
+    ref_dir = os.path.join(core.skill_loader.SKILL_DIR, "references")
     paths += glob.glob(os.path.join(ref_dir, "*.md"))
     assert paths, "설계 자산 경로 탐색 실패"
 
@@ -129,7 +132,7 @@ def test_legacy_condition_survives_chat_round_trip():
     구표기 노드가 draft에서 left/right 슬롯으로 실려야 Designer가 그대로 복사해도 첫 시도에 성공한다."""
     boundary_node = WorkflowNode(**_condition_node(LEGACY_CFG)).model_dump()
     draft = dehydrate_node(boundary_node)
-    assert draft["templateId"] == "condition"
+    assert draft["templateId"] == "branch.if"
     assert draft["slots"]["left"] == _LEFT_EXPR and draft["slots"]["right"] == "urgent"
 
     rehydrated = hydrate_node(draft)  # Designer가 draft를 그대로 복사해 돌려준 경우

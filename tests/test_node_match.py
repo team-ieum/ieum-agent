@@ -1,13 +1,10 @@
 import copy
-import glob
-import json
-import os
-import shutil
 
 import pytest
 
 from core import template_registry as tr
 from core.template_registry import TemplateSchemaError
+from tests.catalog_paths import copy_catalog, edit_entry
 
 
 @pytest.mark.parametrize("node, expected", [
@@ -22,15 +19,15 @@ from core.template_registry import TemplateSchemaError
     ({"type": "AI", "config": {"tools": [{"name": "builtin:web_search"}, {"name": "discord"}]}}, "ai.agent"),
     ({"type": "AI", "config": {"tools": [{"name": "mcp", "config": {"catalogId": "c"}}, {"name": "discord"}]}},
      "ai.agent"),
-    ({"type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}, "trigger.schedule"),
-    ({"type": "TRIGGER", "config": {"triggerType": "GMAIL_NEW_EMAIL", "query": ""}}, "trigger.gmail_new_email"),
-    ({"type": "TRIGGER", "config": {"triggerType": "GITHUB_NEW_ISSUE", "repoId": "1"}}, "trigger.github_new_issue"),
+    ({"type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}, "schedule.every"),
+    ({"type": "TRIGGER", "config": {"triggerType": "GMAIL_NEW_EMAIL", "query": ""}}, "gmail.new_email"),
+    ({"type": "TRIGGER", "config": {"triggerType": "GITHUB_NEW_ISSUE", "repoId": "1"}}, "github.new_issue"),
     # serviceType이 빠진 저장분도 triggerType만으로 연다(match는 serviceType을 보지 않는다)
-    ({"type": "trigger", "config": {"triggerType": "GITHUB_NEW_ISSUE"}}, "trigger.github_new_issue"),
-    ({"type": "TRIGGER", "config": {}}, "trigger.manual"),
-    ({"type": "TRIGGER", "config": {"triggerType": "MANUAL"}}, "trigger.manual"),
-    ({"type": "HTTP", "config": {"url": "x"}}, "http"),
-    ({"type": "ACTION", "config": {"tools": [{"name": "slack", "config": {}}]}}, "action.slack_send"),
+    ({"type": "trigger", "config": {"triggerType": "GITHUB_NEW_ISSUE"}}, "github.new_issue"),
+    ({"type": "TRIGGER", "config": {}}, "manual.run"),
+    ({"type": "TRIGGER", "config": {"triggerType": "MANUAL"}}, "manual.run"),
+    ({"type": "HTTP", "config": {"url": "x"}}, "http.request"),
+    ({"type": "ACTION", "config": {"tools": [{"name": "slack", "config": {}}]}}, "slack.send_message"),
 ])
 def test_match_saved_nodes(node, expected):
     assert tr.match_entry(node)["id"] == expected
@@ -63,7 +60,8 @@ def test_match_unknown_node_type_is_none():
 
 
 def test_builder_entries_order_most_specific_first():
-    ids = [t["id"] for t in tr.builder_entries()]
+    # 매칭 후보(builder + match 보유 프리셋)의 평가 순서. 프리셋은 빌더 목록엔 없다(설계 결정 4).
+    ids = [t["id"] for t in tr._match_entries()]
     assert ids.index("ai.github_query") < ids.index("ai.reasoning") < ids.index("ai.agent")
     assert all(t["builder"] for t in tr.builder_entries())
 
@@ -81,14 +79,9 @@ def test_agent_tool_choices_cover_actions():
 
 
 def test_duplicate_builder_match_rejected(tmp_path, monkeypatch):
-    for p in glob.glob(os.path.join(tr.TEMPLATES_DIR, "*.json")):
-        shutil.copy(p, tmp_path)
-    p = tmp_path / "ai.web_search.json"
-    raw = json.loads(p.read_text(encoding="utf-8"))
-    raw["match"] = {"type": "AI", "config.tools.0.name": "builtin:http_fetch", "config.tools.1": None}
-    p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(tr, "TEMPLATES_DIR", str(tmp_path))
-    monkeypatch.setattr(tr, "_cache", None)
+    root = copy_catalog(tmp_path, monkeypatch)
+    # branch.if는 match 키가 없다 — 로더 _default_match가 {type: CONDITION}을 만든다.
+    edit_entry(root, "http.request", lambda raw: raw.__setitem__("match", {"type": "CONDITION"}))
     with pytest.raises(TemplateSchemaError, match="match"):
         tr.load_templates(force=True)
 
@@ -97,4 +90,4 @@ def test_agent_tool_choices_exclude_dynamic_mount_services():
     """AI 노드 GitHub 계약은 tools: [] — 선택지에 github 액션이 있으면 FE가 tools에 넣어 계약이 깨진다."""
     tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
     assert not [c for c in tools["choices"] if "github" in c["id"]]
-    assert tr.get_template("action.github_list_issues")["builder"] is True   # 카탈로그엔 따로 있다
+    assert tr.get_template("github.list_issues")["builder"] is True   # 카탈로그엔 따로 있다

@@ -140,7 +140,7 @@ _CRON_PART_RE = re.compile(r"^[0-9A-Za-z*/,\-?LW#]+$")
 
 
 def _cron_errors(node: dict) -> list[dict]:
-    """SCHEDULE 트리거의 cron 형식. 비어 있으면 REQUIRED 몫(trigger.schedule 항목의 cron 칸)."""
+    """SCHEDULE 트리거의 cron 형식. 비어 있으면 REQUIRED 몫(schedule.every 항목의 cron 칸)."""
     config = node.get("config") if isinstance(node.get("config"), dict) else {}
     cron = config.get("cron")
     if config.get("triggerType") != "SCHEDULE" or cron in _EMPTY:
