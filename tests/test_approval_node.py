@@ -54,15 +54,15 @@ def test_validator_rejects_unknown_approval_config_field():
 
 def test_workflow_node_schema_accepts_approval():
     """저장된 APPROVAL 노드가 채팅 수정 요청(currentNodes)으로 되돌아와도 422가 나지 않는다."""
-    node = WorkflowNode(id="node-2", type="APPROVAL", label="발송 전 승인",
+    node = WorkflowNode(id="node-2", event="approval.request", label="발송 전 승인",
                         config={"message": "보내도 될까요?"})
     assert node.config == {"message": "보내도 될까요?"}
-    assert WorkflowNode(id="node-2", type="APPROVAL", label="승인", config={}).config == {}
+    assert WorkflowNode(id="node-2", event="approval.request", label="승인", config={}).config == {}
 
 
 def test_workflow_node_schema_rejects_non_string_message():
     with pytest.raises(ValidationError, match="문자열이어야"):
-        WorkflowNode(id="node-2", type="APPROVAL", label="승인", config={"message": 123})
+        WorkflowNode(id="node-2", event="approval.request", label="승인", config={"message": 123})
 
 
 def test_approval_message_survives_dehydrate_hydrate_round_trip():

@@ -63,7 +63,8 @@ def test_trigger_entries_accepted_by_workflow_node_schema():
     for t in tr.all_entries():
         if t["node_type"] == "TRIGGER":
             config = {**t["fixed"]["config"], "cron": "0 9 * * *"}
-            WorkflowNode(id="node-1", type="TRIGGER", event=t["event"], label=t["id"], config=config)
+            node = WorkflowNode(id="node-1", event=t["id"], label=t["id"], config=config)
+            assert node.type == "TRIGGER"
 
 
 def test_앱_트리거는_생성_경로에_없다():

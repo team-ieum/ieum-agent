@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Dict, Any
 
 
@@ -40,20 +40,22 @@ class WorkflowNodeDraft(BaseModel):
 _LEGACY_CONDITION_KEYS = {"leftValue": "left", "rightValue": "right"}
 
 # BE workflow-core TriggerType.java 미러. 레지스트리에서 파생하지 않는다(스키마는 BE 계약을 따른다) —
-# 레지스트리 TRIGGER 템플릿의 triggerType이 여기 있는지는 template_registry 로더가 검사한다.
+# 레지스트리 TRIGGER 템플릿의 trigger_type이 여기 있는지는 template_registry 로더가 검사한다.
 # tuple인 이유: frozenset이면 list 같은 unhashable 값의 `in` 검사가 TypeError(→ 500)가 된다.
 TRIGGER_TYPES = ("SCHEDULE", "MANUAL", "WEBHOOK", "GMAIL_NEW_EMAIL", "GITHUB_NEW_ISSUE")
 
 
 class WorkflowNode(BaseModel):
     id: str
-    type: str                          # TRIGGER | AI | HTTP | CONDITION | TRANSFORM | APPROVAL | ACTION
+    # TRIGGER | AI | HTTP | CONDITION | TRANSFORM | APPROVAL | ACTION. 아는 event면 카탈로그 node_type으로 덮는다
+    # (요청 값 무시, spec §4). 모르는 event(BE 카탈로그 ⊇ agent 카탈로그)일 때만 받은 값을 쓴다.
+    type: Optional[str] = None
     label: str
     # 노드 카드에 표시할 사용자용 자연어 설명. 템플릿의 description 슬롯이 필수로 채우지만,
     # description 도입 이전에 저장된 워크플로우가 수정/채팅 요청으로 되돌아오므로 기본값을 둔다.
     description: str = ""
-    # 카탈로그 이벤트 이름(앱.이벤트, spec §4). 옛 저장분엔 없다 — 필수로 두면 수정 요청이 전부 422가 된다.
-    event: Optional[str] = None
+    # 카탈로그 이벤트 이름(앱.이벤트, spec §4). 노드의 유일한 정체성 — 없으면 422.
+    event: str = Field(min_length=1)
     config: Dict[str, Any]
 
     @field_validator("description", mode="before")
@@ -68,21 +70,18 @@ class WorkflowNode(BaseModel):
 
     @model_validator(mode='after')
     def validate_config_by_type(self) -> 'WorkflowNode':
+        # 순환 import 회피: template_registry가 이 모듈의 TRIGGER_TYPES를 import한다.
+        from core.template_registry import event_entry
+        entry = event_entry({"event": self.event})
+        if entry is not None:
+            self.type = entry["node_type"]
+        elif not self.type:
+            raise ValueError(f"모르는 event 노드에는 type이 필요합니다: {self.event}")
         node_type = self.type.upper()
         cfg = self.config or {}
 
         if node_type == "TRIGGER":
-            # 순환 import 회피: template_registry가 이 모듈의 TRIGGER_TYPES를 import한다.
-            from core.template_registry import trigger_type_of
-            raw = cfg.get("triggerType")
-            # event가 있으면 레거시 값이 agent가 모르는 값이어도 받는다 — BE가 event에서 계산해 기록한 값일 수 있다.
-            if not self.event and raw is not None and raw not in TRIGGER_TYPES:
-                raise ValueError(f"유효하지 않은 triggerType입니다: {raw}")
-            # 레거시 config.triggerType 폴백은 이 스키마에만 남는다(IEUM-AI-78 Task 4에서 삭제).
-            trigger_type = trigger_type_of({"event": self.event, "config": cfg}) or (raw if raw in TRIGGER_TYPES else None)
-            if not trigger_type and not self.event:
-                raise ValueError("TRIGGER 노드에는 event 또는 config.triggerType이 필요합니다.")
-            if trigger_type == "SCHEDULE":
+            if entry is not None and entry.get("trigger_type") == "SCHEDULE":
                 cron = cfg.get("cron")
                 if not cron or not isinstance(cron, str):
                     raise ValueError("SCHEDULE 트리거 노드에는 cron 표현식이 필수입니다.")
@@ -129,13 +128,7 @@ class WorkflowNode(BaseModel):
                 raise ValueError("APPROVAL 노드의 message는 문자열이어야 합니다.")
 
         elif node_type == "ACTION":
-            # 빌더 전용 앱 액션(generation false). 채팅 수정에서는 pass-through로 서버 원본이 복원되므로
-            # config 내용은 검증하지 않는다 — BE 저장도 검증하지 않고, tools[0].name은 BE
-            # ActionNodeExecutor가 실행 시점에 확인한다(드래프트는 이름이 비어 있을 수 있어 여기서 보면 영구 422).
-            # 타입만 AI 노드와 같이 본다.
-            tools = cfg.get("tools")
-            if tools is not None and not isinstance(tools, list):
-                raise ValueError("ACTION 노드의 tools는 리스트 형식이어야 합니다.")
+            pass  # config는 칸 값뿐(spec §4). 칸 검사는 정적 검증이 카탈로그로 한다.
 
         else:
             raise ValueError(f"유효하지 않은 노드 type입니다: {self.type}")
