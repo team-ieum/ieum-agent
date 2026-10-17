@@ -550,7 +550,8 @@ async def test_chat_workflow_schedule_trigger_success():
         result = await _call("매주 금요일 17시 실행 스케줄 워크플로우 만들어줘")
 
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
-    assert result.nodes[0].config["triggerType"] == "SCHEDULE"
+    assert result.nodes[0].event == "schedule.every"
+    assert "triggerType" not in result.nodes[0].config
     assert result.nodes[0].config["cron"] == "0 17 * * 5"
 
 
@@ -619,7 +620,7 @@ async def test_chat_workflow_schedule_trigger_correction():
 
     assert call_index == 3
     assert result.type == ChatResponseType.WORKFLOW_GENERATED
-    assert result.nodes[0].config["triggerType"] == "SCHEDULE"
+    assert "triggerType" not in result.nodes[0].config
     assert result.nodes[0].config["cron"] == "0 17 * * 5"
     assert result.nodes[0].event == "schedule.every"
 

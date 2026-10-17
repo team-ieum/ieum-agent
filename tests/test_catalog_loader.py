@@ -18,12 +18,35 @@ def test_event_name_comes_from_path_and_presets_are_ai_agent():
     assert preset["builder"] is False and preset["node_type"] == "AI"
 
 
-def test_legacy_derived_values_still_injected():
-    t = tr.load_templates(force=True)
-    assert t["schedule.every"]["fixed"]["config"]["triggerType"] == "SCHEDULE"
-    assert t["gmail.new_email"]["fixed"]["config"]["serviceType"] == "GOOGLE"
-    assert t["ai.notion_create_page"]["fixed"]["config"]["serviceType"] == "NOTION"
-    assert "serviceType" not in t["manual.run"]["fixed"]["config"]
+def test_loader_injects_no_legacy_keys():
+    """옛 필드(config.triggerType·serviceType·ACTION tools)는 로더가 넣지 않는다(spec §4)."""
+    for t in tr.load_templates(force=True).values():
+        assert not {"triggerType", "serviceType"} & t["fixed"]["config"].keys(), t["id"]
+        if t["node_type"] == "ACTION":
+            assert t["fixed"] == {"type": "ACTION", "event": t["id"], "config": {}}, t["id"]
+
+
+def test_action_fields_are_flat_config_paths():
+    """ACTION 칸 = config.<칸>, AI 프리셋 도구 칸 = config.tools.0.config.<칸>(spec §4)."""
+    templates = tr.load_templates(force=True)
+    actions = [t for t in templates.values() if t["node_type"] == "ACTION"]
+    assert actions
+    for t in actions:
+        assert [f["path"] for f in t["inputFields"]] == [f"config.{f['key']}" for f in t["inputFields"]], t["id"]
+    for t in templates.values():
+        if t.get("preset") and t["tool_key"]:
+            tool_keys = {f["key"] for f in tr._tool_fields(t["tool_key"], {})}
+            for f in t["inputFields"]:
+                if f["key"] in tool_keys:
+                    assert f["path"] == f"config.tools.0.config.{f['key']}", (t["id"], f["key"])
+
+
+def test_only_presets_carry_match():
+    """이벤트는 event로만 판정한다 — match는 AI 프리셋 칸 규칙용으로 프리셋에만 남는다."""
+    for t in tr.load_templates(force=True).values():
+        assert "matchable" not in t, t["id"]
+        if not t.get("preset"):
+            assert "match" not in t, t["id"]
 
 
 def test_counts_and_builder_has_no_presets():
@@ -40,8 +63,6 @@ def test_presets_with_match_stay_matchable():
     assert tr.match_entry(mcp)["id"] == "ai.mcp"
     github = {"type": "AI", "config": {"agentType": "react", "tools": []}}
     assert tr.match_entry(github)["id"] == "ai.github_query"
-    matchable_presets = sorted(x["id"] for x in tr.load_templates().values() if x.get("preset") and x["matchable"])
-    assert matchable_presets == ["ai.github_query", "ai.http_fetch", "ai.mcp", "ai.web_search"]
 
 
 def test_brand_from_apps_json():
@@ -75,11 +96,11 @@ def test_event_file_must_not_carry_id(tmp_path, monkeypatch):
         tr.load_templates(force=True)
 
 
-def test_aliases_must_be_str_map(tmp_path, monkeypatch):
+def test_loads_without_aliases_json(tmp_path, monkeypatch):
+    """aliases.json(옛 templateId 별칭)은 읽지 않는다 — 없어도 로드된다."""
     root = copy_catalog(tmp_path, monkeypatch)
-    (root / "aliases.json").write_text("[]")
-    with pytest.raises(tr.TemplateSchemaError, match="aliases.json"):
-        tr.load_templates(force=True)
+    (root / "aliases.json").unlink(missing_ok=True)
+    assert "schedule.every" in tr.load_templates(force=True)
 
 
 def test_missing_apps_json_fails_with_submodule_hint(tmp_path, monkeypatch):
@@ -88,3 +109,13 @@ def test_missing_apps_json_fails_with_submodule_hint(tmp_path, monkeypatch):
     with pytest.raises(tr.TemplateSchemaError) as e:
         tr.load_templates(force=True)
     assert "apps.json" in str(e.value) and "submodule update --init" in str(e.value)
+
+
+def test_duplicate_preset_match_rejected(tmp_path, monkeypatch):
+    root = copy_catalog(tmp_path, monkeypatch)
+    presets = json.loads((root / "presets.json").read_text(encoding="utf-8"))
+    by_id = {p["id"]: p for p in presets}
+    by_id["ai.http_fetch"]["match"] = by_id["ai.web_search"]["match"]
+    (root / "presets.json").write_text(json.dumps(presets, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(tr.TemplateSchemaError, match="match가 같다"):
+        tr.load_templates(force=True)

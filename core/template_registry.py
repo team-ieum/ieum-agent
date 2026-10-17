@@ -53,8 +53,6 @@ PASSTHROUGH_TEMPLATE_ID = "__passthrough__"
 
 # 모듈 캐시 (파일은 기동 중 불변)
 _cache: dict | None = None
-# 옛 이름 → 이벤트(catalog/aliases.json). _cache와 함께 갱신한다.
-_aliases: dict = {}
 
 
 class TemplateSchemaError(ValueError):
@@ -117,7 +115,7 @@ def _validate_template(tpl: dict, where: str, tool_keys: set, apps: dict) -> Non
         if name and name != "mcp" and name not in tool_keys and resolve_action_fn(name) is None:
             raise TemplateSchemaError(f"{tid}: fixed tools '{name}'가 _TOOL_MAP에 없음(드리프트)")
     if "serviceType" in fixed_config:
-        raise TemplateSchemaError(f"{tid}: serviceType은 쓰지 않는다 — apps.json에서 로더가 넣는다.")
+        raise TemplateSchemaError(f"{tid}: serviceType은 폐지됐다 — 쓰지 않는다(spec §4).")
     app = tpl.get("app")
     if app is not None and app not in apps:
         raise TemplateSchemaError(f"{tid}: 앱 '{app}'가 apps.json에 없다.")
@@ -205,27 +203,25 @@ def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
     t["event"] = PRESET_EVENT if t.get("preset") else t["id"]
     t["fixed"]["event"] = t["event"]
     cfg = t["fixed"].setdefault("config", {})
-    if t["node_type"] == "TRIGGER" and not t.get("preset"):
-        cfg["triggerType"] = t["trigger_type"]  # 레거시 파생 값(spec §6.3) — 5단계+1릴리스까지 기록한다
-    # match를 직접 쓴 프리셋은 빌더엔 안 나와도 저장 노드 매칭 후보로 남는다("spec과 다른 점" 2).
-    t["matchable"] = t["builder"] or (bool(t.get("preset")) and "match" in tpl)
     app = apps.get(t["app"]) if t.get("app") else None
     t["provider"] = app["provider"] if app else None
-    if app and app["serviceType"]:
-        cfg["serviceType"] = app["serviceType"]
     common = AI_COMMON_FIELDS if t["node_type"] == "AI" else []
     direct = [{**f, "path": f.get("path") or f"config.{f['key']}"}
               for f in merge_common(common, t.get("inputFields") or [])]
-    tool = [{**f, "path": f"config.tools.0.config.{f['key']}"}
-            for f in copy.deepcopy(tool_fields.get(t["tool_key"], []))] if t["tool_key"] else []
+    tool = copy.deepcopy(tool_fields.get(t["tool_key"], [])) if t["tool_key"] else []
+    if t["node_type"] == "ACTION":
+        # ACTION 칸은 노드 config 바로 아래다(spec §4) — 직속 칸과 같은 취급(허용 키·_names·필수 슬롯).
+        direct += [{**f, "path": f"config.{f['key']}"} for f in tool]
+        tool = []
+    else:
+        tool = [{**f, "path": f"config.tools.0.config.{f['key']}"} for f in tool]
     t["inputFields"] = direct + tool
     t["outputFields"] = (copy.deepcopy(AI_COMMON_OUTPUTS) if t["node_type"] == "AI" else []) \
         + copy.deepcopy(t.get("outputFields") or [])
     t["slots"] = derive_slots(direct, tool)
     t["allowed_config_fields"] = derive_allowed_config(cfg, direct)
-    t["match"] = t.get("match") or _default_match(t)
     # 카탈로그 응답이 fixed.config.brand로 내보낸다. fixed 자체엔 넣지 않는다 — 생성 경로(hydrate_node가
-    # fixed.config를 복사, 스냅샷 테스트가 fixed를 비교)가 보는 값이 바뀌기 때문이다.
+    # fixed.config를 복사)가 보는 값이 바뀌기 때문이다.
     t["brand"] = app["brand"] if app else brand_for_entry(t)
     return t
 
@@ -240,8 +236,8 @@ def _read_json(path: str):
             raise TemplateSchemaError(f"{os.path.relpath(path, CATALOG_DIR)}: JSON 파싱 실패 - {e}")
 
 
-def _read_catalog() -> tuple[dict, list, dict]:
-    """카탈로그 → (apps, 원본 항목 목록, aliases). 이벤트 이름은 경로에서 계산해 id·app으로 넣고, 프리셋은
+def _read_catalog() -> tuple[dict, list]:
+    """카탈로그 → (apps, 원본 항목 목록). 이벤트 이름은 경로에서 계산해 id·app으로 넣고, 프리셋은
     node_type AI·빌더 비노출로 표시한다. 카탈로그가 비면 기동 실패다(spec §5.3) — 서브모듈 미초기화를
     빈 카탈로그로 조용히 넘기면 생성·검증이 엉뚱하게 돈다."""
     events_dir = os.path.join(CATALOG_DIR, "events")
@@ -273,10 +269,7 @@ def _read_catalog() -> tuple[dict, list, dict]:
         entries.append({**p, "node_type": "AI", "builder": False, "preset": True})
     # id 정렬 — select_by_tags 동점·subagent_service_for_node의 "첫 AI 항목"이 이 순서를 따른다("spec과 다른 점" 3).
     entries.sort(key=lambda e: e.get("id", ""))
-    aliases = _read_json(os.path.join(CATALOG_DIR, "aliases.json"))
-    if not (isinstance(aliases, dict) and all(isinstance(v, str) for v in aliases.values())):
-        raise TemplateSchemaError("aliases.json은 {옛 templateId: 이벤트 이름} 객체여야 한다.")
-    return apps, entries, aliases
+    return apps, entries
 
 
 def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
@@ -285,13 +278,13 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
     그 정의를 그대로 쓴다."""
     from core.node_fields import FieldError
 
-    global _cache, _aliases
+    global _cache
     if _cache is not None and not force:
         return _cache
     if tool_keys is None:
         tool_keys = _tool_map_keys()
 
-    apps, entries, aliases = _read_catalog()
+    apps, entries = _read_catalog()
     raw: dict = {}
     for tpl in entries:
         _validate_template(tpl, tpl.get("id", "?"), tool_keys, apps)
@@ -330,11 +323,11 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
                     f"{t['id']}: '{f['key']}'의 optionsInputs {sorted(bad)}가 같은 항목의 필드가 아니다.")
     seen: dict = {}
     for t in templates.values():
-        if not t["matchable"]:
+        if not t.get("preset") or "match" not in t:
             continue
         key = json.dumps(t["match"], sort_keys=True)
         if key in seen:
-            raise TemplateSchemaError(f"매칭 항목 '{seen[key]}'·'{t['id']}'의 match가 같다.")
+            raise TemplateSchemaError(f"프리셋 '{seen[key]}'·'{t['id']}'의 match가 같다.")
         seen[key] = t["id"]
     agent = templates.get(_AGENT_ENTRY_ID)
     if agent is not None:
@@ -347,7 +340,6 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
                                   if t["node_type"] == "ACTION" and t["builder"] and t["tool_key"] in tool_keys]
 
     _cache = templates
-    _aliases = aliases
     return templates
 
 
@@ -372,16 +364,6 @@ def all_entries() -> list:
 _AGENT_ENTRY_ID = "ai.agent"
 
 
-def _default_match(t: dict) -> dict:
-    """저장된 노드 → 항목 매칭 기본 규칙(spec §3.4). 그 밖의 조건이 필요하면 항목이 match를 직접 쓴다."""
-    match = {"type": t["node_type"]}
-    if t["tool_key"]:
-        match["config.tools.0.name"] = t["tool_key"]
-    if t["node_type"] == "TRIGGER":
-        match["config.triggerType"] = t["fixed"]["config"].get("triggerType")
-    return match
-
-
 def _matches(match: dict, node: dict) -> bool:
     """match의 모든 (경로, 값)이 맞으면 True. 값 None은 '경로가 없거나 null·빈 문자열·빈 목록'."""
     for path, expected in match.items():
@@ -395,7 +377,6 @@ def _matches(match: dict, node: dict) -> bool:
 
 
 # (정렬 기준 dict, 결과). dict가 바뀌면 다시 정렬한다 — lru_cache는 인자가 없어 재로드 후에도 낡은 결과를 준다.
-_builder_memo: tuple = (None, ())
 _match_memo: tuple = (None, ())
 
 
@@ -404,20 +385,16 @@ def _by_specificity(entries) -> tuple:
 
 
 def builder_entries() -> list:
-    """빌더 목록(카탈로그 API·액션 허용 목록·도구 선택지). 프리셋은 없다(설계 결정 4). match 평가 순서."""
-    global _builder_memo
-    templates = load_templates()
-    if _builder_memo[0] is not templates:
-        _builder_memo = (templates, _by_specificity(t for t in templates.values() if t["builder"]))
-    return list(_builder_memo[1])
+    """빌더 목록(카탈로그 API·액션 허용 목록·도구 선택지). 프리셋은 없다(설계 결정 4). id 순."""
+    return [t for t in load_templates().values() if t["builder"]]
 
 
 def _match_entries() -> list:
-    """저장 노드 매칭 후보 = builder 항목 + match를 직접 쓴 프리셋. 조건 수 내림차순(구체적인 것 먼저)."""
+    """AI 노드의 프리셋 매칭 후보 = match를 쓴 프리셋. 조건 수 내림차순(구체적인 것 먼저)."""
     global _match_memo
     templates = load_templates()
     if _match_memo[0] is not templates:
-        _match_memo = (templates, _by_specificity(t for t in templates.values() if t["matchable"]))
+        _match_memo = (templates, _by_specificity(t for t in templates.values() if t.get("preset") and "match" in t))
     return list(_match_memo[1])
 
 
@@ -609,8 +586,7 @@ def resolve_template_for_node(node: dict) -> dict | None:
     if ntype == "TRIGGER":
         trigger_type = trigger_type_of(node)
         for tpl in templates.values():
-            if tpl["node_type"] == "TRIGGER" and \
-                    tpl["fixed"].get("config", {}).get("triggerType") == trigger_type:
+            if tpl["node_type"] == "TRIGGER" and tpl.get("trigger_type") == trigger_type:
                 return tpl
         return None
 
@@ -728,10 +704,6 @@ def hydrate_node(
         return node
     templates = _generation_templates()
     tpl = templates.get(tid)
-    alias = _aliases.get(tid) if isinstance(tid, str) else None
-    if tpl is None and alias not in (None, PRESET_EVENT, tid):
-        # 옛 대화 기록(agent_sessions)의 옛 templateId 대비 — 5단계까지. 프리셋 별칭(ai.agent)은 잇지 않는다.
-        tpl = templates.get(alias)
     if tpl is None:
         raise SlotFillError(f"존재하지 않는 templateId '{tid}'. 사용 가능: {sorted(templates)}")
     slots_in = draft.get("slots")

@@ -90,7 +90,7 @@ def test_validator_rejects_legacy_key_on_node():
     """구표기 키는 화이트리스트 밖이다 — 하류로 흘리면 검증에서 걸린다(스키마 관문 정규화의 근거)."""
     with pytest.raises(WorkflowValidationError, match="leftValue"):
         WorkflowValidator.validate(
-            [{"id": "node-1", "type": "TRIGGER", "label": "시작", "config": {"triggerType": "MANUAL"}},
+            [{"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "시작", "config": {}},
              _condition_node(LEGACY_CFG)],
             [{"source": "node-1", "target": "node-2", "conditionType": None}],
         )

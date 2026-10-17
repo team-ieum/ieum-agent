@@ -18,9 +18,7 @@ def test_gmail_entry_shape():
         "id": GMAIL, "kind": "trigger", "provider": "google",
         "nodeType": "TRIGGER", "app": "gmail",
         "title": "새 Gmail 메일", "description": "받은편지함에 새 메일이 오면 시작해요.",
-        "match": {"type": "TRIGGER", "config.triggerType": "GMAIL_NEW_EMAIL"},
-        "fixed": {"type": "TRIGGER", "event": GMAIL,
-                  "config": {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE", "brand": "gmail"}},
+        "fixed": {"type": "TRIGGER", "event": GMAIL, "config": {"brand": "gmail"}},
         "inputFields": [{"key": "query", "title": "검색 조건", "type": "string", "ref": False,
                          "path": "config.query",
                          "description": "Gmail 검색식 (예: from:boss@example.com). 비우면 받은편지함 전체"}],
@@ -43,9 +41,7 @@ def test_github_entry_shape():
         "id": GITHUB, "kind": "trigger", "provider": "github",
         "nodeType": "TRIGGER", "app": "github",
         "title": "새 GitHub 이슈", "description": "저장소에 새 이슈가 열리면 시작해요.",
-        "match": {"type": "TRIGGER", "config.triggerType": "GITHUB_NEW_ISSUE"},
-        "fixed": {"type": "TRIGGER", "event": GITHUB,
-                  "config": {"triggerType": "GITHUB_NEW_ISSUE", "serviceType": "GITHUB", "brand": "github"}},
+        "fixed": {"type": "TRIGGER", "event": GITHUB, "config": {"brand": "github"}},
         "inputFields": [{"key": "repoId", "title": "저장소", "type": "string", "required": True, "ref": False,
                          "path": "config.repoId", "optionsSource": "github.installed_repos",
                          "description": "새 이슈를 지켜볼 저장소"}],
@@ -63,11 +59,11 @@ def test_github_entry_shape():
 
 
 def test_trigger_entries_accepted_by_workflow_node_schema():
-    """카탈로그 TRIGGER 항목의 triggerType은 전부 채팅 currentNodes 스키마가 받는다(어긋나면 수정이 422)."""
+    """카탈로그 TRIGGER 항목은 전부 채팅 currentNodes 스키마가 받는다(어긋나면 수정이 422)."""
     for t in tr.all_entries():
         if t["node_type"] == "TRIGGER":
             config = {**t["fixed"]["config"], "cron": "0 9 * * *"}
-            WorkflowNode(id="node-1", type="TRIGGER", label=t["id"], config=config)
+            WorkflowNode(id="node-1", type="TRIGGER", event=t["event"], label=t["id"], config=config)
 
 
 def test_앱_트리거는_생성_경로에_없다():

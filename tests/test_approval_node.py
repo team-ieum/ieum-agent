@@ -16,8 +16,8 @@ from core.validators.workflow_validator import WorkflowValidator, WorkflowValida
 def _gated_workflow(approval_config: dict):
     """TRIGGER → APPROVAL → AI. AI는 게이트 출력(승인자)을 참조한다."""
     nodes = [
-        {"id": "node-1", "type": "TRIGGER", "label": "매일 아침 9시",
-         "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}},
+        {"id": "node-1", "type": "TRIGGER", "event": "schedule.every", "label": "매일 아침 9시",
+         "config": {"cron": "0 9 * * *"}},
         {"id": "node-2", "type": "APPROVAL", "label": "발송 전 승인",
          "description": "보내기 전에 담당자가 확인하고 승인해요.", "config": approval_config},
         {"id": "node-3", "type": "AI", "label": "뉴스 수집",

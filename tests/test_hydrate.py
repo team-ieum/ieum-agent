@@ -80,20 +80,15 @@ def test_hydrate_schedule_trigger():
     draft = {"templateId": "schedule.every",
              "slots": {"label": "매일 9시", "description": "이 노드가 하는 일을 쉽게 설명해요.", "cron": "0 9 * * *"}}
     node = hydrate_node(draft)
-    assert node["type"] == "TRIGGER"
-    assert node["config"]["triggerType"] == "SCHEDULE"  # fixed
-    assert node["config"]["cron"] == "0 9 * * *"
+    assert node["type"] == "TRIGGER" and node["event"] == "schedule.every"
+    assert node["config"] == {"cron": "0 9 * * *"}       # 옛 config.triggerType은 쓰지 않는다
 
 
-def test_hydrate_old_template_id_follows_alias():
-    """옛 대화 기록의 옛 templateId(trigger.schedule)는 별칭이 가리키는 이벤트로 hydrate된다."""
-    node = hydrate_node({"id": "n1", "templateId": "trigger.schedule",
-                         "slots": {"label": "매일 9시", "description": "정해둔 시각에 시작해요.", "cron": "0 9 * * *"}})
-    assert node == hydrate_node({"id": "n1", "templateId": "schedule.every",
-                                 "slots": {"label": "매일 9시", "description": "정해둔 시각에 시작해요.",
-                                           "cron": "0 9 * * *"}})
-    assert node["type"] == "TRIGGER" and node["config"]["triggerType"] == "SCHEDULE"
-    assert node["event"] == "schedule.every"
+def test_hydrate_old_template_id_rejected():
+    """옛 templateId(별칭)는 잇지 않는다 — 옛 데이터가 없다(spec §0)."""
+    with pytest.raises(SlotFillError, match="trigger.schedule"):
+        hydrate_node({"id": "n1", "templateId": "trigger.schedule",
+                      "slots": {"label": "매일 9시", "description": "정해둔 시각에 시작해요.", "cron": "0 9 * * *"}})
 
 
 def test_hydrate_preset_id_unchanged_and_unknown_still_rejected():
@@ -378,8 +373,8 @@ def test_passthrough_mcp_authorization_still_enforced():
     """내용 검증은 면제해도 MCP 인가는 유지한다 — 면제는 '옛 규칙으로 저장된 값을 봐준다'는
     뜻이지 남의 리소스를 써도 된다는 뜻이 아니다."""
     nodes = [
-        {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명",
-         "config": {"triggerType": "MANUAL"}},
+        {"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "시작", "description": "설명",
+         "config": {}},
         {"id": "node-2", "type": "AI", "label": "MCP", "description": "설명",
          "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "p", "agentType": "react",
                     "tools": [{"name": "mcp", "config": {"catalogId": "남의-서버"}}]}},
@@ -471,8 +466,8 @@ def test_rerender_new_node_gets_default_model():
 
 # --- Sheets 리소스 슬롯 (IEUM-AI-60) ------------------------------------------
 
-_TRIGGER = {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명",
-            "config": {"triggerType": "MANUAL"}}
+_TRIGGER = {"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "시작", "description": "설명",
+            "config": {}}
 
 
 def _sheets_draft(**slots) -> dict:
@@ -596,11 +591,14 @@ def test_트리거_passthrough_draft는_레지스트리에_없는_triggerType을
     assert "triggerType" not in dehydrate_node(node)["node"]
 
 
-def test_hydrate_writes_event_and_keeps_legacy_trigger_type():
-    node = hydrate_node({"id": "n1", "templateId": "schedule.every",
-                         "slots": {"label": "매일", "description": "매일 시작해요.", "cron": "0 9 * * *"}})
-    assert node["event"] == "schedule.every"
-    assert node["config"]["triggerType"] == "SCHEDULE"          # 레거시 기록 유지(spec §6.3)
+def test_hydrated_nodes_carry_no_legacy_keys():
+    """생성 경로 노드에는 event만 있고 config.triggerType·serviceType이 없다(spec §4)."""
+    node = hydrate_node({"id": "n1", "templateId": "manual.run",
+                         "slots": {"label": "시작", "description": "버튼으로 시작해요."}})
+    assert node["event"] == "manual.run" and "triggerType" not in node["config"]
+    node = hydrate_node({"id": "n2", "templateId": "ai.notion_create_page",
+                         "slots": {"label": "저장", "description": "저장해요.", "prompt": "저장해"}}, provider="GEMINI")
+    assert "serviceType" not in node["config"]
 
 
 def test_hydrate_preset_writes_ai_agent_event():
