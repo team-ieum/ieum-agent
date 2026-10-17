@@ -385,18 +385,6 @@ def builder_entries() -> list:
     return [t for t in load_templates().values() if t["builder"]]
 
 
-def _match_view(node: dict) -> dict:
-    """매칭용 노드 사본(원본 불변). 옛 저장 모양을 맞춘다 — type 대문자, 문자열 tools 원소 → {"name": s}
-    (BE AgentNodeExecutor.parseTools·resolve_template_for_node와 같은 의미)."""
-    view = dict(node)
-    if isinstance(view.get("type"), str):
-        view["type"] = view["type"].upper()
-    config = view.get("config")
-    if isinstance(config, dict) and isinstance(config.get("tools"), list):
-        view["config"] = {**config, "tools": [{"name": t} if isinstance(t, str) else t for t in config["tools"]]}
-    return view
-
-
 # (정렬 기준 dict, 결과). dict가 바뀌면 다시 정렬한다 — lru_cache는 인자가 없어 재로드 후에도 낡은 결과를 준다.
 _preset_memo: tuple = (None, ())
 
