@@ -126,6 +126,7 @@ def test_chat_endpoint_앱_트리거_currentNodes_수용(event, config):
     {"id": "node-1", "type": "TRIGGER", "label": "시작", "config": {"triggerType": "MANUAL"}},   # event 없음
     {"id": "node-1", "type": "TRIGGER", "label": "시작", "event": None, "config": {}},
     {"id": "node-1", "label": "시작", "event": "stripe.new_payment", "config": {}},             # 모르는 event + type 없음
+    {"id": "node-1", "type": "AI", "label": "검색", "event": "ai.web_search", "config": {"llmProvider": "CLAUDE"}},  # 프리셋 id
 ])
 def test_chat_endpoint_event_없는_노드는_422(node):
     payload = dict(CHAT_PAYLOAD, currentNodes=[node], currentEdges=[])

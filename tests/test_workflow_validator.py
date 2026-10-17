@@ -13,7 +13,7 @@ VALID_WORKFLOW = {
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.agent",
             "label": "뉴스 수집",
             "config": {
                 "llmProvider": "GEMINI",
@@ -49,7 +49,7 @@ def test_missing_trigger_raises():
     invalid_nodes = [
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.reasoning",
             "label": "뉴스 수집",
             "config": {"llmProvider": "GEMINI"}
         }
@@ -62,7 +62,7 @@ def test_first_node_not_trigger_raises():
     invalid_nodes = [
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.reasoning",
             "label": "뉴스 수집",
             "config": {"llmProvider": "GEMINI"}
         },
@@ -175,7 +175,7 @@ def test_edge_pointing_to_trigger_raises():
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.agent",
             "label": "AI 노드",
             "config": {"llmProvider": "OPENAI", "agentType": "react", "credentialId": ""}
         }
@@ -199,13 +199,13 @@ def test_unreachable_orphan_node_raises():
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.agent",
             "label": "연결된 노드",
             "config": {"llmProvider": "OPENAI", "agentType": "react", "credentialId": ""}
         },
         {
             "id": "node-3",
-            "type": "AI",
+            "type": "AI", "event": "ai.agent",
             "label": "고아 노드",
             "config": {"llmProvider": "OPENAI", "agentType": "react", "credentialId": ""}
         }
@@ -229,7 +229,7 @@ def test_mismatched_brackets_raises():
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.reasoning",
             "label": "AI 노드",
             "config": {
                 "llmProvider": "OPENAI",
@@ -252,7 +252,7 @@ def test_invalid_reference_format_raises():
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.reasoning",
             "label": "AI 노드",
             "config": {
                 "llmProvider": "OPENAI",
@@ -278,7 +278,7 @@ def _wf_with_ai_tools(tools):
             },
             {
                 "id": "node-2",
-                "type": "AI",
+                "type": "AI", "event": "ai.agent",
                 "label": "AI 노드",
                 "config": {"llmProvider": "CLAUDE", "agentType": "react", "tools": tools}
             }
@@ -349,7 +349,7 @@ def _trigger():
 def test_config_unknown_field_rejected():
     """템플릿에 없는 config 필드(환각)는 거부된다."""
     nodes = [_trigger(),
-             {"id": "node-2", "type": "AI", "label": "ai",
+             {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "ai",
               "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "x",
                          "agentType": "react", "tools": [], "temperature": 0.7}}]
     edges = [{"source": "node-1", "target": "node-2"}]
@@ -362,7 +362,7 @@ def test_config_universal_credential_id_allowed():
     """플랫폼 공통 필드(credentialId)는 모든 노드 타입에서 허용된다."""
     nodes = [{"id": "node-1", "type": "TRIGGER", "label": "트리거",
               "event": "manual.run", "config": {"credentialId": ""}},
-             {"id": "node-2", "type": "AI", "label": "ai",
+             {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "ai",
               "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "x",
                          "agentType": "react", "tools": []}}]
     edges = [{"source": "node-1", "target": "node-2"}]
@@ -373,7 +373,7 @@ def test_config_manual_trigger_with_cron_rejected():
     """MANUAL 트리거에 cron 같은 타입별 무관 필드는 거부된다(event별 정확 매칭)."""
     nodes = [{"id": "node-1", "type": "TRIGGER", "label": "트리거",
               "event": "manual.run", "config": {"cron": "0 9 * * *"}},
-             {"id": "node-2", "type": "AI", "label": "ai",
+             {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "ai",
               "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "x",
                          "agentType": "react", "tools": []}}]
     edges = [{"source": "node-1", "target": "node-2"}]
@@ -387,7 +387,7 @@ def _wf_with_prompt(prompt, ai_id="node-2"):
     return (
         [
             {"id": "node-1", "type": "TRIGGER", "label": "트리거", "event": "manual.run", "config": {}},
-            {"id": ai_id, "type": "AI", "label": "AI 노드",
+            {"id": ai_id, "type": "AI", "event": "ai.reasoning", "label": "AI 노드",
              "config": {"llmProvider": "GEMINI", "agentType": "simple", "tools": [], "prompt": prompt}},
         ],
         [{"source": "node-1", "target": ai_id}],
@@ -453,3 +453,14 @@ def test_pass_through_노드의_리스트_아닌_tools는_TypeError_없이_통�
         {"id": "n2", "type": "ACTION", "event": "jira.create_issue", "config": {"tools": 1}},
     ]
     WorkflowValidator.validate(nodes, [{"source": "n1", "target": "n2"}], set(), unvalidated_node_ids={"n2"})
+
+
+def test_pass_through_노드의_해시_불가_catalogId는_미인가로_거부():
+    """요청 바디의 catalogId가 리스트여도 set 멤버십 검사가 unhashable(500) 대신 미인가 에러가 된다."""
+    nodes = [
+        {"id": "n1", "type": "TRIGGER", "event": "manual.run", "config": {}},
+        {"id": "n2", "type": "AI", "event": "ai.agent",
+         "config": {"llmProvider": "CLAUDE", "tools": [{"name": "mcp", "config": {"catalogId": ["x"]}}]}},
+    ]
+    with pytest.raises(WorkflowValidationError, match="MCP 도구를 사용할 수 없습니다"):
+        WorkflowValidator.validate(nodes, [{"source": "n1", "target": "n2"}], {"x"}, unvalidated_node_ids={"n2"})

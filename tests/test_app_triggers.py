@@ -96,7 +96,7 @@ def test_앱_트리거_노드는_채팅에서_passthrough로_보존된다(config
     ({"id": "n3", "type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "zzz_unknown"}]}}, True),
 ])
 def test_passthrough_log_skips_builder_only_entries(node, logged, caplog):
-    """빌더 전용 항목은 설계상 늘 pass-through라 로그 생략. 미매칭 AI(ai.agent catch-all)는 회귀 신호라 유지."""
+    """빌더 전용 항목은 설계상 늘 pass-through라 로그 생략. 프리셋 match가 안 맞는 AI 노드의 기본 항목(ai.agent)은 회귀 신호라 유지."""
     with caplog.at_level("INFO", logger="core.template_registry"):
         assert tr.dehydrate_node(node)["templateId"] == PASSTHROUGH_TEMPLATE_ID
     assert any("pass-through 강등" in r.message for r in caplog.records) is logged

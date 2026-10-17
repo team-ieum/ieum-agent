@@ -54,8 +54,8 @@ class WorkflowNode(BaseModel):
     # 노드 카드에 표시할 사용자용 자연어 설명. 템플릿의 description 슬롯이 필수로 채우지만,
     # description 도입 이전에 저장된 워크플로우가 수정/채팅 요청으로 되돌아오므로 기본값을 둔다.
     description: str = ""
-    # 카탈로그 이벤트 이름(앱.이벤트, spec §4). 노드의 유일한 정체성 — 없으면 422.
-    event: str = Field(min_length=1)
+    # 카탈로그 이벤트 이름(앱.이벤트, spec §4). 노드의 유일한 정체성 — 없거나 공백이 섞이면 422(BE @NotBlank).
+    event: str = Field(pattern=r"^\S+$")
     config: Dict[str, Any]
 
     @field_validator("description", mode="before")
@@ -71,7 +71,9 @@ class WorkflowNode(BaseModel):
     @model_validator(mode='after')
     def validate_config_by_type(self) -> 'WorkflowNode':
         # 순환 import 회피: template_registry가 이 모듈의 TRIGGER_TYPES를 import한다.
-        from core.template_registry import event_entry
+        from core.template_registry import event_entry, load_templates
+        if (load_templates().get(self.event) or {}).get("preset"):
+            raise ValueError(f"프리셋 id는 event가 아닙니다 — ai.agent를 씁니다: {self.event}")
         entry = event_entry({"event": self.event})
         if entry is not None:
             self.type = entry["node_type"]

@@ -41,12 +41,19 @@ def _node(**kw):
     return WorkflowNode(**{"id": "n1", "label": "t", "config": {}, **kw})
 
 
-@pytest.mark.parametrize("event", [None, ""])
+@pytest.mark.parametrize("event", [None, "", " ", "  manual.run"])
 def test_event_없거나_비면_422(event):
     with pytest.raises(ValidationError, match="event"):
         _node(type="APPROVAL", event=event)
     with pytest.raises(ValidationError, match="event"):
         _node(type="APPROVAL")
+
+
+@pytest.mark.parametrize("event", ["ai.web_search", "ai.mcp"])
+def test_프리셋_id_event는_422(event):
+    """event는 카탈로그 이벤트 이름이지 프리셋 id가 아니다(spec §4) — 모르는 event로 통과시키지 않는다."""
+    with pytest.raises(ValidationError, match="프리셋"):
+        _node(type="AI", event=event, config={"llmProvider": "CLAUDE"})
 
 
 def test_아는_event면_type을_카탈로그_node_type으로_덮는다():

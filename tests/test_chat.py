@@ -773,6 +773,7 @@ def test_strip_invalid_webhook_credentials_비문자열_도구_이름은_무시�
     from core.workflow_chat import _strip_invalid_webhook_credentials
     nodes = [{"id": "a", "type": "AI", "config": {"tools": [{"name": ["slack"], "config": {"webhookCredentialId": "x"}}]}}]
     _strip_invalid_webhook_credentials(nodes, {"wh-1"})
+    assert nodes[0]["config"]["tools"][0]["config"] == {"webhookCredentialId": "x"}  # 웹훅 도구 이름이 아니라 그대로
 
 
 @pytest.mark.asyncio

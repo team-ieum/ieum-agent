@@ -400,7 +400,7 @@ def _preset_matchers() -> list:
 
 def event_entry(node: dict) -> dict | None:
     """노드 종류의 유일한 판정(spec §4) — event가 가리키는 카탈로그 이벤트 항목. event가 없거나, 문자열이 아니거나,
-    모르는 이름이거나(BE 카탈로그 ⊇ agent 카탈로그), 프리셋 id면 None. 옛 필드(config.triggerType·tools)는 보지 않는다."""
+    모르는 이름이거나(BE 카탈로그 ⊇ agent 카탈로그), 프리셋 id면 None. 옛 필드는 보지 않는다."""
     event = node.get("event") if isinstance(node, dict) else None
     if not isinstance(event, str):
         return None

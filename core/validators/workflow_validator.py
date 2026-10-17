@@ -217,7 +217,7 @@ class WorkflowValidator:
         allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
         cfg = tool.get("config") if isinstance(tool, dict) else None
         catalog_id = cfg.get("catalogId") if isinstance(cfg, dict) else None
-        if catalog_id and catalog_id in allowed_mcp_catalog_ids:
+        if isinstance(catalog_id, str) and catalog_id and catalog_id in allowed_mcp_catalog_ids:
             return
         raise WorkflowValidationError(
             f"AI 노드 '{node_id}'의 MCP 도구를 사용할 수 없습니다. "

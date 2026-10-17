@@ -190,13 +190,13 @@ def field_errors(node: dict) -> list[dict]:
     return errors
 
 
-def _unused_field(entry: dict, view: dict, path: str) -> bool:
+def _unused_field(entry: dict, node: dict, path: str) -> bool:
     """실행기가 읽지 않는 칸 — 칸 검사와 참조 검사가 함께 건너뛴다(spec §7-16)."""
     if path == "config.right" and entry["node_type"] == "CONDITION":
-        return _get_by_path(view, "config.operator") in _RIGHT_UNUSED_OPERATORS
+        return _get_by_path(node, "config.operator") in _RIGHT_UNUSED_OPERATORS
     # BE HttpNodeExecutor는 webhookCredentialId가 채워져 있으면 url을 읽지 않는다(BE-62: url에 웹훅 주소 금지)
     if path == "config.url" and entry["node_type"] == "HTTP":
-        return bool(str(_get_by_path(view, "config.webhookCredentialId") or "").strip())
+        return bool(str(_get_by_path(node, "config.webhookCredentialId") or "").strip())
     return False
 
 
