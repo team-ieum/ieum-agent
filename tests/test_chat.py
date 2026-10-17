@@ -768,6 +768,13 @@ def test_strip_invalid_webhook_credentials_비문자열_id는_지운다():
     assert nodes[1]["config"]["tools"][0]["config"] == {}
 
 
+def test_strip_invalid_webhook_credentials_비문자열_도구_이름은_무시한다():
+    """요청 바디의 tools[].name이 리스트여도 set 멤버십 검사가 unhashable로 500이 나지 않는다."""
+    from core.workflow_chat import _strip_invalid_webhook_credentials
+    nodes = [{"id": "a", "type": "AI", "config": {"tools": [{"name": ["slack"], "config": {"webhookCredentialId": "x"}}]}}]
+    _strip_invalid_webhook_credentials(nodes, {"wh-1"})
+
+
 @pytest.mark.asyncio
 async def test_chat_workflow_결과_노드는_event만_기록한다():
     p1, p2, p3 = _make_patches(WORKFLOW_GENERATED_JSON)

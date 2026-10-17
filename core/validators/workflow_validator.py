@@ -81,7 +81,8 @@ class WorkflowValidator:
             # 봐준다는 뜻이지 남의 리소스를 써도 된다는 뜻이 아니고, 애초에 이 노드도 요청 바디에서
             # 온 값이라 '서버가 쥔 원본이니 믿는다'는 전제가 성립하지 않는다.
             if nid in unvalidated_node_ids:
-                for tool in (config.get("tools") or []) if isinstance(config, dict) else []:
+                tools = config.get("tools") if isinstance(config, dict) else None
+                for tool in tools if isinstance(tools, list) else []:
                     name = tool.get("name") if isinstance(tool, dict) else tool
                     if name == "mcp":
                         cls._validate_mcp_authorization(tool, nid, allowed_mcp_catalog_ids)

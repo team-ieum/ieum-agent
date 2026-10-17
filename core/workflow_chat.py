@@ -360,7 +360,8 @@ def _strip_invalid_webhook_credentials(nodes: list, allowed_webhook_credential_i
         tools = cfg.get("tools")
         if isinstance(tools, list):
             targets += [t.get("config") for t in tools
-                        if isinstance(t, dict) and t.get("name") in _WEBHOOK_TOOL_NAMES]
+                        if isinstance(t, dict) and isinstance(t.get("name"), str)
+                        and t.get("name") in _WEBHOOK_TOOL_NAMES]
         for tcfg in targets:
             if not isinstance(tcfg, dict):
                 continue

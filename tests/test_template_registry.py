@@ -73,3 +73,9 @@ def test_every_user_facing_tool_has_template():
 def test_all_node_types_have_at_least_one_template():
     types = {t["node_type"] for t in tr.all_templates()}
     assert {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL"} <= types
+
+
+def test_dehydrate_node_리스트_아닌_tools는_TypeError_없이_pass_through():
+    from core.template_registry import dehydrate_node, PASSTHROUGH_TEMPLATE_ID
+    node = {"id": "n2", "type": "ACTION", "event": "jira.create_issue", "label": "x", "config": {"tools": 1}}
+    assert dehydrate_node(node)["templateId"] == PASSTHROUGH_TEMPLATE_ID

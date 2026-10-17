@@ -248,3 +248,23 @@ def test_chat_endpoint_currentNodes_event_보존():
     assert response.status_code == 200, response.text
     assert [(n["event"], n["type"]) for n in captured["current_nodes"]] == [
         ("gmail.new_email", "TRIGGER"), ("stripe.new_payment", "TRIGGER")]
+
+
+@pytest.mark.parametrize("node", [
+    {"id": "n2", "event": "jira.create_issue", "type": "ACTION", "label": "x", "config": {"tools": 1}},
+    {"id": "n2", "event": "slack.send_message", "label": "x", "config": {"tools": 1}},
+])
+def test_chat_endpoint_리스트_아닌_config_tools는_500이_아니다(node):
+    """옛 필드 config.tools를 스키마가 더는 보지 않으므로, 리스트가 아닌 값이 와도 소비자(dehydrate 로그·
+    pass-through 인가 루프)가 TypeError로 500을 내면 안 된다. LLM은 CLARIFICATION을 돌려준다고 둔다."""
+    from tests.test_chat import _make_patches, CLARIFICATION_NEEDED_JSON
+
+    payload = dict(CHAT_PAYLOAD, prompt="수정해줘", currentNodes=[
+        {"id": "n1", "event": "manual.run", "label": "t", "config": {}}, node,
+    ], currentEdges=[{"source": "n1", "target": "n2"}])
+
+    p1, p2, p3 = _make_patches(CLARIFICATION_NEEDED_JSON)
+    with p1, p2, p3:
+        response = client.post("/v1/chat", json=payload)
+
+    assert response.status_code == 200, response.text

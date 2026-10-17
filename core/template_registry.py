@@ -746,10 +746,11 @@ def dehydrate_node(node: dict) -> dict | None:
         # 빌더 전용 항목(ACTION·앱 트리거 등)은 설계상 늘 여기로 와서 로그가 소음이다. 단 ai.agent는
         # 프리셋 match가 안 맞는 AI 노드의 기본 항목이라 생성 템플릿 매칭이 깨진 AI 노드도 걸리므로 로그를 유지한다.
         if entry is None or entry.get("generation", True) or entry["id"] == _AGENT_ENTRY_ID:
+            tools = (node.get("config") or {}).get("tools")
             logger.info("pass-through 강등 — 매칭 템플릿 없음 (node_id=%s, type=%s, tools=%s)",
                         node.get("id"), node.get("type"),
                         [t.get("name") if isinstance(t, dict) else t
-                         for t in ((node.get("config") or {}).get("tools") or [])])
+                         for t in (tools if isinstance(tools, list) else [])])
         # 복원은 서버가 쥔 원본으로만 한다(hydrate_node 참고). 그래서 draft에는 LLM이 이 노드를
         # 식별하는 데 필요한 만큼만 담는다 — config를 통째로 실으면 저장된 credentialId·토큰
         # 같은 값이 프롬프트로 외부 LLM에 나가는데, 서버는 그 값을 쓰지도 않는다.

@@ -9,6 +9,7 @@
     {
       "id": "node-2",
       "type": "HTTP",
+      "event": "http.request",
       "label": "Notion에 저장",
       "config": {
         "method": "POST",
@@ -28,6 +29,7 @@
     {
       "id": "node-2",
       "type": "AI",
+      "event": "ai.agent",
       "label": "Notion에 페이지 생성",
       "config": {
         "llmProvider": "GEMINI",
@@ -87,6 +89,7 @@
 ```json
 {
   "type": "TRANSFORM",
+  "event": "transform.map",
   "config": {
     "mappings": {
       "summary": "## 주간 요약\n{{#each nodes.node-2.output.output}}\n- {{this.title}} ({{formatDate this.created_at 'YYYY-MM-DD'}})\n{{/each}}"
@@ -97,6 +100,7 @@
 ```json
 {
   "type": "AI",
+  "event": "ai.reasoning",
   "config": {
     "prompt": "제목은 '{{formatDate now 'YYYY-MM-DD'}} 요약'으로 저장해줘"
   }
@@ -107,6 +111,7 @@
 ```json
 {
   "type": "AI",
+  "event": "ai.agent",
   "label": "PR 목록을 마크다운으로 정리",
   "config": {
     "llmProvider": "CLAUDE",
@@ -120,6 +125,7 @@
 ```json
 {
   "type": "AI",
+  "event": "ai.agent",
   "label": "Notion 저장",
   "config": {
     "llmProvider": "CLAUDE",

@@ -444,3 +444,12 @@ def test_트리거_종류는_event만_본다():
     with pytest.raises(WorkflowValidationError) as excinfo:
         WorkflowValidator.validate(legacy, [])
     assert "허용되지 않은 필드" in str(excinfo.value) and "triggerType" in str(excinfo.value)
+
+
+def test_pass_through_노드의_리스트_아닌_tools는_TypeError_없이_통과():
+    """pass-through 인가 루프는 config.tools가 리스트일 때만 돈다(스키마가 옛 필드를 더는 검사하지 않음)."""
+    nodes = [
+        {"id": "n1", "type": "TRIGGER", "event": "manual.run", "config": {}},
+        {"id": "n2", "type": "ACTION", "event": "jira.create_issue", "config": {"tools": 1}},
+    ]
+    WorkflowValidator.validate(nodes, [{"source": "n1", "target": "n2"}], set(), unvalidated_node_ids={"n2"})
