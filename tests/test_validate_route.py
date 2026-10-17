@@ -5,7 +5,7 @@ from main import app
 
 client = TestClient(app)
 
-TRIGGER = {"id": "t", "type": "TRIGGER", "config": {"triggerType": "MANUAL"}}
+TRIGGER = {"id": "t", "type": "TRIGGER", "event": "manual.run", "config": {}}
 
 
 def test_정상이면_valid_true_빈_목록_LLM_헤더_없이():
@@ -15,7 +15,7 @@ def test_정상이면_valid_true_빈_목록_LLM_헤더_없이():
 
 
 def test_에러가_있어도_200_valid_false_4키_목록():
-    http = {"id": "h", "type": "HTTP", "config": {}}
+    http = {"id": "h", "type": "HTTP", "event": "http.request", "config": {}}
     resp = client.post("/v1/workflows/validate",
                        json={"nodes": [TRIGGER, http], "edges": [{"source": "t", "target": "h"}]})
     assert resp.status_code == 200

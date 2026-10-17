@@ -81,7 +81,7 @@ def test_hydrate_rejects_draft_without_description(template_id, slots):
 def test_dehydrate_preserves_description_for_modify():
     """MODIFY 역변환(full-node → draft)에서 description이 슬롯으로 보존된다."""
     node = {
-        "id": "node-2", "type": "AI", "label": "요약",
+        "id": "node-2", "type": "AI", "event": "ai.reasoning", "label": "요약",
         "description": "AI가 앞의 결과를 읽고 짧게 정리해요.",
         "config": {"agentType": "simple", "credentialId": "", "tools": [],
                    "llmProvider": "CLAUDE", "prompt": "요약해줘"},
@@ -94,8 +94,7 @@ def test_dehydrate_preserves_description_for_modify():
 
 def test_workflow_node_description_defaults_for_legacy_payload():
     """description 도입 이전에 저장된 노드가 수정/채팅 요청으로 되돌아와도 422가 아니다."""
-    node = WorkflowNode(id="node-1", type="TRIGGER", label="시작",
-                        config={"triggerType": "MANUAL"})
+    node = WorkflowNode(id="node-1", event="manual.run", label="시작", config={})
     assert node.description == ""
 
 
@@ -104,8 +103,8 @@ def test_workflow_node_accepts_explicit_null_description():
 
     NodeView에 @JsonInclude(NON_NULL)이 없어 키가 빠지지 않으므로, 기본값만으로는
     이 PR 이전 저장분의 수정 요청(currentNodes)이 전부 422가 된다."""
-    node = WorkflowNode(id="node-1", type="TRIGGER", label="시작",
-                        description=None, config={"triggerType": "MANUAL"})
+    node = WorkflowNode(id="node-1", event="manual.run", label="시작",
+                        description=None, config={})
     assert node.description == ""
 
 

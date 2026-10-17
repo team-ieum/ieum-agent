@@ -29,13 +29,13 @@ def test_select_by_tags_no_match_returns_empty():
 
 
 def test_resolve_template_for_ai_tool_node():
-    node = {"type": "AI", "config": {"tools": [{"name": "builtin:notion_create_page"}]}}
+    node = {"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "builtin:notion_create_page"}]}}
     tpl = tr.resolve_template_for_node(node)
     assert tpl and tpl["id"] == "ai.notion_create_page"
 
 
 def test_resolve_template_for_structural_node():
-    node = {"type": "TRANSFORM", "config": {"mappings": {}}}
+    node = {"type": "TRANSFORM", "event": "transform.map", "config": {"mappings": {}}}
     tpl = tr.resolve_template_for_node(node)
     assert tpl and tpl["id"] == "transform.map"
 
@@ -73,3 +73,17 @@ def test_every_user_facing_tool_has_template():
 def test_all_node_types_have_at_least_one_template():
     types = {t["node_type"] for t in tr.all_templates()}
     assert {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL"} <= types
+
+
+def test_dehydrate_node_리스트_아닌_tools는_TypeError_없이_pass_through():
+    from core.template_registry import dehydrate_node, PASSTHROUGH_TEMPLATE_ID
+    node = {"id": "n2", "type": "ACTION", "event": "jira.create_issue", "label": "x", "config": {"tools": 1}}
+    assert dehydrate_node(node)["templateId"] == PASSTHROUGH_TEMPLATE_ID
+
+
+def test_allowed_config_fields_AI_노드는_매칭된_템플릿만_허용한다():
+    """event가 있는 AI 노드(운영 경로: hydrate가 event를 채운다)는 매칭된 템플릿의 칸만 허용한다 — node_type 합집합 폴백이
+    아니다. outputFields는 ai.reasoning 전용이라 web_search 프리셋 노드(event=ai.agent)에는 허용되지 않는다."""
+    web = {"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "builtin:web_search"}]}}
+    assert "outputFields" not in tr.allowed_config_fields_for_node(web)
+    assert "outputFields" in tr.allowed_config_fields_for_node({"type": "AI", "event": "ai.reasoning", "config": {}})

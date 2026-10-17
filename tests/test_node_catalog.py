@@ -51,15 +51,31 @@ def test_entry_shape_and_default_attrs_omitted():
         "id": "schedule.every", "kind": "trigger", "provider": "ieum",
         "nodeType": "TRIGGER", "app": "schedule",
         "title": "스케줄", "description": "정해둔 시각마다 시작해요.",
-        "match": {"type": "TRIGGER", "config.triggerType": "SCHEDULE"},
-        "fixed": {"type": "TRIGGER", "event": "schedule.every",
-                  "config": {"triggerType": "SCHEDULE", "brand": "webhook"}},
+        "fixed": {"type": "TRIGGER", "event": "schedule.every", "config": {"brand": "webhook"}},
         "inputFields": [{"key": "cron", "title": "실행 주기", "type": "cron", "required": True,
                          "ref": False, "path": "config.cron",
                          "description": "표준 5필드 크론식 (예: 매일 9시 = 0 9 * * *)"}],
         "outputFields": [{"key": "triggeredAt", "title": "실행 시각", "type": "datetime"},
                          {"key": "cron", "title": "크론식", "type": "string"}],
     }
+
+
+def test_entry_has_no_match_and_fixed_is_type_event_brand():
+    """카탈로그 응답(spec §5.2): match 없음, fixed = {type, event, config}.
+    비AI는 config = {brand}, AI(ai.agent·ai.reasoning)는 BE AgentNodeExecutor가 읽는 agentType·credentialId·tools를
+    더 싣는다(spec §4 AI 노드 config 유지). 키 집합을 정확히 고정한다 — 빠져도 늘어도 실패."""
+    ai_ids = set()
+    for e in node_catalog()["entries"]:
+        assert "match" not in e, e["id"]
+        fixed = e["fixed"]
+        assert set(fixed) == {"type", "event", "config"}, e["id"]
+        assert (fixed["type"], fixed["event"]) == (e["nodeType"], e["id"])
+        if e["nodeType"] == "AI":
+            ai_ids.add(e["id"])
+            assert set(fixed["config"]) == {"agentType", "credentialId", "tools", "brand"}, e["id"]
+        else:
+            assert set(fixed["config"]) == {"brand"}, e["id"]
+    assert ai_ids == {"ai.agent", "ai.reasoning"}
 
 
 def test_dynamic_markers_and_app_in_entries():
@@ -69,7 +85,6 @@ def test_dynamic_markers_and_app_in_entries():
     assert by_id["google_sheets.write"]["app"] == "google_sheets"
     assert by_id["gmail.new_email"]["app"] == "gmail"
     assert by_id["manual.run"]["app"] == "manual"      # 내장 항목도 앱 키가 있다
-    assert by_id["google_sheets.write"]["fixed"]["config"]["serviceType"] == "GOOGLE"
 
 
 def test_agent_tools_field_is_not_ref():

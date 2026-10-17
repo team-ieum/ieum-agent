@@ -37,7 +37,7 @@ Respond ONLY with a valid JSON object. No explanation, no markdown, no code fenc
    카탈로그에 없는 슬롯 키를 만들지 않는다.
 3. 카탈로그에 '자동주입(작성금지)'로 표기된 슬롯(llmProvider, model)은 시스템이 채우므로 작성하지 않는다.
 4. '필수' 슬롯은 모두 채운다. '선택' 슬롯은 실제로 필요할 때만 채운다.
-5. credentialId / access_token / tools / agentType / triggerType 등 구조·자격 값은
+5. credentialId / access_token / tools / agentType 등 구조·자격 값은
    템플릿과 런타임이 처리한다. slots에 넣지 않는다.
 6. 변수 참조: {{nodes.<node-id>.output.<field>}}. 노드 타입별 실제 출력 필드만 사용한다(임의 필드명 금지):
    - AI 노드 결과 → `output.output` (예: {{nodes.node-2.output.output}}). results/content/data 등 날조 금지.

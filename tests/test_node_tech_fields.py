@@ -21,31 +21,6 @@ from core.template_registry import (
 )
 
 
-# 템플릿별 기대 serviceType. tool_key/노드 내용으로 판단한 앱 소속이며,
-# 여기 없는 AI 템플릿(ai.reasoning/ai.web_search/ai.http_fetch/ai.mcp)은 앱 노드가 아니다.
-EXPECTED_SERVICE_TYPES = {
-    "ai.slack_send": "SLACK",
-    "ai.discord_send": "DISCORD",
-    "ai.github_query": "GITHUB",
-    "ai.notion_append_block": "NOTION",
-    "ai.notion_create_page": "NOTION",
-    "ai.notion_query_database": "NOTION",
-    "ai.notion_read_page": "NOTION",
-    "ai.notion_search": "NOTION",
-    "ai.notion_update_page": "NOTION",
-    "ai.gmail_send": "GOOGLE",
-    "ai.google_calendar_create": "GOOGLE",
-    "ai.google_calendar_list": "GOOGLE",
-    "ai.google_calendar_update": "GOOGLE",
-    "ai.google_drive_read": "GOOGLE",
-    "ai.google_drive_upload": "GOOGLE",
-    "ai.google_sheets_append": "GOOGLE",
-    "ai.google_sheets_read": "GOOGLE",
-    "ai.google_sheets_write": "GOOGLE",
-}
-
-NON_APP_AI_TEMPLATES = {"ai.reasoning", "ai.web_search", "ai.http_fetch", "ai.mcp"}
-
 _SLOTS = {
     "ai.reasoning": {"prompt": "요약해줘"},
     "ai.slack_send": {"prompt": "슬랙으로 보내줘"},
@@ -121,33 +96,14 @@ def test_model_slot_requires_provider():
 
 # --- serviceType: 템플릿 상수 ---------------------------------------------------
 
-def test_app_templates_have_expected_service_type():
-    """앱 템플릿으로 만든 노드에 올바른 serviceType이 있다."""
-    for tid, expected in EXPECTED_SERVICE_TYPES.items():
-        node = hydrate_node(_draft(tid), provider="CLAUDE")
-        assert node["config"]["serviceType"] == expected, tid
-        assert "serviceType" in tr.get_template(tid)["allowed_config_fields"], tid
-
-
-def test_non_app_ai_nodes_have_no_service_type():
-    """앱과 무관한 AI 노드에는 serviceType이 없다."""
-    for tid in NON_APP_AI_TEMPLATES:
-        node = hydrate_node(_draft(tid), provider="CLAUDE")
-        assert "serviceType" not in node["config"], tid
-
-
-def test_service_type_coverage_matches_registry():
-    """AI 템플릿은 앱 매핑에 있거나 비앱 목록에 있거나 둘 중 하나다(새 템플릿 추가 시 분류 강제)."""
-    ai_ids = {t["id"] for t in tr.all_templates() if t["node_type"] == "AI"}
-    assert ai_ids == set(EXPECTED_SERVICE_TYPES) | NON_APP_AI_TEMPLATES
-
-
-def test_structural_nodes_have_no_service_type():
-    """트리거/조건/변환/HTTP 등 구조 노드에는 serviceType이 없다."""
+def test_no_node_or_entry_carries_service_type():
+    """config.serviceType은 폐지됐다(spec §4) — 항목 fixed에도, 생성 노드에도 없다."""
+    for tpl in tr.all_entries():
+        assert "serviceType" not in tpl["fixed"]["config"], tpl["id"]
+        assert "serviceType" not in tpl["allowed_config_fields"], tpl["id"]
     for tpl in tr.all_templates():
         if tpl["node_type"] == "AI":
-            continue
-        assert "serviceType" not in (tpl["fixed"].get("config") or {}), tpl["id"]
+            assert "serviceType" not in hydrate_node(_draft(tpl["id"]), provider="CLAUDE")["config"], tpl["id"]
 
 
 def test_invalid_service_type_rejected_by_schema_gate():
@@ -184,7 +140,7 @@ def test_legacy_node_round_trip_backfills_both_fields():
     두 필드 모두 LLM이 채우는 슬롯이 아니므로(시스템 주입 / 템플릿 fixed) 레거시 draft에
     값이 없어도 SlotFillError가 나지 않는다."""
     legacy = {
-        "id": "node-3", "type": "AI", "label": "Slack 알림",
+        "id": "node-3", "type": "AI", "event": "ai.agent", "label": "Slack 알림",
         "description": "정리된 내용을 슬랙으로 보내드려요.",
         "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "보내줘",
                    "agentType": "react", "tools": [{"name": "slack"}]},
@@ -194,10 +150,25 @@ def test_legacy_node_round_trip_backfills_both_fields():
 
     node = hydrate_node(draft, provider="GEMINI")
     assert node["config"]["model"] == resolve_model("GEMINI")
-    assert node["config"]["serviceType"] == "SLACK"
+    assert "serviceType" not in node["config"]
 
 
 # modify 경로의 model·serviceType 후처리 테스트는 제거했다.
 # 그 후처리 자체가 리뷰 3라운드 내내 회귀를 만들어 걷어냈다 — 노드가 어느 앱인지는 full-node
 # JSON만 보고 결정론적으로 답할 수 없다. 템플릿에서 복원하는 draft 방식 전환은 IEUM-AI-58.
 # 생성 경로(하이드레이션)의 두 필드 계약은 위 테스트들이 그대로 지킨다.
+
+
+def test_hydrated_ai_node_event_rule():
+    """AI 노드 event 규칙(spec §4): 도구 없는 simple AI = ai.reasoning, 도구가 있거나 프리셋 모양 = ai.agent.
+    생성·채팅은 둘 다 hydrate_node로 노드를 만들므로 이 층에서 고정한다."""
+    seen = set()
+    for tpl in tr.all_templates():
+        if tpl["node_type"] != "AI":
+            continue
+        node = hydrate_node(_draft(tpl["id"]), provider="CLAUDE")
+        cfg = node["config"]
+        simple = cfg.get("agentType") == "simple" and not cfg.get("tools")
+        assert node["event"] == ("ai.reasoning" if simple else "ai.agent"), tpl["id"]
+        seen.add(node["event"])
+    assert seen == {"ai.reasoning", "ai.agent"}

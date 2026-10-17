@@ -7,7 +7,7 @@ POST /v1/workflows/validate가 쓴다. 채팅·generate 경로(WorkflowValidator
 import json
 import re
 
-from core.template_registry import _get_by_path, _match_view, match_entry, trigger_type_of
+from core.template_registry import _get_by_path, match_entry, trigger_type_of
 from core.validators.workflow_validator import REF_BODY_RE
 
 # 중괄호 없는 본문만 — `.*?`는 닫히지 않은 `{{` 반복에서 제곱 시간이 걸린다(모든 실행 경로가 부른다)
@@ -19,6 +19,7 @@ _EMPTY = (None, "", [])
 _RIGHT_UNUSED_OPERATORS = ("isEmpty", "isNotEmpty")
 # BE ConditionNodeExecutor는 left/right가 없으면 옛 표기 leftValue/rightValue를 읽는다
 _CONDITION_ALIASES = {"config.left": "config.leftValue", "config.right": "config.rightValue"}
+# AI 프리셋 도구 칸 경로. ACTION 입력 칸은 config.<칸>이라 이 접두사 밖이다(spec §4).
 _TOOL_FIELD_PREFIX = "config.tools.0.config."
 # spec §1: AI 출력 칸 규칙은 실행 시점(INVALID_OUTPUT_FIELDS, core/output_fields.py) 몫 — 칸 검사에서 뺀다
 _SKIPPED_AI_FIELDS = ("config.outputFields",)
@@ -160,18 +161,18 @@ def _cron_errors(node: dict) -> list[dict]:
 # ── 칸 검사 (spec §3.2-3.6) ────────────────────────────────────────
 
 def field_errors(node: dict) -> list[dict]:
-    """노드 하나의 칸 검사. 카탈로그 항목이 매칭되지 않는 노드는 건너뛴다(spec §3.2)."""
+    """노드 하나의 칸 검사. event가 없거나 agent가 모르는 event(BE 카탈로그 ⊇ agent 카탈로그)인 노드는
+    건너뛴다(spec §3.2, 노드 event spec §4). 값은 노드 원본에서 읽는다 — 옛 저장 모양 정규화는 없다."""
     entry = match_entry(node)
     if entry is None:
         return []
-    view = _match_view(node)
     nid = _sid(node.get("id"))
     errors = []
     for f in entry["inputFields"]:
         path = f["path"]
         if entry["node_type"] == "AI" and path in _SKIPPED_AI_FIELDS:
             continue
-        value = _get_by_path(view, path)
+        value = _get_by_path(node, path)
         # AI 노드의 도구 칸은 비우면 "AI가 결정" — 생성 슬롯도 항상 선택이다(node_fields.derive_slots).
         # 채운 값은 형식 검사를 받는다.
         if (value in _EMPTY and entry["node_type"] == "AI" and entry["tool_key"]
@@ -182,20 +183,20 @@ def field_errors(node: dict) -> list[dict]:
         if value in _EMPTY and entry["node_type"] == "AI" and path == "config.model":
             continue
         if value in _EMPTY and entry["node_type"] == "CONDITION" and path in _CONDITION_ALIASES:
-            value = _get_by_path(view, _CONDITION_ALIASES[path])
-        if _unused_field(entry, view, path):
+            value = _get_by_path(node, _CONDITION_ALIASES[path])
+        if _unused_field(entry, node, path):
             continue
         errors += _check(f, value, path, nid)
     return errors
 
 
-def _unused_field(entry: dict, view: dict, path: str) -> bool:
+def _unused_field(entry: dict, node: dict, path: str) -> bool:
     """실행기가 읽지 않는 칸 — 칸 검사와 참조 검사가 함께 건너뛴다(spec §7-16)."""
     if path == "config.right" and entry["node_type"] == "CONDITION":
-        return _get_by_path(view, "config.operator") in _RIGHT_UNUSED_OPERATORS
+        return _get_by_path(node, "config.operator") in _RIGHT_UNUSED_OPERATORS
     # BE HttpNodeExecutor는 webhookCredentialId가 채워져 있으면 url을 읽지 않는다(BE-62: url에 웹훅 주소 금지)
     if path == "config.url" and entry["node_type"] == "HTTP":
-        return bool(str(_get_by_path(view, "config.webhookCredentialId") or "").strip())
+        return bool(str(_get_by_path(node, "config.webhookCredentialId") or "").strip())
     return False
 
 
@@ -309,8 +310,7 @@ def _ref_errors(node: dict, by_id: dict, preds: dict, outputs: dict):
         return
     entry = match_entry(node)
     field_paths = [f["path"] for f in entry["inputFields"]] if entry else []
-    view = _match_view(node)
-    unused = [p for p in field_paths if _unused_field(entry, view, p)]
+    unused = [p for p in field_paths if _unused_field(entry, node, p)]
     unused += [_CONDITION_ALIASES[p] for p in unused if p in _CONDITION_ALIASES]  # BE는 right가 없으면 rightValue를 읽는다
     anc = None
     for loc, text in _iter_strings(config, "config"):

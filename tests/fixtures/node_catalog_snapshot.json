@@ -2,1705 +2,6 @@
   "entries": [
     {
       "app": "ai",
-      "description": "AI가 앞 단계 결과를 읽고 판단하거나 글을 써요.",
-      "fixed": {
-        "config": {
-          "agentType": "simple",
-          "brand": "openai",
-          "credentialId": "",
-          "tools": []
-        },
-        "event": "ai.reasoning",
-        "type": "AI"
-      },
-      "id": "ai.reasoning",
-      "inputFields": [
-        {
-          "choices": [
-            {
-              "id": "CLAUDE",
-              "name": "Claude"
-            },
-            {
-              "id": "OPENAI",
-              "name": "OpenAI"
-            },
-            {
-              "id": "GEMINI",
-              "name": "Gemini"
-            }
-          ],
-          "key": "llmProvider",
-          "path": "config.llmProvider",
-          "ref": false,
-          "required": true,
-          "title": "AI 제공자",
-          "type": "string"
-        },
-        {
-          "key": "model",
-          "optionsInputs": [
-            "llmProvider"
-          ],
-          "optionsSource": "ai.models",
-          "path": "config.model",
-          "ref": false,
-          "required": true,
-          "title": "모델",
-          "type": "string"
-        },
-        {
-          "key": "prompt",
-          "path": "config.prompt",
-          "required": true,
-          "title": "지시문",
-          "type": "text"
-        },
-        {
-          "key": "credentialId",
-          "optionsInputs": [
-            "llmProvider"
-          ],
-          "optionsSource": "ieum.credentials",
-          "path": "config.credentialId",
-          "ref": false,
-          "title": "API 키",
-          "type": "string"
-        },
-        {
-          "key": "systemMessage",
-          "path": "config.systemMessage",
-          "title": "시스템 메시지",
-          "type": "text"
-        },
-        {
-          "children": [
-            {
-              "key": "key",
-              "required": true,
-              "title": "이름",
-              "type": "string"
-            },
-            {
-              "choices": [
-                {
-                  "id": "text",
-                  "name": "텍스트"
-                },
-                {
-                  "id": "number",
-                  "name": "숫자"
-                },
-                {
-                  "id": "boolean",
-                  "name": "참/거짓"
-                }
-              ],
-              "key": "type",
-              "required": true,
-              "title": "타입",
-              "type": "string"
-            },
-            {
-              "key": "description",
-              "title": "설명",
-              "type": "text"
-            }
-          ],
-          "description": "AI가 이 칸들로만 답해요. 다음 단계에서 칸 하나씩 골라 쓸 수 있어요. 비우면 결과 한 칸이에요.",
-          "key": "outputFields",
-          "list": true,
-          "path": "config.outputFields",
-          "ref": false,
-          "title": "출력 칸",
-          "type": "object"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0": null,
-        "type": "AI"
-      },
-      "nodeType": "AI",
-      "outputFields": [
-        {
-          "key": "output",
-          "title": "결과",
-          "type": "text"
-        }
-      ],
-      "outputsFrom": "config.outputFields",
-      "provider": "ieum",
-      "title": "AI"
-    },
-    {
-      "app": "discord",
-      "description": "등록한 웹훅으로 Discord에 메시지를 보내요.",
-      "fixed": {
-        "config": {
-          "brand": "discord",
-          "serviceType": "DISCORD",
-          "tools": [
-            {
-              "name": "discord"
-            }
-          ]
-        },
-        "event": "discord.send_message",
-        "type": "ACTION"
-      },
-      "id": "discord.send_message",
-      "inputFields": [
-        {
-          "key": "content",
-          "path": "config.tools.0.config.content",
-          "required": true,
-          "title": "메시지",
-          "type": "text"
-        },
-        {
-          "default": "IEUM Bot",
-          "key": "username",
-          "path": "config.tools.0.config.username",
-          "title": "보낸 사람 이름",
-          "type": "string"
-        },
-        {
-          "key": "webhookCredentialId",
-          "optionsSource": "discord.webhooks",
-          "path": "config.tools.0.config.webhookCredentialId",
-          "ref": false,
-          "required": true,
-          "title": "웹훅",
-          "type": "string"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "discord",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "message",
-          "title": "결과 메시지",
-          "type": "string"
-        }
-      ],
-      "provider": "discord",
-      "title": "Discord 메시지 보내기"
-    },
-    {
-      "app": "github",
-      "description": "저장소에 새 이슈를 만들어요.",
-      "fixed": {
-        "config": {
-          "brand": "github",
-          "serviceType": "GITHUB",
-          "tools": [
-            {
-              "name": "builtin:github_create_issue"
-            }
-          ]
-        },
-        "event": "github.create_issue",
-        "type": "ACTION"
-      },
-      "id": "github.create_issue",
-      "inputFields": [
-        {
-          "description": "저장소를 가진 계정 또는 조직",
-          "key": "owner",
-          "optionsSource": "github.owners",
-          "path": "config.tools.0.config.owner",
-          "required": true,
-          "title": "소유자",
-          "type": "string"
-        },
-        {
-          "description": "이슈를 만들 저장소",
-          "key": "repo",
-          "optionsInputs": [
-            "owner"
-          ],
-          "optionsSource": "github.repos",
-          "path": "config.tools.0.config.repo",
-          "required": true,
-          "title": "저장소",
-          "type": "string"
-        },
-        {
-          "key": "title",
-          "path": "config.tools.0.config.title",
-          "required": true,
-          "title": "제목",
-          "type": "string"
-        },
-        {
-          "default": "",
-          "key": "body",
-          "path": "config.tools.0.config.body",
-          "title": "내용",
-          "type": "text"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "builtin:github_create_issue",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "number",
-          "title": "이슈 번호",
-          "type": "integer"
-        },
-        {
-          "key": "url",
-          "title": "이슈 주소",
-          "type": "string"
-        },
-        {
-          "key": "title",
-          "title": "제목",
-          "type": "string"
-        }
-      ],
-      "provider": "github",
-      "title": "GitHub 이슈 만들기"
-    },
-    {
-      "app": "github",
-      "description": "저장소의 이슈 목록을 가져와요.",
-      "fixed": {
-        "config": {
-          "brand": "github",
-          "serviceType": "GITHUB",
-          "tools": [
-            {
-              "name": "builtin:github_list_issues"
-            }
-          ]
-        },
-        "event": "github.list_issues",
-        "type": "ACTION"
-      },
-      "id": "github.list_issues",
-      "inputFields": [
-        {
-          "description": "저장소를 가진 계정 또는 조직",
-          "key": "owner",
-          "optionsSource": "github.owners",
-          "path": "config.tools.0.config.owner",
-          "required": true,
-          "title": "소유자",
-          "type": "string"
-        },
-        {
-          "description": "이슈를 가져올 저장소",
-          "key": "repo",
-          "optionsInputs": [
-            "owner"
-          ],
-          "optionsSource": "github.repos",
-          "path": "config.tools.0.config.repo",
-          "required": true,
-          "title": "저장소",
-          "type": "string"
-        },
-        {
-          "choices": [
-            {
-              "id": "open",
-              "name": "열림"
-            },
-            {
-              "id": "closed",
-              "name": "닫힘"
-            },
-            {
-              "id": "all",
-              "name": "전체"
-            }
-          ],
-          "default": "open",
-          "key": "state",
-          "path": "config.tools.0.config.state",
-          "ref": false,
-          "title": "상태",
-          "type": "string"
-        }
-      ],
-      "kind": "search",
-      "match": {
-        "config.tools.0.name": "builtin:github_list_issues",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "children": [
-            {
-              "key": "number",
-              "title": "번호",
-              "type": "integer"
-            },
-            {
-              "key": "title",
-              "title": "제목",
-              "type": "string"
-            },
-            {
-              "key": "state",
-              "title": "상태",
-              "type": "string"
-            },
-            {
-              "key": "labels",
-              "list": true,
-              "title": "라벨",
-              "type": "string"
-            },
-            {
-              "key": "created_at",
-              "title": "만든 시각",
-              "type": "datetime"
-            }
-          ],
-          "key": "issues",
-          "list": true,
-          "title": "이슈",
-          "type": "object"
-        },
-        {
-          "key": "total",
-          "title": "개수",
-          "type": "integer"
-        }
-      ],
-      "provider": "github",
-      "title": "GitHub 이슈 목록 조회"
-    },
-    {
-      "app": "github",
-      "description": "저장소에 새 이슈가 열리면 시작해요.",
-      "fixed": {
-        "config": {
-          "brand": "github",
-          "serviceType": "GITHUB",
-          "triggerType": "GITHUB_NEW_ISSUE"
-        },
-        "event": "github.new_issue",
-        "type": "TRIGGER"
-      },
-      "id": "github.new_issue",
-      "inputFields": [
-        {
-          "description": "새 이슈를 지켜볼 저장소",
-          "key": "repoId",
-          "optionsSource": "github.installed_repos",
-          "path": "config.repoId",
-          "ref": false,
-          "required": true,
-          "title": "저장소",
-          "type": "string"
-        }
-      ],
-      "kind": "trigger",
-      "match": {
-        "config.triggerType": "GITHUB_NEW_ISSUE",
-        "type": "TRIGGER"
-      },
-      "nodeType": "TRIGGER",
-      "outputFields": [
-        {
-          "key": "issueNumber",
-          "title": "이슈 번호",
-          "type": "integer"
-        },
-        {
-          "key": "title",
-          "title": "제목",
-          "type": "string"
-        },
-        {
-          "key": "body",
-          "title": "본문",
-          "type": "text"
-        },
-        {
-          "key": "url",
-          "title": "링크",
-          "type": "string"
-        },
-        {
-          "key": "author",
-          "title": "작성자",
-          "type": "string"
-        },
-        {
-          "key": "labels",
-          "list": true,
-          "title": "라벨",
-          "type": "string"
-        },
-        {
-          "key": "repo",
-          "title": "저장소",
-          "type": "string"
-        },
-        {
-          "key": "createdAt",
-          "title": "만든 시각",
-          "type": "datetime"
-        }
-      ],
-      "provider": "github",
-      "title": "새 GitHub 이슈"
-    },
-    {
-      "app": "gmail",
-      "description": "받은편지함에 새 메일이 오면 시작해요.",
-      "fixed": {
-        "config": {
-          "brand": "gmail",
-          "serviceType": "GOOGLE",
-          "triggerType": "GMAIL_NEW_EMAIL"
-        },
-        "event": "gmail.new_email",
-        "type": "TRIGGER"
-      },
-      "id": "gmail.new_email",
-      "inputFields": [
-        {
-          "description": "Gmail 검색식 (예: from:boss@example.com). 비우면 받은편지함 전체",
-          "key": "query",
-          "path": "config.query",
-          "ref": false,
-          "title": "검색 조건",
-          "type": "string"
-        }
-      ],
-      "kind": "trigger",
-      "match": {
-        "config.triggerType": "GMAIL_NEW_EMAIL",
-        "type": "TRIGGER"
-      },
-      "nodeType": "TRIGGER",
-      "outputFields": [
-        {
-          "key": "messageId",
-          "title": "메일 ID",
-          "type": "string"
-        },
-        {
-          "key": "threadId",
-          "title": "스레드 ID",
-          "type": "string"
-        },
-        {
-          "key": "from",
-          "title": "보낸 사람",
-          "type": "string"
-        },
-        {
-          "key": "to",
-          "title": "받는 사람",
-          "type": "string"
-        },
-        {
-          "key": "subject",
-          "title": "제목",
-          "type": "string"
-        },
-        {
-          "key": "snippet",
-          "title": "미리보기",
-          "type": "text"
-        },
-        {
-          "key": "bodyText",
-          "title": "본문",
-          "type": "text"
-        },
-        {
-          "key": "receivedAt",
-          "title": "받은 시각",
-          "type": "datetime"
-        },
-        {
-          "key": "labels",
-          "list": true,
-          "title": "라벨 ID",
-          "type": "string"
-        }
-      ],
-      "provider": "google",
-      "title": "새 Gmail 메일"
-    },
-    {
-      "app": "google_calendar",
-      "description": "구글 캘린더에 새 일정을 추가해요.",
-      "fixed": {
-        "config": {
-          "brand": "google",
-          "serviceType": "GOOGLE",
-          "tools": [
-            {
-              "name": "builtin:google_calendar_create"
-            }
-          ]
-        },
-        "event": "google_calendar.create",
-        "type": "ACTION"
-      },
-      "id": "google_calendar.create",
-      "inputFields": [
-        {
-          "key": "summary",
-          "path": "config.tools.0.config.summary",
-          "required": true,
-          "title": "제목",
-          "type": "string"
-        },
-        {
-          "key": "start_datetime",
-          "path": "config.tools.0.config.start_datetime",
-          "required": true,
-          "title": "시작",
-          "type": "datetime"
-        },
-        {
-          "key": "end_datetime",
-          "path": "config.tools.0.config.end_datetime",
-          "required": true,
-          "title": "종료",
-          "type": "datetime"
-        },
-        {
-          "default": "",
-          "key": "description",
-          "path": "config.tools.0.config.description",
-          "title": "설명",
-          "type": "text"
-        },
-        {
-          "default": "primary",
-          "description": "대상 캘린더 (비우면 기본 캘린더)",
-          "key": "calendar_id",
-          "optionsSource": "google.calendars",
-          "path": "config.tools.0.config.calendar_id",
-          "title": "캘린더",
-          "type": "string"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "builtin:google_calendar_create",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "eventId",
-          "title": "일정 ID",
-          "type": "string"
-        },
-        {
-          "key": "htmlLink",
-          "title": "일정 링크",
-          "type": "string"
-        }
-      ],
-      "provider": "google",
-      "title": "캘린더 일정 만들기"
-    },
-    {
-      "app": "google_calendar",
-      "description": "기간 안의 일정을 가져와요.",
-      "fixed": {
-        "config": {
-          "brand": "google",
-          "serviceType": "GOOGLE",
-          "tools": [
-            {
-              "name": "builtin:google_calendar_list"
-            }
-          ]
-        },
-        "event": "google_calendar.list",
-        "type": "ACTION"
-      },
-      "id": "google_calendar.list",
-      "inputFields": [
-        {
-          "key": "time_min",
-          "path": "config.tools.0.config.time_min",
-          "required": true,
-          "title": "시작 시각",
-          "type": "datetime"
-        },
-        {
-          "key": "time_max",
-          "path": "config.tools.0.config.time_max",
-          "required": true,
-          "title": "종료 시각",
-          "type": "datetime"
-        },
-        {
-          "default": 10,
-          "key": "max_results",
-          "path": "config.tools.0.config.max_results",
-          "title": "최대 개수",
-          "type": "integer"
-        },
-        {
-          "default": "primary",
-          "description": "대상 캘린더 (비우면 기본 캘린더)",
-          "key": "calendar_id",
-          "optionsSource": "google.calendars",
-          "path": "config.tools.0.config.calendar_id",
-          "title": "캘린더",
-          "type": "string"
-        }
-      ],
-      "kind": "search",
-      "match": {
-        "config.tools.0.name": "builtin:google_calendar_list",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "children": [
-            {
-              "key": "id",
-              "title": "ID",
-              "type": "string"
-            },
-            {
-              "key": "summary",
-              "title": "제목",
-              "type": "string"
-            },
-            {
-              "key": "start",
-              "title": "시작",
-              "type": "datetime"
-            },
-            {
-              "key": "end",
-              "title": "종료",
-              "type": "datetime"
-            }
-          ],
-          "key": "events",
-          "list": true,
-          "title": "일정",
-          "type": "object"
-        },
-        {
-          "key": "total",
-          "title": "개수",
-          "type": "integer"
-        }
-      ],
-      "provider": "google",
-      "title": "캘린더 일정 조회"
-    },
-    {
-      "app": "google_calendar",
-      "description": "기존 일정의 내용을 바꿔요.",
-      "fixed": {
-        "config": {
-          "brand": "google",
-          "serviceType": "GOOGLE",
-          "tools": [
-            {
-              "name": "builtin:google_calendar_update"
-            }
-          ]
-        },
-        "event": "google_calendar.update",
-        "type": "ACTION"
-      },
-      "id": "google_calendar.update",
-      "inputFields": [
-        {
-          "description": "수정할 일정",
-          "key": "event_id",
-          "optionsInputs": [
-            "calendar_id"
-          ],
-          "optionsSource": "google.events",
-          "path": "config.tools.0.config.event_id",
-          "required": true,
-          "title": "일정",
-          "type": "string"
-        },
-        {
-          "description": "비우면 그대로",
-          "key": "summary",
-          "path": "config.tools.0.config.summary",
-          "title": "새 제목",
-          "type": "string"
-        },
-        {
-          "key": "start_datetime",
-          "path": "config.tools.0.config.start_datetime",
-          "title": "새 시작",
-          "type": "datetime"
-        },
-        {
-          "key": "end_datetime",
-          "path": "config.tools.0.config.end_datetime",
-          "title": "새 종료",
-          "type": "datetime"
-        },
-        {
-          "key": "description",
-          "path": "config.tools.0.config.description",
-          "title": "새 설명",
-          "type": "text"
-        },
-        {
-          "default": "primary",
-          "description": "대상 캘린더 (비우면 기본 캘린더)",
-          "key": "calendar_id",
-          "optionsSource": "google.calendars",
-          "path": "config.tools.0.config.calendar_id",
-          "title": "캘린더",
-          "type": "string"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "builtin:google_calendar_update",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "eventId",
-          "title": "일정 ID",
-          "type": "string"
-        },
-        {
-          "key": "htmlLink",
-          "title": "일정 링크",
-          "type": "string"
-        }
-      ],
-      "provider": "google",
-      "title": "캘린더 일정 수정"
-    },
-    {
-      "app": "google_drive",
-      "description": "파일 내용을 텍스트로 가져와요.",
-      "fixed": {
-        "config": {
-          "brand": "google",
-          "serviceType": "GOOGLE",
-          "tools": [
-            {
-              "name": "builtin:google_drive_read"
-            }
-          ]
-        },
-        "event": "google_drive.read",
-        "type": "ACTION"
-      },
-      "id": "google_drive.read",
-      "inputFields": [
-        {
-          "description": "읽을 파일",
-          "key": "file_id",
-          "optionsSource": "google.files",
-          "path": "config.tools.0.config.file_id",
-          "required": true,
-          "title": "파일",
-          "type": "string"
-        }
-      ],
-      "kind": "search",
-      "match": {
-        "config.tools.0.name": "builtin:google_drive_read",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "fileId",
-          "title": "파일 ID",
-          "type": "string"
-        },
-        {
-          "key": "name",
-          "title": "파일 이름",
-          "type": "string"
-        },
-        {
-          "key": "mimeType",
-          "title": "파일 형식",
-          "type": "string"
-        },
-        {
-          "key": "content",
-          "title": "내용",
-          "type": "text"
-        }
-      ],
-      "provider": "google",
-      "title": "드라이브 파일 읽기"
-    },
-    {
-      "app": "google_drive",
-      "description": "텍스트 내용을 파일로 저장해요.",
-      "fixed": {
-        "config": {
-          "brand": "google",
-          "serviceType": "GOOGLE",
-          "tools": [
-            {
-              "name": "builtin:google_drive_upload"
-            }
-          ]
-        },
-        "event": "google_drive.upload",
-        "type": "ACTION"
-      },
-      "id": "google_drive.upload",
-      "inputFields": [
-        {
-          "key": "name",
-          "path": "config.tools.0.config.name",
-          "required": true,
-          "title": "파일 이름",
-          "type": "string"
-        },
-        {
-          "key": "content",
-          "path": "config.tools.0.config.content",
-          "required": true,
-          "title": "내용",
-          "type": "text"
-        },
-        {
-          "default": "text/plain",
-          "description": "예: text/plain, text/csv",
-          "key": "mime_type",
-          "path": "config.tools.0.config.mime_type",
-          "title": "파일 형식",
-          "type": "string"
-        },
-        {
-          "default": "",
-          "description": "업로드할 폴더 (비우면 내 드라이브 루트)",
-          "key": "folder_id",
-          "optionsSource": "google.folders",
-          "path": "config.tools.0.config.folder_id",
-          "title": "폴더",
-          "type": "string"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "builtin:google_drive_upload",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "fileId",
-          "title": "파일 ID",
-          "type": "string"
-        },
-        {
-          "key": "name",
-          "title": "파일 이름",
-          "type": "string"
-        },
-        {
-          "key": "webViewLink",
-          "title": "파일 링크",
-          "type": "string"
-        }
-      ],
-      "provider": "google",
-      "title": "드라이브에 파일 올리기"
-    },
-    {
-      "app": "google_sheets",
-      "description": "표 끝에 새 행을 덧붙여요.",
-      "fixed": {
-        "config": {
-          "brand": "sheets",
-          "serviceType": "GOOGLE",
-          "tools": [
-            {
-              "name": "builtin:google_sheets_append"
-            }
-          ]
-        },
-        "event": "google_sheets.append",
-        "type": "ACTION"
-      },
-      "id": "google_sheets.append",
-      "inputFields": [
-        {
-          "description": "대상 스프레드시트",
-          "key": "spreadsheet_id",
-          "optionsSource": "google.spreadsheets",
-          "path": "config.tools.0.config.spreadsheet_id",
-          "required": true,
-          "title": "스프레드시트",
-          "type": "string"
-        },
-        {
-          "description": "예: A:C",
-          "key": "cell_range",
-          "path": "config.tools.0.config.cell_range",
-          "required": true,
-          "title": "범위",
-          "type": "string"
-        },
-        {
-          "description": "2차원 배열 JSON (예: [[\"홍길동\", 100]])",
-          "key": "values",
-          "path": "config.tools.0.config.values",
-          "required": true,
-          "title": "값",
-          "type": "json"
-        },
-        {
-          "description": "대상 워크시트(탭)",
-          "key": "sheet_name",
-          "optionsInputs": [
-            "spreadsheet_id"
-          ],
-          "optionsSource": "google.worksheets",
-          "path": "config.tools.0.config.sheet_name",
-          "title": "워크시트",
-          "type": "string"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "builtin:google_sheets_append",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "updatedRange",
-          "title": "기록된 범위",
-          "type": "string"
-        },
-        {
-          "key": "updatedRows",
-          "title": "추가된 행 수",
-          "type": "integer"
-        }
-      ],
-      "provider": "google",
-      "title": "시트에 행 추가"
-    },
-    {
-      "app": "google_sheets",
-      "description": "지정한 범위의 값을 가져와요.",
-      "fixed": {
-        "config": {
-          "brand": "sheets",
-          "serviceType": "GOOGLE",
-          "tools": [
-            {
-              "name": "builtin:google_sheets_read"
-            }
-          ]
-        },
-        "event": "google_sheets.read",
-        "type": "ACTION"
-      },
-      "id": "google_sheets.read",
-      "inputFields": [
-        {
-          "description": "대상 스프레드시트",
-          "key": "spreadsheet_id",
-          "optionsSource": "google.spreadsheets",
-          "path": "config.tools.0.config.spreadsheet_id",
-          "required": true,
-          "title": "스프레드시트",
-          "type": "string"
-        },
-        {
-          "description": "예: A:C",
-          "key": "cell_range",
-          "path": "config.tools.0.config.cell_range",
-          "required": true,
-          "title": "범위",
-          "type": "string"
-        },
-        {
-          "description": "대상 워크시트(탭)",
-          "key": "sheet_name",
-          "optionsInputs": [
-            "spreadsheet_id"
-          ],
-          "optionsSource": "google.worksheets",
-          "path": "config.tools.0.config.sheet_name",
-          "title": "워크시트",
-          "type": "string"
-        }
-      ],
-      "kind": "search",
-      "match": {
-        "config.tools.0.name": "builtin:google_sheets_read",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "range",
-          "title": "범위",
-          "type": "string"
-        },
-        {
-          "key": "values",
-          "title": "값",
-          "type": "json"
-        }
-      ],
-      "provider": "google",
-      "title": "시트 읽기"
-    },
-    {
-      "app": "google_sheets",
-      "description": "지정한 범위에 값을 써요.",
-      "fixed": {
-        "config": {
-          "brand": "sheets",
-          "serviceType": "GOOGLE",
-          "tools": [
-            {
-              "name": "builtin:google_sheets_write"
-            }
-          ]
-        },
-        "event": "google_sheets.write",
-        "type": "ACTION"
-      },
-      "id": "google_sheets.write",
-      "inputFields": [
-        {
-          "description": "대상 스프레드시트",
-          "key": "spreadsheet_id",
-          "optionsSource": "google.spreadsheets",
-          "path": "config.tools.0.config.spreadsheet_id",
-          "required": true,
-          "title": "스프레드시트",
-          "type": "string"
-        },
-        {
-          "description": "예: A:C",
-          "key": "cell_range",
-          "path": "config.tools.0.config.cell_range",
-          "required": true,
-          "title": "범위",
-          "type": "string"
-        },
-        {
-          "description": "2차원 배열 JSON (예: [[\"홍길동\", 100]])",
-          "key": "values",
-          "path": "config.tools.0.config.values",
-          "required": true,
-          "title": "값",
-          "type": "json"
-        },
-        {
-          "description": "대상 워크시트(탭)",
-          "key": "sheet_name",
-          "optionsInputs": [
-            "spreadsheet_id"
-          ],
-          "optionsSource": "google.worksheets",
-          "path": "config.tools.0.config.sheet_name",
-          "title": "워크시트",
-          "type": "string"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "builtin:google_sheets_write",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "updatedRange",
-          "title": "기록된 범위",
-          "type": "string"
-        },
-        {
-          "key": "updatedCells",
-          "title": "기록된 셀 수",
-          "type": "integer"
-        }
-      ],
-      "provider": "google",
-      "title": "시트에 쓰기"
-    },
-    {
-      "app": "notion",
-      "description": "페이지 끝에 내용을 덧붙여요.",
-      "fixed": {
-        "config": {
-          "brand": "notion",
-          "serviceType": "NOTION",
-          "tools": [
-            {
-              "name": "builtin:notion_append_block"
-            }
-          ]
-        },
-        "event": "notion.append_block",
-        "type": "ACTION"
-      },
-      "id": "notion.append_block",
-      "inputFields": [
-        {
-          "description": "대상 페이지",
-          "key": "page_id",
-          "optionsSource": "notion.pages",
-          "path": "config.tools.0.config.page_id",
-          "required": true,
-          "title": "페이지",
-          "type": "string"
-        },
-        {
-          "key": "content",
-          "path": "config.tools.0.config.content",
-          "required": true,
-          "title": "추가할 내용",
-          "type": "text"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "builtin:notion_append_block",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "blockIds",
-          "list": true,
-          "title": "추가된 블록 ID",
-          "type": "string"
-        },
-        {
-          "key": "appendedCount",
-          "title": "추가된 블록 수",
-          "type": "integer"
-        }
-      ],
-      "provider": "notion",
-      "title": "Notion 페이지에 내용 추가"
-    },
-    {
-      "app": "notion",
-      "description": "지정한 페이지 아래에 새 페이지를 만들어요.",
-      "fixed": {
-        "config": {
-          "brand": "notion",
-          "serviceType": "NOTION",
-          "tools": [
-            {
-              "name": "builtin:notion_create_page"
-            }
-          ]
-        },
-        "event": "notion.create_page",
-        "type": "ACTION"
-      },
-      "id": "notion.create_page",
-      "inputFields": [
-        {
-          "description": "새 페이지를 만들 위치",
-          "key": "parent_page_id",
-          "optionsSource": "notion.pages",
-          "path": "config.tools.0.config.parent_page_id",
-          "required": true,
-          "title": "상위 페이지",
-          "type": "string"
-        },
-        {
-          "key": "title",
-          "path": "config.tools.0.config.title",
-          "required": true,
-          "title": "제목",
-          "type": "string"
-        },
-        {
-          "key": "content",
-          "path": "config.tools.0.config.content",
-          "required": true,
-          "title": "내용",
-          "type": "text"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "builtin:notion_create_page",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "pageId",
-          "title": "페이지 ID",
-          "type": "string"
-        },
-        {
-          "key": "url",
-          "title": "페이지 주소",
-          "type": "string"
-        }
-      ],
-      "provider": "notion",
-      "title": "Notion 페이지 만들기"
-    },
-    {
-      "app": "notion",
-      "description": "데이터베이스의 행을 가져와요.",
-      "fixed": {
-        "config": {
-          "brand": "notion",
-          "serviceType": "NOTION",
-          "tools": [
-            {
-              "name": "builtin:notion_query_database"
-            }
-          ]
-        },
-        "event": "notion.query_database",
-        "type": "ACTION"
-      },
-      "id": "notion.query_database",
-      "inputFields": [
-        {
-          "description": "조회할 데이터베이스",
-          "key": "database_id",
-          "optionsSource": "notion.databases",
-          "path": "config.tools.0.config.database_id",
-          "required": true,
-          "title": "데이터베이스",
-          "type": "string"
-        },
-        {
-          "description": "Notion 필터 JSON (비우면 전체)",
-          "key": "filter_json",
-          "path": "config.tools.0.config.filter_json",
-          "title": "필터",
-          "type": "json"
-        },
-        {
-          "default": 10,
-          "key": "page_size",
-          "path": "config.tools.0.config.page_size",
-          "title": "최대 개수",
-          "type": "integer"
-        }
-      ],
-      "kind": "search",
-      "match": {
-        "config.tools.0.name": "builtin:notion_query_database",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "children": [
-            {
-              "key": "id",
-              "title": "ID",
-              "type": "string"
-            },
-            {
-              "key": "url",
-              "title": "주소",
-              "type": "string"
-            },
-            {
-              "dynamic": true,
-              "key": "properties",
-              "title": "속성",
-              "type": "object"
-            }
-          ],
-          "key": "rows",
-          "list": true,
-          "title": "행",
-          "type": "object"
-        },
-        {
-          "key": "total",
-          "title": "개수",
-          "type": "integer"
-        }
-      ],
-      "provider": "notion",
-      "title": "Notion 데이터베이스 조회"
-    },
-    {
-      "app": "notion",
-      "description": "페이지의 제목과 본문을 가져와요.",
-      "fixed": {
-        "config": {
-          "brand": "notion",
-          "serviceType": "NOTION",
-          "tools": [
-            {
-              "name": "builtin:notion_read_page"
-            }
-          ]
-        },
-        "event": "notion.read_page",
-        "type": "ACTION"
-      },
-      "id": "notion.read_page",
-      "inputFields": [
-        {
-          "description": "대상 페이지",
-          "key": "page_id",
-          "optionsSource": "notion.pages",
-          "path": "config.tools.0.config.page_id",
-          "required": true,
-          "title": "페이지",
-          "type": "string"
-        }
-      ],
-      "kind": "search",
-      "match": {
-        "config.tools.0.name": "builtin:notion_read_page",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "pageId",
-          "title": "페이지 ID",
-          "type": "string"
-        },
-        {
-          "key": "title",
-          "title": "제목",
-          "type": "string"
-        },
-        {
-          "key": "content",
-          "title": "본문",
-          "type": "text"
-        },
-        {
-          "key": "lastEditedAt",
-          "title": "마지막 수정",
-          "type": "datetime"
-        }
-      ],
-      "provider": "notion",
-      "title": "Notion 페이지 읽기"
-    },
-    {
-      "app": "notion",
-      "description": "제목으로 페이지나 데이터베이스를 찾아요.",
-      "fixed": {
-        "config": {
-          "brand": "notion",
-          "serviceType": "NOTION",
-          "tools": [
-            {
-              "name": "builtin:notion_search"
-            }
-          ]
-        },
-        "event": "notion.search",
-        "type": "ACTION"
-      },
-      "id": "notion.search",
-      "inputFields": [
-        {
-          "key": "query",
-          "path": "config.tools.0.config.query",
-          "required": true,
-          "title": "검색어",
-          "type": "string"
-        },
-        {
-          "choices": [
-            {
-              "id": "page",
-              "name": "페이지"
-            },
-            {
-              "id": "database",
-              "name": "데이터베이스"
-            }
-          ],
-          "default": "page",
-          "key": "filter_type",
-          "path": "config.tools.0.config.filter_type",
-          "ref": false,
-          "title": "찾을 대상",
-          "type": "string"
-        }
-      ],
-      "kind": "search",
-      "match": {
-        "config.tools.0.name": "builtin:notion_search",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "children": [
-            {
-              "key": "id",
-              "title": "ID",
-              "type": "string"
-            },
-            {
-              "key": "title",
-              "title": "제목",
-              "type": "string"
-            },
-            {
-              "key": "url",
-              "title": "주소",
-              "type": "string"
-            },
-            {
-              "key": "lastEditedAt",
-              "title": "마지막 수정",
-              "type": "datetime"
-            }
-          ],
-          "key": "results",
-          "list": true,
-          "title": "검색 결과",
-          "type": "object"
-        },
-        {
-          "key": "total",
-          "title": "개수",
-          "type": "integer"
-        }
-      ],
-      "provider": "notion",
-      "title": "Notion 검색"
-    },
-    {
-      "app": "notion",
-      "description": "페이지의 제목이나 본문을 바꿔요.",
-      "fixed": {
-        "config": {
-          "brand": "notion",
-          "serviceType": "NOTION",
-          "tools": [
-            {
-              "name": "builtin:notion_update_page"
-            }
-          ]
-        },
-        "event": "notion.update_page",
-        "type": "ACTION"
-      },
-      "id": "notion.update_page",
-      "inputFields": [
-        {
-          "description": "대상 페이지",
-          "key": "page_id",
-          "optionsSource": "notion.pages",
-          "path": "config.tools.0.config.page_id",
-          "required": true,
-          "title": "페이지",
-          "type": "string"
-        },
-        {
-          "description": "비우면 그대로",
-          "key": "title",
-          "path": "config.tools.0.config.title",
-          "title": "새 제목",
-          "type": "string"
-        },
-        {
-          "description": "비우면 그대로",
-          "key": "content",
-          "path": "config.tools.0.config.content",
-          "title": "새 내용",
-          "type": "text"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "builtin:notion_update_page",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "pageId",
-          "title": "페이지 ID",
-          "type": "string"
-        },
-        {
-          "key": "url",
-          "title": "페이지 주소",
-          "type": "string"
-        }
-      ],
-      "provider": "notion",
-      "title": "Notion 페이지 수정"
-    },
-    {
-      "app": "schedule",
-      "description": "정해둔 시각마다 시작해요.",
-      "fixed": {
-        "config": {
-          "brand": "webhook",
-          "triggerType": "SCHEDULE"
-        },
-        "event": "schedule.every",
-        "type": "TRIGGER"
-      },
-      "id": "schedule.every",
-      "inputFields": [
-        {
-          "description": "표준 5필드 크론식 (예: 매일 9시 = 0 9 * * *)",
-          "key": "cron",
-          "path": "config.cron",
-          "ref": false,
-          "required": true,
-          "title": "실행 주기",
-          "type": "cron"
-        }
-      ],
-      "kind": "trigger",
-      "match": {
-        "config.triggerType": "SCHEDULE",
-        "type": "TRIGGER"
-      },
-      "nodeType": "TRIGGER",
-      "outputFields": [
-        {
-          "key": "triggeredAt",
-          "title": "실행 시각",
-          "type": "datetime"
-        },
-        {
-          "key": "cron",
-          "title": "크론식",
-          "type": "string"
-        }
-      ],
-      "provider": "ieum",
-      "title": "스케줄"
-    },
-    {
-      "app": "slack",
-      "description": "등록한 웹훅으로 Slack에 메시지를 보내요.",
-      "fixed": {
-        "config": {
-          "brand": "slack",
-          "serviceType": "SLACK",
-          "tools": [
-            {
-              "name": "slack"
-            }
-          ]
-        },
-        "event": "slack.send_message",
-        "type": "ACTION"
-      },
-      "id": "slack.send_message",
-      "inputFields": [
-        {
-          "key": "message",
-          "path": "config.tools.0.config.message",
-          "required": true,
-          "title": "메시지",
-          "type": "text"
-        },
-        {
-          "description": "비우면 웹훅 기본 채널",
-          "key": "channel",
-          "path": "config.tools.0.config.channel",
-          "title": "채널",
-          "type": "string"
-        },
-        {
-          "key": "webhookCredentialId",
-          "optionsSource": "slack.webhooks",
-          "path": "config.tools.0.config.webhookCredentialId",
-          "ref": false,
-          "required": true,
-          "title": "웹훅",
-          "type": "string"
-        }
-      ],
-      "kind": "action",
-      "match": {
-        "config.tools.0.name": "slack",
-        "type": "ACTION"
-      },
-      "nodeType": "ACTION",
-      "outputFields": [
-        {
-          "key": "message",
-          "title": "결과 메시지",
-          "type": "string"
-        }
-      ],
-      "provider": "slack",
-      "title": "Slack 메시지 보내기"
-    },
-    {
-      "app": "webhook",
-      "description": "외부에서 신호가 오면 시작해요.",
-      "fixed": {
-        "config": {
-          "brand": "webhook",
-          "triggerType": "WEBHOOK"
-        },
-        "event": "webhook.catch",
-        "type": "TRIGGER"
-      },
-      "id": "webhook.catch",
-      "inputFields": [
-        {
-          "default": false,
-          "description": "서명 헤더를 보내는 서비스(Stripe·GitHub)용이에요. 켜면 출력이 method·headers·query·body·rawBody가 되고, 헤더 이름은 소문자로 바꾸고 '-'는 '_'로 바꿔요. Authorization·Cookie 값은 가려져요.",
-          "key": "includeRaw",
-          "path": "config.includeRaw",
-          "ref": false,
-          "title": "원문 그대로 받기",
-          "type": "boolean"
-        }
-      ],
-      "kind": "trigger",
-      "match": {
-        "config.triggerType": "WEBHOOK",
-        "type": "TRIGGER"
-      },
-      "nodeType": "TRIGGER",
-      "outputDynamic": true,
-      "outputFields": [],
-      "provider": "ieum",
-      "title": "웹훅"
-    },
-    {
-      "app": "ai",
       "description": "AI가 고른 도구를 직접 써 가며 일을 처리해요.",
       "fixed": {
         "config": {
@@ -1850,9 +151,6 @@
         }
       ],
       "kind": "action",
-      "match": {
-        "type": "AI"
-      },
       "nodeType": "AI",
       "outputFields": [
         {
@@ -1863,6 +161,135 @@
       ],
       "provider": "ieum",
       "title": "AI 에이전트"
+    },
+    {
+      "app": "ai",
+      "description": "AI가 앞 단계 결과를 읽고 판단하거나 글을 써요.",
+      "fixed": {
+        "config": {
+          "agentType": "simple",
+          "brand": "openai",
+          "credentialId": "",
+          "tools": []
+        },
+        "event": "ai.reasoning",
+        "type": "AI"
+      },
+      "id": "ai.reasoning",
+      "inputFields": [
+        {
+          "choices": [
+            {
+              "id": "CLAUDE",
+              "name": "Claude"
+            },
+            {
+              "id": "OPENAI",
+              "name": "OpenAI"
+            },
+            {
+              "id": "GEMINI",
+              "name": "Gemini"
+            }
+          ],
+          "key": "llmProvider",
+          "path": "config.llmProvider",
+          "ref": false,
+          "required": true,
+          "title": "AI 제공자",
+          "type": "string"
+        },
+        {
+          "key": "model",
+          "optionsInputs": [
+            "llmProvider"
+          ],
+          "optionsSource": "ai.models",
+          "path": "config.model",
+          "ref": false,
+          "required": true,
+          "title": "모델",
+          "type": "string"
+        },
+        {
+          "key": "prompt",
+          "path": "config.prompt",
+          "required": true,
+          "title": "지시문",
+          "type": "text"
+        },
+        {
+          "key": "credentialId",
+          "optionsInputs": [
+            "llmProvider"
+          ],
+          "optionsSource": "ieum.credentials",
+          "path": "config.credentialId",
+          "ref": false,
+          "title": "API 키",
+          "type": "string"
+        },
+        {
+          "key": "systemMessage",
+          "path": "config.systemMessage",
+          "title": "시스템 메시지",
+          "type": "text"
+        },
+        {
+          "children": [
+            {
+              "key": "key",
+              "required": true,
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "choices": [
+                {
+                  "id": "text",
+                  "name": "텍스트"
+                },
+                {
+                  "id": "number",
+                  "name": "숫자"
+                },
+                {
+                  "id": "boolean",
+                  "name": "참/거짓"
+                }
+              ],
+              "key": "type",
+              "required": true,
+              "title": "타입",
+              "type": "string"
+            },
+            {
+              "key": "description",
+              "title": "설명",
+              "type": "text"
+            }
+          ],
+          "description": "AI가 이 칸들로만 답해요. 다음 단계에서 칸 하나씩 골라 쓸 수 있어요. 비우면 결과 한 칸이에요.",
+          "key": "outputFields",
+          "list": true,
+          "path": "config.outputFields",
+          "ref": false,
+          "title": "출력 칸",
+          "type": "object"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "AI",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "text"
+        }
+      ],
+      "outputsFrom": "config.outputFields",
+      "provider": "ieum",
+      "title": "AI"
     },
     {
       "app": "approval",
@@ -1884,9 +311,6 @@
         }
       ],
       "kind": "action",
-      "match": {
-        "type": "APPROVAL"
-      },
       "nodeType": "APPROVAL",
       "outputFields": [
         {
@@ -1986,9 +410,6 @@
         }
       ],
       "kind": "action",
-      "match": {
-        "type": "CONDITION"
-      },
       "nodeType": "CONDITION",
       "outputFields": [
         {
@@ -1999,6 +420,902 @@
       ],
       "provider": "ieum",
       "title": "조건 분기"
+    },
+    {
+      "app": "discord",
+      "description": "등록한 웹훅으로 Discord에 메시지를 보내요.",
+      "fixed": {
+        "config": {
+          "brand": "discord"
+        },
+        "event": "discord.send_message",
+        "type": "ACTION"
+      },
+      "id": "discord.send_message",
+      "inputFields": [
+        {
+          "key": "content",
+          "path": "config.content",
+          "required": true,
+          "title": "메시지",
+          "type": "text"
+        },
+        {
+          "default": "IEUM Bot",
+          "key": "username",
+          "path": "config.username",
+          "title": "보낸 사람 이름",
+          "type": "string"
+        },
+        {
+          "key": "webhookCredentialId",
+          "optionsSource": "discord.webhooks",
+          "path": "config.webhookCredentialId",
+          "ref": false,
+          "required": true,
+          "title": "웹훅",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "message",
+          "title": "결과 메시지",
+          "type": "string"
+        }
+      ],
+      "provider": "discord",
+      "title": "Discord 메시지 보내기"
+    },
+    {
+      "app": "github",
+      "description": "저장소에 새 이슈를 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.create_issue",
+        "type": "ACTION"
+      },
+      "id": "github.create_issue",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "이슈를 만들 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "body",
+          "path": "config.body",
+          "title": "내용",
+          "type": "text"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "number",
+          "title": "이슈 번호",
+          "type": "integer"
+        },
+        {
+          "key": "url",
+          "title": "이슈 주소",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 이슈 만들기"
+    },
+    {
+      "app": "github",
+      "description": "저장소의 이슈 목록을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.list_issues",
+        "type": "ACTION"
+      },
+      "id": "github.list_issues",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "이슈를 가져올 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "open",
+              "name": "열림"
+            },
+            {
+              "id": "closed",
+              "name": "닫힘"
+            },
+            {
+              "id": "all",
+              "name": "전체"
+            }
+          ],
+          "default": "open",
+          "key": "state",
+          "path": "config.state",
+          "ref": false,
+          "title": "상태",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "children": [
+            {
+              "key": "number",
+              "title": "번호",
+              "type": "integer"
+            },
+            {
+              "key": "title",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "state",
+              "title": "상태",
+              "type": "string"
+            },
+            {
+              "key": "labels",
+              "list": true,
+              "title": "라벨",
+              "type": "string"
+            },
+            {
+              "key": "created_at",
+              "title": "만든 시각",
+              "type": "datetime"
+            }
+          ],
+          "key": "issues",
+          "list": true,
+          "title": "이슈",
+          "type": "object"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 이슈 목록 조회"
+    },
+    {
+      "app": "github",
+      "description": "저장소에 새 이슈가 열리면 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.new_issue",
+        "type": "TRIGGER"
+      },
+      "id": "github.new_issue",
+      "inputFields": [
+        {
+          "description": "새 이슈를 지켜볼 저장소",
+          "key": "repoId",
+          "optionsSource": "github.installed_repos",
+          "path": "config.repoId",
+          "ref": false,
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "issueNumber",
+          "title": "이슈 번호",
+          "type": "integer"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "key": "url",
+          "title": "링크",
+          "type": "string"
+        },
+        {
+          "key": "author",
+          "title": "작성자",
+          "type": "string"
+        },
+        {
+          "key": "labels",
+          "list": true,
+          "title": "라벨",
+          "type": "string"
+        },
+        {
+          "key": "repo",
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "key": "createdAt",
+          "title": "만든 시각",
+          "type": "datetime"
+        }
+      ],
+      "provider": "github",
+      "title": "새 GitHub 이슈"
+    },
+    {
+      "app": "gmail",
+      "description": "받은편지함에 새 메일이 오면 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.new_email",
+        "type": "TRIGGER"
+      },
+      "id": "gmail.new_email",
+      "inputFields": [
+        {
+          "description": "Gmail 검색식 (예: from:boss@example.com). 비우면 받은편지함 전체",
+          "key": "query",
+          "path": "config.query",
+          "ref": false,
+          "title": "검색 조건",
+          "type": "string"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "스레드 ID",
+          "type": "string"
+        },
+        {
+          "key": "from",
+          "title": "보낸 사람",
+          "type": "string"
+        },
+        {
+          "key": "to",
+          "title": "받는 사람",
+          "type": "string"
+        },
+        {
+          "key": "subject",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "snippet",
+          "title": "미리보기",
+          "type": "text"
+        },
+        {
+          "key": "bodyText",
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "key": "receivedAt",
+          "title": "받은 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "labels",
+          "list": true,
+          "title": "라벨 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "새 Gmail 메일"
+    },
+    {
+      "app": "google_calendar",
+      "description": "구글 캘린더에 새 일정을 추가해요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.create",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.create",
+      "inputFields": [
+        {
+          "key": "summary",
+          "path": "config.summary",
+          "required": true,
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "start_datetime",
+          "path": "config.start_datetime",
+          "required": true,
+          "title": "시작",
+          "type": "datetime"
+        },
+        {
+          "key": "end_datetime",
+          "path": "config.end_datetime",
+          "required": true,
+          "title": "종료",
+          "type": "datetime"
+        },
+        {
+          "default": "",
+          "key": "description",
+          "path": "config.description",
+          "title": "설명",
+          "type": "text"
+        },
+        {
+          "default": "primary",
+          "description": "대상 캘린더 (비우면 기본 캘린더)",
+          "key": "calendar_id",
+          "optionsSource": "google.calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "eventId",
+          "title": "일정 ID",
+          "type": "string"
+        },
+        {
+          "key": "htmlLink",
+          "title": "일정 링크",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 일정 만들기"
+    },
+    {
+      "app": "google_calendar",
+      "description": "기간 안의 일정을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.list",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.list",
+      "inputFields": [
+        {
+          "key": "time_min",
+          "path": "config.time_min",
+          "required": true,
+          "title": "시작 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "time_max",
+          "path": "config.time_max",
+          "required": true,
+          "title": "종료 시각",
+          "type": "datetime"
+        },
+        {
+          "default": 10,
+          "key": "max_results",
+          "path": "config.max_results",
+          "title": "최대 개수",
+          "type": "integer"
+        },
+        {
+          "default": "primary",
+          "description": "대상 캘린더 (비우면 기본 캘린더)",
+          "key": "calendar_id",
+          "optionsSource": "google.calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "children": [
+            {
+              "key": "id",
+              "title": "ID",
+              "type": "string"
+            },
+            {
+              "key": "summary",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "start",
+              "title": "시작",
+              "type": "datetime"
+            },
+            {
+              "key": "end",
+              "title": "종료",
+              "type": "datetime"
+            }
+          ],
+          "key": "events",
+          "list": true,
+          "title": "일정",
+          "type": "object"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 일정 조회"
+    },
+    {
+      "app": "google_calendar",
+      "description": "기존 일정의 내용을 바꿔요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.update",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.update",
+      "inputFields": [
+        {
+          "description": "수정할 일정",
+          "key": "event_id",
+          "optionsInputs": [
+            "calendar_id"
+          ],
+          "optionsSource": "google.events",
+          "path": "config.event_id",
+          "required": true,
+          "title": "일정",
+          "type": "string"
+        },
+        {
+          "description": "비우면 그대로",
+          "key": "summary",
+          "path": "config.summary",
+          "title": "새 제목",
+          "type": "string"
+        },
+        {
+          "key": "start_datetime",
+          "path": "config.start_datetime",
+          "title": "새 시작",
+          "type": "datetime"
+        },
+        {
+          "key": "end_datetime",
+          "path": "config.end_datetime",
+          "title": "새 종료",
+          "type": "datetime"
+        },
+        {
+          "key": "description",
+          "path": "config.description",
+          "title": "새 설명",
+          "type": "text"
+        },
+        {
+          "default": "primary",
+          "description": "대상 캘린더 (비우면 기본 캘린더)",
+          "key": "calendar_id",
+          "optionsSource": "google.calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "eventId",
+          "title": "일정 ID",
+          "type": "string"
+        },
+        {
+          "key": "htmlLink",
+          "title": "일정 링크",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 일정 수정"
+    },
+    {
+      "app": "google_drive",
+      "description": "파일 내용을 텍스트로 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_drive.read",
+        "type": "ACTION"
+      },
+      "id": "google_drive.read",
+      "inputFields": [
+        {
+          "description": "읽을 파일",
+          "key": "file_id",
+          "optionsSource": "google.files",
+          "path": "config.file_id",
+          "required": true,
+          "title": "파일",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "fileId",
+          "title": "파일 ID",
+          "type": "string"
+        },
+        {
+          "key": "name",
+          "title": "파일 이름",
+          "type": "string"
+        },
+        {
+          "key": "mimeType",
+          "title": "파일 형식",
+          "type": "string"
+        },
+        {
+          "key": "content",
+          "title": "내용",
+          "type": "text"
+        }
+      ],
+      "provider": "google",
+      "title": "드라이브 파일 읽기"
+    },
+    {
+      "app": "google_drive",
+      "description": "텍스트 내용을 파일로 저장해요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_drive.upload",
+        "type": "ACTION"
+      },
+      "id": "google_drive.upload",
+      "inputFields": [
+        {
+          "key": "name",
+          "path": "config.name",
+          "required": true,
+          "title": "파일 이름",
+          "type": "string"
+        },
+        {
+          "key": "content",
+          "path": "config.content",
+          "required": true,
+          "title": "내용",
+          "type": "text"
+        },
+        {
+          "default": "text/plain",
+          "description": "예: text/plain, text/csv",
+          "key": "mime_type",
+          "path": "config.mime_type",
+          "title": "파일 형식",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "업로드할 폴더 (비우면 내 드라이브 루트)",
+          "key": "folder_id",
+          "optionsSource": "google.folders",
+          "path": "config.folder_id",
+          "title": "폴더",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "fileId",
+          "title": "파일 ID",
+          "type": "string"
+        },
+        {
+          "key": "name",
+          "title": "파일 이름",
+          "type": "string"
+        },
+        {
+          "key": "webViewLink",
+          "title": "파일 링크",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "드라이브에 파일 올리기"
+    },
+    {
+      "app": "google_sheets",
+      "description": "표 끝에 새 행을 덧붙여요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.append",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.append",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "예: A:C",
+          "key": "cell_range",
+          "path": "config.cell_range",
+          "required": true,
+          "title": "범위",
+          "type": "string"
+        },
+        {
+          "description": "2차원 배열 JSON (예: [[\"홍길동\", 100]])",
+          "key": "values",
+          "path": "config.values",
+          "required": true,
+          "title": "값",
+          "type": "json"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_name",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_name",
+          "title": "워크시트",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "updatedRange",
+          "title": "기록된 범위",
+          "type": "string"
+        },
+        {
+          "key": "updatedRows",
+          "title": "추가된 행 수",
+          "type": "integer"
+        }
+      ],
+      "provider": "google",
+      "title": "시트에 행 추가"
+    },
+    {
+      "app": "google_sheets",
+      "description": "지정한 범위의 값을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.read",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.read",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "예: A:C",
+          "key": "cell_range",
+          "path": "config.cell_range",
+          "required": true,
+          "title": "범위",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_name",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_name",
+          "title": "워크시트",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "range",
+          "title": "범위",
+          "type": "string"
+        },
+        {
+          "key": "values",
+          "title": "값",
+          "type": "json"
+        }
+      ],
+      "provider": "google",
+      "title": "시트 읽기"
+    },
+    {
+      "app": "google_sheets",
+      "description": "지정한 범위에 값을 써요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.write",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.write",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "예: A:C",
+          "key": "cell_range",
+          "path": "config.cell_range",
+          "required": true,
+          "title": "범위",
+          "type": "string"
+        },
+        {
+          "description": "2차원 배열 JSON (예: [[\"홍길동\", 100]])",
+          "key": "values",
+          "path": "config.values",
+          "required": true,
+          "title": "값",
+          "type": "json"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_name",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_name",
+          "title": "워크시트",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "updatedRange",
+          "title": "기록된 범위",
+          "type": "string"
+        },
+        {
+          "key": "updatedCells",
+          "title": "기록된 셀 수",
+          "type": "integer"
+        }
+      ],
+      "provider": "google",
+      "title": "시트에 쓰기"
     },
     {
       "app": "http",
@@ -2069,9 +1386,6 @@
         }
       ],
       "kind": "action",
-      "match": {
-        "type": "HTTP"
-      },
       "nodeType": "HTTP",
       "outputFields": [
         {
@@ -2095,8 +1409,7 @@
       "description": "버튼을 누르면 시작해요.",
       "fixed": {
         "config": {
-          "brand": "webhook",
-          "triggerType": "MANUAL"
+          "brand": "webhook"
         },
         "event": "manual.run",
         "type": "TRIGGER"
@@ -2104,14 +1417,450 @@
       "id": "manual.run",
       "inputFields": [],
       "kind": "trigger",
-      "match": {
-        "type": "TRIGGER"
-      },
       "nodeType": "TRIGGER",
       "outputDynamic": true,
       "outputFields": [],
       "provider": "ieum",
       "title": "수동 실행"
+    },
+    {
+      "app": "notion",
+      "description": "페이지 끝에 내용을 덧붙여요.",
+      "fixed": {
+        "config": {
+          "brand": "notion"
+        },
+        "event": "notion.append_block",
+        "type": "ACTION"
+      },
+      "id": "notion.append_block",
+      "inputFields": [
+        {
+          "description": "대상 페이지",
+          "key": "page_id",
+          "optionsSource": "notion.pages",
+          "path": "config.page_id",
+          "required": true,
+          "title": "페이지",
+          "type": "string"
+        },
+        {
+          "key": "content",
+          "path": "config.content",
+          "required": true,
+          "title": "추가할 내용",
+          "type": "text"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "blockIds",
+          "list": true,
+          "title": "추가된 블록 ID",
+          "type": "string"
+        },
+        {
+          "key": "appendedCount",
+          "title": "추가된 블록 수",
+          "type": "integer"
+        }
+      ],
+      "provider": "notion",
+      "title": "Notion 페이지에 내용 추가"
+    },
+    {
+      "app": "notion",
+      "description": "지정한 페이지 아래에 새 페이지를 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "notion"
+        },
+        "event": "notion.create_page",
+        "type": "ACTION"
+      },
+      "id": "notion.create_page",
+      "inputFields": [
+        {
+          "description": "새 페이지를 만들 위치",
+          "key": "parent_page_id",
+          "optionsSource": "notion.pages",
+          "path": "config.parent_page_id",
+          "required": true,
+          "title": "상위 페이지",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "content",
+          "path": "config.content",
+          "required": true,
+          "title": "내용",
+          "type": "text"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "pageId",
+          "title": "페이지 ID",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "title": "페이지 주소",
+          "type": "string"
+        }
+      ],
+      "provider": "notion",
+      "title": "Notion 페이지 만들기"
+    },
+    {
+      "app": "notion",
+      "description": "데이터베이스의 행을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "notion"
+        },
+        "event": "notion.query_database",
+        "type": "ACTION"
+      },
+      "id": "notion.query_database",
+      "inputFields": [
+        {
+          "description": "조회할 데이터베이스",
+          "key": "database_id",
+          "optionsSource": "notion.databases",
+          "path": "config.database_id",
+          "required": true,
+          "title": "데이터베이스",
+          "type": "string"
+        },
+        {
+          "description": "Notion 필터 JSON (비우면 전체)",
+          "key": "filter_json",
+          "path": "config.filter_json",
+          "title": "필터",
+          "type": "json"
+        },
+        {
+          "default": 10,
+          "key": "page_size",
+          "path": "config.page_size",
+          "title": "최대 개수",
+          "type": "integer"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "children": [
+            {
+              "key": "id",
+              "title": "ID",
+              "type": "string"
+            },
+            {
+              "key": "url",
+              "title": "주소",
+              "type": "string"
+            },
+            {
+              "dynamic": true,
+              "key": "properties",
+              "title": "속성",
+              "type": "object"
+            }
+          ],
+          "key": "rows",
+          "list": true,
+          "title": "행",
+          "type": "object"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        }
+      ],
+      "provider": "notion",
+      "title": "Notion 데이터베이스 조회"
+    },
+    {
+      "app": "notion",
+      "description": "페이지의 제목과 본문을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "notion"
+        },
+        "event": "notion.read_page",
+        "type": "ACTION"
+      },
+      "id": "notion.read_page",
+      "inputFields": [
+        {
+          "description": "대상 페이지",
+          "key": "page_id",
+          "optionsSource": "notion.pages",
+          "path": "config.page_id",
+          "required": true,
+          "title": "페이지",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "pageId",
+          "title": "페이지 ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "content",
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "key": "lastEditedAt",
+          "title": "마지막 수정",
+          "type": "datetime"
+        }
+      ],
+      "provider": "notion",
+      "title": "Notion 페이지 읽기"
+    },
+    {
+      "app": "notion",
+      "description": "제목으로 페이지나 데이터베이스를 찾아요.",
+      "fixed": {
+        "config": {
+          "brand": "notion"
+        },
+        "event": "notion.search",
+        "type": "ACTION"
+      },
+      "id": "notion.search",
+      "inputFields": [
+        {
+          "key": "query",
+          "path": "config.query",
+          "required": true,
+          "title": "검색어",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "page",
+              "name": "페이지"
+            },
+            {
+              "id": "database",
+              "name": "데이터베이스"
+            }
+          ],
+          "default": "page",
+          "key": "filter_type",
+          "path": "config.filter_type",
+          "ref": false,
+          "title": "찾을 대상",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "children": [
+            {
+              "key": "id",
+              "title": "ID",
+              "type": "string"
+            },
+            {
+              "key": "title",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "url",
+              "title": "주소",
+              "type": "string"
+            },
+            {
+              "key": "lastEditedAt",
+              "title": "마지막 수정",
+              "type": "datetime"
+            }
+          ],
+          "key": "results",
+          "list": true,
+          "title": "검색 결과",
+          "type": "object"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        }
+      ],
+      "provider": "notion",
+      "title": "Notion 검색"
+    },
+    {
+      "app": "notion",
+      "description": "페이지의 제목이나 본문을 바꿔요.",
+      "fixed": {
+        "config": {
+          "brand": "notion"
+        },
+        "event": "notion.update_page",
+        "type": "ACTION"
+      },
+      "id": "notion.update_page",
+      "inputFields": [
+        {
+          "description": "대상 페이지",
+          "key": "page_id",
+          "optionsSource": "notion.pages",
+          "path": "config.page_id",
+          "required": true,
+          "title": "페이지",
+          "type": "string"
+        },
+        {
+          "description": "비우면 그대로",
+          "key": "title",
+          "path": "config.title",
+          "title": "새 제목",
+          "type": "string"
+        },
+        {
+          "description": "비우면 그대로",
+          "key": "content",
+          "path": "config.content",
+          "title": "새 내용",
+          "type": "text"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "pageId",
+          "title": "페이지 ID",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "title": "페이지 주소",
+          "type": "string"
+        }
+      ],
+      "provider": "notion",
+      "title": "Notion 페이지 수정"
+    },
+    {
+      "app": "schedule",
+      "description": "정해둔 시각마다 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "schedule.every",
+        "type": "TRIGGER"
+      },
+      "id": "schedule.every",
+      "inputFields": [
+        {
+          "description": "표준 5필드 크론식 (예: 매일 9시 = 0 9 * * *)",
+          "key": "cron",
+          "path": "config.cron",
+          "ref": false,
+          "required": true,
+          "title": "실행 주기",
+          "type": "cron"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "triggeredAt",
+          "title": "실행 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "cron",
+          "title": "크론식",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "스케줄"
+    },
+    {
+      "app": "slack",
+      "description": "등록한 웹훅으로 Slack에 메시지를 보내요.",
+      "fixed": {
+        "config": {
+          "brand": "slack"
+        },
+        "event": "slack.send_message",
+        "type": "ACTION"
+      },
+      "id": "slack.send_message",
+      "inputFields": [
+        {
+          "key": "message",
+          "path": "config.message",
+          "required": true,
+          "title": "메시지",
+          "type": "text"
+        },
+        {
+          "description": "비우면 웹훅 기본 채널",
+          "key": "channel",
+          "path": "config.channel",
+          "title": "채널",
+          "type": "string"
+        },
+        {
+          "key": "webhookCredentialId",
+          "optionsSource": "slack.webhooks",
+          "path": "config.webhookCredentialId",
+          "ref": false,
+          "required": true,
+          "title": "웹훅",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "message",
+          "title": "결과 메시지",
+          "type": "string"
+        }
+      ],
+      "provider": "slack",
+      "title": "Slack 메시지 보내기"
     },
     {
       "app": "transform",
@@ -2134,14 +1883,40 @@
         }
       ],
       "kind": "action",
-      "match": {
-        "type": "TRANSFORM"
-      },
       "nodeType": "TRANSFORM",
       "outputFields": [],
       "outputsFrom": "config.mappings",
       "provider": "ieum",
       "title": "데이터 변환"
+    },
+    {
+      "app": "webhook",
+      "description": "외부에서 신호가 오면 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "webhook.catch",
+        "type": "TRIGGER"
+      },
+      "id": "webhook.catch",
+      "inputFields": [
+        {
+          "default": false,
+          "description": "서명 헤더를 보내는 서비스(Stripe·GitHub)용이에요. 켜면 출력이 method·headers·query·body·rawBody가 되고, 헤더 이름은 소문자로 바꾸고 '-'는 '_'로 바꿔요. Authorization·Cookie 값은 가려져요.",
+          "key": "includeRaw",
+          "path": "config.includeRaw",
+          "ref": false,
+          "title": "원문 그대로 받기",
+          "type": "boolean"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputDynamic": true,
+      "outputFields": [],
+      "provider": "ieum",
+      "title": "웹훅"
     }
   ]
 }

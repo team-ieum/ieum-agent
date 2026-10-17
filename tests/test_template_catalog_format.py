@@ -46,7 +46,7 @@ def test_legacy_keys_rejected():
 def test_service_type_in_fixed_rejected():
     raw = read_raw("ai.gmail_send")
     raw["fixed"]["config"]["serviceType"] = "GOOGLE"
-    with pytest.raises(TemplateSchemaError, match="app"):
+    with pytest.raises(TemplateSchemaError, match="serviceType은 폐지"):
         tr._validate_template(raw, raw["id"], tr._tool_map_keys(), apps())
 
 
@@ -135,10 +135,12 @@ def test_action_entries_mirror_app_presets():
         assert action["builder"] is (pid not in HIDDEN_ACTIONS) and action["generation"] is False, pid
         assert action["node_type"] == "ACTION"
         assert action["tool_key"] == preset["tool_key"]
-        assert action["fixed"] == {"type": "ACTION", "event": action["id"], "config": {
-            "tools": [{"name": preset["tool_key"]}], "serviceType": apps()[preset["app"]]["serviceType"]}}
-    # 앱 프리셋 17개의 거울 + 프리셋 없는 GitHub 액션 2개
-    assert len([t for t in entries.values() if t["node_type"] == "ACTION"]) == 19
+        assert action["fixed"] == {"type": "ACTION", "event": action["id"], "config": {}}
+    # 앱 프리셋의 거울 + 프리셋 없는 GitHub 액션
+    mirrored = {t["id"] for t in entries.values() if t["node_type"] == "ACTION"
+                and any(entries[pid]["tool_key"] == t["tool_key"] for pid in APP_PRESETS)}
+    assert {t["id"] for t in entries.values() if t["node_type"] == "ACTION"} == \
+        mirrored | {"github.list_issues", "github.create_issue"}
 
 
 @pytest.mark.parametrize("tid, tool_key, keys", [
@@ -149,11 +151,10 @@ def test_github_action_entries(tid, tool_key, keys):
     t = tr.get_template(tid)
     assert (t["node_type"], t["app"], t["tool_key"]) == ("ACTION", "github", tool_key)
     assert (t["builder"], t["generation"]) == (True, False)
-    assert t["fixed"] == {"type": "ACTION", "event": tid,
-                          "config": {"tools": [{"name": tool_key}], "serviceType": "GITHUB"}}
+    assert t["fixed"] == {"type": "ACTION", "event": tid, "config": {}}
     # 입력 칸 = 시그니처 순서. 실행 시 주입되는 token은 칸에서 빠진다.
     assert [f["key"] for f in t["inputFields"]] == keys
-    assert all(f["path"] == f"config.tools.0.config.{f['key']}" for f in t["inputFields"])
+    assert all(f["path"] == f"config.{f['key']}" for f in t["inputFields"])
 
 
 def test_github_actions_hidden_from_generation_views():
@@ -167,19 +168,21 @@ def test_github_tool_key_drift_still_rejected():
     raw["tool_key"] = "builtin:github_nope"
     with pytest.raises(TemplateSchemaError, match="드리프트"):
         tr._validate_template(raw, raw["id"], tr._tool_map_keys(), apps())
-    raw = read_raw("github.list_issues")
+    raw = read_raw("ai.web_search")              # fixed.config.tools 드리프트 검사는 AI 프리셋 몫으로 남는다
     raw["fixed"]["config"]["tools"][0]["name"] = "builtin:github_nope"
     with pytest.raises(TemplateSchemaError, match="드리프트"):
         tr._validate_template(raw, raw["id"], tr._tool_map_keys(), apps())
 
 
 def test_tool_fields_shared_by_preset_and_action():
+    """같은 도구의 칸 정의는 프리셋·액션이 공유하고 경로만 다르다(프리셋 config.tools.0.config.<칸>, 액션 config.<칸>)."""
     entries = {t["id"]: t for t in tr.all_entries()}
     for pid in APP_PRESETS:
-        tool = lambda e: [f for f in e["inputFields"] if f["path"].startswith("config.tools.0.config.")]
+        preset = [{**f, "path": f["path"].replace("config.tools.0.config.", "config.", 1)}
+                  for f in entries[pid]["inputFields"] if f["path"].startswith("config.tools.0.config.")]
         action = next(t for t in entries.values()
                       if t["node_type"] == "ACTION" and t["tool_key"] == entries[pid]["tool_key"])
-        assert tool(entries[pid]) == tool(action), pid
+        assert preset == action["inputFields"], pid
 
 
 def test_input_fields_have_paths_and_no_injected_params():

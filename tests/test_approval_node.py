@@ -16,8 +16,8 @@ from core.validators.workflow_validator import WorkflowValidator, WorkflowValida
 def _gated_workflow(approval_config: dict):
     """TRIGGER → APPROVAL → AI. AI는 게이트 출력(승인자)을 참조한다."""
     nodes = [
-        {"id": "node-1", "type": "TRIGGER", "label": "매일 아침 9시",
-         "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}},
+        {"id": "node-1", "type": "TRIGGER", "event": "schedule.every", "label": "매일 아침 9시",
+         "config": {"cron": "0 9 * * *"}},
         {"id": "node-2", "type": "APPROVAL", "label": "발송 전 승인",
          "description": "보내기 전에 담당자가 확인하고 승인해요.", "config": approval_config},
         {"id": "node-3", "type": "AI", "label": "뉴스 수집",
@@ -33,7 +33,7 @@ def test_approval_template_registered():
     tr.validate_registry()
     tpl = tr.get_template("approval.request")
     assert tpl is not None and tpl["node_type"] == "APPROVAL"
-    assert tr.resolve_template_for_node({"type": "APPROVAL", "config": {}})["id"] == "approval.request"
+    assert tr.resolve_template_for_node({"type": "APPROVAL", "event": "approval.request", "config": {}})["id"] == "approval.request"
 
 
 def test_validator_accepts_gated_workflow_with_message():
@@ -54,15 +54,15 @@ def test_validator_rejects_unknown_approval_config_field():
 
 def test_workflow_node_schema_accepts_approval():
     """저장된 APPROVAL 노드가 채팅 수정 요청(currentNodes)으로 되돌아와도 422가 나지 않는다."""
-    node = WorkflowNode(id="node-2", type="APPROVAL", label="발송 전 승인",
+    node = WorkflowNode(id="node-2", event="approval.request", label="발송 전 승인",
                         config={"message": "보내도 될까요?"})
     assert node.config == {"message": "보내도 될까요?"}
-    assert WorkflowNode(id="node-2", type="APPROVAL", label="승인", config={}).config == {}
+    assert WorkflowNode(id="node-2", event="approval.request", label="승인", config={}).config == {}
 
 
 def test_workflow_node_schema_rejects_non_string_message():
     with pytest.raises(ValidationError, match="문자열이어야"):
-        WorkflowNode(id="node-2", type="APPROVAL", label="승인", config={"message": 123})
+        WorkflowNode(id="node-2", event="approval.request", label="승인", config={"message": 123})
 
 
 def test_approval_message_survives_dehydrate_hydrate_round_trip():
