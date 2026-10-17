@@ -188,3 +188,12 @@ async def test_generate_workflow_잘못된_json_에러():
     with _patched_generate(outputs):
         with pytest.raises(ValueError, match="JSON 파싱 실패"):
             await generate_workflow("테스트", "CLAUDE", "test-key")
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_결과_노드는_event만_기록한다(mock_adk):
+    """생성 결과 노드는 event로 식별되고 옛 필드(config.triggerType·serviceType)를 쓰지 않는다(spec §5.2)."""
+    result = await generate_workflow("매일 9시에 경제뉴스 정리해줘", "CLAUDE", "test-key")
+    assert [n.event for n in result.nodes] == ["schedule.every", "ai.agent"]   # 프리셋 노드의 event는 ai.agent
+    for n in result.nodes:
+        assert not {"triggerType", "serviceType"} & set(n.config), n.id

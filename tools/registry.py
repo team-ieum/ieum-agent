@@ -182,18 +182,20 @@ _DEFAULT_BRAND = "webhook"
 def brand_for_node(node: dict) -> str:
     """노드의 UI brand 키를 도출한다.
 
-    우선순위: AI가 아닌 노드는 event의 앱 brand → 노드 tools의 tool_key에서 추출한 서비스(SERVICE_BRAND) → TRIGGER는 triggerType 서비스(앱 트리거) → node_type 기본값.
-    ACTION 노드는 github도 tool_key(`builtin:github_<x>`)가 있어 첫 갈래로 답한다.
-    AI 노드의 동적 서브에이전트 서비스(github 등)는 tools가 비어([]) tool_key가 없으므로,
-    intent(라벨+프롬프트) 태그 매칭으로 서비스를 식별한다(생성 시 분류와 동일 신호)."""
-    # AI가 아닌 노드는 event의 apps.json brand(spec §4). AI는 도구로 정한다(프리셋 노드의 event는 늘 ai.agent).
-    # 재진입 주의: 로더(_normalize)가 AI 프리셋에 brand_for_entry→brand_for_node를 부른다 — AI는 event_entry 전에 거른다.
-    if isinstance(node, dict) and str(node.get("type") or "").upper() != "AI":
+    AI가 아닌 노드는 event 앱의 brand(apps.json, spec §4). agent가 모르는 event면 node_type 기본값 —
+    옛 필드(트리거 종류·ACTION 도구 목록)로 추정하지 않는다.
+    AI 노드의 event는 늘 ai.agent·ai.reasoning이라 앱을 말해 주지 않으므로 도구 tool_key의 서비스
+    (SERVICE_BRAND) → 도구 없는 노드는 intent(라벨+프롬프트) 태그로 동적 서브에이전트 서비스 → AI 기본값.
+    재진입 주의: 로더(_normalize)는 앱 없는 항목(모두 AI 프리셋)에만 brand_for_entry→brand_for_node를 부른다.
+    AI 분기는 event_entry(→load_templates)를 부르지 않으므로 기동 중 재귀가 없다."""
+    if not isinstance(node, dict):
+        return _DEFAULT_BRAND
+    ntype = str(node.get("type") or "").upper()
+    if ntype != "AI":
         from core.template_registry import event_entry
         entry = event_entry(node)
-        if entry is not None:
-            return entry["brand"]
-    config = node.get("config") if isinstance(node, dict) else None
+        return entry["brand"] if entry is not None else _NODE_TYPE_BRAND.get(ntype, _DEFAULT_BRAND)
+    config = node.get("config")
     tools = config.get("tools") if isinstance(config, dict) else None
     if isinstance(tools, list):
         for t in tools:
@@ -203,21 +205,13 @@ def brand_for_node(node: dict) -> str:
             brand = SERVICE_BRAND.get(_service_of(name))
             if brand:
                 return brand
-    ntype = (node.get("type") or "").upper() if isinstance(node, dict) else ""
     # tool_key 없는 AI 노드: intent 기반으로 동적 서브에이전트 서비스(github 등) 식별.
     # template_registry는 tools 패키지를 lazy import하므로 함수 내부에서 import한다.
-    if ntype == "AI":
-        from core.template_registry import subagent_service_for_node
-        service = subagent_service_for_node(node)
-        if service and SERVICE_BRAND.get(service):
-            return SERVICE_BRAND[service]
-    # 앱 트리거는 triggerType 접두사(GMAIL_NEW_EMAIL → gmail)로 앱 brand — BE 연동 목록이 config.brand로
-    # 워크플로우를 고르므로 webhook이면 빠진다. SCHEDULE/MANUAL/WEBHOOK은 매핑에 없어 webhook.
-    if ntype == "TRIGGER" and isinstance(config, dict) and isinstance(config.get("triggerType"), str):
-        brand = SERVICE_BRAND.get(_service_of(config["triggerType"].lower()))
-        if brand:
-            return brand
-    return _NODE_TYPE_BRAND.get(ntype, _DEFAULT_BRAND)
+    from core.template_registry import subagent_service_for_node
+    service = subagent_service_for_node(node)
+    if service and SERVICE_BRAND.get(service):
+        return SERVICE_BRAND[service]
+    return _NODE_TYPE_BRAND["AI"]
 
 
 def brand_for_entry(entry: dict) -> str:

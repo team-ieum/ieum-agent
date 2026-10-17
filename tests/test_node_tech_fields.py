@@ -157,3 +157,18 @@ def test_legacy_node_round_trip_backfills_both_fields():
 # 그 후처리 자체가 리뷰 3라운드 내내 회귀를 만들어 걷어냈다 — 노드가 어느 앱인지는 full-node
 # JSON만 보고 결정론적으로 답할 수 없다. 템플릿에서 복원하는 draft 방식 전환은 IEUM-AI-58.
 # 생성 경로(하이드레이션)의 두 필드 계약은 위 테스트들이 그대로 지킨다.
+
+
+def test_hydrated_ai_node_event_rule():
+    """AI 노드 event 규칙(spec §4): 도구 없는 simple AI = ai.reasoning, 도구가 있거나 프리셋 모양 = ai.agent.
+    생성·채팅은 둘 다 hydrate_node로 노드를 만들므로 이 층에서 고정한다."""
+    seen = set()
+    for tpl in tr.all_templates():
+        if tpl["node_type"] != "AI":
+            continue
+        node = hydrate_node(_draft(tpl["id"]), provider="CLAUDE")
+        cfg = node["config"]
+        simple = cfg.get("agentType") == "simple" and not cfg.get("tools")
+        assert node["event"] == ("ai.reasoning" if simple else "ai.agent"), tpl["id"]
+        seen.add(node["event"])
+    assert seen == {"ai.reasoning", "ai.agent"}

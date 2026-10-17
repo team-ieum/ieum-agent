@@ -51,15 +51,14 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "schedule.every",
       "label": "매일 트리거",
-      "config": {
-        "triggerType": "SCHEDULE"
-      }
+      "config": {}
     }
   ]
 }
 ```
-*이유*: SCHEDULE 유형의 TRIGGER 노드에는 반드시 공백 분할 5자리 형식의 `cron` 표현식이 필요합니다.
+*이유*: `schedule.every` 트리거 노드에는 반드시 공백 분할 5자리 형식의 `config.cron` 표현식이 필요합니다.
 
 ####  올바른 예시
 ```json
@@ -68,9 +67,9 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "schedule.every",
       "label": "매일 아침 9시 트리거",
       "config": {
-        "triggerType": "SCHEDULE",
         "cron": "0 9 * * *"
       }
     }

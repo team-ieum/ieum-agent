@@ -737,6 +737,48 @@ def test_strip_invalid_webhook_credentials():
     assert tools[1] == {"name": "slack", "config": {}}  # 환각 id 제거, 도구 유지
 
 
+def test_strip_invalid_webhook_credentials_ACTION_칸():
+    """ACTION 웹훅 id는 config.webhookCredentialId에 있다(spec §4). 모르는 event의 ACTION도 같은 칸을 지운다 —
+    보유 목록은 provider 구분 없는 사용자 웹훅 전체라 미보유 id는 어느 이벤트에서든 날조다."""
+    from core.workflow_chat import _strip_invalid_webhook_credentials
+    nodes = [
+        {"id": "a", "type": "ACTION", "event": "slack.send_message",
+         "config": {"webhookCredentialId": "hallucinated", "message": "hi"}},
+        {"id": "b", "type": "ACTION", "event": "discord.send_message",
+         "config": {"webhookCredentialId": "wh-1", "content": "hi"}},
+        {"id": "c", "type": "ACTION", "event": "teams.send_message", "config": {"webhookCredentialId": "forged"}},
+    ]
+    _strip_invalid_webhook_credentials(nodes, {"wh-1"})
+    assert nodes[0]["config"] == {"message": "hi"}
+    assert nodes[1]["config"] == {"webhookCredentialId": "wh-1", "content": "hi"}
+    assert nodes[2]["config"] == {}
+
+
+def test_strip_invalid_webhook_credentials_비문자열_id는_지운다():
+    """요청 바디의 webhookCredentialId가 리스트·dict여도 500(unhashable) 없이 그 키만 지운다(Review Focus 2)."""
+    from core.workflow_chat import _strip_invalid_webhook_credentials
+    nodes = [
+        {"id": "a", "type": "ACTION", "event": "slack.send_message",
+         "config": {"webhookCredentialId": ["wh-1"], "message": "hi"}},
+        {"id": "b", "type": "AI", "event": "ai.agent",
+         "config": {"tools": [{"name": "slack", "config": {"webhookCredentialId": {"id": "wh-1"}}}]}},
+    ]
+    _strip_invalid_webhook_credentials(nodes, {"wh-1"})
+    assert nodes[0]["config"] == {"message": "hi"}
+    assert nodes[1]["config"]["tools"][0]["config"] == {}
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_결과_노드는_event만_기록한다():
+    p1, p2, p3 = _make_patches(WORKFLOW_GENERATED_JSON)
+    with p1, p2, p3:
+        result = await _call(prompt="IT 트렌드 정리해줘")
+    assert result.type == ChatResponseType.WORKFLOW_GENERATED
+    assert [n.event for n in result.nodes] == ["manual.run", "ai.agent"]
+    for n in result.nodes:
+        assert not {"triggerType", "serviceType"} & set(n.config), n.id
+
+
 @pytest.mark.asyncio
 async def test_chat_workflow_mcp_assigned_when_catalog_available():
     """보유 MCP 카탈로그가 주입되면 ai.mcp 노드가 하이드레이션되어 검증을 통과한다."""
@@ -1195,9 +1237,8 @@ async def test_chat_prompt_lists_app_trigger_outputs():
         await _call("수정해줘", current_nodes=LEGACY_FULL_NODES, current_edges=VALID_EDGES)
     designer_instruction = captured[0]
     assert _APP_TRIGGER_OUTPUTS_MARKER not in designer_instruction
-    for tid, trigger_type in [("gmail.new_email", "GMAIL_NEW_EMAIL"),
-                              ("github.new_issue", "GITHUB_NEW_ISSUE")]:
-        line = next(ln for ln in designer_instruction.splitlines() if f"· TRIGGER({trigger_type})" in ln)
+    for tid in ("gmail.new_email", "github.new_issue"):
+        line = next(ln for ln in designer_instruction.splitlines() if f"· TRIGGER({tid})" in ln)
         assert set(re.findall(r"`output\.(\w+)`", line)) == \
             {f["key"] for f in tr.get_template(tid)["outputFields"]}, tid
 
@@ -1216,17 +1257,14 @@ def test_reviewer_does_not_flag_passthrough_nodes():
 ACTION_FULL_NODES = [
     {"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "트리거",
      "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {}},
-    {"id": "node-2", "type": "ACTION", "event": "github.create_issue", "label": "이슈 만들기", "description": "저장소에 이슈를 만들어요.",
-     "config": {"tools": [{"name": "builtin:github_create_issue",
-                           "config": {"owner": "ieum", "repo": "demo", "title": "주간 점검",
-                                      "body": "{{nodes.node-1.output.triggeredAt}}",
-                                      "_names": {"owner": "ieum", "repo": "demo"}}}],
-                "brand": "github", "serviceType": "GITHUB"}},
-    {"id": "node-3", "type": "ACTION", "event": "slack.send_message", "label": "슬랙 알림", "description": "슬랙으로 알려요.",
-     "config": {"tools": [{"name": "slack",
-                           "config": {"webhookCredentialId": "wh-1",
-                                      "message": "{{nodes.node-2.output.url}}"}}],
-                "brand": "slack", "serviceType": "SLACK"}},
+    {"id": "node-2", "type": "ACTION", "event": "github.create_issue", "label": "이슈 만들기",
+     "description": "저장소에 이슈를 만들어요.",
+     "config": {"owner": "ieum", "repo": "demo", "title": "주간 점검",
+                "body": "{{nodes.node-1.output.triggeredAt}}",
+                "_names": {"owner": "ieum", "repo": "demo"}, "brand": "github"}},
+    {"id": "node-3", "type": "ACTION", "event": "slack.send_message", "label": "슬랙 알림",
+     "description": "슬랙으로 알려요.",
+     "config": {"webhookCredentialId": "wh-1", "message": "{{nodes.node-2.output.url}}", "brand": "slack"}},
 ]
 ACTION_EDGES = [{"source": "node-1", "target": "node-2", "conditionType": None},
                 {"source": "node-2", "target": "node-3", "conditionType": None}]
@@ -1277,7 +1315,7 @@ async def test_chat_workflow_ACTION_노드는_원본_그대로_복원된다():
 @pytest.mark.asyncio
 async def test_chat_workflow_ACTION_웹훅은_보유분이_아니면_제거된다():
     """pass-through여도 웹훅 크레덴셜 스트립은 적용된다(_finalize_nodes 의도 — 인가 검사는 면제 대상이 아님).
-    도구와 나머지 인자는 남는다."""
+    나머지 칸은 남는다."""
     p1, p2, p3 = _make_patches(ACTION_KEPT_JSON)
     with p1, p2, p3:
         result = await _call(
@@ -1286,7 +1324,7 @@ async def test_chat_workflow_ACTION_웹훅은_보유분이_아니면_제거된�
         )
     assert result.type == ChatResponseType.WORKFLOW_MODIFIED
     slack = next(n for n in result.nodes if n.id == "node-3")
-    assert slack.config["tools"] == [{"name": "slack", "config": {"message": "{{nodes.node-2.output.url}}"}}]
+    assert slack.config == {"message": "{{nodes.node-2.output.url}}", "brand": "slack"}
 
 
 def test_시스템_프롬프트는_앱_이벤트_시작_요청을_조용히_바꾸지_말고_빌더_안내를_지시한다():
@@ -1297,4 +1335,25 @@ def test_시스템_프롬프트는_앱_이벤트_시작_요청을_조용히_바�
     # 시각·주기 요청은 앱 이벤트가 아니다 — 기존 schedule 경로를 막지 않는다
     assert "시각·주기를 말한 요청(\"매일 9시에 새 메일 요약\")은 앱 이벤트가 아니므로 schedule.every로" in _SYSTEM_PROMPT_BASE
     # 기존 수정 시 pass-through 유지 문구는 그대로
-    assert "pass-through 노드로 보이며(종류는 'node.triggerType')" in _SYSTEM_PROMPT_BASE
+    assert "pass-through 노드로 보이며(종류는 'node.event')" in _SYSTEM_PROMPT_BASE
+    assert "앱 트리거(gmail.new_email·github.new_issue)는 빌더 전용" in _SYSTEM_PROMPT_BASE
+
+
+def test_LLM_프롬프트와_설계_reference에_옛_노드_필드가_없다():
+    """생성·채팅·리뷰 프롬프트와 설계 reference md는 옛 필드(config.triggerType·ACTION tools[0])를 가르치지 않는다
+    (spec §5.2). 노드 종류는 event, 트리거 cron은 schedule.every의 cron 슬롯이다."""
+    import glob
+    import os
+    from core.skill_loader import SKILL_DIR
+    from core.workflow_chat import _REVIEWER_SYSTEM_PROMPT, _SYSTEM_PROMPT_BASE
+    from core.workflow_generator import _SYSTEM_PROMPT
+
+    texts = {"chat": _SYSTEM_PROMPT_BASE, "reviewer": _REVIEWER_SYSTEM_PROMPT, "generator": _SYSTEM_PROMPT}
+    paths = glob.glob(os.path.join(SKILL_DIR, "references", "*.md"))
+    assert paths
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            texts[os.path.basename(path)] = f.read()
+    for name, text in texts.items():
+        for legacy in ("triggerType", "tools[0]", "tools.0"):
+            assert legacy not in text, (name, legacy)

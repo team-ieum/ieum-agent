@@ -179,11 +179,10 @@ def test_github_create_issue_in_dynamic_blueprint():
     assert action["body"]["class"] == "optional"
 
 
-@pytest.mark.parametrize("tool_key", ["builtin:github_list_issues", "builtin:github_create_issue"])
-def test_brand_for_github_action(tool_key):
-    """_service_of가 builtin:github_*를 github로 읽어야 한다 — 아니면 ACTION은 기본값 webhook으로 떨어진다."""
-    node = {"type": "ACTION", "config": {"tools": [{"name": tool_key}]}}
-    assert brand_for_node(node) == "github"
+@pytest.mark.parametrize("event", ["github.list_issues", "github.create_issue"])
+def test_brand_for_github_action(event):
+    """ACTION은 event 앱의 brand다 — 기본값 webhook으로 떨어지면 BE 연동 목록(config.brand)에서 빠진다."""
+    assert brand_for_node({"type": "ACTION", "event": event, "config": {}}) == "github"
 
 
 def test_brand_for_entry_ai_without_tool_uses_service_field():
@@ -202,21 +201,21 @@ def test_brand_for_entry_tool_preset_without_app():
         assert brand_for_entry(entry) == "openai", tool
 
 
-@pytest.mark.parametrize("trigger_type,brand", [
-    ("GMAIL_NEW_EMAIL", "gmail"), ("GITHUB_NEW_ISSUE", "github"), ("SCHEDULE", "webhook"),
+@pytest.mark.parametrize("event,brand", [
+    ("gmail.new_email", "gmail"), ("github.new_issue", "github"), ("schedule.every", "webhook"),
 ])
-def test_trigger_brand_from_trigger_type(trigger_type, brand):
-    # 앱 트리거는 triggerType 접두사로 앱 brand, 그 외 트리거는 webhook
-    assert brand_for_node({"type": "TRIGGER", "config": {"triggerType": trigger_type}}) == brand
+def test_trigger_brand_from_event(event, brand):
+    assert brand_for_node({"type": "TRIGGER", "event": event, "config": {}}) == brand
 
 
-def test_brand_for_node_prefers_event_app_brand():
-    from tools.registry import brand_for_node
-    assert brand_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {}}) == "gmail"
+def test_brand_for_node_reads_event_not_legacy_fields():
+    """AI가 아닌 노드는 event 앱 brand만 본다 — config.triggerType·ACTION config.tools는 읽지 않는다(spec §4)."""
     assert brand_for_node({"type": "ACTION", "event": "google_sheets.read", "config": {}}) == "sheets"
-    # 모르는 event → 지금 규칙(triggerType 접두사)
-    assert brand_for_node({"type": "TRIGGER", "event": "nope.x", "config": {"triggerType": "GITHUB_NEW_ISSUE"}}) == "github"
-    # event가 레거시 필드를 이긴다(IEUM-AI-78 — event가 유일한 판정)
-    assert brand_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {"triggerType": "MANUAL"}}) == "gmail"
-    # AI는 event가 아니라 도구로 정한다(프리셋 노드의 event는 늘 ai.agent라 앱을 말해 주지 않는다)
+    # agent가 모르는 event(BE가 먼저 올린 새 이벤트)는 node_type 기본값 — 옛 필드로 추정하지 않는다
+    assert brand_for_node({"type": "TRIGGER", "event": "nope.x",
+                           "config": {"triggerType": "GITHUB_NEW_ISSUE"}}) == "webhook"
+    assert brand_for_node({"type": "ACTION", "event": "nope.x",
+                           "config": {"tools": [{"name": "slack"}]}}) == "webhook"
+    # AI는 event(늘 ai.agent·ai.reasoning)가 아니라 도구로 정한다
     assert brand_for_node({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "slack"}]}}) == "slack"
+    assert brand_for_node({"type": "AI", "event": "ai.agent", "config": {"tools": []}}) == "openai"
