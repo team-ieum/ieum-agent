@@ -81,7 +81,7 @@ def test_hydrate_rejects_draft_without_description(template_id, slots):
 def test_dehydrate_preserves_description_for_modify():
     """MODIFY 역변환(full-node → draft)에서 description이 슬롯으로 보존된다."""
     node = {
-        "id": "node-2", "type": "AI", "label": "요약",
+        "id": "node-2", "type": "AI", "event": "ai.reasoning", "label": "요약",
         "description": "AI가 앞의 결과를 읽고 짧게 정리해요.",
         "config": {"agentType": "simple", "credentialId": "", "tools": [],
                    "llmProvider": "CLAUDE", "prompt": "요약해줘"},

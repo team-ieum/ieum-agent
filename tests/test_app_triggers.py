@@ -90,9 +90,9 @@ def test_앱_트리거_노드는_채팅에서_passthrough로_보존된다(config
 
 
 @pytest.mark.parametrize("node,logged", [
-    ({"id": "n1", "type": "ACTION", "config": {"tools": [{"name": "slack"}]}}, False),
-    ({"id": "n2", "type": "TRIGGER", "config": {"triggerType": "GMAIL_NEW_EMAIL"}}, False),
-    ({"id": "n3", "type": "AI", "config": {"tools": [{"name": "zzz_unknown"}]}}, True),
+    ({"id": "n1", "type": "ACTION", "event": "slack.send_message", "config": {"tools": [{"name": "slack"}]}}, False),
+    ({"id": "n2", "type": "TRIGGER", "event": "gmail.new_email", "config": {"triggerType": "GMAIL_NEW_EMAIL"}}, False),
+    ({"id": "n3", "type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "zzz_unknown"}]}}, True),
 ])
 def test_passthrough_log_skips_builder_only_entries(node, logged, caplog):
     """빌더 전용 항목은 설계상 늘 pass-through라 로그 생략. 미매칭 AI(ai.agent catch-all)는 회귀 신호라 유지."""

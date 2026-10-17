@@ -29,13 +29,13 @@ def test_select_by_tags_no_match_returns_empty():
 
 
 def test_resolve_template_for_ai_tool_node():
-    node = {"type": "AI", "config": {"tools": [{"name": "builtin:notion_create_page"}]}}
+    node = {"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "builtin:notion_create_page"}]}}
     tpl = tr.resolve_template_for_node(node)
     assert tpl and tpl["id"] == "ai.notion_create_page"
 
 
 def test_resolve_template_for_structural_node():
-    node = {"type": "TRANSFORM", "config": {"mappings": {}}}
+    node = {"type": "TRANSFORM", "event": "transform.map", "config": {"mappings": {}}}
     tpl = tr.resolve_template_for_node(node)
     assert tpl and tpl["id"] == "transform.map"
 

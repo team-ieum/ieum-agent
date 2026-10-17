@@ -59,9 +59,9 @@ def test_counts_and_builder_has_no_presets():
 
 def test_presets_with_match_stay_matchable():
     # 결정 4는 빌더 목록만 바꾼다 — 정적 검증 칸 규칙(예: ai.mcp catalogId 필수)은 그대로다.
-    mcp = {"type": "AI", "config": {"agentType": "react", "tools": [{"name": "mcp", "config": {}}]}}
+    mcp = {"type": "AI", "event": "ai.agent", "config": {"agentType": "react", "tools": [{"name": "mcp", "config": {}}]}}
     assert tr.match_entry(mcp)["id"] == "ai.mcp"
-    github = {"type": "AI", "config": {"agentType": "react", "tools": []}}
+    github = {"type": "AI", "event": "ai.agent", "config": {"agentType": "react", "tools": []}}
     assert tr.match_entry(github)["id"] == "ai.github_query"
 
 

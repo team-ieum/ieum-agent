@@ -23,7 +23,7 @@ LEGACY_CFG = {"operator": "equals", "leftValue": _LEFT_EXPR, "rightValue": "urge
 
 def _condition_node(config: dict) -> dict:
     """저장된 full-node 포맷의 CONDITION 노드."""
-    return {"id": "node-2", "type": "CONDITION", "label": "분기",
+    return {"id": "node-2", "type": "CONDITION", "event": "branch.if", "label": "분기",
             "description": "앞의 결과에 따라 갈 길을 나눠요.", "config": dict(config)}
 
 

@@ -78,7 +78,8 @@ class WorkflowNode(BaseModel):
             # event가 있으면 레거시 값이 agent가 모르는 값이어도 받는다 — BE가 event에서 계산해 기록한 값일 수 있다.
             if not self.event and raw is not None and raw not in TRIGGER_TYPES:
                 raise ValueError(f"유효하지 않은 triggerType입니다: {raw}")
-            trigger_type = trigger_type_of({"event": self.event, "config": cfg})
+            # 레거시 config.triggerType 폴백은 이 스키마에만 남는다(IEUM-AI-78 Task 4에서 삭제).
+            trigger_type = trigger_type_of({"event": self.event, "config": cfg}) or (raw if raw in TRIGGER_TYPES else None)
             if not trigger_type and not self.event:
                 raise ValueError("TRIGGER 노드에는 event 또는 config.triggerType이 필요합니다.")
             if trigger_type == "SCHEDULE":

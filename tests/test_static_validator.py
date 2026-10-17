@@ -3,7 +3,7 @@ import copy
 
 import pytest
 
-from core.template_registry import _match_entries, match_entry
+from core.template_registry import _preset_matchers, builder_entries, match_entry
 from core.validators.static_validator import _check, field_errors, validate_workflow
 
 TRIGGER = {"id": "t", "type": "TRIGGER", "config": {"triggerType": "MANUAL"}}
@@ -397,8 +397,9 @@ FIXED_NODE_REQUIRED = {
 
 def test_카탈로그_전_항목_기본값_노드():
     actual = {}
-    for t in _match_entries():  # 매칭 후보 = builder 항목 + match 보유 프리셋(빌더 목록엔 프리셋이 없다)
-        node = {"id": "n", "type": t["fixed"]["type"], "config": copy.deepcopy(t["fixed"].get("config") or {})}
+    for t in [*builder_entries(), *_preset_matchers()]:  # 빌더 항목 + AI 칸 규칙 프리셋(빌더 목록엔 프리셋이 없다)
+        node = {"id": "n", "type": t["fixed"]["type"], "event": t["fixed"]["event"],
+                "config": copy.deepcopy(t["fixed"].get("config") or {})}
         errors = field_errors(node)
         assert {e["code"] for e in errors} <= {"REQUIRED"}, (t["id"], errors)  # fixed 자체는 형식이 맞아야 한다
         actual[t["id"]] = sorted(e["field"] for e in errors)

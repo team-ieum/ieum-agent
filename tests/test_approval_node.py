@@ -33,7 +33,7 @@ def test_approval_template_registered():
     tr.validate_registry()
     tpl = tr.get_template("approval.request")
     assert tpl is not None and tpl["node_type"] == "APPROVAL"
-    assert tr.resolve_template_for_node({"type": "APPROVAL", "config": {}})["id"] == "approval.request"
+    assert tr.resolve_template_for_node({"type": "APPROVAL", "event": "approval.request", "config": {}})["id"] == "approval.request"
 
 
 def test_validator_accepts_gated_workflow_with_message():

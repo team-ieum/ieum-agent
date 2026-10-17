@@ -13,9 +13,9 @@ DRAFT_NODES = [
 ]
 # 저장된 full-node(수정 요청 시 current_nodes로 들어오는 영속 포맷). dehydrate 대상.
 FULL_NODES = [
-    {"id": "node-1", "type": "TRIGGER", "label": "트리거",
-     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {"triggerType": "MANUAL"}},
-    {"id": "node-2", "type": "AI", "label": "AI 처리",
+    {"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "트리거",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {}},
+    {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "AI 처리",
      "description": "이 노드가 하는 일을 쉽게 설명해요.",
      "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리해줘",
                 "agentType": "react", "tools": [{"name": "builtin:web_search"}]}},
@@ -641,8 +641,8 @@ def test_dehydrate_nodes_round_trip():
 
 # description 슬롯 도입 이전에 저장된 워크플로우. dehydrate하면 draft에 description 키가 없다.
 LEGACY_FULL_NODES = [
-    {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
-    {"id": "node-2", "type": "AI", "label": "AI 처리",
+    {"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "트리거", "config": {}},
+    {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "AI 처리",
      "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리해줘",
                 "agentType": "react", "tools": [{"name": "builtin:web_search"}]}},
 ]
@@ -933,9 +933,9 @@ async def test_chat_workflow_usage_토큰없으면_None():
 
 # 어떤 템플릿과도 매칭되지 않는 노드(builtin:json_parse만 가진 AI 노드) → dehydrate 시 pass-through draft.
 PASSTHROUGH_FULL_NODES = [
-    {"id": "node-1", "type": "TRIGGER", "label": "트리거",
-     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {"triggerType": "MANUAL"}},
-    {"id": "node-2", "type": "AI", "label": "가공",
+    {"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "트리거",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {}},
+    {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "가공",
      "description": "이 노드가 하는 일을 쉽게 설명해요.",
      "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "파싱해줘",
                 "agentType": "react", "tools": [{"name": "builtin:json_parse"}]}},
@@ -1020,9 +1020,9 @@ async def test_chat_workflow_passthrough_new_node_forgery_rejected():
 
 # 편집 가능한(템플릿 매칭되는) 노드를 __passthrough__로 위장해 사용자의 수정을 되돌리려는 시도.
 EDITABLE_NODES = [
-    {"id": "node-1", "type": "TRIGGER", "label": "트리거",
-     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {"triggerType": "MANUAL"}},
-    {"id": "node-2", "type": "AI", "label": "노션 검색",
+    {"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "트리거",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {}},
+    {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "노션 검색",
      "description": "이 노드가 하는 일을 쉽게 설명해요.",
      "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "원래 프롬프트",
                 "agentType": "react", "tools": [{"name": "builtin:notion_search"}]}},
@@ -1121,10 +1121,9 @@ def test_chat_prompt_puts_resource_id_in_slot_not_prompt():
 # ── 앱 트리거(빌더 전용) 워크플로우 수정 ────────────────────────────────────
 
 APP_TRIGGER_FULL_NODES = [
-    {"id": "node-1", "type": "TRIGGER", "label": "새 메일", "description": "새 메일이 오면 시작해요.",
-     "config": {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE",
-                "query": "from:boss@x.com", "brand": "gmail"}},
-    {"id": "node-2", "type": "AI", "label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.",
+    {"id": "node-1", "type": "TRIGGER", "event": "gmail.new_email", "label": "새 메일",
+     "description": "새 메일이 오면 시작해요.", "config": {"query": "from:boss@x.com", "brand": "gmail"}},
+    {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "AI 처리", "description": "이 노드가 하는 일을 쉽게 설명해요.",
      "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "처리해줘",
                 "agentType": "react", "tools": [{"name": "builtin:web_search"}]}},
 ]
@@ -1215,15 +1214,15 @@ def test_reviewer_does_not_flag_passthrough_nodes():
 # ── ACTION 노드(빌더 전용)가 든 워크플로우 수정 ─────────────────────────────
 
 ACTION_FULL_NODES = [
-    {"id": "node-1", "type": "TRIGGER", "label": "트리거", "description": "이 노드가 하는 일을 쉽게 설명해요.",
-     "config": {"triggerType": "MANUAL"}},
-    {"id": "node-2", "type": "ACTION", "label": "이슈 만들기", "description": "저장소에 이슈를 만들어요.",
+    {"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "트리거",
+     "description": "이 노드가 하는 일을 쉽게 설명해요.", "config": {}},
+    {"id": "node-2", "type": "ACTION", "event": "github.create_issue", "label": "이슈 만들기", "description": "저장소에 이슈를 만들어요.",
      "config": {"tools": [{"name": "builtin:github_create_issue",
                            "config": {"owner": "ieum", "repo": "demo", "title": "주간 점검",
                                       "body": "{{nodes.node-1.output.triggeredAt}}",
                                       "_names": {"owner": "ieum", "repo": "demo"}}}],
                 "brand": "github", "serviceType": "GITHUB"}},
-    {"id": "node-3", "type": "ACTION", "label": "슬랙 알림", "description": "슬랙으로 알려요.",
+    {"id": "node-3", "type": "ACTION", "event": "slack.send_message", "label": "슬랙 알림", "description": "슬랙으로 알려요.",
      "config": {"tools": [{"name": "slack",
                            "config": {"webhookCredentialId": "wh-1",
                                       "message": "{{nodes.node-2.output.url}}"}}],

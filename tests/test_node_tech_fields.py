@@ -140,7 +140,7 @@ def test_legacy_node_round_trip_backfills_both_fields():
     두 필드 모두 LLM이 채우는 슬롯이 아니므로(시스템 주입 / 템플릿 fixed) 레거시 draft에
     값이 없어도 SlotFillError가 나지 않는다."""
     legacy = {
-        "id": "node-3", "type": "AI", "label": "Slack 알림",
+        "id": "node-3", "type": "AI", "event": "ai.agent", "label": "Slack 알림",
         "description": "정리된 내용을 슬랙으로 보내드려요.",
         "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "보내줘",
                    "agentType": "react", "tools": [{"name": "slack"}]},

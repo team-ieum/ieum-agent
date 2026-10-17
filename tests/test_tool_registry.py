@@ -216,7 +216,7 @@ def test_brand_for_node_prefers_event_app_brand():
     assert brand_for_node({"type": "ACTION", "event": "google_sheets.read", "config": {}}) == "sheets"
     # 모르는 event → 지금 규칙(triggerType 접두사)
     assert brand_for_node({"type": "TRIGGER", "event": "nope.x", "config": {"triggerType": "GITHUB_NEW_ISSUE"}}) == "github"
-    # 레거시 필드가 있으면 그것을 따른다(낡은 event — "spec과 다른 점" 1)
-    assert brand_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {"triggerType": "MANUAL"}}) == "webhook"
+    # event가 레거시 필드를 이긴다(IEUM-AI-78 — event가 유일한 판정)
+    assert brand_for_node({"type": "TRIGGER", "event": "gmail.new_email", "config": {"triggerType": "MANUAL"}}) == "gmail"
     # AI는 event가 아니라 도구로 정한다(프리셋 노드의 event는 늘 ai.agent라 앱을 말해 주지 않는다)
     assert brand_for_node({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "slack"}]}}) == "slack"
