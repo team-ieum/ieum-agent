@@ -24,6 +24,58 @@ def _headers(access_token: str) -> dict:
     }
 
 
+class _ApiError(Exception):
+    """Google API 실패 응답을 들고 올라간다 — 도구가 잡아 `_api_error`로 바꾼다."""
+
+    def __init__(self, response):
+        super().__init__(response.status_code)
+        self.response = response
+
+
+def _blank(value) -> bool:
+    """비운 칸 = 변경 없음(spec §3). BE는 없는 참조를 ""로, AI 슬롯도 ""를 보낸다.
+    PATCH는 배열을 통째로 바꾸므로 []를 보내면 참석자가 전부 지워진다."""
+    return value is None or value == [] or (isinstance(value, str) and not value.strip())
+
+
+def _api_error(response) -> str:
+    # 본문은 실패일 때만 읽는다. 깨진 본문이어도 상태 코드는 남긴다.
+    try:
+        message = response.json().get("error", {}).get("message", "알 수 없는 오류")
+    except Exception:
+        message = "알 수 없는 오류"
+    return json.dumps({"error": f"Google Calendar API 오류 ({response.status_code}): {message}"}, ensure_ascii=False)
+
+
+def _fail(tool: str, reason: str) -> str:
+    return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} ({tool}: {reason})"}, ensure_ascii=False)
+
+
+def _event_url(cal: str, event_id) -> str:
+    return f"{_CALENDAR_API_BASE}/calendars/{cal}/events/{quote(str(event_id), safe='')}"
+
+
+async def _get_json(client, headers: dict, url: str) -> dict:
+    response = await client.get(url, headers=headers, timeout=_TIMEOUT)
+    if not response.is_success:
+        raise _ApiError(response)
+    return response.json()
+
+
+async def _resolve_target(client, headers: dict, cal: str, event_id, scope) -> dict:
+    """대상 해석(spec §4.2-1): events.get. scope=all이고 반복 일정의 회차면 원본(recurringEventId)을,
+    아니면 그 일정 그대로(에러 없음)."""
+    event = await _get_json(client, headers, _event_url(cal, event_id))
+    if scope == "all" and event.get("recurringEventId"):
+        event = await _get_json(client, headers, _event_url(cal, event["recurringEventId"]))
+    return event
+
+
+def _send_updates(send_updates) -> dict:
+    """events.patch·events.delete의 sendUpdates 쿼리. 비우면 생략한다(Google 기본 동작)."""
+    return {} if _blank(send_updates) else {"sendUpdates": str(send_updates).strip()}
+
+
 async def google_calendar_create(
     access_token: str,
     summary: str,
@@ -209,3 +261,58 @@ async def google_calendar_list(
         return json.dumps({
             "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_calendar_list: {str(e)})"
         }, ensure_ascii=False)
+
+
+def _deleted(event_id: str, deleted: bool) -> str:
+    return json.dumps({"success": True, "eventId": event_id, "deleted": deleted}, ensure_ascii=False)
+
+
+async def google_calendar_delete(
+    access_token: str,
+    event_id: str,
+    calendar_id: str = "primary",
+    scope: str = "this",
+    send_updates: Optional[str] = None,
+) -> str:
+    """
+    Google Calendar 일정을 삭제합니다. ACTION 노드 전용이라 AI 노드 도구 선택지에 싣지 않는다(_TOOL_MAP 밖).
+
+    Args:
+        access_token: Google OAuth Access Token
+        event_id: 삭제할 일정 ID
+        calendar_id: 캘린더 ID (기본값: "primary")
+        scope: "this"(이 일정만, 기본) 또는 "all"(반복 일정의 회차면 반복 전체)
+        send_updates: 참석자 알림 "all" | "externalOnly" | "none". 비우면 Google 기본 동작
+
+    Returns:
+        {eventId, deleted} JSON 문자열. eventId는 실제로 지운 대상(반복 전체면 원본) ID.
+        이미 삭제된 일정(410·cancelled)은 성공이고 deleted=false다.
+    """
+    if _blank(event_id):
+        return _fail("google_calendar_delete", "event_id가 비어 있습니다")
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        cal = _calendar_segment(calendar_id)
+        try:
+            target = await _resolve_target(client, headers, cal, event_id, scope)
+        except _ApiError as e:
+            if e.response.status_code == 410:
+                return _deleted(str(event_id), False)
+            raise
+        target_id = target.get("id") or str(event_id)
+        if target.get("status") == "cancelled":
+            return _deleted(target_id, False)
+        response = await client.delete(_event_url(cal, target_id), headers=headers,
+                                       params=_send_updates(send_updates), timeout=_TIMEOUT)
+        # 성공 응답은 빈 본문이다 — 상태 코드를 먼저 보고 본문은 실패일 때만 읽는다.
+        if response.is_success:
+            return _deleted(target_id, True)
+        if response.status_code == 410:
+            return _deleted(target_id, False)
+        # 404(없는 ID·접근 불가 캘린더·캘린더/일정 엇갈림)는 실패다. 삼키면 일정이 남은 채 "성공"이 된다.
+        return _api_error(response)
+    except _ApiError as e:
+        return _api_error(e.response)
+    except Exception as e:
+        return _fail("google_calendar_delete", str(e))

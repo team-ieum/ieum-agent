@@ -155,6 +155,16 @@ def test_resolve_action_fn_native_and_github():
     assert resolve_action_fn("builtin:github_create_issue") is github_create_issue
 
 
+def test_calendar_delete는_ACTION_전용이다():
+    """AI 노드 tools에 실리면 LLM이 일정을 지울 수 있다(spec §4.3) — _TOOL_MAP 밖, resolve_action_fn만 푼다."""
+    from tools import _TOOL_MAP, get_tools_for_request
+    from tools.google_calendar import google_calendar_delete
+
+    assert resolve_action_fn("builtin:google_calendar_delete") is google_calendar_delete
+    assert "builtin:google_calendar_delete" not in _TOOL_MAP
+    assert get_tools_for_request([{"name": "builtin:google_calendar_delete"}]) == []
+
+
 @pytest.mark.parametrize("key", [
     "mcp", "github_list_issues", "builtin:github_nope", "builtin:github_", "builtin:github_list_issues ",
     "builtin:does_not_exist", "", None, 5, ["builtin:github_list_issues"],

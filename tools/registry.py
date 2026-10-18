@@ -21,6 +21,7 @@ from tools.github import (
     github_list_issues,
     github_list_pull_requests,
 )
+from tools.google_calendar import google_calendar_delete
 
 # 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
 # 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증과 설정 폼에서 제외한다.
@@ -65,16 +66,26 @@ _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
     },
 }
 
+# ACTION 노드만 실행하는 도구. 되돌릴 수 없는 일(삭제)이라 AI 노드에 싣지 않는다(spec §4.3).
+# _TOOL_MAP 밖이라 get_tools_for_request·ai.agent tools 선택지(template_registry)·AI 검증 화이트리스트에
+# 잡히지 않고, resolve_action_fn만 푼다(카탈로그 로더 tool_key 검사·POST /v1/actions/execute).
+# _DYNAMIC_SERVICE_ACTIONS에 넣지 않는 이유: 그 dict는 "동적 서브에이전트 서비스" 뜻이라 blueprint에 섞인다.
+_ACTION_ONLY_TOOLS: dict = {
+    "builtin:google_calendar_delete": google_calendar_delete,
+}
+
 
 def resolve_action_fn(tool_key):
     """ACTION 실행·카탈로그가 쓰는 tool_key → 도구 함수. 모르는 키면 None.
 
-    _TOOL_MAP 키 그대로, 또는 `builtin:github_<x>` → _DYNAMIC_SERVICE_ACTIONS["github"]["github_<x>"].
-    github 액션은 _TOOL_MAP에 넣지 않는다(AI 노드 tools_must_be_empty 계약)."""
+    _TOOL_MAP 키 그대로, ACTION 전용(_ACTION_ONLY_TOOLS), 또는 `builtin:github_<x>` →
+    _DYNAMIC_SERVICE_ACTIONS["github"]["github_<x>"]. 뒤의 둘은 _TOOL_MAP에 넣지 않는다(AI 노드 비노출)."""
     if not isinstance(tool_key, str):
         return None
     if tool_key in _TOOL_MAP:
         return _TOOL_MAP[tool_key]
+    if tool_key in _ACTION_ONLY_TOOLS:
+        return _ACTION_ONLY_TOOLS[tool_key]
     if tool_key.startswith("builtin:github_"):
         return _DYNAMIC_SERVICE_ACTIONS["github"].get(tool_key[len("builtin:"):])
     return None
