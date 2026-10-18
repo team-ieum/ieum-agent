@@ -7,7 +7,7 @@ import pytest
 
 from common.error_code import ToolErrorCode
 from tests.test_google_tools import _make_async_client, _make_mock_response
-from tools.google_calendar import google_calendar_delete, google_calendar_find
+from tools.google_calendar import google_calendar_delete, google_calendar_find, google_calendar_update
 
 BASE = "https://www.googleapis.com/calendar/v3/calendars/primary"
 
@@ -247,3 +247,219 @@ async def test_find_API_오류는_실패다():
     result = await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T00:00:00Z")
 
     assert "403" in result["error"]
+
+
+_NOT_FOUND = {"/calendars/primary": _make_mock_response(404, {"error": {"message": "Not Found"}})}
+
+
+@pytest.mark.asyncio
+async def test_find_캘린더_시간대_조회_실패는_API_오류다():
+    result = await _run(google_calendar_find, _client(get=_gets(_NOT_FOUND)), time_min="2026-10-20T09:00:00")
+
+    assert "Google Calendar API 오류 (404)" in result["error"]
+
+
+# --- update ---------------------------------------------------------------------------------
+
+_TIMED = {"id": "evt-1", "start": {"dateTime": "2026-10-20T09:00:00+09:00"},
+          "end": {"dateTime": "2026-10-20T10:30:00+09:00"}}
+_ALL_DAY = {"id": "evt-1", "start": {"date": "2026-10-20"}, "end": {"date": "2026-10-22"}}
+_INSTANCE_ID = "evt-1_20261020T000000Z"
+
+
+def _series(master_start: dict, master_end: dict) -> dict:
+    """회차 GET → 원본 GET 라우트."""
+    return {f"/events/{_INSTANCE_ID}": _INSTANCE,
+            "/events/evt-1": {"id": "evt-1", "recurrence": ["RRULE:FREQ=WEEKLY"],
+                              "start": master_start, "end": master_end}}
+
+
+def _at(dt: str, tz: str | None = None) -> dict:
+    piece = {"dateTime": dt, "date": None}
+    if tz:
+        piece["timeZone"] = tz
+    return piece
+
+
+def _day(d: str) -> dict:
+    return {"date": d, "dateTime": None, "timeZone": None}
+
+
+async def _update(routes: dict, **kwargs):
+    """PATCH까지 가면 (결과, 보낸 본문, PATCH URL, 쿼리), 안 가면 (결과, None, None, None)."""
+    patch_mock = AsyncMock(return_value=_make_mock_response(200, {"id": "evt-1", "htmlLink": "x"}))
+    result = await _run(google_calendar_update, _client(get=_gets(routes), patch_mock=patch_mock), **kwargs)
+    if not patch_mock.called:
+        return result, None, None, None
+    call = patch_mock.call_args
+    return result, call.kwargs["json"], call.args[0], call.kwargs["params"]
+
+
+@pytest.mark.asyncio
+async def test_update_시작만_오면_기존_길이를_유지한다():
+    result, body, url, params = await _update({"/events/evt-1": _TIMED}, event_id="evt-1",
+                                              start_datetime="2026-10-21T14:00:00+09:00")
+
+    assert result == {"success": True, "eventId": "evt-1", "htmlLink": "x"}
+    assert body == {"start": _at("2026-10-21T14:00:00+09:00"), "end": _at("2026-10-21T15:30:00+09:00")}
+    assert (url, params) == (f"{BASE}/events/evt-1", {})
+
+
+@pytest.mark.asyncio
+async def test_update_종일_시작만_오면_일수를_유지한다():
+    _, body, _, _ = await _update({"/events/evt-1": _ALL_DAY}, event_id="evt-1", start_datetime="2026-10-25")
+
+    assert body == {"start": _day("2026-10-25"), "end": _day("2026-10-27")}
+
+
+@pytest.mark.asyncio
+async def test_update_종일_종료일은_포함으로_받아_다음_날로_보낸다():
+    _, body, _, _ = await _update({"/events/evt-1": _ALL_DAY}, event_id="evt-1",
+                                  start_datetime="2026-10-20", end_datetime="2026-10-22")
+
+    assert body == {"start": _day("2026-10-20"), "end": _day("2026-10-23")}
+
+
+@pytest.mark.asyncio
+async def test_update_시각에서_종일로_바꾸면_시각_칸을_지우고_UTC는_캘린더_날짜로_읽는다():
+    _, body, _, _ = await _update({"/events/evt-1": _TIMED, **_SEOUL}, event_id="evt-1", all_day=True,
+                                  start_datetime="2026-10-19T15:00:00Z")
+
+    assert body == {"start": _day("2026-10-20"), "end": _day("2026-10-21")}  # 종료가 비면 시작일 하루
+
+
+@pytest.mark.asyncio
+async def test_update_종일에서_시각으로_바꾸면_date를_지운다():
+    _, body, _, _ = await _update({"/events/evt-1": _ALL_DAY}, event_id="evt-1", all_day=False,
+                                  start_datetime="2026-10-20T09:00:00+09:00", end_datetime="2026-10-20T10:00:00+09:00")
+
+    assert body == {"start": _at("2026-10-20T09:00:00+09:00"), "end": _at("2026-10-20T10:00:00+09:00")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("times", [{}, {"start_datetime": "2026-10-20T09:00:00+09:00"}])
+async def test_update_종일을_시각으로_바꾸는데_시각이_빠지면_실패한다(times):
+    result, body, _, _ = await _update({"/events/evt-1": _ALL_DAY}, event_id="evt-1", all_day=False, **times)
+
+    assert "시작과 종료" in result["error"] and body is None
+
+
+@pytest.mark.asyncio
+async def test_update_오프셋_없는_시각은_캘린더_시간대로_해석한다():
+    _, body, _, _ = await _update({"/events/evt-1": _TIMED, **_SEOUL}, event_id="evt-1",
+                                  start_datetime="2026-10-21T14:00:00", end_datetime="2026-10-21T15:00:00")
+
+    assert body == {"start": _at("2026-10-21T14:00:00+09:00"), "end": _at("2026-10-21T15:00:00+09:00")}
+
+
+@pytest.mark.asyncio
+async def test_update_캘린더_시간대_조회_실패는_API_오류다():
+    result, body, _, _ = await _update({"/events/evt-1": _TIMED, **_NOT_FOUND}, event_id="evt-1",
+                                       start_datetime="2026-10-21T14:00:00")
+
+    assert "Google Calendar API 오류 (404)" in result["error"] and body is None
+
+
+@pytest.mark.asyncio
+async def test_update_time_zone이_있으면_캘린더를_조회하지_않고_함께_보낸다():
+    _, body, _, _ = await _update({"/events/evt-1": _TIMED}, event_id="evt-1", time_zone="America/New_York",
+                                  start_datetime="2026-10-21T14:00:00", end_datetime="2026-10-21T15:00:00")
+
+    assert body == {"start": _at("2026-10-21T14:00:00-04:00", "America/New_York"),
+                    "end": _at("2026-10-21T15:00:00-04:00", "America/New_York")}
+
+
+@pytest.mark.asyncio
+async def test_update_all은_원본_날짜에_시각만_바꾼다():
+    routes = _series({"dateTime": "2026-09-01T09:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-01T10:00:00+09:00", "timeZone": "Asia/Seoul"})
+
+    _, body, url, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all",
+                                    start_datetime="2026-10-20T14:00:00+09:00", end_datetime="2026-10-20T15:30:00+09:00")
+
+    assert url == f"{BASE}/events/evt-1"
+    assert body == {"start": _at("2026-09-01T14:00:00+09:00", "Asia/Seoul"),
+                    "end": _at("2026-09-01T15:30:00+09:00", "Asia/Seoul")}
+
+
+@pytest.mark.asyncio
+async def test_update_all_원본_시간대가_달라도_원본_벽시계로_옮긴다():
+    routes = _series({"dateTime": "2026-09-01T09:00:00-04:00", "timeZone": "America/New_York"},
+                     {"dateTime": "2026-09-01T10:00:00-04:00", "timeZone": "America/New_York"})
+
+    _, body, _, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all",
+                                  start_datetime="2026-10-20T10:00:00+09:00")  # 뉴욕 10-19 21:00, 길이 1시간 유지
+
+    assert body == {"start": _at("2026-09-01T21:00:00-04:00", "America/New_York"),
+                    "end": _at("2026-09-01T22:00:00-04:00", "America/New_York")}
+
+
+@pytest.mark.asyncio
+async def test_update_all_자정을_넘겨도_종료가_시작보다_뒤다():
+    routes = _series({"dateTime": "2026-09-01T09:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-01T10:00:00+09:00", "timeZone": "Asia/Seoul"})
+
+    _, body, _, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all",
+                                  start_datetime="2026-10-20T23:00:00+09:00", end_datetime="2026-10-21T01:00:00+09:00")
+
+    assert body == {"start": _at("2026-09-01T23:00:00+09:00", "Asia/Seoul"),
+                    "end": _at("2026-09-02T01:00:00+09:00", "Asia/Seoul")}
+
+
+@pytest.mark.asyncio
+async def test_update_all인데_반복이_아니면_그_일정을_그대로_고친다():
+    _, body, url, _ = await _update({"/events/evt-1": _TIMED}, event_id="evt-1", scope="all",
+                                    start_datetime="2026-10-25T09:00:00+09:00")
+
+    assert url == f"{BASE}/events/evt-1"
+    assert body == {"start": _at("2026-10-25T09:00:00+09:00"), "end": _at("2026-10-25T10:30:00+09:00")}
+
+
+@pytest.mark.asyncio
+async def test_update_all_제목만_바꿔도_원본을_고친다():
+    routes = _series({"dateTime": "2026-09-01T09:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-01T10:00:00+09:00", "timeZone": "Asia/Seoul"})
+
+    _, body, url, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all", summary="새 제목")
+
+    assert (url, body) == (f"{BASE}/events/evt-1", {"summary": "새 제목"})
+
+
+@pytest.mark.asyncio
+async def test_update_종일_반복_전체의_날짜는_거절한다():
+    routes = {f"/events/{_INSTANCE_ID}": {"id": _INSTANCE_ID, "recurringEventId": "evt-1",
+                                          "start": {"date": "2026-10-20"}, "end": {"date": "2026-10-21"}},
+              "/events/evt-1": {"id": "evt-1", "recurrence": ["RRULE:FREQ=WEEKLY"],
+                                "start": {"date": "2026-09-01"}, "end": {"date": "2026-09-02"}}}
+
+    result, body, _, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all",
+                                       start_datetime="2026-10-21", end_datetime="2026-10-21")
+
+    assert "반복 전체 종일 일정의 날짜는 바꿀 수 없어요" in result["error"] and body is None
+
+
+@pytest.mark.asyncio
+async def test_update_비운_칸은_보내지_않는다():
+    """조회도 하지 않는다 — 시각·종일·반복 전체가 아니면 PATCH 한 번."""
+    _, body, url, params = await _update({}, event_id="evt-1", summary="", description="  ", location="",
+                                         attendees=[], start_datetime="", end_datetime=" ", all_day="",
+                                         send_updates="", time_zone="")
+
+    assert (body, url, params) == ({}, f"{BASE}/events/evt-1", {})
+
+
+@pytest.mark.asyncio
+async def test_update_참석자는_쉼표로_나눠_통째로_바꾼다():
+    _, body, _, params = await _update({}, event_id="evt-1", attendees="a@x.com, b@y.com ,,", location="회의실",
+                                       send_updates="externalOnly")
+
+    assert body == {"attendees": [{"email": "a@x.com"}, {"email": "b@y.com"}], "location": "회의실"}
+    assert params == {"sendUpdates": "externalOnly"}
+
+
+@pytest.mark.asyncio
+async def test_update_쉼표뿐인_참석자는_보내지_않는다():
+    """[]로 PATCH하면 기존 참석자가 전부 지워진다."""
+    _, body, _, _ = await _update({}, event_id="evt-1", attendees=" , ,", summary="x")
+
+    assert body == {"summary": "x"}

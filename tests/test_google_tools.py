@@ -337,7 +337,10 @@ async def test_google_calendar_update_success():
         "htmlLink": "https://calendar.google.com/event?eid=abc",
     })
     patch_mock = AsyncMock(return_value=resp)
-    client = _make_async_client(patch_mock=patch_mock)
+    current = _make_mock_response(200, {"id": "event-123",
+                                        "start": {"dateTime": "2026-06-11T10:00:00+09:00"},
+                                        "end": {"dateTime": "2026-06-11T11:00:00+09:00"}})
+    client = _make_async_client(get_mock=AsyncMock(return_value=current), patch_mock=patch_mock)
 
     with patch("tools.google_calendar.get_http_client", return_value=client):
         result = await google_calendar_update(

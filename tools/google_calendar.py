@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import quote, unquote
 from zoneinfo import ZoneInfo
@@ -103,6 +103,11 @@ class _Zone:
         dt = datetime.fromisoformat(str(value).strip())
         return dt if dt.tzinfo else dt.replace(tzinfo=await self.get())
 
+    async def day(self, value) -> date:
+        """종일 날짜. 오프셋 있는 시각은 이 시간대로 바꾼 뒤 날짜를 뽑는다(UTC Z 입력의 하루 어긋남 방지)."""
+        dt = datetime.fromisoformat(str(value).strip())
+        return dt.astimezone(await self.get()).date() if dt.tzinfo else dt.date()
+
 
 def _item(event: dict) -> dict:
     """events.list 항목 → find items[] 원소. 키는 늘 같고 없는 값은 빈 문자열/빈 목록(spec §4.1)."""
@@ -177,6 +182,86 @@ async def google_calendar_create(
         }, ensure_ascii=False)
 
 
+def _timed(value: datetime, time_zone: Optional[str]) -> dict:
+    # 종일 → 시각 전환이면 남은 date를 지운다(PATCH는 병합이다, spec §4.2-5).
+    piece = {"dateTime": value.isoformat(), "date": None}
+    if time_zone:
+        piece["timeZone"] = time_zone
+    return piece
+
+
+async def _all_day_times(cur_start: dict, cur_end: dict, start, end, was_all_day: bool, zone: _Zone) -> dict:
+    """종일(spec §4.2-5). 종료일은 포함으로 받아 Google 배타 규칙에 맞춰 +1일. 종료가 비면 원래 종일이면
+    일수 유지(§4.2-2), 시각에서 바꾸면 시작일 하루. 시각 칸은 null로 지운다."""
+    if start is not None:
+        first = await zone.day(start)
+    elif was_all_day:
+        first = date.fromisoformat(cur_start["date"])
+    else:
+        first = await zone.day(cur_start["dateTime"])
+    if end is not None:
+        after = await zone.day(end) + timedelta(days=1)
+    elif was_all_day:
+        after = first + (date.fromisoformat(cur_end["date"]) - date.fromisoformat(cur_start["date"]))
+    else:
+        after = first + timedelta(days=1)
+    return {"start": {"date": first.isoformat(), "dateTime": None, "timeZone": None},
+            "end": {"date": after.isoformat(), "dateTime": None, "timeZone": None}}
+
+
+async def _timed_times(cur_start: dict, cur_end: dict, start, end, was_all_day: bool, zone: _Zone):
+    """시각 일정. 시작만 오면 기존 길이 유지(§4.2-2), 종료만 오면 시작은 그대로.
+    종일에서 바꿀 땐 기존 시각이 없어 둘 다 필요하다 — 지어낸 시각으로 바꾸지 않는다."""
+    if was_all_day and (start is None or end is None):
+        return "종일 일정을 시각 일정으로 바꾸려면 시작과 종료를 모두 입력하세요"
+    begin = await zone.parse(start) if start is not None else datetime.fromisoformat(cur_start["dateTime"])
+    if end is not None:
+        finish = await zone.parse(end)
+    else:
+        finish = begin + (datetime.fromisoformat(cur_end["dateTime"]) - datetime.fromisoformat(cur_start["dateTime"]))
+    return {"start": _timed(begin, zone.explicit), "end": _timed(finish, zone.explicit)}
+
+
+async def _series_times(cur_start: dict, cur_end: dict, start, end, zone: _Zone) -> dict:
+    """반복 전체 + 시각 변경(spec §4.2-3). 원본 시작을 회차 날짜로 덮으면 반복 시작일이 옮겨져 이전 회차가
+    사라지므로, 입력 시각을 원본 start.timeZone의 벽시계 시각으로 옮겨 원본 날짜와 합친다.
+    종료 = 그 시작 + (입력 종료 − 입력 시작, 없으면 원본 길이). 종료만 오면 원본 날짜에 붙이고 시작 이하면 다음 날."""
+    tz = ZoneInfo(cur_start["timeZone"]) if cur_start.get("timeZone") else await zone.get()
+    orig_start = datetime.fromisoformat(cur_start["dateTime"]).astimezone(tz)
+    orig_end = datetime.fromisoformat(cur_end["dateTime"]).astimezone(tz)
+    begin_in = await zone.parse(start) if start is not None else None
+    end_in = await zone.parse(end) if end is not None else None
+    if begin_in is not None:
+        begin = datetime.combine(orig_start.date(), begin_in.astimezone(tz).time(), tzinfo=tz)
+        finish = begin + ((end_in - begin_in) if end_in is not None else (orig_end - orig_start))
+    else:
+        begin = orig_start
+        finish = datetime.combine(orig_start.date(), end_in.astimezone(tz).time(), tzinfo=tz)
+        if finish <= begin:
+            finish += timedelta(days=1)  # 자정 넘김
+    return {"start": _timed(begin, tz.key), "end": _timed(finish, tz.key)}
+
+
+async def _new_times(target: dict, start, end, all_day, zone: _Zone, series: bool):
+    """start/end PATCH 조각(spec §4.2 2~5). 바꿀 수 없으면 사용자에게 보일 이유(str)를 돌려준다."""
+    start = None if _blank(start) else start
+    end = None if _blank(end) else end
+    cur_start, cur_end = target.get("start") or {}, target.get("end") or {}
+    was_all_day = "date" in cur_start
+    to_all_day = was_all_day if all_day is None else bool(all_day)
+    if start is None and end is None and to_all_day == was_all_day:
+        return {}
+    if series:
+        if to_all_day != was_all_day:
+            return "반복 전체 일정의 종일 여부는 바꿀 수 없어요"
+        if was_all_day:
+            return "반복 전체 종일 일정의 날짜는 바꿀 수 없어요"  # 날짜를 유지하면 바꿀 것이 없다(§4.2-4)
+        return await _series_times(cur_start, cur_end, start, end, zone)
+    if to_all_day:
+        return await _all_day_times(cur_start, cur_end, start, end, was_all_day, zone)
+    return await _timed_times(cur_start, cur_end, start, end, was_all_day, zone)
+
+
 async def google_calendar_update(
     access_token: str,
     event_id: str,
@@ -185,63 +270,70 @@ async def google_calendar_update(
     end_datetime: Optional[str] = None,
     description: Optional[str] = None,
     calendar_id: str = "primary",
+    scope: str = "this",
+    all_day: Optional[bool] = None,
+    time_zone: Optional[str] = None,
+    location: Optional[str] = None,
+    attendees: Optional[str] = None,
+    send_updates: Optional[str] = None,
 ) -> str:
     """
-    Google Calendar의 기존 일정을 수정합니다.
+    Google Calendar의 기존 일정을 수정합니다. 비운 칸은 바꾸지 않습니다.
 
     Args:
         access_token: Google OAuth Access Token
         event_id: 수정할 일정 ID
-        summary: 새 일정 제목 (optional, 없으면 기존 유지)
-        start_datetime: 새 시작 일시 (ISO 8601, optional)
-        end_datetime: 새 종료 일시 (ISO 8601, optional)
+        summary: 새 일정 제목 (optional)
+        start_datetime: 새 시작 일시 (ISO 8601). 시작만 주면 기존 길이를 유지한다
+        end_datetime: 새 종료 일시 (ISO 8601). 종일 일정이면 끝나는 날(포함)
         description: 새 일정 설명 (optional)
         calendar_id: 캘린더 ID (기본값: "primary")
+        scope: "this"(이 일정만, 기본) 또는 "all"(반복 일정이면 반복 전체 — 날짜는 두고 시각만 바꾼다)
+        all_day: true면 종일 일정, false면 시각 일정으로 바꾼다. 비우면 그대로
+        time_zone: 시간대 IANA 이름(예: "Asia/Seoul"). 오프셋 없는 시각을 이 시간대로 읽는다. 비우면 캘린더 시간대
+        location: 새 장소 (optional)
+        attendees: 참석자 이메일, 쉼표로 구분. 기존 참석자를 모두 바꾼다
+        send_updates: 참석자 알림 "all" | "externalOnly" | "none". 비우면 Google 기본 동작
 
     Returns:
         수정된 일정 ID, URL을 포함한 JSON 문자열
     """
     # 빈 id면 PATCH가 .../events/(컬렉션 경로)로 나가 원인 모를 404/405가 난다.
-    if not str(event_id or "").strip():
-        return json.dumps({
-            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_calendar_update: event_id가 비어 있습니다)"
-        }, ensure_ascii=False)
-
-    payload = {}
-    if summary is not None:
-        payload["summary"] = summary
-    if description is not None:
-        payload["description"] = description
-    # 빈 문자열 dateTime은 API가 400으로 반려하므로 실제 값이 있을 때만 포함한다(선택 슬롯 "" 방지).
-    if start_datetime and start_datetime.strip():
-        payload["start"] = {"dateTime": start_datetime}
-    if end_datetime and end_datetime.strip():
-        payload["end"] = {"dateTime": end_datetime}
+    if _blank(event_id):
+        return _fail("google_calendar_update", "event_id가 비어 있습니다")
+    payload = {k: v for k, v in (("summary", summary), ("description", description), ("location", location))
+               if not _blank(v)}
+    emails = [] if _blank(attendees) else [e.strip() for e in str(attendees).split(",") if e.strip()]
+    if emails:  # 쉼표뿐이면 보내지 않는다 — []를 보내면 참석자가 전부 지워진다
+        payload["attendees"] = [{"email": e} for e in emails]
+    all_day = None if _blank(all_day) else all_day
 
     try:
         client = get_http_client()
-        response = await client.patch(
-            f"{_CALENDAR_API_BASE}/calendars/{_calendar_segment(calendar_id)}/events/{quote(str(event_id), safe='')}",
-            headers=_headers(access_token),
-            json=payload,
-            timeout=_TIMEOUT,
-        )
-        data = response.json()
+        headers = _headers(access_token)
+        cal = _calendar_segment(calendar_id)
+        target_id = str(event_id)
+        # 현재 일정이 필요할 때만 조회한다(반복 원본 해석·길이 유지·종일 전환). 제목만 바꾸면 PATCH 한 번.
+        if scope == "all" or not _blank(start_datetime) or not _blank(end_datetime) or all_day is not None:
+            target = await _resolve_target(client, headers, cal, event_id, scope)
+            target_id = target.get("id") or target_id
+            times = await _new_times(target, start_datetime, end_datetime, all_day,
+                                     _Zone(client, headers, cal, time_zone),
+                                     series=scope == "all" and bool(target.get("recurrence")))
+            if isinstance(times, str):
+                return _fail("google_calendar_update", times)
+            payload.update(times)
+        response = await client.patch(_event_url(cal, target_id), headers=headers, json=payload,
+                                      params=_send_updates(send_updates), timeout=_TIMEOUT)
         if not response.is_success:
-            return json.dumps({
-                "error": f"Google Calendar API 오류 ({response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
-            }, ensure_ascii=False)
-
-        return json.dumps({
-            "success": True,
-            "eventId": data.get("id", ""),
-            "htmlLink": data.get("htmlLink", ""),
-        }, ensure_ascii=False)
-
+            return _api_error(response)
+        data = response.json()
+        return json.dumps({"success": True, "eventId": data.get("id", ""), "htmlLink": data.get("htmlLink", "")},
+                          ensure_ascii=False)
+    except _ApiError as e:
+        return _api_error(e.response)
     except Exception as e:
-        return json.dumps({
-            "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_calendar_update: {str(e)})"
-        }, ensure_ascii=False)
+        return _fail("google_calendar_update", str(e))
 
 
 async def google_calendar_list(
