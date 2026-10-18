@@ -14,7 +14,7 @@ APP_PRESETS = [
     "ai.notion_create_page", "ai.notion_read_page", "ai.notion_search", "ai.notion_update_page",
     "ai.notion_append_block", "ai.notion_query_database",
     "ai.google_sheets_read", "ai.google_sheets_write", "ai.google_sheets_append",
-    "ai.google_calendar_create", "ai.google_calendar_list", "ai.google_calendar_update",
+    "ai.google_calendar_create", "ai.google_calendar_find", "ai.google_calendar_update",
     "ai.google_drive_read", "ai.google_drive_upload",
 ]
 
@@ -136,11 +136,11 @@ def test_action_entries_mirror_app_presets():
         assert action["node_type"] == "ACTION"
         assert action["tool_key"] == preset["tool_key"]
         assert action["fixed"] == {"type": "ACTION", "event": action["id"], "config": {}}
-    # 앱 프리셋의 거울 + 프리셋 없는 GitHub 액션
+    # 앱 프리셋의 거울 + 프리셋 없는 GitHub 액션 + AI에 싣지 않는 캘린더 삭제(ACTION 전용)
     mirrored = {t["id"] for t in entries.values() if t["node_type"] == "ACTION"
                 and any(entries[pid]["tool_key"] == t["tool_key"] for pid in APP_PRESETS)}
     assert {t["id"] for t in entries.values() if t["node_type"] == "ACTION"} == \
-        mirrored | {"github.list_issues", "github.create_issue"}
+        mirrored | {"github.list_issues", "github.create_issue", "google_calendar.delete"}
 
 
 @pytest.mark.parametrize("tid, tool_key, keys", [
@@ -228,7 +228,7 @@ def test_http_allows_webhook_credential_but_no_slot():
 
 RESOURCE_SLOTS = {
     "ai.google_calendar_create": ["calendar_id", "calendar_id_name"],
-    "ai.google_calendar_list": ["calendar_id", "calendar_id_name"],
+    "ai.google_calendar_find": ["calendar_id", "calendar_id_name"],
     "ai.google_calendar_update": ["event_id", "event_id_name", "calendar_id", "calendar_id_name"],
     "ai.google_drive_read": ["file_id", "file_id_name"],
     "ai.google_drive_upload": ["folder_id", "folder_id_name"],
@@ -300,3 +300,13 @@ def test_cold_load_never_enters_intent_brand_path(monkeypatch):
     assert templates["ai.github_query"]["brand"] == "github"
     assert templates["ai.reasoning"]["brand"] == "openai"
     assert templates["github.create_issue"]["brand"] == "github"
+
+
+def test_calendar_delete는_ai_agent_도구_선택지에_없다():
+    """삭제는 ACTION 전용(spec §4.3) — 선택지에 실리면 AI 노드가 일정을 지울 수 있다. 찾기는 실린다."""
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    ids = {c["id"] for c in tools["choices"]}
+    assert "builtin:google_calendar_delete" not in ids
+    assert "builtin:google_calendar_find" in ids
+    assert not any(t.get("tool_key") == "builtin:google_calendar_delete" for t in tr.all_templates()
+                   if t.get("preset"))

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from common.error_code import ToolErrorCode
+from tests.action_outputs import assert_matches_outputs
 from tests.test_google_tools import _make_async_client, _make_mock_response
 from tools.google_calendar import google_calendar_delete, google_calendar_find, google_calendar_update
 
@@ -63,6 +64,7 @@ async def test_delete_성공은_빈_본문을_읽지_않는다(send_updates, par
     assert result == {"success": True, "eventId": "evt-1", "deleted": True}
     assert delete.call_args.args[0] == f"{BASE}/events/evt-1"
     assert delete.call_args.kwargs["params"] == params
+    assert_matches_outputs("google_calendar.delete", result)
 
 
 @pytest.mark.asyncio
@@ -73,6 +75,7 @@ async def test_delete_410은_이미_삭제된_성공이다():
     result = await _run(google_calendar_delete, client, event_id="evt-1")
 
     assert result == {"success": True, "eventId": "evt-1", "deleted": False}
+    assert_matches_outputs("google_calendar.delete", result)
 
 
 @pytest.mark.asyncio
@@ -81,6 +84,7 @@ async def test_delete_조회가_410이어도_이미_삭제된_성공이다():
     result = await _run(google_calendar_delete, _client(get=_gets({"/events/evt-1": gone})), event_id="evt-1")
 
     assert result == {"success": True, "eventId": "evt-1", "deleted": False}
+    assert_matches_outputs("google_calendar.delete", result)
 
 
 @pytest.mark.asyncio
@@ -109,6 +113,7 @@ async def test_delete_cancelled면_부르지_않고_deleted_false():
     result = await _run(google_calendar_delete, client, event_id="evt-1")
 
     assert result == {"success": True, "eventId": "evt-1", "deleted": False}
+    assert_matches_outputs("google_calendar.delete", result)
 
 
 @pytest.mark.asyncio
@@ -121,6 +126,7 @@ async def test_delete_all은_회차가_아니라_원본을_지운다():
 
     assert result == {"success": True, "eventId": "evt-1", "deleted": True}
     assert delete.call_args.args[0] == f"{BASE}/events/evt-1"
+    assert_matches_outputs("google_calendar.delete", result)
 
 
 @pytest.mark.asyncio
@@ -132,6 +138,7 @@ async def test_delete_this는_회차만_지운다():
 
     assert result["eventId"] == "evt-1_20261020T000000Z"
     assert delete.call_args.args[0] == f"{BASE}/events/evt-1_20261020T000000Z"
+    assert_matches_outputs("google_calendar.delete", result)
 
 
 @pytest.mark.asyncio
@@ -177,6 +184,7 @@ async def test_find_일정을_고정_키로_펼친다():
     assert get.call_args.args[0] == f"{BASE}/events"
     assert get.call_args.kwargs["params"] == {"singleEvents": "true", "orderBy": "startTime",
                                               "timeMin": "2026-10-20T00:00:00+09:00", "maxResults": 50}
+    assert_matches_outputs("google_calendar.find", result)
 
 
 @pytest.mark.asyncio
@@ -186,6 +194,7 @@ async def test_find_0건은_성공이다():
     result = await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T00:00:00+09:00")
 
     assert result == {"success": True, "found": False, "total": 0, "items": []}
+    assert_matches_outputs("google_calendar.find", result)
 
 
 @pytest.mark.asyncio
@@ -201,6 +210,7 @@ async def test_find_페이지를_넘겨_max_results까지_모은다():
     first, second = (c.kwargs["params"] for c in get.call_args_list)
     assert (first["maxResults"], "pageToken" in first) == (3, False)
     assert (second["maxResults"], second["pageToken"]) == (1, "t2")
+    assert_matches_outputs("google_calendar.find", result)
 
 
 @pytest.mark.asyncio
@@ -208,24 +218,26 @@ async def test_find_time_min_비우면_지금부터():
     get = _gets({_EVENTS: {"items": []}})
 
     with patch("tools.google_calendar._now", return_value=datetime(2026, 10, 18, 3, 0, tzinfo=timezone.utc)):
-        await _run(google_calendar_find, _client(get=get), time_min="", time_max="  ", query="")
+        result = await _run(google_calendar_find, _client(get=get), time_min="", time_max="  ", query="")
 
     params = get.call_args.kwargs["params"]
     assert params["timeMin"] == "2026-10-18T03:00:00+00:00"
     assert "timeMax" not in params and "q" not in params
+    assert_matches_outputs("google_calendar.find", result)
 
 
 @pytest.mark.asyncio
 async def test_find_오프셋_없는_시각은_캘린더_시간대로_해석한다():
     get = _gets({_EVENTS: {"items": []}, **_SEOUL})
 
-    await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T09:00:00", time_max="2026-10-21",
-               query=" 회의 ")
+    result = await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T09:00:00",
+                        time_max="2026-10-21", query=" 회의 ")
 
     params = get.call_args.kwargs["params"]
     assert (params["timeMin"], params["timeMax"], params["q"]) == (
         "2026-10-20T09:00:00+09:00", "2026-10-21T00:00:00+09:00", "회의")
     assert sum(c.args[0] == BASE for c in get.call_args_list) == 1  # calendars.get은 한 번만
+    assert_matches_outputs("google_calendar.find", result)
 
 
 @pytest.mark.asyncio
@@ -238,6 +250,7 @@ async def test_find_max_results는_문자열_빈값도_받고_1에서_250으로_
 
     assert "error" not in result
     assert get.call_args.kwargs["params"]["maxResults"] == sent
+    assert_matches_outputs("google_calendar.find", result)
 
 
 @pytest.mark.asyncio
@@ -291,6 +304,7 @@ async def _update(routes: dict, **kwargs):
     result = await _run(google_calendar_update, _client(get=_gets(routes), patch_mock=patch_mock), **kwargs)
     if not patch_mock.called:
         return result, None, None, None
+    assert_matches_outputs("google_calendar.update", result)
     call = patch_mock.call_args
     return result, call.kwargs["json"], call.args[0], call.kwargs["params"]
 
@@ -404,6 +418,36 @@ async def test_update_all_자정을_넘겨도_종료가_시작보다_뒤다():
 
     assert body == {"start": _at("2026-09-01T23:00:00+09:00", "Asia/Seoul"),
                     "end": _at("2026-09-02T01:00:00+09:00", "Asia/Seoul")}
+
+
+@pytest.mark.asyncio
+async def test_update_all_종료만_오면_원본_시작을_두고_시작_이하면_다음_날이다():
+    routes = _series({"dateTime": "2026-09-01T09:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-01T10:00:00+09:00", "timeZone": "Asia/Seoul"})
+
+    _, body, _, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all", end_datetime="2026-10-20T08:30:00+09:00")
+
+    assert body == {"start": _at("2026-09-01T09:00:00+09:00", "Asia/Seoul"),
+                    "end": _at("2026-09-02T08:30:00+09:00", "Asia/Seoul")}
+
+
+@pytest.mark.asyncio
+async def test_update_all_반복_전체의_종일_전환은_거절한다():
+    routes = _series({"dateTime": "2026-09-01T09:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-01T10:00:00+09:00", "timeZone": "Asia/Seoul"})
+
+    result, body, _, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all", all_day=True,
+                                       start_datetime="2026-10-21")
+
+    assert "종일 여부는 바꿀 수 없어요" in result["error"] and body is None
+
+
+@pytest.mark.asyncio
+async def test_update_종료만_오면_시작은_그대로다():
+    _, body, _, _ = await _update({"/events/evt-1": _TIMED}, event_id="evt-1",
+                                  end_datetime="2026-10-20T11:00:00+09:00")
+
+    assert body == {"start": _at("2026-10-20T09:00:00+09:00"), "end": _at("2026-10-20T11:00:00+09:00")}
 
 
 @pytest.mark.asyncio

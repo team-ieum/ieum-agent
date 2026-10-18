@@ -185,3 +185,25 @@ async def test_취소되면_IN_PROGRESS_레코드가_해제된다(fake_records):
             await execute_action(ActionExecutionRequest(**BODY), credentials=credentials, x_idempotency_key=KEY)
 
     assert fake_records.docs == {}
+
+
+def test_캘린더_삭제는_ACTION으로_열리고_구글_토큰이_주입된다():
+    """delete는 _TOOL_MAP 밖이지만 카탈로그 ACTION이라 열린다 — resolve_action_fn이 풀고 builtin:google_ 접두사로
+    토큰을 받는다. 성공 응답은 빈 본문이라 json()이 터져도 성공이어야 한다."""
+    got = MagicMock(status_code=200, is_success=True)
+    got.json.return_value = {"id": "evt-1", "status": "confirmed"}
+    gone = MagicMock(status_code=204, is_success=True)
+    gone.json.side_effect = ValueError("빈 본문")
+    http = AsyncMock()
+    http.get = AsyncMock(return_value=got)
+    http.delete = AsyncMock(return_value=gone)
+    body = {"nodeId": "node-1", "toolKey": "builtin:google_calendar_delete",
+            "config": {"event_id": "evt-1", "_names": {"event_id": "주간 회의"}}}
+
+    with patch("tools.google_calendar.get_http_client", return_value=http):
+        res = client.post(URL, json=body, headers={"X-User-Id": "user-1", "X-Google-Access-Token": "g-token"})
+
+    assert res.status_code == 200
+    assert res.json()["success"] is True
+    assert res.json()["output"] == {"eventId": "evt-1", "deleted": True}
+    assert http.delete.call_args.kwargs["headers"]["Authorization"] == "Bearer g-token"
