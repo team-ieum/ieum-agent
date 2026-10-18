@@ -1,6 +1,8 @@
 import json
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote, unquote
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -9,6 +11,7 @@ from tools.http_client import get_http_client
 
 _CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
 _TIMEOUT = 30.0
+_FIND_MAX = 250  # 노드 칸 상한(spec §4.1). events.list 한 페이지 상한(2500)보다 작아 페이지당 요청은 남은 개수 그대로
 
 
 def _calendar_segment(calendar_id: Optional[str]) -> str:
@@ -74,6 +77,49 @@ async def _resolve_target(client, headers: dict, cal: str, event_id, scope) -> d
 def _send_updates(send_updates) -> dict:
     """events.patch·events.delete의 sendUpdates 쿼리. 비우면 생략한다(Google 기본 동작)."""
     return {} if _blank(send_updates) else {"sendUpdates": str(send_updates).strip()}
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class _Zone:
+    """시간대 보정(spec §3). 오프셋 없는 시각은 time_zone, 없으면 캘린더 기본 timeZone(calendars.get)의
+    벽시계 시각으로 읽는다. Google은 오프셋 없는 RFC3339를 400으로 거절한다. 캘린더 조회는 필요할 때 한 번만.
+    calendarList.get이 아니라 calendars.get을 쓴다 — ID를 직접 넣은(목록에 없는) 캘린더도 읽힌다."""
+
+    def __init__(self, client, headers: dict, cal: str, time_zone=None):
+        self._client, self._headers, self._cal = client, headers, cal
+        self.explicit = None if _blank(time_zone) else str(time_zone).strip()
+        self._zone = ZoneInfo(self.explicit) if self.explicit else None
+
+    async def get(self) -> ZoneInfo:
+        if self._zone is None:
+            data = await _get_json(self._client, self._headers, f"{_CALENDAR_API_BASE}/calendars/{self._cal}")
+            self._zone = ZoneInfo(data.get("timeZone") or "UTC")
+        return self._zone
+
+    async def parse(self, value) -> datetime:
+        dt = datetime.fromisoformat(str(value).strip())
+        return dt if dt.tzinfo else dt.replace(tzinfo=await self.get())
+
+
+def _item(event: dict) -> dict:
+    """events.list 항목 → find items[] 원소. 키는 늘 같고 없는 값은 빈 문자열/빈 목록(spec §4.1)."""
+    start, end = event.get("start") or {}, event.get("end") or {}
+    return {
+        "id": event.get("id", ""),
+        "summary": event.get("summary", ""),
+        "start": start.get("dateTime") or start.get("date", ""),
+        "end": end.get("dateTime") or end.get("date", ""),
+        "allDay": "date" in start,
+        "location": event.get("location", ""),
+        "description": event.get("description", ""),
+        "htmlLink": event.get("htmlLink", ""),
+        "recurringEventId": event.get("recurringEventId", ""),
+        "status": event.get("status", ""),
+        "attendees": [a["email"] for a in event.get("attendees", []) if a.get("email")],
+    }
 
 
 async def google_calendar_create(
@@ -261,6 +307,67 @@ async def google_calendar_list(
         return json.dumps({
             "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_calendar_list: {str(e)})"
         }, ensure_ascii=False)
+
+
+async def google_calendar_find(
+    access_token: str,
+    calendar_id: str = "primary",
+    query: str = "",
+    time_min: str = "",
+    time_max: str = "",
+    max_results: int = 50,
+) -> str:
+    """
+    Google Calendar에서 조건에 맞는 일정을 시작 시각 순으로 찾습니다. 반복 일정은 회차별로 나옵니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        calendar_id: 캘린더 ID (기본값: "primary")
+        query: 검색어(제목·설명·장소·참석자). 비우면 전체
+        time_min: 이 시각 이후에 끝나는 일정 (ISO 8601). 비우면 지금
+        time_max: 이 시각 전에 시작하는 일정 (ISO 8601). 비우면 제한 없음
+        max_results: 최대 개수 (기본 50, 최대 250)
+
+    Returns:
+        found·total·items를 담은 JSON 문자열. 0건도 성공이다.
+    """
+    try:  # BE는 없는 참조를 ""로, FE 숫자 칸은 문자열을 보낼 수 있다
+        limit = min(max(int(max_results), 1), _FIND_MAX)
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        cal = _calendar_segment(calendar_id)
+        zone = _Zone(client, headers, cal)
+        params = {
+            "singleEvents": "true",  # 반복 일정은 회차로 펼친다
+            "orderBy": "startTime",  # singleEvents=true일 때만 허용, 오름차순만
+            "timeMin": (_now() if _blank(time_min) else await zone.parse(time_min)).isoformat(),
+        }
+        if not _blank(time_max):
+            params["timeMax"] = (await zone.parse(time_max)).isoformat()
+        if not _blank(query):
+            params["q"] = query.strip()
+        items = []
+        while len(items) < limit:
+            params["maxResults"] = limit - len(items)
+            response = await client.get(f"{_CALENDAR_API_BASE}/calendars/{cal}/events", headers=headers,
+                                        params=dict(params), timeout=_TIMEOUT)
+            if not response.is_success:
+                return _api_error(response)
+            data = response.json()
+            items += [_item(e) for e in data.get("items", [])]
+            if not data.get("nextPageToken"):
+                break
+            params["pageToken"] = data["nextPageToken"]
+        items = items[:limit]
+        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items},
+                          ensure_ascii=False)
+    except _ApiError as e:
+        return _api_error(e.response)
+    except Exception as e:
+        return _fail("google_calendar_find", str(e))
 
 
 def _deleted(event_id: str, deleted: bool) -> str:

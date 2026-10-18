@@ -1,12 +1,13 @@
 """Google Calendar 찾기·수정·삭제 도구(spec 2026-10-18 §3·§4). HTTP는 목으로 대신한다."""
 import json
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from common.error_code import ToolErrorCode
 from tests.test_google_tools import _make_async_client, _make_mock_response
-from tools.google_calendar import google_calendar_delete
+from tools.google_calendar import google_calendar_delete, google_calendar_find
 
 BASE = "https://www.googleapis.com/calendar/v3/calendars/primary"
 
@@ -144,3 +145,105 @@ async def test_delete_빈_event_id는_호출_없이_실패(event_id):
     # 기본 목의 AssertionError도 도구 except가 같은 메시지로 바꾸므로, 호출 없음은 따로 단언한다.
     client.get.assert_not_called()
     client.delete.assert_not_called()
+
+
+# --- find -----------------------------------------------------------------------------------
+
+_EVENTS = "/calendars/primary/events"
+_SEOUL = {"/calendars/primary": {"timeZone": "Asia/Seoul"}}
+_ITEM_TIMED = {
+    "id": "e1", "summary": "회의", "status": "confirmed", "htmlLink": "https://calendar.google.com/e1",
+    "location": "3층", "description": "주간", "recurringEventId": "r1",
+    "start": {"dateTime": "2026-10-20T09:00:00+09:00"}, "end": {"dateTime": "2026-10-20T10:00:00+09:00"},
+    "attendees": [{"email": "a@x.com"}, {"email": "b@y.com", "responseStatus": "accepted"}, {"self": True}],
+}
+_ITEM_ALL_DAY = {"id": "e2", "start": {"date": "2026-10-21"}, "end": {"date": "2026-10-22"}}
+
+
+@pytest.mark.asyncio
+async def test_find_일정을_고정_키로_펼친다():
+    get = _gets({_EVENTS: {"items": [_ITEM_TIMED, _ITEM_ALL_DAY]}})
+
+    result = await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T00:00:00+09:00")
+
+    assert (result["found"], result["total"]) == (True, 2)
+    assert result["items"] == [
+        {"id": "e1", "summary": "회의", "start": "2026-10-20T09:00:00+09:00", "end": "2026-10-20T10:00:00+09:00",
+         "allDay": False, "location": "3층", "description": "주간", "htmlLink": "https://calendar.google.com/e1",
+         "recurringEventId": "r1", "status": "confirmed", "attendees": ["a@x.com", "b@y.com"]},
+        {"id": "e2", "summary": "", "start": "2026-10-21", "end": "2026-10-22", "allDay": True, "location": "",
+         "description": "", "htmlLink": "", "recurringEventId": "", "status": "", "attendees": []},
+    ]
+    assert get.call_args.args[0] == f"{BASE}/events"
+    assert get.call_args.kwargs["params"] == {"singleEvents": "true", "orderBy": "startTime",
+                                              "timeMin": "2026-10-20T00:00:00+09:00", "maxResults": 50}
+
+
+@pytest.mark.asyncio
+async def test_find_0건은_성공이다():
+    get = _gets({_EVENTS: {"items": []}})
+
+    result = await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T00:00:00+09:00")
+
+    assert result == {"success": True, "found": False, "total": 0, "items": []}
+
+
+@pytest.mark.asyncio
+async def test_find_페이지를_넘겨_max_results까지_모은다():
+    get = AsyncMock(side_effect=[
+        _make_mock_response(200, {"items": [{"id": "a"}, {"id": "b"}], "nextPageToken": "t2"}),
+        _make_mock_response(200, {"items": [{"id": "c"}, {"id": "d"}], "nextPageToken": "t3"}),
+    ])
+
+    result = await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T00:00:00Z", max_results=3)
+
+    assert [i["id"] for i in result["items"]] == ["a", "b", "c"] and result["total"] == 3
+    first, second = (c.kwargs["params"] for c in get.call_args_list)
+    assert (first["maxResults"], "pageToken" in first) == (3, False)
+    assert (second["maxResults"], second["pageToken"]) == (1, "t2")
+
+
+@pytest.mark.asyncio
+async def test_find_time_min_비우면_지금부터():
+    get = _gets({_EVENTS: {"items": []}})
+
+    with patch("tools.google_calendar._now", return_value=datetime(2026, 10, 18, 3, 0, tzinfo=timezone.utc)):
+        await _run(google_calendar_find, _client(get=get), time_min="", time_max="  ", query="")
+
+    params = get.call_args.kwargs["params"]
+    assert params["timeMin"] == "2026-10-18T03:00:00+00:00"
+    assert "timeMax" not in params and "q" not in params
+
+
+@pytest.mark.asyncio
+async def test_find_오프셋_없는_시각은_캘린더_시간대로_해석한다():
+    get = _gets({_EVENTS: {"items": []}, **_SEOUL})
+
+    await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T09:00:00", time_max="2026-10-21",
+               query=" 회의 ")
+
+    params = get.call_args.kwargs["params"]
+    assert (params["timeMin"], params["timeMax"], params["q"]) == (
+        "2026-10-20T09:00:00+09:00", "2026-10-21T00:00:00+09:00", "회의")
+    assert sum(c.args[0] == BASE for c in get.call_args_list) == 1  # calendars.get은 한 번만
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("given, sent", [("", 50), (None, 50), ("20", 20), (999, 250), (0, 1)])
+async def test_find_max_results는_문자열_빈값도_받고_1에서_250으로_자른다(given, sent):
+    get = _gets({_EVENTS: {"items": []}})
+
+    result = await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T00:00:00Z",
+                        max_results=given)
+
+    assert "error" not in result
+    assert get.call_args.kwargs["params"]["maxResults"] == sent
+
+
+@pytest.mark.asyncio
+async def test_find_API_오류는_실패다():
+    get = _gets({_EVENTS: _make_mock_response(403, {"error": {"message": "Forbidden"}})})
+
+    result = await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T00:00:00Z")
+
+    assert "403" in result["error"]
