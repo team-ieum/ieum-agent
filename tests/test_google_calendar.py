@@ -1,6 +1,6 @@
 """Google Calendar 찾기·수정·삭제 도구(spec 2026-10-18 §3·§4). HTTP는 목으로 대신한다."""
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -224,6 +224,18 @@ async def test_find_time_min_비우면_지금부터():
     assert params["timeMin"] == "2026-10-18T03:00:00+00:00"
     assert "timeMax" not in params and "q" not in params
     assert_matches_outputs("google_calendar.find", result)
+
+
+@pytest.mark.asyncio
+async def test_find_time_min_비우면_지금을_오프셋_있는_UTC로_보낸다():
+    """오프셋 없는 timeMin은 Google이 400으로 거절한다 — _now를 패치하지 않고 실제 값을 본다."""
+    get = _gets({_EVENTS: {"items": []}})
+
+    await _run(google_calendar_find, _client(get=get))
+
+    sent = datetime.fromisoformat(get.call_args.kwargs["params"]["timeMin"])
+    assert sent.utcoffset() == timedelta(0)
+    assert abs(datetime.now(timezone.utc) - sent) < timedelta(minutes=1)
 
 
 @pytest.mark.asyncio
@@ -507,3 +519,65 @@ async def test_update_쉼표뿐인_참석자는_보내지_않는다():
     _, body, _, _ = await _update({}, event_id="evt-1", attendees=" , ,", summary="x")
 
     assert body == {"summary": "x"}
+
+
+@pytest.mark.asyncio
+async def test_update_all_종료가_원본_시작과_같으면_다음_날이다():
+    routes = _series({"dateTime": "2026-09-01T09:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-01T10:00:00+09:00", "timeZone": "Asia/Seoul"})
+
+    _, body, _, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all", end_datetime="2026-10-20T09:00:00+09:00")
+
+    assert body["end"] == _at("2026-09-02T09:00:00+09:00", "Asia/Seoul")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("times", [{"start_datetime": "2026-10-21"}, {"end_datetime": " 2026-10-21 "}])
+async def test_update_시각_일정에_날짜만_오면_자정을_지어내지_않고_실패한다(times):
+    result, body, _, _ = await _update({"/events/evt-1": _TIMED, **_SEOUL}, event_id="evt-1", **times)
+
+    assert "시각까지" in result["error"] and body is None
+
+
+@pytest.mark.asyncio
+async def test_update_all_시각_일정에_날짜만_오면_시리즈를_옮기지_않고_실패한다():
+    routes = _series({"dateTime": "2026-09-01T09:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-01T10:00:00+09:00", "timeZone": "Asia/Seoul"})
+
+    result, body, _, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all", start_datetime="2026-10-21")
+
+    assert "시각까지" in result["error"] and body is None
+
+
+@pytest.mark.asyncio
+async def test_update_this라도_대상이_반복_원본이면_원본_날짜를_유지한다():
+    """원본 ID(find의 recurringEventId)를 넣으면 scope=this여도 PATCH 대상은 시리즈 전체다(spec §4.2-3)."""
+    routes = _series({"dateTime": "2026-09-01T09:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-01T10:00:00+09:00", "timeZone": "Asia/Seoul"})
+
+    _, body, url, _ = await _update(routes, event_id="evt-1", start_datetime="2026-10-21T14:00:00+09:00")
+
+    assert url == f"{BASE}/events/evt-1"
+    assert body == {"start": _at("2026-09-01T14:00:00+09:00", "Asia/Seoul"),
+                    "end": _at("2026-09-01T15:00:00+09:00", "Asia/Seoul")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("given, body", [
+    ("false", {"start": _at("2026-10-21T09:00:00+09:00"), "end": _at("2026-10-21T10:30:00+09:00")}),
+    (" FALSE ", {"start": _at("2026-10-21T09:00:00+09:00"), "end": _at("2026-10-21T10:30:00+09:00")}),
+    ("True", {"start": _day("2026-10-21"), "end": _day("2026-10-22")}),
+])
+async def test_update_all_day_문자열은_true_false만_읽는다(given, body):
+    _, sent, _, _ = await _update({"/events/evt-1": _TIMED, **_SEOUL}, event_id="evt-1", all_day=given,
+                                  start_datetime="2026-10-21T09:00:00+09:00")
+
+    assert sent == body
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("given", ["yes", "0", "참"])
+async def test_update_all_day가_true_false가_아닌_문자열이면_호출_없이_실패한다(given):
+    result, body, _, _ = await _update({}, event_id="evt-1", all_day=given)
+
+    assert "all_day" in result["error"] and body is None

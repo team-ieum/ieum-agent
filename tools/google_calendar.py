@@ -251,6 +251,9 @@ async def _new_times(target: dict, start, end, all_day, zone: _Zone, series: boo
     to_all_day = was_all_day if all_day is None else bool(all_day)
     if start is None and end is None and to_all_day == was_all_day:
         return {}
+    # 날짜만 든 값은 fromisoformat이 00:00으로 읽는다 — 지어낸 시각으로 PATCH하지 않는다.
+    if not to_all_day and any(v is not None and len(str(v).strip()) <= 10 for v in (start, end)):
+        return "시각 일정의 시작·종료는 날짜만이 아니라 시각까지 입력하세요"
     if series:
         if to_all_day != was_all_day:
             return "반복 전체 일정의 종일 여부는 바꿀 수 없어요"
@@ -288,11 +291,11 @@ async def google_calendar_update(
         end_datetime: 새 종료 일시 (ISO 8601). 종일 일정이면 끝나는 날(포함)
         description: 새 일정 설명 (optional)
         calendar_id: 캘린더 ID (기본값: "primary")
-        scope: "this"(이 일정만, 기본) 또는 "all"(반복 일정이면 반복 전체 — 날짜는 두고 시각만 바꾼다)
+        scope: "this"(이 일정만, 기본) 또는 "all"(반복 일정이면 반복 전체 — 날짜는 두고 시각만 바꾼다). "all"은 사용자가 반복 전체를 명시할 때만
         all_day: true면 종일 일정, false면 시각 일정으로 바꾼다. 비우면 그대로
         time_zone: 시간대 IANA 이름(예: "Asia/Seoul"). 오프셋 없는 시각을 이 시간대로 읽는다. 비우면 캘린더 시간대
         location: 새 장소 (optional)
-        attendees: 참석자 이메일, 쉼표로 구분. 기존 참석자를 모두 바꾼다
+        attendees: 참석자 이메일, 쉼표로 구분. 추가·제외가 아니라 전체 교체다 — 현재 참석자 전체를 모르면 비운다
         send_updates: 참석자 알림 "all" | "externalOnly" | "none". 비우면 Google 기본 동작
 
     Returns:
@@ -307,6 +310,10 @@ async def google_calendar_update(
     if emails:  # 쉼표뿐이면 보내지 않는다 — []를 보내면 참석자가 전부 지워진다
         payload["attendees"] = [{"email": e} for e in emails]
     all_day = None if _blank(all_day) else all_day
+    if isinstance(all_day, str):  # bool("false")는 True다
+        if all_day.strip().lower() not in ("true", "false"):
+            return _fail("google_calendar_update", "all_day는 true 또는 false여야 합니다")
+        all_day = all_day.strip().lower() == "true"
 
     try:
         client = get_http_client()
@@ -319,7 +326,7 @@ async def google_calendar_update(
             target_id = target.get("id") or target_id
             times = await _new_times(target, start_datetime, end_datetime, all_day,
                                      _Zone(client, headers, cal, time_zone),
-                                     series=scope == "all" and bool(target.get("recurrence")))
+                                     series=bool(target.get("recurrence")))  # 원본 ID면 scope=this여도 시리즈
             if isinstance(times, str):
                 return _fail("google_calendar_update", times)
             payload.update(times)
