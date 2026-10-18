@@ -81,7 +81,8 @@ class WorkflowValidator:
             # 봐준다는 뜻이지 남의 리소스를 써도 된다는 뜻이 아니고, 애초에 이 노드도 요청 바디에서
             # 온 값이라 '서버가 쥔 원본이니 믿는다'는 전제가 성립하지 않는다.
             if nid in unvalidated_node_ids:
-                for tool in (config.get("tools") or []) if isinstance(config, dict) else []:
+                tools = config.get("tools") if isinstance(config, dict) else None
+                for tool in tools if isinstance(tools, list) else []:
                     name = tool.get("name") if isinstance(tool, dict) else tool
                     if name == "mcp":
                         cls._validate_mcp_authorization(tool, nid, allowed_mcp_catalog_ids)
@@ -216,7 +217,7 @@ class WorkflowValidator:
         allowed_mcp_catalog_ids = allowed_mcp_catalog_ids or set()
         cfg = tool.get("config") if isinstance(tool, dict) else None
         catalog_id = cfg.get("catalogId") if isinstance(cfg, dict) else None
-        if catalog_id and catalog_id in allowed_mcp_catalog_ids:
+        if isinstance(catalog_id, str) and catalog_id and catalog_id in allowed_mcp_catalog_ids:
             return
         raise WorkflowValidationError(
             f"AI 노드 '{node_id}'의 MCP 도구를 사용할 수 없습니다. "

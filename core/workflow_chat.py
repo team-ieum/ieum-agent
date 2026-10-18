@@ -168,7 +168,7 @@ _REVIEWER_SYSTEM_PROMPT = """\
 4. 리소스 ID 주입:
    - Notion parent_page_id 등 워크플로우 작동에 필요한 리소스 ID들이 빈 값("")이 아닌 유효한 조회 ID로 매핑되어 있는지 확인하십시오.
 5. SCHEDULE 트리거의 cron 필드 검증:
-   - 만약 TRIGGER 노드의 `config.triggerType`이 "SCHEDULE"인 경우, `config.cron` 필드가 반드시 존재하고 비어있지 않아야 하며, 5필드 표준 크론 표현식(예: "0 17 * * 5") 형식인지 확인하십시오. 누락되었거나 형식이 잘못되었다면 isValid를 false로 하고 피드백을 반환하십시오.
+   - templateId가 "schedule.every"인 노드는 slots의 `cron`이 반드시 존재하고 비어있지 않아야 하며, 5필드 표준 크론 표현식(예: "0 17 * * 5") 형식인지 확인하십시오. 누락되었거나 형식이 잘못되었다면 isValid를 false로 하고 피드백을 반환하십시오.
 6. 승인 게이트(APPROVAL) 적절성:
    - approval 노드는 사용자가 승인·결재를 **명시적으로 요청한 경우에만** 있어야 합니다. 요청 없이 들어갔다면 결함입니다.
    - 사용자가 승인을 요청했는데 approval 노드가 없거나, 승인이 필요한 노드보다 뒤에 있다면 결함입니다.
@@ -187,9 +187,10 @@ _APP_TRIGGER_OUTPUTS_MARKER = "<<APP_TRIGGER_OUTPUTS>>"
 
 
 def _app_trigger_output_lines() -> str:
-    """all_entries() 중 앱 트리거(공급자가 ieum이 아닌 TRIGGER)마다 '· TRIGGER(<triggerType>) → `output.k`, ...' 한 줄."""
+    """all_entries() 중 앱 트리거(공급자가 ieum이 아닌 TRIGGER)마다 '· TRIGGER(<event>) → `output.k`, ...' 한 줄.
+    pass-through draft가 싣는 종류 표기(node.event)와 같은 이름을 쓴다."""
     return "\n".join(
-        f"     · TRIGGER({t['trigger_type']}) → "
+        f"     · TRIGGER({t['id']}) → "
         + ", ".join(f"`output.{f['key']}`" for f in t.get("outputFields", []))
         for t in all_entries() if t["node_type"] == "TRIGGER" and t.get("provider") not in (None, "ieum")
     )
@@ -232,8 +233,8 @@ _SYSTEM_PROMPT_BASE = """\
 5. 신규 생성(WORKFLOW_GENERATED) 시에만 목적을 대변하는 한국어 이름을 'workflowName'에 기입하고, 수정 시에는 null로 둡니다.
 6. 모든 워크플로우는 1개의 TRIGGER 템플릿(manual.run / schedule.every / webhook.catch)으로 시작합니다.
    schedule.every를 고르면 cron 슬롯에 5필드 표준 크론 표현식을 채웁니다(예: "매일 오전 9시" -> "0 9 * * *").
-   앱 트리거(GMAIL_NEW_EMAIL·GITHUB_NEW_ISSUE)는 빌더 전용이라 새로 만들지 않습니다. 수정 요청의 현재 워크플로우에서는
-   pass-through 노드로 보이며(종류는 'node.triggerType'), 후속 노드는 위 [필드명 규약]의 출력 필드로 참조합니다.
+   앱 트리거(gmail.new_email·github.new_issue)는 빌더 전용이라 새로 만들지 않습니다. 수정 요청의 현재 워크플로우에서는
+   pass-through 노드로 보이며(종류는 'node.event'), 후속 노드는 위 [필드명 규약]의 출력 필드로 참조합니다.
    사용자가 "새 메일이 오면"·"이슈가 열리면"처럼 이벤트가 생기는 즉시 시작하길 요청하면(새로 만들 때든 트리거를 바꿀 때든)
    manual.run/schedule.every로 바꾸지 말고 CLARIFICATION_NEEDED로 "빌더에서 앱 트리거(새 Gmail 메일·새 GitHub 이슈)를 추가해 달라"고
    안내합니다. 시각·주기를 말한 요청("매일 9시에 새 메일 요약")은 앱 이벤트가 아니므로 schedule.every로 만듭니다.
@@ -337,24 +338,35 @@ _WEBHOOK_TOOL_NAMES = {"slack", "discord"}
 
 
 def _strip_invalid_webhook_credentials(nodes: list, allowed_webhook_credential_ids: set | None = None) -> None:
-    """하이드레이션된 slack/discord 노드의 webhookCredentialId가 보유 자격증명에 없으면 제거한다(in-place).
+    """보유 자격증명에 없는 webhookCredentialId를 제거한다(in-place). 칸 자체는 남긴다.
 
-    webhookCredentialId는 슬롯으로 config.tools[0].config.webhookCredentialId에 주입된다. Designer가
-    환각으로 채운 id를 검증 전에 떼어내, 정상 워크플로우가 하드 실패하지 않게 한다(도구 자체는 유지 —
-    webhook_url은 실행 시 backend가 주입). mcp catalogId는 WorkflowValidator가 별도 검증한다."""
+    - AI 노드(ai.slack_send 등 프리셋): 슬롯으로 config.tools.0.config.webhookCredentialId에 들어간다.
+      slack·discord 도구의 config에서 지운다.
+    - ACTION 노드(slack.send_message 등): 칸이 config.webhookCredentialId다(spec §4). event를 몰라도 지운다 —
+      보유 목록은 provider 구분 없는 사용자 웹훅 전체라 미보유 id는 어느 이벤트에서든 날조다.
+    문자열이 아닌 값(요청 바디의 리스트·dict)도 지운다 — set 멤버십 검사가 unhashable로 500이 나지 않게 한다.
+    Designer 환각 id나 요청 바디로 온 pass-through 노드의 미보유 id를 검증 전에 떼어, 정상 워크플로우가 하드 실패하지
+    않게 하고 남의 웹훅이 실행되지 않게 한다(webhook_url은 실행 시 backend가 주입). mcp catalogId는 WorkflowValidator가 본다."""
     allowed = allowed_webhook_credential_ids or set()
     for node in nodes:
         if not isinstance(node, dict):
             continue
         cfg = node.get("config")
-        tools = cfg.get("tools") if isinstance(cfg, dict) else None
-        if not isinstance(tools, list):
+        if not isinstance(cfg, dict):
             continue
-        for tool in tools:
-            if not (isinstance(tool, dict) and tool.get("name") in _WEBHOOK_TOOL_NAMES):
+        targets = []
+        if str(node.get("type") or "").upper() == "ACTION":
+            targets.append(cfg)
+        tools = cfg.get("tools")
+        if isinstance(tools, list):
+            targets += [t.get("config") for t in tools
+                        if isinstance(t, dict) and isinstance(t.get("name"), str)
+                        and t.get("name") in _WEBHOOK_TOOL_NAMES]
+        for tcfg in targets:
+            if not isinstance(tcfg, dict):
                 continue
-            tcfg = tool.get("config")
-            if isinstance(tcfg, dict) and tcfg.get("webhookCredentialId") not in allowed:
+            value = tcfg.get("webhookCredentialId")
+            if not (isinstance(value, str) and value in allowed):
                 tcfg.pop("webhookCredentialId", None)
 
 

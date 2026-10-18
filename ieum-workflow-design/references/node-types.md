@@ -2,8 +2,8 @@
 
 ### TRIGGER
 - 모든 워크플로우는 반드시 단 1개의 TRIGGER 노드로 시작합니다.
-- `config.triggerType`은 "SCHEDULE", "MANUAL", "WEBHOOK" 중 하나로 만듭니다. "GMAIL_NEW_EMAIL"·"GITHUB_NEW_ISSUE"(앱 트리거)는 빌더 전용이라 새로 만들지 않고, 수정 시 기존 노드를 그대로 둡니다.
-- `config.triggerType`이 "SCHEDULE"인 경우, 표준 5자리 크론 표현식(`cron` 필드)을 반드시 설정합니다. (예: "0 9 * * *")
+- 트리거 종류는 노드 `event`로 정합니다: `manual.run`(수동)·`schedule.every`(스케줄)·`webhook.catch`(웹훅). `gmail.new_email`·`github.new_issue`(앱 트리거)는 빌더 전용이라 새로 만들지 않고, 수정 시 기존 노드를 그대로 둡니다.
+- `event`가 `schedule.every`인 경우, 표준 5자리 크론 표현식(`config.cron`)을 반드시 설정합니다. (예: "0 9 * * *")
 
 ### AI
 - AI 추론 및 특정 외부 도구(Slack, Notion 등)를 연동해 동작을 위임합니다.

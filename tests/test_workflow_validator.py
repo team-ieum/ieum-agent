@@ -9,11 +9,11 @@ VALID_WORKFLOW = {
             "id": "node-1",
             "type": "TRIGGER",
             "label": "매일 아침 9시 트리거",
-            "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}
+            "event": "schedule.every", "config": {"cron": "0 9 * * *"}
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.agent",
             "label": "뉴스 수집",
             "config": {
                 "llmProvider": "GEMINI",
@@ -49,7 +49,7 @@ def test_missing_trigger_raises():
     invalid_nodes = [
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.reasoning",
             "label": "뉴스 수집",
             "config": {"llmProvider": "GEMINI"}
         }
@@ -62,7 +62,7 @@ def test_first_node_not_trigger_raises():
     invalid_nodes = [
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.reasoning",
             "label": "뉴스 수집",
             "config": {"llmProvider": "GEMINI"}
         },
@@ -70,7 +70,7 @@ def test_first_node_not_trigger_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "매일 아침 9시 트리거",
-            "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}
+            "event": "schedule.every", "config": {"cron": "0 9 * * *"}
         }
     ]
     with pytest.raises(WorkflowValidationError) as excinfo:
@@ -83,13 +83,13 @@ def test_multiple_triggers_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "매일 아침 9시 트리거",
-            "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}
+            "event": "schedule.every", "config": {"cron": "0 9 * * *"}
         },
         {
             "id": "node-2",
             "type": "TRIGGER",
             "label": "수동 트리거",
-            "config": {"triggerType": "MANUAL"}
+            "event": "manual.run", "config": {}
         }
     ]
     edges = [{"source": "node-1", "target": "node-2"}]
@@ -104,7 +104,7 @@ def test_invalid_cron_fields_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "잘못된 크론 트리거",
-            "config": {"triggerType": "SCHEDULE", "cron": "0 9 * *"} # 4자리만 있음
+            "event": "schedule.every", "config": {"cron": "0 9 * *"} # 4자리만 있음
         }
     ]
     with pytest.raises(WorkflowValidationError) as excinfo:
@@ -117,7 +117,7 @@ def test_invalid_cron_chars_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "잘못된 문자 크론 트리거",
-            "config": {"triggerType": "SCHEDULE", "cron": "abc 9 * * *"} # abc 문자 포함
+            "event": "schedule.every", "config": {"cron": "abc 9 * * *"} # abc 문자 포함
         }
     ]
     with pytest.raises(WorkflowValidationError) as excinfo:
@@ -131,7 +131,7 @@ def test_prohibited_http_domain_notion_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "트리거",
-            "config": {"triggerType": "MANUAL"}
+            "event": "manual.run", "config": {}
         },
         {
             "id": "node-2",
@@ -156,7 +156,7 @@ def test_missing_node_in_edges_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "트리거",
-            "config": {"triggerType": "MANUAL"}
+            "event": "manual.run", "config": {}
         }
     ]
     edges = [{"source": "node-1", "target": "node-999"}] # node-999 없음
@@ -171,11 +171,11 @@ def test_edge_pointing_to_trigger_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "트리거",
-            "config": {"triggerType": "MANUAL"}
+            "event": "manual.run", "config": {}
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.agent",
             "label": "AI 노드",
             "config": {"llmProvider": "OPENAI", "agentType": "react", "credentialId": ""}
         }
@@ -195,17 +195,17 @@ def test_unreachable_orphan_node_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "트리거",
-            "config": {"triggerType": "MANUAL"}
+            "event": "manual.run", "config": {}
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.agent",
             "label": "연결된 노드",
             "config": {"llmProvider": "OPENAI", "agentType": "react", "credentialId": ""}
         },
         {
             "id": "node-3",
-            "type": "AI",
+            "type": "AI", "event": "ai.agent",
             "label": "고아 노드",
             "config": {"llmProvider": "OPENAI", "agentType": "react", "credentialId": ""}
         }
@@ -225,11 +225,11 @@ def test_mismatched_brackets_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "트리거",
-            "config": {"triggerType": "MANUAL"}
+            "event": "manual.run", "config": {}
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.reasoning",
             "label": "AI 노드",
             "config": {
                 "llmProvider": "OPENAI",
@@ -248,11 +248,11 @@ def test_invalid_reference_format_raises():
             "id": "node-1",
             "type": "TRIGGER",
             "label": "트리거",
-            "config": {"triggerType": "MANUAL"}
+            "event": "manual.run", "config": {}
         },
         {
             "id": "node-2",
-            "type": "AI",
+            "type": "AI", "event": "ai.reasoning",
             "label": "AI 노드",
             "config": {
                 "llmProvider": "OPENAI",
@@ -274,11 +274,11 @@ def _wf_with_ai_tools(tools):
                 "id": "node-1",
                 "type": "TRIGGER",
                 "label": "트리거",
-                "config": {"triggerType": "MANUAL"}
+                "event": "manual.run", "config": {}
             },
             {
                 "id": "node-2",
-                "type": "AI",
+                "type": "AI", "event": "ai.agent",
                 "label": "AI 노드",
                 "config": {"llmProvider": "CLAUDE", "agentType": "react", "tools": tools}
             }
@@ -343,13 +343,13 @@ def test_unknown_tool_name_raises():
 # --- #5. config 필드 화이트리스트 (템플릿 기반) ---
 def _trigger():
     return {"id": "node-1", "type": "TRIGGER", "label": "트리거",
-            "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}
+            "event": "schedule.every", "config": {"cron": "0 9 * * *"}}
 
 
 def test_config_unknown_field_rejected():
     """템플릿에 없는 config 필드(환각)는 거부된다."""
     nodes = [_trigger(),
-             {"id": "node-2", "type": "AI", "label": "ai",
+             {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "ai",
               "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "x",
                          "agentType": "react", "tools": [], "temperature": 0.7}}]
     edges = [{"source": "node-1", "target": "node-2"}]
@@ -361,8 +361,8 @@ def test_config_unknown_field_rejected():
 def test_config_universal_credential_id_allowed():
     """플랫폼 공통 필드(credentialId)는 모든 노드 타입에서 허용된다."""
     nodes = [{"id": "node-1", "type": "TRIGGER", "label": "트리거",
-              "config": {"triggerType": "MANUAL", "credentialId": ""}},
-             {"id": "node-2", "type": "AI", "label": "ai",
+              "event": "manual.run", "config": {"credentialId": ""}},
+             {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "ai",
               "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "x",
                          "agentType": "react", "tools": []}}]
     edges = [{"source": "node-1", "target": "node-2"}]
@@ -370,10 +370,10 @@ def test_config_universal_credential_id_allowed():
 
 
 def test_config_manual_trigger_with_cron_rejected():
-    """MANUAL 트리거에 cron 같은 타입별 무관 필드는 거부된다(triggerType별 정확 매칭)."""
+    """MANUAL 트리거에 cron 같은 타입별 무관 필드는 거부된다(event별 정확 매칭)."""
     nodes = [{"id": "node-1", "type": "TRIGGER", "label": "트리거",
-              "config": {"triggerType": "MANUAL", "cron": "0 9 * * *"}},
-             {"id": "node-2", "type": "AI", "label": "ai",
+              "event": "manual.run", "config": {"cron": "0 9 * * *"}},
+             {"id": "node-2", "type": "AI", "event": "ai.agent", "label": "ai",
               "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "x",
                          "agentType": "react", "tools": []}}]
     edges = [{"source": "node-1", "target": "node-2"}]
@@ -386,8 +386,8 @@ def test_config_manual_trigger_with_cron_rejected():
 def _wf_with_prompt(prompt, ai_id="node-2"):
     return (
         [
-            {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
-            {"id": ai_id, "type": "AI", "label": "AI 노드",
+            {"id": "node-1", "type": "TRIGGER", "label": "트리거", "event": "manual.run", "config": {}},
+            {"id": ai_id, "type": "AI", "event": "ai.reasoning", "label": "AI 노드",
              "config": {"llmProvider": "GEMINI", "agentType": "simple", "tools": [], "prompt": prompt}},
         ],
         [{"source": "node-1", "target": ai_id}],
@@ -412,7 +412,7 @@ def test_BE가_치환_못_하는_참조는_형식_오류(prompt):
 def test_참조_대상_검사도_같은_정규식():
     """AI 밖(TRANSFORM)의 중첩 경로 참조도 대상 존재 검사를 받는다 — 예전엔 형식 불일치로 건너뛰었다."""
     nodes = [
-        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "config": {"triggerType": "MANUAL"}},
+        {"id": "node-1", "type": "TRIGGER", "label": "트리거", "event": "manual.run", "config": {}},
         {"id": "node-2", "type": "TRANSFORM", "label": "변환",
          "config": {"mappings": {"t": "{{nodes.node-9.output.issues.0.title}}"}}},
     ]
@@ -432,7 +432,35 @@ def test_event_schedule_cron_errors_raise():
     assert "표준 5필드" in str(excinfo.value)
 
 
-def test_낡은_event는_레거시_triggerType에_진다():
+def test_트리거_종류는_event만_본다():
+    """옛 config.triggerType은 판정에 쓰지 않는다 — 남아 있으면 허용되지 않은 필드다."""
     stale = [{"id": "t", "type": "TRIGGER", "label": "t", "event": "schedule.every",
               "config": {"triggerType": "MANUAL"}}]
-    WorkflowValidator.validate(stale, [])
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowValidator.validate(stale, [])
+    assert "cron 표현식이 누락" in str(excinfo.value)
+    legacy = [{"id": "t", "type": "TRIGGER", "label": "t", "event": "schedule.every",
+               "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}}]
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowValidator.validate(legacy, [])
+    assert "허용되지 않은 필드" in str(excinfo.value) and "triggerType" in str(excinfo.value)
+
+
+def test_pass_through_노드의_리스트_아닌_tools는_TypeError_없이_통과():
+    """pass-through 인가 루프는 config.tools가 리스트일 때만 돈다(스키마가 옛 필드를 더는 검사하지 않음)."""
+    nodes = [
+        {"id": "n1", "type": "TRIGGER", "event": "manual.run", "config": {}},
+        {"id": "n2", "type": "ACTION", "event": "jira.create_issue", "config": {"tools": 1}},
+    ]
+    WorkflowValidator.validate(nodes, [{"source": "n1", "target": "n2"}], set(), unvalidated_node_ids={"n2"})
+
+
+def test_pass_through_노드의_해시_불가_catalogId는_미인가로_거부():
+    """요청 바디의 catalogId가 리스트여도 set 멤버십 검사가 unhashable(500) 대신 미인가 에러가 된다."""
+    nodes = [
+        {"id": "n1", "type": "TRIGGER", "event": "manual.run", "config": {}},
+        {"id": "n2", "type": "AI", "event": "ai.agent",
+         "config": {"llmProvider": "CLAUDE", "tools": [{"name": "mcp", "config": {"catalogId": ["x"]}}]}},
+    ]
+    with pytest.raises(WorkflowValidationError, match="MCP 도구를 사용할 수 없습니다"):
+        WorkflowValidator.validate(nodes, [{"source": "n1", "target": "n2"}], {"x"}, unvalidated_node_ids={"n2"})

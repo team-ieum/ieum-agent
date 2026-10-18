@@ -9,6 +9,7 @@
     {
       "id": "node-2",
       "type": "HTTP",
+      "event": "http.request",
       "label": "Notion에 저장",
       "config": {
         "method": "POST",
@@ -28,6 +29,7 @@
     {
       "id": "node-2",
       "type": "AI",
+      "event": "ai.agent",
       "label": "Notion에 페이지 생성",
       "config": {
         "llmProvider": "GEMINI",
@@ -51,15 +53,14 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "schedule.every",
       "label": "매일 트리거",
-      "config": {
-        "triggerType": "SCHEDULE"
-      }
+      "config": {}
     }
   ]
 }
 ```
-*이유*: SCHEDULE 유형의 TRIGGER 노드에는 반드시 공백 분할 5자리 형식의 `cron` 표현식이 필요합니다.
+*이유*: `schedule.every` 트리거 노드에는 반드시 공백 분할 5자리 형식의 `config.cron` 표현식이 필요합니다.
 
 ####  올바른 예시
 ```json
@@ -68,9 +69,9 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "schedule.every",
       "label": "매일 아침 9시 트리거",
       "config": {
-        "triggerType": "SCHEDULE",
         "cron": "0 9 * * *"
       }
     }
@@ -88,6 +89,7 @@
 ```json
 {
   "type": "TRANSFORM",
+  "event": "transform.map",
   "config": {
     "mappings": {
       "summary": "## 주간 요약\n{{#each nodes.node-2.output.output}}\n- {{this.title}} ({{formatDate this.created_at 'YYYY-MM-DD'}})\n{{/each}}"
@@ -98,6 +100,7 @@
 ```json
 {
   "type": "AI",
+  "event": "ai.reasoning",
   "config": {
     "prompt": "제목은 '{{formatDate now 'YYYY-MM-DD'}} 요약'으로 저장해줘"
   }
@@ -108,6 +111,7 @@
 ```json
 {
   "type": "AI",
+  "event": "ai.agent",
   "label": "PR 목록을 마크다운으로 정리",
   "config": {
     "llmProvider": "CLAUDE",
@@ -121,6 +125,7 @@
 ```json
 {
   "type": "AI",
+  "event": "ai.agent",
   "label": "Notion 저장",
   "config": {
     "llmProvider": "CLAUDE",

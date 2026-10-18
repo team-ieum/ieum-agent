@@ -28,7 +28,6 @@ def copy_catalog(tmp_path, monkeypatch):
     shutil.copytree(tr.CATALOG_DIR, root, ignore=shutil.ignore_patterns(".git"))
     monkeypatch.setattr(tr, "CATALOG_DIR", str(root))
     monkeypatch.setattr(tr, "_cache", None)
-    monkeypatch.setattr(tr, "_aliases", {})
     return root
 
 

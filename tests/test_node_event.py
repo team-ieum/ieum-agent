@@ -5,83 +5,92 @@ from api.schemas.generate_workflow import WorkflowNode
 from core.template_registry import event_entry, trigger_type_of
 
 
-def _trigger(**kw):
-    return WorkflowNode(id="n1", type="TRIGGER", label="t", **kw)
-
-
-def test_event_is_kept_on_round_trip():
-    node = _trigger(event="manual.run", config={})
-    assert node.model_dump()["event"] == "manual.run"
-
-
-def test_trigger_with_only_event_passes():
-    _trigger(event="gmail.new_email", config={"query": "is:unread"})
-
-
-def test_trigger_with_only_legacy_trigger_type_passes():
-    _trigger(config={"triggerType": "MANUAL"})
-
-
-def test_trigger_with_neither_is_rejected():
-    with pytest.raises(ValidationError, match="event 또는 config.triggerType"):
-        _trigger(config={})
-
-
-def test_unknown_event_is_not_rejected():
-    # BE 카탈로그 ⊇ agent 카탈로그 — agent가 모르는 이벤트도 막지 않는다(spec §5.4). BE는 레거시 triggerType을
-    # event에서 계산해 기록하므로 그 값도 agent가 모르는 값일 수 있다.
-    _trigger(event="stripe.new_payment", config={})
-    _trigger(event="stripe.new_payment", config={"triggerType": "STRIPE_NEW_PAYMENT"})
-
-
-def test_invalid_legacy_trigger_type_still_rejected():
-    for bad in ("SLACK_NEW_MESSAGE", "", "gmail_new_email"):
-        with pytest.raises(ValidationError):
-            _trigger(config={"triggerType": bad})
-
-
-def test_schedule_event_requires_cron():
-    with pytest.raises(ValidationError, match="cron"):
-        _trigger(event="schedule.every", config={})
-    _trigger(event="schedule.every", config={"cron": "0 9 * * *"})
-
-
-def test_event_entry_and_trigger_type_of():
+def test_event_entry():
     assert event_entry({"event": "gmail.new_email"})["id"] == "gmail.new_email"
+    assert event_entry({"event": "slack.send_message", "type": "TRIGGER"})["id"] == "slack.send_message"
     assert event_entry({"event": "ai.notion_create_page"}) is None      # 프리셋 id는 이벤트가 아니다
     assert event_entry({"event": "nope.nope"}) is None
+    assert event_entry({"event": ["gmail.new_email"]}) is None
     assert event_entry({}) is None
+    assert event_entry(None) is None
+
+
+def test_trigger_type_of은_event만_본다():
     assert trigger_type_of({"event": "schedule.every", "config": {}}) == "SCHEDULE"
-    assert trigger_type_of({"event": "nope.nope", "config": {"triggerType": "WEBHOOK"}}) == "WEBHOOK"
-    assert trigger_type_of({"config": {"triggerType": ["x"]}}) is None
-    # 과도기엔 레거시가 이긴다 — 빌더로 MANUAL로 바꾼 뒤 BE 병합이 옛 event를 이어받은 노드("spec과 다른 점" 1)
-    assert trigger_type_of({"event": "schedule.every", "config": {"triggerType": "MANUAL"}}) == "MANUAL"
+    assert trigger_type_of({"event": "gmail.new_email", "config": {}}) == "GMAIL_NEW_EMAIL"
+    # 옛 config.triggerType은 읽지 않는다
+    assert trigger_type_of({"event": "schedule.every", "config": {"triggerType": "MANUAL"}}) == "SCHEDULE"
+    assert trigger_type_of({"config": {"triggerType": "WEBHOOK"}}) is None
+    assert trigger_type_of({"event": "nope.nope", "config": {"triggerType": "WEBHOOK"}}) is None
+    # 트리거가 아닌 event
+    assert trigger_type_of({"event": "slack.send_message", "config": {}}) is None
+    assert trigger_type_of({"event": "ai.agent", "config": {}}) is None
 
 
-def test_stale_event_with_valid_legacy_trigger_type_passes():
-    # 빌더로 MANUAL로 바꾼 뒤 BE 병합이 옛 event를 이어받은 노드 — 레거시가 이기므로 cron 검사가 돌지 않는다.
-    _trigger(event="schedule.every", config={"triggerType": "MANUAL"})
+def test_trigger_type_of은_카탈로그_트리거_전부를_안다():
+    from core import template_registry as tr
+    triggers = [t for t in tr.all_entries() if t["node_type"] == "TRIGGER" and not t.get("preset")]
+    assert triggers
+    for t in triggers:
+        assert trigger_type_of({"event": t["id"]}) == t["trigger_type"], t["id"]
 
 
-def test_explicit_null_event_passes():
-    # agent 응답이 모든 노드에 "event": null을 실어 FE가 그대로 되보낸다.
-    node = _trigger(event=None, config={"triggerType": "MANUAL"})
-    assert node.event is None
+# ── WorkflowNode 스키마: event 필수, type은 event로 계산(spec §4) ──────────────
+
+def _node(**kw):
+    return WorkflowNode(**{"id": "n1", "label": "t", "config": {}, **kw})
 
 
-def test_event_identity_only_when_legacy_fields_missing():
-    from core.template_registry import event_identity
-    assert event_identity({"type": "TRIGGER", "event": "gmail.new_email", "config": {}})["id"] == "gmail.new_email"
-    assert event_identity({"type": "TRIGGER", "event": "schedule.every", "config": {"triggerType": "MANUAL"}}) is None
-    assert event_identity({"type": "ACTION", "event": "slack.send_message", "config": {}})["id"] == "slack.send_message"
-    assert event_identity({"type": "ACTION", "event": "slack.send_message",
-                           "config": {"tools": [{"name": "discord"}]}}) is None
-    assert event_identity({"type": "AI", "event": "ai.reasoning", "config": {}}) is None
-    assert event_identity({"type": "HTTP", "event": "http.request", "config": {}}) is None
+@pytest.mark.parametrize("event", [None, "", " ", "  manual.run"])
+def test_event_없거나_비면_422(event):
+    with pytest.raises(ValidationError, match="event"):
+        _node(type="APPROVAL", event=event)
+    with pytest.raises(ValidationError, match="event"):
+        _node(type="APPROVAL")
 
 
-def test_event_identity_requires_matching_node_type():
-    from core.template_registry import event_identity
-    assert event_identity({"type": "TRIGGER", "event": "slack.send_message", "config": {}}) is None
-    assert event_identity({"type": "ACTION", "event": "manual.run", "config": {}}) is None
-    assert event_identity({"type": "trigger", "event": "gmail.new_email", "config": {}})["id"] == "gmail.new_email"
+@pytest.mark.parametrize("event", ["ai.web_search", "ai.mcp"])
+def test_프리셋_id_event는_422(event):
+    """event는 카탈로그 이벤트 이름이지 프리셋 id가 아니다(spec §4) — 모르는 event로 통과시키지 않는다."""
+    with pytest.raises(ValidationError, match="프리셋"):
+        _node(type="AI", event=event, config={"llmProvider": "CLAUDE"})
+
+
+def test_아는_event면_type을_카탈로그_node_type으로_덮는다():
+    assert _node(event="manual.run").type == "TRIGGER"                    # type 없이도 통과
+    assert _node(event="slack.send_message", type="TRIGGER").type == "ACTION"   # 요청 type은 무시
+    assert _node(event="gmail.new_email", type="trigger").type == "TRIGGER"
+    assert _node(event="ai.agent", config={"llmProvider": "CLAUDE"}).type == "AI"
+    assert _node(event="manual.run").model_dump()["event"] == "manual.run"
+
+
+def test_덮인_type으로_config를_검사한다():
+    # 요청이 TRIGGER라 해도 event가 AI면 AI 규칙(llmProvider 필수)을 탄다.
+    with pytest.raises(ValidationError, match="llmProvider"):
+        _node(event="ai.agent", type="TRIGGER")
+
+
+def test_모르는_event는_받은_type을_유지하고_type이_없으면_422():
+    # BE 카탈로그 ⊇ agent 카탈로그 — agent가 모르는 이벤트도 막지 않는다(spec §4).
+    assert _node(event="stripe.new_payment", type="TRIGGER").type == "TRIGGER"
+    assert _node(event="stripe.new_payment", type="ACTION", config={"amount": 1}).type == "ACTION"
+    with pytest.raises(ValidationError, match="type이 필요"):
+        _node(event="stripe.new_payment")
+    with pytest.raises(ValidationError, match="유효하지 않은 노드 type"):
+        _node(event="stripe.new_payment", type="NOPE")
+
+
+def test_schedule_event만_cron을_요구한다():
+    with pytest.raises(ValidationError, match="cron"):
+        _node(event="schedule.every")
+    _node(event="schedule.every", config={"cron": "0 9 * * *"})
+    _node(event="manual.run")                                    # MANUAL은 cron 없음
+    _node(event="stripe.new_payment", type="TRIGGER")            # 모르는 event는 cron 검사 대상이 아니다
+
+
+def test_옛_필드는_판정에_쓰지_않는다():
+    # config.triggerType이 MANUAL이어도 event가 schedule.every면 SCHEDULE — cron 필수.
+    with pytest.raises(ValidationError, match="cron"):
+        _node(event="schedule.every", config={"triggerType": "MANUAL"})
+    # ACTION config.tools 검사는 없다 — ACTION config는 칸 값뿐.
+    assert _node(event="slack.send_message", config={"tools": 5}).config == {"tools": 5}

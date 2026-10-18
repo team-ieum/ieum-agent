@@ -31,8 +31,8 @@ class AgentNodeRequest(BaseModel):
 
 
 class ActionExecutionRequest(BaseModel):
-    """POST /v1/actions/execute 요청. config는 노드 tools[0].config 그대로라 함수 인자 외의 키
-    (webhookCredentialId, _names 등)도 들어 있다 — 실행 시 시그니처로 거른다."""
+    """POST /v1/actions/execute 요청. config는 노드 config의 칸 값 그대로라(BE가 brand만 뺀다, spec §4)
+    함수 인자 외의 키(webhookCredentialId, _names 등)도 들어 있다 — 실행 시 시그니처로 거른다."""
     nodeId: str
     toolKey: str
     config: Dict[str, Any] = Field(default_factory=dict)

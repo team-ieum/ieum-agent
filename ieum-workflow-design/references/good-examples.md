@@ -16,12 +16,14 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "schedule.every",
       "label": "매일 아침 9시 트리거",
-      "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}
+      "config": {"cron": "0 9 * * *"}
     },
     {
       "id": "node-2",
       "type": "AI",
+      "event": "ai.agent",
       "label": "IT 뉴스 검색",
       "config": {
         "llmProvider": "CLAUDE",
@@ -34,6 +36,7 @@
     {
       "id": "node-3",
       "type": "AI",
+      "event": "ai.agent",
       "label": "Notion에 페이지 생성",
       "config": {
         "llmProvider": "CLAUDE",
@@ -64,12 +67,14 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "schedule.every",
       "label": "매주 월요일 오전 10시",
-      "config": {"triggerType": "SCHEDULE", "cron": "0 10 * * 1"}
+      "config": {"cron": "0 10 * * 1"}
     },
     {
       "id": "node-2",
       "type": "AI",
+      "event": "ai.agent",
       "label": "GitHub PR 목록 조회",
       "config": {
         "llmProvider": "CLAUDE",
@@ -82,6 +87,7 @@
     {
       "id": "node-3",
       "type": "TRANSFORM",
+      "event": "transform.map",
       "label": "PR 데이터 정리",
       "config": {
         "mappings": {"prSummary": "{{nodes.node-2.output.output}}"}
@@ -90,6 +96,7 @@
     {
       "id": "node-4",
       "type": "AI",
+      "event": "ai.agent",
       "label": "Slack 알림 발송",
       "config": {
         "llmProvider": "CLAUDE",
@@ -121,12 +128,14 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "manual.run",
       "label": "수동 실행",
-      "config": {"triggerType": "MANUAL"}
+      "config": {}
     },
     {
       "id": "node-2",
       "type": "AI",
+      "event": "ai.reasoning",
       "label": "문의 내용 분석",
       "config": {
         "llmProvider": "CLAUDE",
@@ -139,6 +148,7 @@
     {
       "id": "node-3",
       "type": "CONDITION",
+      "event": "branch.if",
       "label": "긴급 여부 분기",
       "config": {
         "operator": "equals",
@@ -149,6 +159,7 @@
     {
       "id": "node-4",
       "type": "AI",
+      "event": "ai.agent",
       "label": "긴급 알림 메일 발송",
       "config": {
         "llmProvider": "CLAUDE",
@@ -181,12 +192,14 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "schedule.every",
       "label": "매일 아침 8시 트리거",
-      "config": {"triggerType": "SCHEDULE", "cron": "0 8 * * *"}
+      "config": {"cron": "0 8 * * *"}
     },
     {
       "id": "node-2",
       "type": "AI",
+      "event": "ai.agent",
       "label": "AI 트렌드 검색",
       "config": {
         "llmProvider": "GEMINI",
@@ -199,6 +212,7 @@
     {
       "id": "node-3",
       "type": "AI",
+      "event": "ai.agent",
       "label": "Notion '트렌드 노트'에 저장",
       "config": {
         "llmProvider": "GEMINI",
@@ -229,12 +243,14 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "schedule.every",
       "label": "매시간 정각 트리거",
-      "config": {"triggerType": "SCHEDULE", "cron": "0 * * * *"}
+      "config": {"cron": "0 * * * *"}
     },
     {
       "id": "node-2",
       "type": "AI",
+      "event": "ai.agent",
       "label": "Google Sheets에 상태 기록",
       "config": {
         "llmProvider": "GEMINI",
@@ -264,12 +280,14 @@
     {
       "id": "node-1",
       "type": "TRIGGER",
+      "event": "schedule.every",
       "label": "매일 정오 트리거",
-      "config": {"triggerType": "SCHEDULE", "cron": "0 12 * * *"}
+      "config": {"cron": "0 12 * * *"}
     },
     {
       "id": "node-2",
       "type": "HTTP",
+      "event": "http.request",
       "label": "환율 API 조회",
       "config": {
         "method": "GET",
@@ -281,6 +299,7 @@
     {
       "id": "node-3",
       "type": "AI",
+      "event": "ai.reasoning",
       "label": "환율 요약",
       "config": {
         "llmProvider": "GEMINI",
