@@ -148,7 +148,7 @@ async def test_delete_this에_원본_ID면_시리즈를_지우지_않고_실패�
 
     result = await _run(google_calendar_delete, client, event_id="evt-1")
 
-    assert "어느 회차인지 알 수 없어요. 회차를 고르거나 '반복 일정 전체'를 선택하세요" in result["error"]
+    assert "어느 회차인지 알 수 없어요. 회차를 고르거나 '반복 전체'를 선택하세요" in result["error"]
     client.delete.assert_not_called()
 
 

@@ -93,6 +93,12 @@ _TOOL_MAP: dict = {
 }
 
 
+# AI 경로 전용 고정값: LLM이 참석자 통째 교체·반복 전체·알림 발송을 고르지 못하게 숨긴다(ACTION 경로는 영향 없음).
+_AI_DEFAULTS: dict = {
+    "builtin:google_calendar_update": {"scope": "this", "send_updates": "", "attendees": None},
+}
+
+
 def get_tools_for_request(tool_names: list) -> list:
     result = []
     for item in tool_names:
@@ -125,6 +131,6 @@ def get_tools_for_request(tool_names: list) -> list:
                 )
         elif name in _TOOL_MAP:
             config = item.get("config") if isinstance(item, dict) else None
-            configured_fn = _bind_config(_TOOL_MAP[name], config)
+            configured_fn = _bind_config(_TOOL_MAP[name], {**_AI_DEFAULTS.get(name, {}), **(config or {})})
             result.append(FunctionTool(configured_fn))
     return result
