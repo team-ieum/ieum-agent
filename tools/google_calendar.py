@@ -444,6 +444,10 @@ async def google_calendar_delete(
         target_id = target.get("id") or str(event_id)
         if target.get("status") == "cancelled":
             return _deleted(target_id, False)
+        if scope != "all" and target.get("recurrence"):
+            # 원본 ID엔 회차 정보가 없어 '이 일정만'을 지킬 수 없다 — 지우면 시리즈 전체가 사라진다.
+            return _fail("google_calendar_delete",
+                         "어느 회차인지 알 수 없어요. 회차를 고르거나 '반복 일정 전체'를 선택하세요")
         response = await client.delete(_event_url(cal, target_id), headers=headers,
                                        params=_send_updates(send_updates), timeout=_TIMEOUT)
         # 성공 응답은 빈 본문이다 — 상태 코드를 먼저 보고 본문은 실패일 때만 읽는다.

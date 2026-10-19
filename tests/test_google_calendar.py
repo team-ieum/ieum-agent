@@ -142,6 +142,29 @@ async def test_delete_this는_회차만_지운다():
 
 
 @pytest.mark.asyncio
+async def test_delete_this에_원본_ID면_시리즈를_지우지_않고_실패다():
+    """원본 ID엔 회차 정보가 없어 '이 일정만'을 지킬 수 없다 — DELETE를 부르면 시리즈 전체가 지워진다."""
+    client = _client(get=_gets({"/events/evt-1": _MASTER}))
+
+    result = await _run(google_calendar_delete, client, event_id="evt-1")
+
+    assert "어느 회차인지 알 수 없어요. 회차를 고르거나 '반복 일정 전체'를 선택하세요" in result["error"]
+    client.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_all에_원본_ID면_원본을_지운다():
+    delete = AsyncMock(return_value=_empty_body(204))
+    client = _client(get=_gets({"/events/evt-1": _MASTER}), delete=delete)
+
+    result = await _run(google_calendar_delete, client, event_id="evt-1", scope="all")
+
+    assert result == {"success": True, "eventId": "evt-1", "deleted": True}
+    delete.assert_called_once()
+    assert delete.call_args.args[0] == f"{BASE}/events/evt-1"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("event_id", ["", "  ", None])
 async def test_delete_빈_event_id는_호출_없이_실패(event_id):
     client = _client()
