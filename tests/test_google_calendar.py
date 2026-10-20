@@ -250,6 +250,24 @@ async def test_find_time_min_비우면_지금부터():
 
 
 @pytest.mark.asyncio
+async def test_find_time_max만_과거면_GET_없이_0건이다():
+    """비운 time_min은 '지금'이라 timeMin >= timeMax가 되고, Google은 빈 구간을 400으로 거절한다."""
+    with patch("tools.google_calendar._now", return_value=datetime(2026, 10, 18, 3, 0, tzinfo=timezone.utc)):
+        result = await _run(google_calendar_find, _client(), time_max="2026-10-01T00:00:00+09:00")
+
+    assert result == {"success": True, "found": False, "total": 0, "items": []}
+
+
+@pytest.mark.asyncio
+async def test_find_숫자_검색어도_문자열로_보낸다():
+    get = _gets({_EVENTS: {"items": []}})
+
+    await _run(google_calendar_find, _client(get=get), time_min="2026-10-20T00:00:00Z", query=123)
+
+    assert get.call_args.kwargs["params"]["q"] == "123"
+
+
+@pytest.mark.asyncio
 async def test_find_time_min_비우면_지금을_오프셋_있는_UTC로_보낸다():
     """오프셋 없는 timeMin은 Google이 400으로 거절한다 — _now를 패치하지 않고 실제 값을 본다."""
     get = _gets({_EVENTS: {"items": []}})
@@ -541,6 +559,14 @@ async def test_update_삭제된_일정은_PATCH하지_않고_실패다():
 
 
 @pytest.mark.asyncio
+async def test_update_삭제된_반복_원본은_회차_안내보다_삭제를_먼저_알린다():
+    result, body, _, _ = await _update({"/events/evt-1": dict(_MASTER, status="cancelled")}, event_id="evt-1",
+                                       summary="새 제목")
+
+    assert _CANCELLED in result["error"] and body is None
+
+
+@pytest.mark.asyncio
 async def test_update_all에_삭제된_회차라도_원본이_살아_있으면_고친다():
     routes = {f"/events/{_INSTANCE_ID}": dict(_INSTANCE, status="cancelled"), "/events/evt-1": _MASTER}
 
@@ -561,6 +587,17 @@ async def test_update_all_여러_날_반복_일정에_종료만_오면_실패다
 
 
 @pytest.mark.asyncio
+async def test_update_all_자정에_끝나는_반복_일정은_종료만_와도_고친다():
+    routes = _series({"dateTime": "2026-09-01T23:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-02T00:00:00+09:00", "timeZone": "Asia/Seoul"})  # 23:00 ~ 다음 날 00:00
+
+    _, body, _, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all", end_datetime="2026-10-21T23:30:00+09:00")
+
+    assert body == {"start": _at("2026-09-01T23:00:00+09:00", "Asia/Seoul"),
+                    "end": _at("2026-09-01T23:30:00+09:00", "Asia/Seoul")}
+
+
+@pytest.mark.asyncio
 async def test_update_참석자는_쉼표로_나눠_통째로_바꾼다():
     _, body, _, params = await _update({"/events/evt-1": _TIMED}, event_id="evt-1", attendees="a@x.com, b@y.com ,,", location="회의실",
                                        send_updates="externalOnly")
@@ -575,6 +612,18 @@ async def test_update_쉼표뿐인_참석자는_보내지_않는다():
     _, body, _, _ = await _update({"/events/evt-1": _TIMED}, event_id="evt-1", attendees=" , ,", summary="x")
 
     assert body == {"summary": "x"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("given, sent", [
+    ('["a@x.com","b@y.com"]', [{"email": "a@x.com"}, {"email": "b@y.com"}]),  # BE가 목록 참조를 치환한 모양
+    (["a@x.com", "b@y.com"], [{"email": "a@x.com"}, {"email": "b@y.com"}]),
+    ("[]", None),
+])
+async def test_update_참석자_목록은_원소_그대로_쓴다(given, sent):
+    _, body, _, _ = await _update({"/events/evt-1": _TIMED}, event_id="evt-1", attendees=given, summary="x")
+
+    assert body.get("attendees") == sent
 
 
 @pytest.mark.asyncio

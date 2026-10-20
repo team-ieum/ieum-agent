@@ -222,6 +222,17 @@ async def _timed_times(cur_start: dict, cur_end: dict, start, end, was_all_day: 
     return {"start": _timed(begin, zone.explicit), "end": _timed(finish, zone.explicit)}
 
 
+def _emails(value) -> list:
+    """쉼표 구분 문자열 또는 목록. BE는 목록 참조를 JSON 문자열('["a@x.com"]')로 치환한다."""
+    if isinstance(value, str) and value.strip().startswith("["):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            pass
+    items = value if isinstance(value, list) else str(value).split(",")
+    return [str(e).strip() for e in items if str(e).strip()]
+
+
 async def _series_times(cur_start: dict, cur_end: dict, start, end, zone: _Zone) -> dict | str:
     """반복 전체 + 시각 변경(spec §4.2-3). 원본 시작을 회차 날짜로 덮으면 반복 시작일이 옮겨져 이전 회차가
     사라지므로, 입력 시각을 원본 start.timeZone의 벽시계 시각으로 옮겨 원본 날짜와 합친다.
@@ -235,7 +246,7 @@ async def _series_times(cur_start: dict, cur_end: dict, start, end, zone: _Zone)
         begin = datetime.combine(orig_start.date(), begin_in.astimezone(tz).time(), tzinfo=tz)
         finish = begin + ((end_in - begin_in) if end_in is not None else (orig_end - orig_start))
     else:
-        if orig_end.date() != orig_start.date():  # 어느 날에 붙일지 추측해야 한다 — 지어내지 않는다
+        if orig_end - orig_start >= timedelta(days=1):  # 어느 날에 붙일지 추측해야 한다 — 지어내지 않는다
             return "여러 날에 걸친 반복 일정은 시작과 종료를 함께 입력하세요"
         begin = orig_start
         finish = datetime.combine(orig_start.date(), end_in.astimezone(tz).time(), tzinfo=tz)
@@ -308,7 +319,7 @@ async def google_calendar_update(
         return _fail("google_calendar_update", "event_id가 비어 있습니다")
     payload = {k: v for k, v in (("summary", summary), ("description", description), ("location", location))
                if not _blank(v)}
-    emails = [] if _blank(attendees) else [e.strip() for e in str(attendees).split(",") if e.strip()]
+    emails = [] if _blank(attendees) else _emails(attendees)
     if emails:  # 쉼표뿐이면 보내지 않는다 — []를 보내면 참석자가 전부 지워진다
         payload["attendees"] = [{"email": e} for e in emails]
     all_day = None if _blank(all_day) else all_day
@@ -324,12 +335,12 @@ async def google_calendar_update(
         # 제목만 바꿔도 조회한다 — 반복 원본인지 알아야 '이 일정만'을 지킬 수 있다.
         target = await _resolve_target(client, headers, cal, event_id, scope)
         target_id = target.get("id") or str(event_id)
+        if target.get("status") == "cancelled":  # PATCH는 200이어도 일정은 계속 안 보인다
+            return _fail("google_calendar_update", "삭제된 일정은 수정할 수 없어요")
         if scope != "all" and target.get("recurrence"):
             # 원본 ID엔 회차 정보가 없어 '이 일정만'을 지킬 수 없다 — PATCH하면 시리즈 전체가 바뀐다.
             return _fail("google_calendar_update",
                          "어느 회차인지 알 수 없어요. 회차를 고르거나 '반복 전체'를 선택하세요")
-        if target.get("status") == "cancelled":  # PATCH는 200이어도 일정은 계속 안 보인다
-            return _fail("google_calendar_update", "삭제된 일정은 수정할 수 없어요")
         times = await _new_times(target, start_datetime, end_datetime, all_day,
                                  _Zone(client, headers, cal, time_zone), series=bool(target.get("recurrence")))
         if isinstance(times, str):
@@ -385,12 +396,15 @@ async def google_calendar_find(
         params = {
             "singleEvents": "true",  # 반복 일정은 회차로 펼친다
             "orderBy": "startTime",  # singleEvents=true일 때만 허용, 오름차순만
-            "timeMin": (_now() if _blank(time_min) else await zone.parse(time_min)).isoformat(),
+            "timeMin": (begin := _now() if _blank(time_min) else await zone.parse(time_min)).isoformat(),
         }
         if not _blank(time_max):
-            params["timeMax"] = (await zone.parse(time_max)).isoformat()
+            finish = await zone.parse(time_max)
+            if finish <= begin:  # Google은 빈 구간을 400으로 거절한다 — 비운 시작이 '지금'이라 과거 종료만 와도 생긴다
+                return json.dumps({"success": True, "found": False, "total": 0, "items": []}, ensure_ascii=False)
+            params["timeMax"] = finish.isoformat()
         if not _blank(query):
-            params["q"] = query.strip()
+            params["q"] = str(query).strip()
         items = []
         while len(items) < limit:
             params["maxResults"] = limit - len(items)
