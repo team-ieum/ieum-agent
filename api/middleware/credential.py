@@ -18,6 +18,7 @@ async def get_llm_credentials(
     x_google_access_token: str | None = Header(None, alias="X-Google-Access-Token"),
     x_notion_token: str | None = Header(None, alias="X-Notion-Token"),
     x_github_token: str | None = Header(None, alias="X-GitHub-Token"),
+    x_slack_token: str | None = Header(None, alias="X-Slack-Token"),
     x_key_mode: str | None = Header(None, alias="X-Key-Mode"),
 ):
     provider = x_llm_provider
@@ -58,6 +59,7 @@ async def get_llm_credentials(
         "google_access_token": x_google_access_token,
         "notion_token": x_notion_token,
         "github_token": x_github_token,
+        "slack_token": x_slack_token,
     }
 
 
@@ -66,6 +68,7 @@ async def get_action_credentials(
     x_google_access_token: str | None = Header(None, alias="X-Google-Access-Token"),
     x_notion_token: str | None = Header(None, alias="X-Notion-Token"),
     x_github_token: str | None = Header(None, alias="X-GitHub-Token"),
+    x_slack_token: str | None = Header(None, alias="X-Slack-Token"),
 ):
     """ACTION 실행(/v1/actions/execute)용 — LLM을 쓰지 않으므로 X-LLM-*·X-Key-Mode를 요구하지 않는다.
     get_llm_credentials와 일부러 분리했다(그쪽은 LLM 헤더가 없으면 400)."""
@@ -74,4 +77,5 @@ async def get_action_credentials(
         "google_access_token": x_google_access_token,
         "notion_token": x_notion_token,
         "github_token": x_github_token,
+        "slack_token": x_slack_token,
     }

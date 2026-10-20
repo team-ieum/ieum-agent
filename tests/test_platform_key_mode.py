@@ -26,10 +26,18 @@ async def _call_middleware(**overrides):
         x_google_access_token=None,
         x_notion_token=None,
         x_github_token=None,
+        x_slack_token=None,
         x_key_mode=None,
     )
     kwargs.update(overrides)
     return await get_llm_credentials(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_X_Slack_Token은_slack_token으로_넘어간다():
+    creds = await _call_middleware(x_llm_api_key="sk-user", x_slack_token="xoxb-test")
+    assert creds["slack_token"] == "xoxb-test"
+    assert (await _call_middleware(x_llm_api_key="sk-user"))["slack_token"] is None
 
 
 @pytest.mark.asyncio

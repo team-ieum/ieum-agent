@@ -179,7 +179,8 @@ async def test_취소되면_IN_PROGRESS_레코드가_해제된다(fake_records):
     from api.routes.actions import execute_action
     from api.schemas.request import ActionExecutionRequest
 
-    credentials = {"user_id": "user-1", "google_access_token": None, "notion_token": None, "github_token": "gh"}
+    credentials = {"user_id": "user-1", "google_access_token": None, "notion_token": None, "github_token": "gh",
+                   "slack_token": None}
     with patch("api.routes.actions.run_action", new=AsyncMock(side_effect=asyncio.CancelledError())):
         with pytest.raises(asyncio.CancelledError):
             await execute_action(ActionExecutionRequest(**BODY), credentials=credentials, x_idempotency_key=KEY)
@@ -207,3 +208,35 @@ def test_캘린더_삭제는_ACTION으로_열리고_구글_토큰이_주입된�
     assert res.json()["success"] is True
     assert res.json()["output"] == {"eventId": "evt-1", "deleted": True}
     assert http.delete.call_args.kwargs["headers"]["Authorization"] == "Bearer g-token"
+
+
+def test_Slack_ACTION은_헤더_봇_토큰으로_끝까지_실행된다():
+    """실제 slack_send_channel_message를 부르고 HTTP만 목킹한다. config의 token은 헤더 토큰에 진다."""
+    def _ok(body):
+        resp = MagicMock(status_code=200, headers={})
+        resp.json.return_value = body
+        return resp
+
+    info = _ok({"ok": True, "channel": {"id": "C1", "is_channel": True, "is_private": False}})
+    link = _ok({"ok": True, "permalink": "https://t.slack.com/archives/C1/p1"})
+    http = AsyncMock()
+    http.get = AsyncMock(side_effect=lambda url, **kw: info if url.endswith("/conversations.info") else link)
+    http.post = AsyncMock(return_value=_ok({"ok": True, "channel": "C1", "ts": "1.0"}))
+    body = {"nodeId": "node-1", "toolKey": "builtin:slack_send_channel_message",
+            "config": {"channel": "C1", "text": "안녕", "token": "attacker", "_names": {"channel": "#general"}}}
+
+    with patch("tools.slack_bot.get_http_client", return_value=http):
+        res = _post(headers={"X-User-Id": "user-1", "X-Slack-Token": "xoxb-test"}, body=body)
+
+    assert res.status_code == 200
+    assert res.json() == {"success": True, "errorMessage": None, "errorCode": None,
+                          "output": {"ts": "1.0", "channel": "C1", "permalink": "https://t.slack.com/archives/C1/p1"}}
+    calls = http.get.call_args_list + http.post.call_args_list
+    assert [c.kwargs["headers"]["Authorization"] for c in calls] == ["Bearer xoxb-test"] * 3
+
+
+def test_Slack_ACTION은_봇_토큰이_없으면_200_실패_응답이다():
+    body = {"nodeId": "node-1", "toolKey": "builtin:slack_send_channel_message", "config": {"channel": "C1", "text": "hi"}}
+    res = _post(headers={"X-User-Id": "user-1", "X-Notion-Token": "secret_x"}, body=body)
+    assert res.status_code == 200
+    assert res.json()["success"] is False and "Slack" in res.json()["errorMessage"]

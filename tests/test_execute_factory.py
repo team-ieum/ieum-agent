@@ -799,3 +799,89 @@ async def test_run_react_agent_google_token_does_not_force_multi_agent():
 
     mock_agent_tool.assert_not_called()
     assert captured[-1]["name"] == "ieum_single_agent"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_single_agent", [True, False])
+async def test_run_react_agent_slack_token은_두_경로_모두_봇_도구에_바인딩된다(use_single_agent):
+    """tools config에 token을 넣어도 헤더 봇 토큰이 이긴다. LLM에는 token 인자가 보이지 않는다."""
+    import inspect
+    from agents.execute.factory import run_react_agent
+
+    captured = []
+
+    def _llm_agent(**kwargs):
+        captured.append(kwargs)
+        return MagicMock()
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(1, final_text="보냈어요")
+
+    mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock(); mock_session.id = "s-slack"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=[{"name": "builtin:slack_send_channel_message",
+                                "config": {"channel": "C1", "token": "attacker"}}])
+
+    with patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
+         patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            provider="GEMINI",
+            request=req,
+            api_key="test-key",
+            user_id="u1",
+            slack_token="xoxb-test",
+            session_service=mock_ss,
+            use_single_agent=use_single_agent,
+        )
+
+    tool = next(t for t in captured[-1]["tools"] if getattr(t, "name", None) == "slack_send_channel_message")
+    fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
+    assert fn.keywords["token"] == "xoxb-test"
+    assert list(inspect.signature(fn).parameters) == ["text", "thread_ts"]
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_slack_token은_멀티_에이전트를_강제하지_않는다():
+    """Slack 토큰은 빌트인 도구 바인딩에만 쓰이므로 경로 분기 개수에 들지 않는다 — Slack+Notion 노드도 단일 경로."""
+    from agents.execute.factory import run_react_agent
+
+    captured = []
+
+    def _llm_agent(**kwargs):
+        captured.append(kwargs)
+        return MagicMock()
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(1, final_text="ok")
+
+    mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock(); mock_session.id = "s-slack-notion"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=[{"name": "builtin:slack_send_channel_message"}, {"name": "builtin:notion_search"}])
+
+    with patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(tools=[]), []))), \
+         patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
+         patch("agents.execute.factory.AgentTool") as mock_agent_tool, \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            provider="GEMINI",
+            request=req,
+            api_key="test-key",
+            user_id="u1",
+            slack_token="xoxb-test",
+            notion_token="notion-token",
+            session_service=mock_ss,
+        )
+
+    mock_agent_tool.assert_not_called()
+    assert captured[-1]["name"] == "ieum_single_agent"

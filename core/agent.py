@@ -80,6 +80,7 @@ async def run_agent(
     google_access_token: str | None = None,
     notion_token: str | None = None,
     github_token: str | None = None,
+    slack_token: str | None = None,
     session_service: BaseSessionService | None = None,
 ) -> AgentExecutionResult:
     start = time.monotonic()
@@ -104,6 +105,7 @@ async def run_agent(
                 google_access_token=google_access_token,
                 notion_token=notion_token,
                 github_token=github_token,
+                slack_token=slack_token,
             ),
         )
     except ExecutionGuardError as e:
@@ -156,6 +158,7 @@ async def run_agent(
                     google_access_token=google_access_token,
                     notion_token=notion_token,
                     github_token=github_token,
+                    slack_token=slack_token,
                     session_service=session_service,
                 )
             else:

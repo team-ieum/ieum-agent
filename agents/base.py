@@ -7,6 +7,7 @@ from tools.workflow_context import workflow_context as _workflow_context_fn
 
 _GOOGLE_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:google_")}
 _NOTION_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:notion_")}
+_SLACK_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:slack_")}
 _WORKFLOW_CONTEXT_FUNCTIONS = {_workflow_context_fn}
 
 
@@ -85,6 +86,19 @@ def _bind_notion_token(tools: list, notion_token: str) -> list:
         fn = _get_tool_function(tool)
         if fn is not None and _get_base_function(fn) in _NOTION_TOOL_FUNCTIONS:
             bound.append(_bind_tool_argument(tool, token=notion_token))
+        else:
+            bound.append(tool)
+    return bound
+
+
+def _bind_slack_token(tools: list, slack_token: str) -> list:
+    """slack 봇 도구(builtin:slack_*)의 token 파라미터를 BE가 넘긴 봇 토큰으로 바인딩한다(LLM에 숨긴다).
+    웹훅 도구 `slack`은 키에 builtin:이 없어 대상이 아니다."""
+    bound = []
+    for tool in tools:
+        fn = _get_tool_function(tool)
+        if fn is not None and _get_base_function(fn) in _SLACK_TOOL_FUNCTIONS:
+            bound.append(_bind_tool_argument(tool, token=slack_token))
         else:
             bound.append(tool)
     return bound
