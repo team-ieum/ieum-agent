@@ -15,10 +15,6 @@ concurrency:
 env:
   PYTHON_VERSION: '3.11'
   IMAGE_NAME: ieum-agent-dev
-  CONTAINER_NAME: ieum-agent
-  DOCKER_NETWORK: ieum_net_green
-  AGENT_IP: 10.10.10.14
-  ENV_FILE: /home/kwung/deploy/ieum-agent/.env
 
 jobs:
   deploy:
@@ -32,48 +28,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Render server env file from GitHub Secrets
-        env:
-          MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
-          MONGODB_DB_NAME: ${{ secrets.AGENT_MONGODB_DB_NAME }}
-          PORT: ${{ secrets.AGENT_PORT }}
-          CLAUDE_DEFAULT_MODEL: ${{ secrets.AGENT_CLAUDE_DEFAULT_MODEL }}
-          OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
-          GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
-          NOTION_MCP_URL: ${{ secrets.AGENT_NOTION_MCP_URL }}
-          NOTION_MCP_AUTH_TOKEN: ${{ secrets.AGENT_NOTION_MCP_AUTH_TOKEN }}
-        run: |
-          missing_vars=()
-          [ -n "$MONGODB_URL" ] || missing_vars+=("AGENT_MONGODB_URL")
-          [ -n "$MONGODB_DB_NAME" ] || missing_vars+=("AGENT_MONGODB_DB_NAME")
-          [ -n "$PORT" ] || missing_vars+=("AGENT_PORT")
-          [ -n "$CLAUDE_DEFAULT_MODEL" ] || missing_vars+=("AGENT_CLAUDE_DEFAULT_MODEL")
-          [ -n "$OPENAI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_OPENAI_DEFAULT_MODEL")
-          [ -n "$GEMINI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_GEMINI_DEFAULT_MODEL")
-
-          if [ ${#missing_vars[@]} -gt 0 ]; then
-            echo "::error::Missing GitHub Secrets for: ${missing_vars[*]}"
-            exit 1
-          fi
-
-          mkdir -p "$(dirname "$ENV_FILE")"
-          umask 077
-          tmp_env="$(mktemp)"
-
-          {
-            printf 'MONGODB_URL=%s\n' "$MONGODB_URL"
-            printf 'MONGODB_DB_NAME=%s\n' "$MONGODB_DB_NAME"
-            printf 'PORT=%s\n' "$PORT"
-            printf 'CLAUDE_DEFAULT_MODEL=%s\n' "$CLAUDE_DEFAULT_MODEL"
-            printf 'OPENAI_DEFAULT_MODEL=%s\n' "$OPENAI_DEFAULT_MODEL"
-            printf 'GEMINI_DEFAULT_MODEL=%s\n' "$GEMINI_DEFAULT_MODEL"
-            # NOTION_MCP_URL / NOTION_MCP_AUTH_TOKEN은 선택값. 미설정 시 config.py 기본값을 사용한다.
-            if [ -n "$NOTION_MCP_URL" ]; then printf 'NOTION_MCP_URL=%s\n' "$NOTION_MCP_URL"; fi
-            if [ -n "$NOTION_MCP_AUTH_TOKEN" ]; then printf 'NOTION_MCP_AUTH_TOKEN=%s\n' "$NOTION_MCP_AUTH_TOKEN"; fi
-          } > "$tmp_env"
-
-          mv "$tmp_env" "$ENV_FILE"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -102,11 +56,58 @@ jobs:
             -t $IMAGE_NAME:${{ github.sha }} \
             -t $IMAGE_NAME:latest .
 
-      - name: Deploy through shared blue-green controller
+      - name: Verify installed blue-green release
         env:
-          IMAGE_TAG: ${{ github.sha }}
+          CONTROLLER_SHA: ${{ vars.BLUEGREEN_CONTROLLER_SHA256 }}
+          HELPER_SHA: ${{ vars.BLUEGREEN_HELPER_SHA256 }}
         run: |
           set -euo pipefail
+          if [[ ! "$CONTROLLER_SHA" =~ ^[a-f0-9]{64}$ || ! "$HELPER_SHA" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::Configure the approved BLUEGREEN_CONTROLLER_SHA256 and BLUEGREEN_HELPER_SHA256 variables first"
+            exit 1
+          fi
+          if ! printf '%s  %s\n' \
+            "$CONTROLLER_SHA" /home/kwung/deploy/bluegreen/bluegreen.py \
+            "$HELPER_SHA" /usr/local/sbin/ieum-bluegreen-nginx | sha256sum -c - >/dev/null 2>&1; then
+            echo "::error::Installed blue-green controller/helper does not match the approved release"
+            exit 1
+          fi
+
+      - name: Deploy with a private candidate environment
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
+          MONGODB_DB_NAME: ${{ secrets.AGENT_MONGODB_DB_NAME }}
+          PORT: ${{ secrets.AGENT_PORT }}
+          CLAUDE_DEFAULT_MODEL: ${{ secrets.AGENT_CLAUDE_DEFAULT_MODEL }}
+          OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
+          GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
+          NOTION_MCP_URL: ${{ secrets.AGENT_NOTION_MCP_URL }}
+          NOTION_MCP_AUTH_TOKEN: ${{ secrets.AGENT_NOTION_MCP_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          candidate_env="$(mktemp "$RUNNER_TEMP/ieum-agent-env.XXXXXX")"
+          trap 'rm -f -- "$candidate_env"' EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          python3 - "$candidate_env" <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          required = ('MONGODB_URL', 'MONGODB_DB_NAME', 'PORT', 'CLAUDE_DEFAULT_MODEL',
+                      'OPENAI_DEFAULT_MODEL', 'GEMINI_DEFAULT_MODEL')
+          optional = ('NOTION_MCP_URL', 'NOTION_MCP_AUTH_TOKEN')
+          missing = [key for key in required if not os.environ.get(key)]
+          if missing:
+              raise SystemExit('Missing GitHub Secrets for: ' + ', '.join('AGENT_' + key for key in missing))
+          values = {key: os.environ[key] for key in required + optional if os.environ.get(key)}
+          if any('\n' in value or '\r' in value for value in values.values()):
+              raise SystemExit('Agent environment values must be single lines')
+          Path(sys.argv[1]).write_text(''.join(key + '=' + value + '\n' for key, value in values.items()))
+          PY
           python3 /home/kwung/deploy/bluegreen/bluegreen.py deploy \
             --service agent \
-            --image "$IMAGE_NAME:$IMAGE_TAG"
+            --image "$IMAGE_NAME:$IMAGE_TAG" \
+            --env-file "$candidate_env"
