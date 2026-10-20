@@ -269,3 +269,11 @@ def test_ACTION_캘린더_수정은_위험_인자를_그대로_연다():
     params = inspect.signature(resolve_action_fn("builtin:google_calendar_update")).parameters
     for k in _RISKY:
         assert k in params
+
+
+def test_slack_봇_도구는_token을_주입받고_brand는_slack이다():
+    spec = tool_param_spec("builtin:slack_send_channel_message")
+    assert spec["token"]["class"] == "runtime_injected"
+    assert [n for n, s in spec.items() if s["class"] == "required"] == ["channel", "text"]
+    assert brand_for_node({"type": "AI", "event": "ai.agent",
+                           "config": {"tools": [{"name": "builtin:slack_send_channel_message"}]}}) == "slack"

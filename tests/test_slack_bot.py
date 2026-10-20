@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from common.error_code import ToolErrorCode
+from tests.action_outputs import assert_matches_outputs
 from tests.test_google_tools import _make_async_client, _make_mock_response
 from tools.slack_bot import slack_send_channel_message
 
@@ -65,6 +66,7 @@ async def test_공개_채널에_보내고_ts_channel_permalink를_돌려준다()
     assert link_call.args[0] == f"{API}/chat.getPermalink"
     assert link_call.kwargs["params"] == {"channel": "C1", "message_ts": "1700000000.000100"}
     assert all(c.kwargs["headers"]["Authorization"] == "Bearer xoxb-test" for c in get.call_args_list)
+    assert_matches_outputs("slack_bot.send_channel_message", result)
 
 
 @pytest.mark.asyncio

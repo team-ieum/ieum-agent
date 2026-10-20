@@ -60,12 +60,16 @@ _INTERNAL_TOOLS = {
     "builtin:text_extract", "builtin:date_format",
 }
 
+# 생성 프리셋 없이 ai.agent 도구 선택지(이벤트 title)로만 AI 노드에 싣는 도구(spec 2026-10-20 §9 — 프리셋을 만들지 않는다).
+# 생성(채팅) 경로는 이 도구로 노드를 만들지 못한다.
+_NO_PRESET_TOOLS = {"builtin:slack_send_channel_message"}
+
 
 def test_every_user_facing_tool_has_template():
     """가공/내부 도구를 제외한 모든 _TOOL_MAP 키는 템플릿으로 노출되어야 한다(드리프트 게이트)."""
     keys = tr._tool_map_keys()
     covered = {t["tool_key"] for t in tr.all_templates() if t["tool_key"]}
-    expected = keys - _INTERNAL_TOOLS
+    expected = keys - _INTERNAL_TOOLS - _NO_PRESET_TOOLS
     missing = expected - covered
     assert not missing, f"템플릿 미커버 tool_key: {sorted(missing)}"
 
