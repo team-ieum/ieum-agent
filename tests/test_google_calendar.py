@@ -519,12 +519,45 @@ async def test_update_종일_반복_전체의_날짜는_거절한다():
 
 @pytest.mark.asyncio
 async def test_update_비운_칸은_보내지_않는다():
-    """비운 칸은 본문에 넣지 않는다(GET 1회 + PATCH 1회는 test_update_this에_회차_ID면_제목만_그_회차를_고친다가 고정)."""
-    _, body, url, params = await _update({"/events/evt-1": _TIMED}, event_id="evt-1", summary="", description="  ", location="",
-                                         attendees=[], start_datetime="", end_datetime=" ", all_day="",
-                                         send_updates="", time_zone="")
+    """바꿀 칸이 없으면 PATCH(와 알림 메일)를 보내지 않고 조회한 일정으로 성공한다 — send_updates만 있어도 같다."""
+    result, body, _, _ = await _update({"/events/evt-1": dict(_TIMED, htmlLink="link-1")}, event_id="evt-1",
+                                       summary="", description="  ", location="", attendees=[], start_datetime="",
+                                       end_datetime=" ", all_day="", send_updates="all", time_zone="Asia/Seoul")
 
-    assert (body, url, params) == ({}, f"{BASE}/events/evt-1", {})
+    assert body is None
+    assert result == {"success": True, "eventId": "evt-1", "htmlLink": "link-1"}
+    assert_matches_outputs("google_calendar.update", result)
+
+
+_CANCELLED = "삭제된 일정은 수정할 수 없어요"
+
+
+@pytest.mark.asyncio
+async def test_update_삭제된_일정은_PATCH하지_않고_실패다():
+    result, body, _, _ = await _update({"/events/evt-1": dict(_TIMED, status="cancelled")}, event_id="evt-1",
+                                       summary="새 제목")
+
+    assert _CANCELLED in result["error"] and body is None
+
+
+@pytest.mark.asyncio
+async def test_update_all에_삭제된_회차라도_원본이_살아_있으면_고친다():
+    routes = {f"/events/{_INSTANCE_ID}": dict(_INSTANCE, status="cancelled"), "/events/evt-1": _MASTER}
+
+    _, body, url, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all", summary="새 제목")
+
+    assert (url, body) == (f"{BASE}/events/evt-1", {"summary": "새 제목"})
+
+
+@pytest.mark.asyncio
+async def test_update_all_여러_날_반복_일정에_종료만_오면_실패다():
+    routes = _series({"dateTime": "2026-09-07T09:00:00+09:00", "timeZone": "Asia/Seoul"},
+                     {"dateTime": "2026-09-09T18:00:00+09:00", "timeZone": "Asia/Seoul"})  # 월 09:00 ~ 수 18:00
+
+    result, body, _, _ = await _update(routes, event_id=_INSTANCE_ID, scope="all",
+                                       end_datetime="2026-10-21T17:00:00+09:00")
+
+    assert "여러 날에 걸친 반복 일정은 시작과 종료를 함께 입력하세요" in result["error"] and body is None
 
 
 @pytest.mark.asyncio

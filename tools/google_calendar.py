@@ -222,7 +222,7 @@ async def _timed_times(cur_start: dict, cur_end: dict, start, end, was_all_day: 
     return {"start": _timed(begin, zone.explicit), "end": _timed(finish, zone.explicit)}
 
 
-async def _series_times(cur_start: dict, cur_end: dict, start, end, zone: _Zone) -> dict:
+async def _series_times(cur_start: dict, cur_end: dict, start, end, zone: _Zone) -> dict | str:
     """반복 전체 + 시각 변경(spec §4.2-3). 원본 시작을 회차 날짜로 덮으면 반복 시작일이 옮겨져 이전 회차가
     사라지므로, 입력 시각을 원본 start.timeZone의 벽시계 시각으로 옮겨 원본 날짜와 합친다.
     종료 = 그 시작 + (입력 종료 − 입력 시작, 없으면 원본 길이). 종료만 오면 원본 날짜에 붙이고 시작 이하면 다음 날."""
@@ -235,6 +235,8 @@ async def _series_times(cur_start: dict, cur_end: dict, start, end, zone: _Zone)
         begin = datetime.combine(orig_start.date(), begin_in.astimezone(tz).time(), tzinfo=tz)
         finish = begin + ((end_in - begin_in) if end_in is not None else (orig_end - orig_start))
     else:
+        if orig_end.date() != orig_start.date():  # 어느 날에 붙일지 추측해야 한다 — 지어내지 않는다
+            return "여러 날에 걸친 반복 일정은 시작과 종료를 함께 입력하세요"
         begin = orig_start
         finish = datetime.combine(orig_start.date(), end_in.astimezone(tz).time(), tzinfo=tz)
         if finish <= begin:
@@ -326,11 +328,16 @@ async def google_calendar_update(
             # 원본 ID엔 회차 정보가 없어 '이 일정만'을 지킬 수 없다 — PATCH하면 시리즈 전체가 바뀐다.
             return _fail("google_calendar_update",
                          "어느 회차인지 알 수 없어요. 회차를 고르거나 '반복 전체'를 선택하세요")
+        if target.get("status") == "cancelled":  # PATCH는 200이어도 일정은 계속 안 보인다
+            return _fail("google_calendar_update", "삭제된 일정은 수정할 수 없어요")
         times = await _new_times(target, start_datetime, end_datetime, all_day,
                                  _Zone(client, headers, cal, time_zone), series=bool(target.get("recurrence")))
         if isinstance(times, str):
             return _fail("google_calendar_update", times)
         payload.update(times)
+        if not payload:  # 바꿀 칸이 없으면 PATCH(와 알림 메일)를 보내지 않는다
+            return json.dumps({"success": True, "eventId": target_id, "htmlLink": target.get("htmlLink", "")},
+                              ensure_ascii=False)
         response = await client.patch(_event_url(cal, target_id), headers=headers, json=payload,
                                       params=_send_updates(send_updates), timeout=_TIMEOUT)
         if not response.is_success:
