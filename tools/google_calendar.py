@@ -319,17 +319,18 @@ async def google_calendar_update(
         client = get_http_client()
         headers = _headers(access_token)
         cal = _calendar_segment(calendar_id)
-        target_id = str(event_id)
-        # 현재 일정이 필요할 때만 조회한다(반복 원본 해석·길이 유지·종일 전환). 제목만 바꾸면 PATCH 한 번.
-        if scope == "all" or not _blank(start_datetime) or not _blank(end_datetime) or all_day is not None:
-            target = await _resolve_target(client, headers, cal, event_id, scope)
-            target_id = target.get("id") or target_id
-            times = await _new_times(target, start_datetime, end_datetime, all_day,
-                                     _Zone(client, headers, cal, time_zone),
-                                     series=bool(target.get("recurrence")))  # 원본 ID면 scope=this여도 시리즈
-            if isinstance(times, str):
-                return _fail("google_calendar_update", times)
-            payload.update(times)
+        # 제목만 바꿔도 조회한다 — 반복 원본인지 알아야 '이 일정만'을 지킬 수 있다.
+        target = await _resolve_target(client, headers, cal, event_id, scope)
+        target_id = target.get("id") or str(event_id)
+        if scope != "all" and target.get("recurrence"):
+            # 원본 ID엔 회차 정보가 없어 '이 일정만'을 지킬 수 없다 — PATCH하면 시리즈 전체가 바뀐다.
+            return _fail("google_calendar_update",
+                         "어느 회차인지 알 수 없어요. 회차를 고르거나 '반복 전체'를 선택하세요")
+        times = await _new_times(target, start_datetime, end_datetime, all_day,
+                                 _Zone(client, headers, cal, time_zone), series=bool(target.get("recurrence")))
+        if isinstance(times, str):
+            return _fail("google_calendar_update", times)
+        payload.update(times)
         response = await client.patch(_event_url(cal, target_id), headers=headers, json=payload,
                                       params=_send_updates(send_updates), timeout=_TIMEOUT)
         if not response.is_success:

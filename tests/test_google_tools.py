@@ -320,7 +320,8 @@ async def test_google_calendar_update_skips_empty_datetime():
 
     resp = _make_mock_response(200, {"id": "event-123", "htmlLink": "x"})
     patch_mock = AsyncMock(return_value=resp)
-    client = _make_async_client(patch_mock=patch_mock)
+    current = _make_mock_response(200, {"id": "event-123"})
+    client = _make_async_client(get_mock=AsyncMock(return_value=current), patch_mock=patch_mock)
 
     with patch("tools.google_calendar.get_http_client", return_value=client):
         await google_calendar_update(
@@ -342,7 +343,8 @@ async def test_google_calendar_update_error():
     from tools.google_calendar import google_calendar_update
 
     resp = _make_mock_response(404, {"error": {"message": "Not Found"}})
-    client = _make_async_client(patch_mock=AsyncMock(return_value=resp))
+    client = _make_async_client(get_mock=AsyncMock(return_value=_make_mock_response(200, {"id": "missing"})),
+                                patch_mock=AsyncMock(return_value=resp))
 
     with patch("tools.google_calendar.get_http_client", return_value=client):
         result = await google_calendar_update(
@@ -379,7 +381,7 @@ async def test_google_calendar_calendar_id는_경로에_인코딩(tool, verb, kw
     import tools.google_calendar as gc
 
     call = AsyncMock(return_value=_make_mock_response(200, {"id": "evt-1", "htmlLink": "x", "items": []}))
-    client = _make_async_client(**{f"{verb}_mock": call})
+    client = _make_async_client(**{"get_mock": call, f"{verb}_mock": call})  # update는 대상 GET이 먼저다
 
     with patch("tools.google_calendar.get_http_client", return_value=client):
         result = json.loads(await getattr(gc, tool)(
@@ -437,7 +439,8 @@ async def test_google_calendar_update_event_id_경로_인코딩():
     from tools.google_calendar import google_calendar_update
 
     call = AsyncMock(return_value=_make_mock_response(200, {"id": "x", "htmlLink": "x"}))
-    client = _make_async_client(patch_mock=call)
+    current = _make_mock_response(200, {"id": "a/b?x=1"})
+    client = _make_async_client(get_mock=AsyncMock(return_value=current), patch_mock=call)
     with patch("tools.google_calendar.get_http_client", return_value=client):
         await google_calendar_update(access_token="token", event_id="a/b?x=1", summary="변경")
 

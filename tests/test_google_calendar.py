@@ -519,8 +519,8 @@ async def test_update_종일_반복_전체의_날짜는_거절한다():
 
 @pytest.mark.asyncio
 async def test_update_비운_칸은_보내지_않는다():
-    """조회도 하지 않는다 — 시각·종일·반복 전체가 아니면 PATCH 한 번."""
-    _, body, url, params = await _update({}, event_id="evt-1", summary="", description="  ", location="",
+    """비운 칸은 본문에 넣지 않는다(GET 1회 + PATCH 1회는 test_update_this에_회차_ID면_제목만_그_회차를_고친다가 고정)."""
+    _, body, url, params = await _update({"/events/evt-1": _TIMED}, event_id="evt-1", summary="", description="  ", location="",
                                          attendees=[], start_datetime="", end_datetime=" ", all_day="",
                                          send_updates="", time_zone="")
 
@@ -529,7 +529,7 @@ async def test_update_비운_칸은_보내지_않는다():
 
 @pytest.mark.asyncio
 async def test_update_참석자는_쉼표로_나눠_통째로_바꾼다():
-    _, body, _, params = await _update({}, event_id="evt-1", attendees="a@x.com, b@y.com ,,", location="회의실",
+    _, body, _, params = await _update({"/events/evt-1": _TIMED}, event_id="evt-1", attendees="a@x.com, b@y.com ,,", location="회의실",
                                        send_updates="externalOnly")
 
     assert body == {"attendees": [{"email": "a@x.com"}, {"email": "b@y.com"}], "location": "회의실"}
@@ -539,7 +539,7 @@ async def test_update_참석자는_쉼표로_나눠_통째로_바꾼다():
 @pytest.mark.asyncio
 async def test_update_쉼표뿐인_참석자는_보내지_않는다():
     """[]로 PATCH하면 기존 참석자가 전부 지워진다."""
-    _, body, _, _ = await _update({}, event_id="evt-1", attendees=" , ,", summary="x")
+    _, body, _, _ = await _update({"/events/evt-1": _TIMED}, event_id="evt-1", attendees=" , ,", summary="x")
 
     assert body == {"summary": "x"}
 
@@ -572,17 +572,57 @@ async def test_update_all_시각_일정에_날짜만_오면_시리즈를_옮기�
     assert "시각까지" in result["error"] and body is None
 
 
+_NO_OCCURRENCE = "어느 회차인지 알 수 없어요. 회차를 고르거나 '반복 전체'를 선택하세요"
+
+
 @pytest.mark.asyncio
-async def test_update_this라도_대상이_반복_원본이면_원본_날짜를_유지한다():
-    """원본 ID(find의 recurringEventId)를 넣으면 scope=this여도 PATCH 대상은 시리즈 전체다(spec §4.2-3)."""
+@pytest.mark.parametrize("change", [
+    {"summary": "새 제목"},
+    {"start_datetime": "2026-10-21T14:00:00+09:00"},
+    {"end_datetime": "2026-10-20T11:00:00+09:00"},
+    {"all_day": True, "start_datetime": "2026-10-21"},
+])
+async def test_update_this에_원본_ID면_시리즈를_고치지_않고_실패다(change):
+    """원본 ID(find의 recurringEventId)엔 회차 정보가 없어 '이 일정만'을 지킬 수 없다 — PATCH하면 시리즈 전체가 바뀐다."""
     routes = _series({"dateTime": "2026-09-01T09:00:00+09:00", "timeZone": "Asia/Seoul"},
                      {"dateTime": "2026-09-01T10:00:00+09:00", "timeZone": "Asia/Seoul"})
 
-    _, body, url, _ = await _update(routes, event_id="evt-1", start_datetime="2026-10-21T14:00:00+09:00")
+    result, body, _, _ = await _update(routes, event_id="evt-1", **change)
 
-    assert url == f"{BASE}/events/evt-1"
-    assert body == {"start": _at("2026-09-01T14:00:00+09:00", "Asia/Seoul"),
-                    "end": _at("2026-09-01T15:00:00+09:00", "Asia/Seoul")}
+    assert _NO_OCCURRENCE in result["error"] and body is None
+
+
+@pytest.mark.asyncio
+async def test_update_all에_원본_ID면_제목만_바꿔도_원본을_고친다():
+    _, body, url, _ = await _update({"/events/evt-1": _MASTER}, event_id="evt-1", scope="all", summary="새 제목")
+
+    assert (url, body) == (f"{BASE}/events/evt-1", {"summary": "새 제목"})
+
+
+@pytest.mark.asyncio
+async def test_update_this에_회차_ID면_제목만_그_회차를_고친다():
+    get = _gets({f"/events/{_INSTANCE_ID}": _INSTANCE})
+    patch_mock = AsyncMock(return_value=_make_mock_response(200, {"id": _INSTANCE_ID, "htmlLink": "x"}))
+
+    await _run(google_calendar_update, _client(get=get, patch_mock=patch_mock), event_id=_INSTANCE_ID, summary="새 제목")
+
+    assert get.call_count == 1 and patch_mock.call_count == 1
+    assert (patch_mock.call_args.args[0], patch_mock.call_args.kwargs["json"]) == \
+        (f"{BASE}/events/{_INSTANCE_ID}", {"summary": "새 제목"})
+
+
+@pytest.mark.asyncio
+async def test_AI_캘린더_수정에_원본_ID가_오면_시리즈를_고치지_않는다():
+    """AI 경로는 scope=this로 고정된다 — LLM이 찾기 결과의 원본 ID를 넘겨도 시리즈 PATCH로 새지 않는다."""
+    from tools import get_tools_for_request
+    [tool] = get_tools_for_request([{"name": "builtin:google_calendar_update"}])
+    client = _client(get=_gets({"/events/evt-1": _MASTER}))
+
+    with patch("tools.google_calendar.get_http_client", return_value=client):
+        result = json.loads(await tool.func(access_token="token", event_id="evt-1", summary="새 제목"))
+
+    assert _NO_OCCURRENCE in result["error"]
+    client.patch.assert_not_called()
 
 
 @pytest.mark.asyncio
