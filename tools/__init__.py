@@ -19,7 +19,7 @@ from tools.notion import (
     notion_query_database,
 )
 from tools.google_sheets import google_sheets_read, google_sheets_write, google_sheets_append
-from tools.google_calendar import google_calendar_create, google_calendar_list, google_calendar_update
+from tools.google_calendar import google_calendar_create, google_calendar_find, google_calendar_update
 from tools.google_drive import google_drive_read, google_drive_upload
 from tools.workflow_context import workflow_context
 
@@ -82,7 +82,7 @@ _TOOL_MAP: dict = {
     "builtin:google_sheets_write": google_sheets_write,
     "builtin:google_sheets_append": google_sheets_append,
     "builtin:google_calendar_create": google_calendar_create,
-    "builtin:google_calendar_list": google_calendar_list,
+    "builtin:google_calendar_find": google_calendar_find,
     "builtin:google_calendar_update": google_calendar_update,
     "builtin:google_drive_read": google_drive_read,
     "builtin:google_drive_upload": google_drive_upload,
@@ -90,6 +90,12 @@ _TOOL_MAP: dict = {
     "builtin:json_parse": json_parse,
     "builtin:text_extract": text_extract,
     "builtin:date_format": date_format,
+}
+
+
+# AI 경로 전용 고정값: LLM이 참석자 통째 교체·반복 전체·알림 발송을 고르지 못하게 숨긴다(ACTION 경로는 영향 없음).
+_AI_DEFAULTS: dict = {
+    "builtin:google_calendar_update": {"scope": "this", "send_updates": "", "attendees": None},
 }
 
 
@@ -125,6 +131,6 @@ def get_tools_for_request(tool_names: list) -> list:
                 )
         elif name in _TOOL_MAP:
             config = item.get("config") if isinstance(item, dict) else None
-            configured_fn = _bind_config(_TOOL_MAP[name], config)
+            configured_fn = _bind_config(_TOOL_MAP[name], {**_AI_DEFAULTS.get(name, {}), **(config or {})})
             result.append(FunctionTool(configured_fn))
     return result

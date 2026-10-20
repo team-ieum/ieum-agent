@@ -737,7 +737,7 @@ async def test_run_react_agent_google_node_uses_builtin_tools_only(use_single_ag
     mock_ss.create_session = AsyncMock(return_value=mock_session)
     mock_ss.delete_session = AsyncMock()
 
-    req = _make_request(tools=[{"name": "builtin:google_calendar_list"}])
+    req = _make_request(tools=[{"name": "builtin:google_calendar_find"}])
 
     with patch("google.adk.tools.mcp_tool.mcp_toolset.MCPToolset.get_tools",
                new=AsyncMock(side_effect=TimeoutError("remote mcp"))), \
@@ -757,7 +757,7 @@ async def test_run_react_agent_google_node_uses_builtin_tools_only(use_single_ag
 
     assert output == "일정 3건"
     tool_names = [getattr(t, "name", None) for t in captured[-1]["tools"]]
-    assert tool_names == ["google_calendar_list"]
+    assert tool_names == ["google_calendar_find"]
 
 
 @pytest.mark.asyncio
@@ -780,7 +780,7 @@ async def test_run_react_agent_google_token_does_not_force_multi_agent():
     mock_ss.create_session = AsyncMock(return_value=mock_session)
     mock_ss.delete_session = AsyncMock()
 
-    req = _make_request(tools=[{"name": "builtin:google_calendar_list"}, {"name": "builtin:notion_search"}])
+    req = _make_request(tools=[{"name": "builtin:google_calendar_find"}, {"name": "builtin:notion_search"}])
 
     with patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(tools=[]), []))), \
          patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \

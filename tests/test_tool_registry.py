@@ -155,6 +155,16 @@ def test_resolve_action_fn_native_and_github():
     assert resolve_action_fn("builtin:github_create_issue") is github_create_issue
 
 
+def test_calendar_delete는_ACTION_전용이다():
+    """AI 노드 tools에 실리면 LLM이 일정을 지울 수 있다(spec §4.3) — _TOOL_MAP 밖, resolve_action_fn만 푼다."""
+    from tools import _TOOL_MAP, get_tools_for_request
+    from tools.google_calendar import google_calendar_delete
+
+    assert resolve_action_fn("builtin:google_calendar_delete") is google_calendar_delete
+    assert "builtin:google_calendar_delete" not in _TOOL_MAP
+    assert get_tools_for_request([{"name": "builtin:google_calendar_delete"}]) == []
+
+
 @pytest.mark.parametrize("key", [
     "mcp", "github_list_issues", "builtin:github_nope", "builtin:github_", "builtin:github_list_issues ",
     "builtin:does_not_exist", "", None, 5, ["builtin:github_list_issues"],
@@ -219,3 +229,43 @@ def test_brand_for_node_reads_event_not_legacy_fields():
     # AI는 event(늘 ai.agent·ai.reasoning)가 아니라 도구로 정한다
     assert brand_for_node({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "slack"}]}}) == "slack"
     assert brand_for_node({"type": "AI", "event": "ai.agent", "config": {"tools": []}}) == "openai"
+
+
+def _calendar_update_tool(config=None):
+    from tools import get_tools_for_request
+    item = {"name": "builtin:google_calendar_update"}
+    if config is not None:
+        item["config"] = config
+    [tool] = get_tools_for_request([item])
+    return tool.func
+
+
+_RISKY = ("scope", "send_updates", "attendees")
+
+
+def test_AI_캘린더_수정은_위험_인자를_숨기고_안전한_기본값으로_고정한다():
+    import inspect
+    fn = _calendar_update_tool()
+    params = inspect.signature(fn).parameters
+    for k in _RISKY:
+        assert k not in params
+        assert k not in fn.__annotations__
+    assert fn.keywords == {"scope": "this", "send_updates": "", "attendees": None}
+
+
+def test_AI_캘린더_수정은_노드_설정값이_기본값을_이긴다():
+    import inspect
+    fn = _calendar_update_tool({"scope": "all"})
+    assert fn.keywords["scope"] == "all"
+    assert fn.keywords["send_updates"] == ""
+    assert fn.keywords["attendees"] is None
+    params = inspect.signature(fn).parameters
+    for k in _RISKY:
+        assert k not in params
+
+
+def test_ACTION_캘린더_수정은_위험_인자를_그대로_연다():
+    import inspect
+    params = inspect.signature(resolve_action_fn("builtin:google_calendar_update")).parameters
+    for k in _RISKY:
+        assert k in params

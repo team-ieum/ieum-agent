@@ -19,7 +19,7 @@
 - **builtin:google_sheets_read**: 스프레드시트 읽기 (spreadsheet_id, range 필요)
 - **builtin:google_sheets_write**: 스프레드시트 쓰기 (spreadsheet_id, range, values 필요)
 - **builtin:google_calendar_create**: 구글 캘린더 일정 생성
-- **builtin:google_calendar_list**: 구글 캘린더 일정 조회
+- **builtin:google_calendar_find**: 구글 캘린더 일정 찾기
 - **builtin:google_drive_read**: 구글 드라이브 파일 읽기 (file_id 필요)
 - **builtin:google_drive_upload**: 구글 드라이브 파일 업로드 (name, content 필요)
 

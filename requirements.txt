@@ -24,6 +24,9 @@ httpx>=0.28.1
 # MCP
 mcp>=1.0.0
 
+# Time zone — OS 시간대 DB가 없을 때 zoneinfo가 쓰는 폴백
+tzdata>=2025.2
+
 # Test
 pytest>=8.2.0
 pytest-asyncio>=0.23.0

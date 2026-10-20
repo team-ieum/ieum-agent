@@ -104,8 +104,9 @@ def test_option_source_fields_fixed_set():
         ("slack.send_message", "webhookCredentialId"), ("discord.send_message", "webhookCredentialId"),
         *[(f"google_sheets.{x}", k) for x in ("read", "write", "append")
           for k in ("spreadsheet_id", "sheet_name")],
-        ("google_calendar.create", "calendar_id"), ("google_calendar.list", "calendar_id"),
+        ("google_calendar.create", "calendar_id"), ("google_calendar.find", "calendar_id"),
         ("google_calendar.update", "calendar_id"), ("google_calendar.update", "event_id"),
+        ("google_calendar.delete", "calendar_id"), ("google_calendar.delete", "event_id"),
         ("google_drive.read", "file_id"), ("google_drive.upload", "folder_id"),
         ("notion.create_page", "parent_page_id"), ("notion.read_page", "page_id"),
         ("notion.update_page", "page_id"), ("notion.append_block", "page_id"),
@@ -126,24 +127,26 @@ def _field(entry_id: str, key: str) -> dict:
     return next(f for f in _action(entry_id)["inputFields"] if f["key"] == key)
 
 
-@pytest.mark.parametrize("field, title, source, inputs", [
-    ("calendar_id", "캘린더", "google.calendars", None),
-    ("event_id", "일정", "google.events", ["calendar_id"]),
-    ("file_id", "파일", "google.files", None),
-    ("folder_id", "폴더", "google.folders", None),
-    ("page_id", "페이지", "notion.pages", None),
-    ("parent_page_id", "상위 페이지", "notion.pages", None),
-    ("database_id", "데이터베이스", "notion.databases", None),
-    ("owner", "소유자", "github.owners", None),
-    ("repo", "저장소", "github.repos", ["owner"]),
+@pytest.mark.parametrize("field, title, sources, inputs", [
+    ("calendar_id", "캘린더", {"google.calendars", "google.writable_calendars"}, None),
+    ("event_id", "일정", {"google.events"}, ["calendar_id"]),
+    ("file_id", "파일", {"google.files"}, None),
+    ("folder_id", "폴더", {"google.folders"}, None),
+    ("page_id", "페이지", {"notion.pages"}, None),
+    ("parent_page_id", "상위 페이지", {"notion.pages"}, None),
+    ("database_id", "데이터베이스", {"notion.databases"}, None),
+    ("owner", "소유자", {"github.owners"}, None),
+    ("repo", "저장소", {"github.repos"}, ["owner"]),
 ])
-def test_app_option_sources(field, title, source, inputs):
-    """공급원 키는 BE OptionSource.key()와 1:1 계약(IEUM-BE-72·73·76). 그 필드를 가진 액션 항목 전부에서 같아야 한다."""
+def test_app_option_sources(field, title, sources, inputs):
+    """공급원 키는 BE OptionSource.key()와 1:1 계약(IEUM-BE-72·73·76). 그 필드를 가진 액션 항목 전부에서
+    제목·optionsInputs가 같고 공급원은 칸별 집합 안이어야 한다."""
     found = [f for e in node_catalog()["entries"] if e["nodeType"] == "ACTION"
              for f in e["inputFields"] if f["key"] == field]
     assert found, field
     for f in found:
-        assert (f["title"], f["optionsSource"], f.get("optionsInputs")) == (title, source, inputs)
+        assert (f["title"], f.get("optionsInputs")) == (title, inputs)
+        assert f["optionsSource"] in sources
         assert f["description"]
 
 
@@ -175,8 +178,8 @@ EXPECTED_BRANDS = {
     "notion.append_block": "notion", "notion.query_database": "notion",
     "google_sheets.read": "sheets", "google_sheets.write": "sheets",
     "google_sheets.append": "sheets",
-    "google_calendar.create": "google", "google_calendar.list": "google",
-    "google_calendar.update": "google", "google_drive.read": "google",
+    "google_calendar.create": "google", "google_calendar.find": "google",
+    "google_calendar.update": "google", "google_calendar.delete": "google", "google_drive.read": "google",
     "google_drive.upload": "google",
     "github.list_issues": "github", "github.create_issue": "github",
 }
@@ -252,6 +255,32 @@ def test_entry_has_kind_provider_app_and_fixed_event():
     assert gmail["fixed"]["event"] == "gmail.new_email"
     assert entries["notion.search"]["kind"] == "search"
     assert (entries["manual.run"]["provider"], entries["manual.run"]["app"]) == ("ieum", "manual")
+
+
+def test_calendar_id_공급원은_찾기만_전체_캘린더다():
+    """쓰기 노드는 쓰기 권한 캘린더만(BE google.writable_calendars) — 공휴일 캘린더에 쓰면 403(spec §4)."""
+    got = {e["id"]: f["optionsSource"] for e in node_catalog()["entries"] if e["id"].startswith("google_calendar.")
+           for f in e["inputFields"] if f["key"] == "calendar_id"}
+    assert got == {"google_calendar.find": "google.calendars",
+                   "google_calendar.create": "google.writable_calendars",
+                   "google_calendar.update": "google.writable_calendars",
+                   "google_calendar.delete": "google.writable_calendars"}
+
+
+@pytest.mark.parametrize("entry, key", [
+    ("google_calendar.update", "scope"), ("google_calendar.update", "send_updates"),
+    ("google_calendar.update", "all_day"), ("google_calendar.delete", "scope"),
+    ("google_calendar.delete", "send_updates"),
+])
+def test_캘린더_선택형_불리언_칸은_참조식을_받지_않는다(entry, key):
+    """참조식이면 선택지 검사가 건너뛰어지고 "false" 문자열은 파이썬에서 참이다(spec §3)."""
+    assert _field(entry, key)["ref"] is False
+
+
+def test_find_출력은_검색_약속을_따른다():
+    """SCHEMA 앱 이벤트 약속 1 — found·total·items 필수."""
+    keys = {f["key"] for f in tr.get_template("google_calendar.find")["outputFields"]}
+    assert {"found", "total", "items"} <= keys
 
 
 def test_catalog_entries_snapshot():

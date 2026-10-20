@@ -84,8 +84,8 @@
               "name": "캘린더 일정 만들기"
             },
             {
-              "id": "builtin:google_calendar_list",
-              "name": "캘린더 일정 조회"
+              "id": "builtin:google_calendar_find",
+              "name": "캘린더 일정 찾기"
             },
             {
               "id": "builtin:google_calendar_update",
@@ -830,7 +830,7 @@
           "default": "primary",
           "description": "대상 캘린더 (비우면 기본 캘린더)",
           "key": "calendar_id",
-          "optionsSource": "google.calendars",
+          "optionsSource": "google.writable_calendars",
           "path": "config.calendar_id",
           "title": "캘린더",
           "type": "string"
@@ -855,50 +855,166 @@
     },
     {
       "app": "google_calendar",
-      "description": "기간 안의 일정을 가져와요.",
+      "description": "구글 캘린더에서 일정을 지워요.",
       "fixed": {
         "config": {
           "brand": "google"
         },
-        "event": "google_calendar.list",
+        "event": "google_calendar.delete",
         "type": "ACTION"
       },
-      "id": "google_calendar.list",
+      "id": "google_calendar.delete",
       "inputFields": [
         {
-          "key": "time_min",
-          "path": "config.time_min",
+          "description": "삭제할 일정",
+          "key": "event_id",
+          "optionsInputs": [
+            "calendar_id"
+          ],
+          "optionsSource": "google.events",
+          "path": "config.event_id",
           "required": true,
-          "title": "시작 시각",
-          "type": "datetime"
-        },
-        {
-          "key": "time_max",
-          "path": "config.time_max",
-          "required": true,
-          "title": "종료 시각",
-          "type": "datetime"
-        },
-        {
-          "default": 10,
-          "key": "max_results",
-          "path": "config.max_results",
-          "title": "최대 개수",
-          "type": "integer"
+          "title": "일정",
+          "type": "string"
         },
         {
           "default": "primary",
-          "description": "대상 캘린더 (비우면 기본 캘린더)",
+          "description": "대상 캘린더 (비우면 기본 캘린더, 쓰기 권한이 있는 캘린더만)",
+          "key": "calendar_id",
+          "optionsSource": "google.writable_calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "this",
+              "name": "이 일정만"
+            },
+            {
+              "id": "all",
+              "name": "반복 전체"
+            }
+          ],
+          "default": "this",
+          "description": "반복 일정일 때 이 일정만 또는 반복 전체",
+          "key": "scope",
+          "path": "config.scope",
+          "ref": false,
+          "title": "적용 범위",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "all",
+              "name": "모두에게"
+            },
+            {
+              "id": "externalOnly",
+              "name": "외부 참석자에게만"
+            },
+            {
+              "id": "none",
+              "name": "보내지 않음"
+            }
+          ],
+          "description": "비우면 Google 기본 동작",
+          "key": "send_updates",
+          "path": "config.send_updates",
+          "ref": false,
+          "title": "참석자 알림",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "실제로 지운 일정(반복 전체면 원본) ID",
+          "key": "eventId",
+          "title": "일정 ID",
+          "type": "string"
+        },
+        {
+          "description": "이미 지워져 있었으면 false",
+          "key": "deleted",
+          "title": "삭제됨",
+          "type": "boolean"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 일정 삭제"
+    },
+    {
+      "app": "google_calendar",
+      "description": "조건에 맞는 일정을 시작 시각 순으로 찾아요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.find",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.find",
+      "inputFields": [
+        {
+          "default": "primary",
+          "description": "읽을 캘린더 (비우면 기본 캘린더, 공휴일 캘린더 포함)",
           "key": "calendar_id",
           "optionsSource": "google.calendars",
           "path": "config.calendar_id",
           "title": "캘린더",
           "type": "string"
+        },
+        {
+          "default": "",
+          "description": "제목·설명·장소·참석자에서 찾아요 (비우면 전체)",
+          "key": "query",
+          "path": "config.query",
+          "title": "검색어",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "이 시각 이후에 끝나는 일정 (비우면 지금부터 — 시작순으로만 정렬되므로 비우면 가장 오래된 일정부터 나오는 것을 막아요)",
+          "key": "time_min",
+          "path": "config.time_min",
+          "title": "시작 시각",
+          "type": "datetime"
+        },
+        {
+          "default": "",
+          "description": "이 시각 전에 시작하는 일정 (비우면 제한 없음)",
+          "key": "time_max",
+          "path": "config.time_max",
+          "title": "종료 시각",
+          "type": "datetime"
+        },
+        {
+          "default": 50,
+          "description": "기본 50, 최대 250",
+          "key": "max_results",
+          "path": "config.max_results",
+          "title": "최대 개수",
+          "type": "integer"
         }
       ],
       "kind": "search",
       "nodeType": "ACTION",
       "outputFields": [
+        {
+          "description": "한 건 이상 찾았는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
         {
           "children": [
             {
@@ -912,29 +1028,64 @@
               "type": "string"
             },
             {
+              "description": "종일 일정은 날짜(YYYY-MM-DD)",
               "key": "start",
               "title": "시작",
               "type": "datetime"
             },
             {
+              "description": "종일 일정은 날짜이고, Google 규칙대로 끝나는 날의 다음 날이에요",
               "key": "end",
               "title": "종료",
               "type": "datetime"
+            },
+            {
+              "key": "allDay",
+              "title": "종일",
+              "type": "boolean"
+            },
+            {
+              "key": "location",
+              "title": "장소",
+              "type": "string"
+            },
+            {
+              "key": "description",
+              "title": "설명",
+              "type": "text"
+            },
+            {
+              "key": "htmlLink",
+              "title": "일정 링크",
+              "type": "string"
+            },
+            {
+              "description": "반복 일정의 회차면 원본 일정 ID, 아니면 빈 값",
+              "key": "recurringEventId",
+              "title": "반복 일정 ID",
+              "type": "string"
+            },
+            {
+              "key": "status",
+              "title": "상태",
+              "type": "string"
+            },
+            {
+              "description": "참석자 이메일 목록",
+              "key": "attendees",
+              "list": true,
+              "title": "참석자",
+              "type": "string"
             }
           ],
-          "key": "events",
+          "key": "items",
           "list": true,
           "title": "일정",
           "type": "object"
-        },
-        {
-          "key": "total",
-          "title": "개수",
-          "type": "integer"
         }
       ],
       "provider": "google",
-      "title": "캘린더 일정 조회"
+      "title": "캘린더 일정 찾기"
     },
     {
       "app": "google_calendar",
@@ -968,18 +1119,21 @@
           "type": "string"
         },
         {
+          "description": "비우면 그대로. 시작만 바꾸면 길이를 유지해요",
           "key": "start_datetime",
           "path": "config.start_datetime",
           "title": "새 시작",
           "type": "datetime"
         },
         {
+          "description": "비우면 그대로. 종일 일정은 끝나는 날(포함)",
           "key": "end_datetime",
           "path": "config.end_datetime",
           "title": "새 종료",
           "type": "datetime"
         },
         {
+          "description": "비우면 그대로",
           "key": "description",
           "path": "config.description",
           "title": "새 설명",
@@ -987,11 +1141,81 @@
         },
         {
           "default": "primary",
-          "description": "대상 캘린더 (비우면 기본 캘린더)",
+          "description": "대상 캘린더 (비우면 기본 캘린더, 쓰기 권한이 있는 캘린더만)",
           "key": "calendar_id",
-          "optionsSource": "google.calendars",
+          "optionsSource": "google.writable_calendars",
           "path": "config.calendar_id",
           "title": "캘린더",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "this",
+              "name": "이 일정만"
+            },
+            {
+              "id": "all",
+              "name": "반복 전체"
+            }
+          ],
+          "default": "this",
+          "description": "반복 일정일 때 이 일정만 또는 반복 전체(반복 전체는 날짜는 두고 시각만 바꿔요)",
+          "key": "scope",
+          "path": "config.scope",
+          "ref": false,
+          "title": "적용 범위",
+          "type": "string"
+        },
+        {
+          "description": "켜면 종일 일정, 끄면 시각 일정. 비우면 그대로",
+          "key": "all_day",
+          "path": "config.all_day",
+          "ref": false,
+          "title": "종일",
+          "type": "boolean"
+        },
+        {
+          "description": "IANA 이름(예: Asia/Seoul). 비우면 캘린더 시간대",
+          "key": "time_zone",
+          "path": "config.time_zone",
+          "title": "시간대",
+          "type": "string"
+        },
+        {
+          "description": "비우면 그대로",
+          "key": "location",
+          "path": "config.location",
+          "title": "새 장소",
+          "type": "string"
+        },
+        {
+          "description": "이메일을 쉼표로 구분, 기존 참석자를 모두 바꿉니다. 비우면 그대로",
+          "key": "attendees",
+          "path": "config.attendees",
+          "title": "참석자",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "all",
+              "name": "모두에게"
+            },
+            {
+              "id": "externalOnly",
+              "name": "외부 참석자에게만"
+            },
+            {
+              "id": "none",
+              "name": "보내지 않음"
+            }
+          ],
+          "description": "비우면 Google 기본 동작",
+          "key": "send_updates",
+          "path": "config.send_updates",
+          "ref": false,
+          "title": "참석자 알림",
           "type": "string"
         }
       ],

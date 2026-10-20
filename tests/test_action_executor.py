@@ -13,7 +13,7 @@ from common.error_code import ErrorCode
 from core import action_executor
 from core.action_executor import run_action
 from tools import _TOOL_MAP
-from tools.registry import _DYNAMIC_SERVICE_ACTIONS, resolve_action_fn
+from tools.registry import _ACTION_ONLY_TOOLS, _DYNAMIC_SERVICE_ACTIONS, resolve_action_fn
 
 
 @pytest.fixture(autouse=True)
@@ -111,6 +111,7 @@ def test_접두사가_가리키는_주입_인자가_실제_함수_시그니처�
     """도구를 추가했는데 인자 이름이 다르면 호출 때 TypeError가 난다 — 전수로 막는다."""
     keys = [k for k in _TOOL_MAP if k.startswith(("builtin:google_", "builtin:notion_"))]
     keys += [f"builtin:{n}" for n in _DYNAMIC_SERVICE_ACTIONS["github"]]
+    keys += list(_ACTION_ONLY_TOOLS)
     assert len(keys) > 10
     for key in keys:
         injected = action_executor._injected_args(

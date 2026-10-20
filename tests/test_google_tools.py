@@ -6,7 +6,7 @@ import pytest
 
 from common.error_code import ToolErrorCode
 from tools.google_sheets import google_sheets_read, google_sheets_write
-from tools.google_calendar import google_calendar_create, google_calendar_list
+from tools.google_calendar import google_calendar_create, google_calendar_find
 from tools.google_drive import google_drive_read, google_drive_upload
 from tests.action_outputs import assert_matches_outputs
 
@@ -162,54 +162,6 @@ async def test_google_calendar_create_success():
 
 
 # ---------------------------------------------------------------------------
-# Google Calendar List
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_google_calendar_list_success():
-    resp = _make_mock_response(200, {
-        "items": [{
-            "id": "e1",
-            "summary": "회의",
-            "start": {"dateTime": "2026-05-14T09:00:00+09:00"},
-            "end": {"dateTime": "2026-05-14T10:00:00+09:00"},
-        }],
-    })
-    client = _make_async_client(get_mock=AsyncMock(return_value=resp))
-
-    with patch("tools.google_calendar.get_http_client", return_value=client):
-        result = await google_calendar_list(
-            access_token="token",
-            time_min="2026-05-14T00:00:00+09:00",
-            time_max="2026-05-14T23:59:59+09:00",
-        )
-
-    assert_matches_outputs("google_calendar.list", result)
-    parsed = json.loads(result)
-    assert parsed["success"] is True
-    assert parsed["total"] == 1
-    assert parsed["events"][0]["summary"] == "회의"
-
-
-@pytest.mark.asyncio
-async def test_google_calendar_list_exception():
-    client = _make_async_client(
-        get_mock=AsyncMock(side_effect=httpx.TimeoutException("timeout")),
-    )
-
-    with patch("tools.google_calendar.get_http_client", return_value=client):
-        result = await google_calendar_list(
-            access_token="token",
-            time_min="2026-05-14T00:00:00+09:00",
-            time_max="2026-05-14T23:59:59+09:00",
-        )
-
-    parsed = json.loads(result)
-    assert "error" in parsed
-    assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
-
-
-# ---------------------------------------------------------------------------
 # Google Drive Read
 # ---------------------------------------------------------------------------
 
@@ -337,7 +289,10 @@ async def test_google_calendar_update_success():
         "htmlLink": "https://calendar.google.com/event?eid=abc",
     })
     patch_mock = AsyncMock(return_value=resp)
-    client = _make_async_client(patch_mock=patch_mock)
+    current = _make_mock_response(200, {"id": "event-123",
+                                        "start": {"dateTime": "2026-06-11T10:00:00+09:00"},
+                                        "end": {"dateTime": "2026-06-11T11:00:00+09:00"}})
+    client = _make_async_client(get_mock=AsyncMock(return_value=current), patch_mock=patch_mock)
 
     with patch("tools.google_calendar.get_http_client", return_value=client):
         result = await google_calendar_update(
@@ -365,7 +320,8 @@ async def test_google_calendar_update_skips_empty_datetime():
 
     resp = _make_mock_response(200, {"id": "event-123", "htmlLink": "x"})
     patch_mock = AsyncMock(return_value=resp)
-    client = _make_async_client(patch_mock=patch_mock)
+    current = _make_mock_response(200, {"id": "event-123"})
+    client = _make_async_client(get_mock=AsyncMock(return_value=current), patch_mock=patch_mock)
 
     with patch("tools.google_calendar.get_http_client", return_value=client):
         await google_calendar_update(
@@ -387,7 +343,8 @@ async def test_google_calendar_update_error():
     from tools.google_calendar import google_calendar_update
 
     resp = _make_mock_response(404, {"error": {"message": "Not Found"}})
-    client = _make_async_client(patch_mock=AsyncMock(return_value=resp))
+    client = _make_async_client(get_mock=AsyncMock(return_value=_make_mock_response(200, {"id": "missing"})),
+                                patch_mock=AsyncMock(return_value=resp))
 
     with patch("tools.google_calendar.get_http_client", return_value=client):
         result = await google_calendar_update(
@@ -415,7 +372,7 @@ _CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars/"
     ("google_calendar_create", "post",
      {"summary": "회의", "start_datetime": "2026-10-07T09:00:00+09:00",
       "end_datetime": "2026-10-07T10:00:00+09:00"}, "/events"),
-    ("google_calendar_list", "get",
+    ("google_calendar_find", "get",
      {"time_min": "2026-10-01T00:00:00+09:00", "time_max": "2026-10-31T23:59:59+09:00"}, "/events"),
     ("google_calendar_update", "patch", {"event_id": "evt-1", "summary": "변경"}, "/events/evt-1"),
 ])
@@ -424,7 +381,7 @@ async def test_google_calendar_calendar_id는_경로에_인코딩(tool, verb, kw
     import tools.google_calendar as gc
 
     call = AsyncMock(return_value=_make_mock_response(200, {"id": "evt-1", "htmlLink": "x", "items": []}))
-    client = _make_async_client(**{f"{verb}_mock": call})
+    client = _make_async_client(**{"get_mock": call, f"{verb}_mock": call})  # update는 대상 GET이 먼저다
 
     with patch("tools.google_calendar.get_http_client", return_value=client):
         result = json.loads(await getattr(gc, tool)(
@@ -440,7 +397,7 @@ async def test_google_calendar_기본_primary_경로_그대로():
     client = _make_async_client(get_mock=call)
 
     with patch("tools.google_calendar.get_http_client", return_value=client):
-        await google_calendar_list(
+        await google_calendar_find(
             access_token="token",
             time_min="2026-10-01T00:00:00+09:00",
             time_max="2026-10-31T23:59:59+09:00",
@@ -453,7 +410,7 @@ async def _calendar_list_url(calendar_id) -> str:
     call = AsyncMock(return_value=_make_mock_response(200, {"items": []}))
     client = _make_async_client(get_mock=call)
     with patch("tools.google_calendar.get_http_client", return_value=client):
-        await google_calendar_list(
+        await google_calendar_find(
             access_token="token",
             time_min="2026-10-01T00:00:00+09:00",
             time_max="2026-10-31T23:59:59+09:00",
@@ -482,7 +439,8 @@ async def test_google_calendar_update_event_id_경로_인코딩():
     from tools.google_calendar import google_calendar_update
 
     call = AsyncMock(return_value=_make_mock_response(200, {"id": "x", "htmlLink": "x"}))
-    client = _make_async_client(patch_mock=call)
+    current = _make_mock_response(200, {"id": "a/b?x=1"})
+    client = _make_async_client(get_mock=AsyncMock(return_value=current), patch_mock=call)
     with patch("tools.google_calendar.get_http_client", return_value=client):
         await google_calendar_update(access_token="token", event_id="a/b?x=1", summary="변경")
 
