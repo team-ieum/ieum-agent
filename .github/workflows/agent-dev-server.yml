@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: agent_dev_server
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   PYTHON_VERSION: '3.11'
@@ -102,31 +102,11 @@ jobs:
             -t $IMAGE_NAME:${{ github.sha }} \
             -t $IMAGE_NAME:latest .
 
-      - name: Restart agent container
-        run: |
-          docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1 \
-            || docker network create --subnet 10.10.10.0/24 "$DOCKER_NETWORK"
-
-          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-
-          docker run -d \
-            --name "$CONTAINER_NAME" \
-            --restart unless-stopped \
-            --network "$DOCKER_NETWORK" \
-            --ip "$AGENT_IP" \
-            --env-file "$ENV_FILE" \
-            "$IMAGE_NAME:latest"
-
-      - name: Health check
+      - name: Deploy through shared blue-green controller
         env:
-          PORT: ${{ secrets.AGENT_PORT }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          for i in $(seq 1 30); do
-            if curl -fsS "http://$AGENT_IP:$PORT/health" >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-
-          docker logs --tail 100 "$CONTAINER_NAME"
-          exit 1
+          set -euo pipefail
+          python3 /home/kwung/deploy/bluegreen/bluegreen.py deploy \
+            --service agent \
+            --image "$IMAGE_NAME:$IMAGE_TAG"
