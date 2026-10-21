@@ -18,6 +18,8 @@ env:
 
 jobs:
   deploy:
+    # Covers bounded cross-repository lock waiting plus this job's build and deployment.
+    timeout-minutes: 360
     name: Deploy Agent to Self Hosted Server
     runs-on:
       group: ieum_dev_server
@@ -107,7 +109,7 @@ jobs:
               raise SystemExit('Agent environment values must be single lines')
           Path(sys.argv[1]).write_text(''.join(key + '=' + value + '\n' for key, value in values.items()))
           PY
-          python3 /home/kwung/deploy/bluegreen/bluegreen.py deploy \
+          python3 /home/kwung/deploy/bluegreen/bluegreen.py --lock-timeout 14400 deploy \
             --service agent \
             --image "$IMAGE_NAME:$IMAGE_TAG" \
             --env-file "$candidate_env"
