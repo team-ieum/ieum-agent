@@ -49,7 +49,7 @@ def test_entry_shape_and_default_attrs_omitted():
     e = next(e for e in node_catalog()["entries"] if e["id"] == "schedule.every")
     assert e == {
         "id": "schedule.every", "kind": "trigger", "provider": "ieum",
-        "nodeType": "TRIGGER", "app": "schedule",
+        "nodeType": "TRIGGER", "app": "schedule", "appTitle": "스케줄",
         "title": "스케줄", "description": "정해둔 시각마다 시작해요.",
         "fixed": {"type": "TRIGGER", "event": "schedule.every", "config": {"brand": "webhook"}},
         "inputFields": [{"key": "cron", "title": "실행 주기", "type": "cron", "required": True,
@@ -85,6 +85,26 @@ def test_dynamic_markers_and_app_in_entries():
     assert by_id["google_sheets.write"]["app"] == "google_sheets"
     assert by_id["gmail.new_email"]["app"] == "gmail"
     assert by_id["manual.run"]["app"] == "manual"      # 내장 항목도 앱 키가 있다
+
+
+def test_도구_선택지마다_toolKey가_같은_ACTION_항목이_하나다():
+    """FE가 AI 도구 칸을 ACTION 항목 inputFields로 그린다(FE 순서 0-F) — choice.id == entry.toolKey로 찾는다."""
+    entries = node_catalog()["entries"]
+    agent = next(e for e in entries if e["id"] == "ai.agent")
+    choices = next(f for f in agent["inputFields"] if f["key"] == "tools")["choices"]
+    assert choices
+    for c in choices:
+        hits = [e for e in entries if e.get("toolKey") == c["id"]]
+        assert len(hits) == 1, c
+        assert (hits[0]["nodeType"], hits[0]["title"]) == ("ACTION", c["name"])
+    assert "toolKey" not in agent                      # 도구 없는 항목은 키를 생략한다
+
+
+def test_앱_표시_이름은_apps_json_title이다():
+    by_id = {e["id"]: e for e in node_catalog()["entries"]}
+    assert by_id["slack.send_message"]["appTitle"] == "Slack (웹훅)"
+    assert by_id["slack_bot.send_channel_message"]["appTitle"] == "Slack"
+    assert by_id["google_calendar.find"]["appTitle"] == "Google Calendar"
 
 
 def test_agent_tools_field_is_not_ref():

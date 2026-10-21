@@ -205,6 +205,7 @@ def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
     cfg = t["fixed"].setdefault("config", {})
     app = apps.get(t["app"]) if t.get("app") else None
     t["provider"] = app["provider"] if app else None
+    t["app_title"] = app["title"] if app else None
     common = AI_COMMON_FIELDS if t["node_type"] == "AI" else []
     direct = [{**f, "path": f.get("path") or f"config.{f['key']}"}
               for f in merge_common(common, t.get("inputFields") or [])]

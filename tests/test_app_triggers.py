@@ -16,7 +16,7 @@ def _entry(tid: str) -> dict:
 def test_gmail_entry_shape():
     assert _entry(GMAIL) == {
         "id": GMAIL, "kind": "trigger", "provider": "google",
-        "nodeType": "TRIGGER", "app": "gmail",
+        "nodeType": "TRIGGER", "app": "gmail", "appTitle": "Gmail",
         "title": "새 Gmail 메일", "description": "받은편지함에 새 메일이 오면 시작해요.",
         "fixed": {"type": "TRIGGER", "event": GMAIL, "config": {"brand": "gmail"}},
         "inputFields": [{"key": "query", "title": "검색 조건", "type": "string", "ref": False,
@@ -39,7 +39,7 @@ def test_gmail_entry_shape():
 def test_github_entry_shape():
     assert _entry(GITHUB) == {
         "id": GITHUB, "kind": "trigger", "provider": "github",
-        "nodeType": "TRIGGER", "app": "github",
+        "nodeType": "TRIGGER", "app": "github", "appTitle": "GitHub",
         "title": "새 GitHub 이슈", "description": "저장소에 새 이슈가 열리면 시작해요.",
         "fixed": {"type": "TRIGGER", "event": GITHUB, "config": {"brand": "github"}},
         "inputFields": [{"key": "repoId", "title": "저장소", "type": "string", "required": True, "ref": False,
