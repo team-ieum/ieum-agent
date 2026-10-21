@@ -60,7 +60,7 @@ jobs:
                   raise ValueError()
               # Leave two minutes before the runner's 360-minute job timeout.
               deadline = int(started.timestamp()) + 360 * 60 - 120
-              if deadline - now < 7200:
+              if deadline - now < 9000:
                   raise ValueError()
               with open(os.environ['GITHUB_ENV'], 'a') as output:
                   output.write('IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH=' + str(deadline) + '\n')
