@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: agent_dev_server
@@ -26,6 +27,48 @@ jobs:
       labels: [self-hosted, linux, x64, ieum-agent]
 
     steps:
+      - name: Establish deployment job budget
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBUDGET'
+          from datetime import datetime, timezone
+          import json
+          import os
+          import time
+          import urllib.request
+
+          try:
+              # A workflow attempt starts before this job, so queue/setup time reduces the budget too.
+              run_id, attempt = os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT']
+              endpoint = (os.environ['GITHUB_API_URL'].rstrip('/') + '/repos/' + os.environ['GITHUB_REPOSITORY']
+                  + '/actions/runs/' + run_id + '/attempts/' + attempt)
+              request = urllib.request.Request(endpoint, headers={
+                  'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
+                  'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  raw = response.read(1024 * 1024 + 1)
+              if len(raw) > 1024 * 1024:
+                  raise ValueError()
+              data = json.loads(raw)
+              if str(data['id']) != run_id or str(data['run_attempt']) != attempt:
+                  raise ValueError()
+              started = datetime.fromisoformat(data['run_started_at'].replace('Z', '+00:00'))
+              now = time.time()
+              if started.tzinfo is None or started.timestamp() > now:
+                  raise ValueError()
+              # Leave two minutes before the runner's 360-minute job timeout.
+              deadline = int(started.timestamp()) + 360 * 60 - 120
+              if deadline - now < 7200:
+                  raise ValueError()
+              with open(os.environ['GITHUB_ENV'], 'a') as output:
+                  output.write('IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH=' + str(deadline) + '\n')
+          except Exception:
+              # Never echo the request, token, response or environment.
+              raise SystemExit('Unable to establish sufficient deployment job time; retry in a fresh job') from None
+          PYBUDGET
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -110,6 +153,7 @@ jobs:
           Path(sys.argv[1]).write_text(''.join(key + '=' + value + '\n' for key, value in values.items()))
           PY
           python3 /home/kwung/deploy/bluegreen/bluegreen.py --lock-timeout 14400 deploy \
+            --job-deadline-epoch "$IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH" \
             --service agent \
             --image "$IMAGE_NAME:$IMAGE_TAG" \
             --env-file "$candidate_env"
