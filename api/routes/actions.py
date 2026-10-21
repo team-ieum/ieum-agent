@@ -40,6 +40,7 @@ async def execute_action(
             google_access_token=credentials["google_access_token"],
             notion_token=credentials["notion_token"],
             github_token=credentials["github_token"],
+            slack_token=credentials["slack_token"],
         )
     except BaseException:
         # 취소(CancelledError)로 빠져도 IN_PROGRESS가 남으면 재시도가 막힌다. shield 이유는 api/routes/execute.py 참고.

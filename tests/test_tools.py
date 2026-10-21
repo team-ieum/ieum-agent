@@ -194,6 +194,49 @@ async def test_send_slack_message_failure():
     assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
 
 
+def test_send_slack_message에는_channel_파라미터가_없다():
+    """결정 ①: 웹훅 노드 channel 칸 제거 = 시그니처·docstring에서 제거(칸은 시그니처에서 파생된다)."""
+    assert list(inspect.signature(send_slack_message).parameters) == ["webhook_url", "message"]
+    assert "channel" not in send_slack_message.__doc__
+
+
+@pytest.mark.asyncio
+async def test_저장된_config_channel은_ACTION_실행에서_무시된다():
+    from api.schemas.request import ActionExecutionRequest
+    from core.action_executor import run_action
+    from tools import _TOOL_MAP
+
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    post = AsyncMock(return_value=response)
+    request = ActionExecutionRequest(nodeId="n1", toolKey="slack", config={
+        "webhook_url": "https://hooks.slack.com/x", "message": "hi", "channel": "#old", "webhookCredentialId": "wh-1"})
+
+    with patch("tools.slack.get_http_client", return_value=_make_async_http_client(post)), \
+         patch("core.action_executor.save_execution_log", new=AsyncMock()), \
+         patch("core.execution_guard.socket.gethostbyname", return_value="8.8.8.8"):
+        result = await run_action(_TOOL_MAP["slack"], request, "u1")
+
+    assert result.success is True
+    assert post.call_args.kwargs["json"] == {"text": "hi"}
+
+
+@pytest.mark.asyncio
+async def test_저장된_tools_config_channel은_AI_도구에_바인딩되지_않는다():
+    """바인딩된 함수를 실제로 불러 payload를 본다 — 시그니처만 보면 옛 코드(_bind_config가 channel을 묶어 빼던 때)도 통과한다."""
+    tool = get_tools_for_request([{"name": "slack", "config": {"webhook_url": "https://hooks.slack.com/x",
+                                                               "channel": "#old"}}])[0]
+    fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    post = AsyncMock(return_value=response)
+
+    with patch("tools.slack.get_http_client", return_value=_make_async_http_client(post)):
+        await fn(message="hi")
+
+    assert post.call_args.kwargs["json"] == {"text": "hi"}
+
+
 # ---------------------------------------------------------------------------
 # Discord
 # ---------------------------------------------------------------------------

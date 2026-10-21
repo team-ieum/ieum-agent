@@ -131,6 +131,15 @@ def test_output_validator_github_token_variants_masking():
     assert "[MASKED_GITHUB_TOKEN]" in masked
 
 
+def test_output_validator_slack_token_masking():
+    # 봇(xoxb-), refresh(xoxe-), 회전 봇 토큰(xoxe.xoxb-), 사용자(xoxp-) — 응답·로그 마스킹 둘 다
+    raw_text = "bot xoxb-1-AbC9 refresh xoxe-1-XyZ8 rotated xoxe.xoxb-1-RoT7 user xoxp-9-Qq6"
+    for masked in (OutputValidator.mask_response_content(raw_text), OutputValidator.mask_log_content(raw_text)):
+        for secret in ("xoxb-1-AbC9", "xoxe-1-XyZ8", "xoxb-1-RoT7", "xoxp-9-Qq6"):
+            assert secret not in masked
+        assert "[MASKED_SLACK_TOKEN]" in masked
+
+
 def test_output_validator_bearer_masking():
     raw_text = "Authorization: Bearer mySecretTokenValue123!!"
     masked_res = OutputValidator.mask_response_content(raw_text)

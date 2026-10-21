@@ -5,6 +5,7 @@ import re
 from google.adk.tools.function_tool import FunctionTool
 
 from tools.slack import send_slack_message
+from tools.slack_bot import slack_send_channel_message
 from tools.discord import send_discord_webhook
 from tools.gmail import send_gmail
 from tools.http_fetch import http_fetch
@@ -68,6 +69,7 @@ def _bind_config(fn, config: dict | None):
 
 _TOOL_MAP: dict = {
     "slack": send_slack_message,
+    "builtin:slack_send_channel_message": slack_send_channel_message,
     "discord": send_discord_webhook,
     "gmail": send_gmail,
     "builtin:http_fetch": http_fetch,

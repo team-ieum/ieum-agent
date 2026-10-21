@@ -5,6 +5,8 @@ from typing import Any, Dict, List
 GOOGLE_TOKEN_PATTERN = r"ya29\.[a-zA-Z0-9_\-]+"
 NOTION_TOKEN_PATTERN = r"secret_[a-zA-Z0-9_\-]+"
 GITHUB_TOKEN_PATTERN = r"gh[opsu]_[a-zA-Z0-9_]+|github_pat_[a-zA-Z0-9_]+"
+# Slack 봇(xoxb-)·refresh(xoxe-)·사용자(xoxp-). 회전 봇 토큰 xoxe.xoxb-…는 xoxb- 부분이 걸린다.
+SLACK_TOKEN_PATTERN = r"xox[bep]-[a-zA-Z0-9\-]+"
 # 일반적인 API Key 및 Bearer 토큰 패턴
 API_KEY_PATTERN = r"(?i)(['\"]?(?:api[-_]?key|auth|token|credential)['\"]?)\s*[:=]\s*['\"]([a-zA-Z0-9_\-\.\=\+]{8,})['\"]"
 BEARER_TOKEN_PATTERN = r"(?i)bearer\s+([a-zA-Z0-9_\-\.\/\=\+]{10,})"
@@ -42,6 +44,9 @@ class OutputValidator:
 
         # 3. GitHub Token 마스킹
         text = re.sub(GITHUB_TOKEN_PATTERN, "[MASKED_GITHUB_TOKEN]", text)
+
+        # 3-1. Slack 토큰 마스킹
+        text = re.sub(SLACK_TOKEN_PATTERN, "[MASKED_SLACK_TOKEN]", text)
 
         # 4. Bearer 토큰 패턴 마스킹
         text = re.sub(BEARER_TOKEN_PATTERN, "Bearer [MASKED_BEARER_TOKEN]", text)

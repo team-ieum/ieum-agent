@@ -137,7 +137,11 @@
             },
             {
               "id": "slack",
-              "name": "Slack 메시지 보내기"
+              "name": "Slack 웹훅으로 보내기"
+            },
+            {
+              "id": "builtin:slack_send_channel_message",
+              "name": "Slack 채널에 메시지 보내기"
             }
           ],
           "description": "AI가 쓸 앱 동작을 골라요. 고른 도구의 칸은 직접 채우거나 AI에게 맡길 수 있어요.",
@@ -2058,13 +2062,6 @@
           "type": "text"
         },
         {
-          "description": "비우면 웹훅 기본 채널",
-          "key": "channel",
-          "path": "config.channel",
-          "title": "채널",
-          "type": "string"
-        },
-        {
           "key": "webhookCredentialId",
           "optionsSource": "slack.webhooks",
           "path": "config.webhookCredentialId",
@@ -2084,7 +2081,66 @@
         }
       ],
       "provider": "slack",
-      "title": "Slack 메시지 보내기"
+      "title": "Slack 웹훅으로 보내기"
+    },
+    {
+      "app": "slack_bot",
+      "description": "연결한 Slack 워크스페이스의 공개 채널에 봇으로 메시지를 보내요.",
+      "fixed": {
+        "config": {
+          "brand": "slack"
+        },
+        "event": "slack_bot.send_channel_message",
+        "type": "ACTION"
+      },
+      "id": "slack_bot.send_channel_message",
+      "inputFields": [
+        {
+          "key": "channel",
+          "optionsSource": "slack.channels",
+          "path": "config.channel",
+          "required": true,
+          "title": "채널",
+          "type": "string"
+        },
+        {
+          "description": "4만 자가 넘으면 Slack이 잘라 보내요",
+          "key": "text",
+          "path": "config.text",
+          "required": true,
+          "title": "메시지",
+          "type": "text"
+        },
+        {
+          "default": "",
+          "description": "비우면 새 메시지. 답글을 달 메시지의 ts",
+          "key": "thread_ts",
+          "path": "config.thread_ts",
+          "title": "스레드",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "ts",
+          "title": "메시지 ts",
+          "type": "string"
+        },
+        {
+          "key": "channel",
+          "title": "채널 ID",
+          "type": "string"
+        },
+        {
+          "key": "permalink",
+          "title": "메시지 링크",
+          "type": "string"
+        }
+      ],
+      "provider": "slack",
+      "title": "Slack 채널에 메시지 보내기"
     },
     {
       "app": "transform",

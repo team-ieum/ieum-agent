@@ -5,6 +5,7 @@ from agents.base import (
     _make_partial,
     _bind_google_token,
     _bind_notion_token,
+    _bind_slack_token,
     _bind_workflow_context,
 )
 from tools import _TOOL_MAP, get_tools_for_request
@@ -103,6 +104,20 @@ def test_bind_google_token_binds_every_google_tool(tool_key):
 def test_bind_notion_token_binds_every_notion_tool(tool_key):
     assert "token" in inspect.signature(_TOOL_MAP[tool_key]).parameters
     assert "token" not in _params_after(_bind_notion_token, tool_key, "notion-token")
+
+
+@pytest.mark.parametrize("tool_key", sorted(k for k in _TOOL_MAP if k.startswith("builtin:slack_")))
+def test_bind_slack_token_binds_every_slack_bot_tool(tool_key):
+    assert "token" in inspect.signature(_TOOL_MAP[tool_key]).parameters
+    assert "token" not in _params_after(_bind_slack_token, tool_key, "xoxb-test")
+    bound = _bind_slack_token(get_tools_for_request([{"name": tool_key}]), "xoxb-test")
+    assert "token:" not in (getattr(bound[0], "func", None) or getattr(bound[0], "_func", None)).__doc__
+
+
+def test_bind_slack_token_does_not_touch_webhook_or_notion():
+    tools = get_tools_for_request([{"name": "slack"}, {"name": "builtin:notion_search"}])
+    bound = _bind_slack_token(tools, "xoxb-test")
+    assert [getattr(b, "func", None) for b in bound] == [getattr(t, "func", None) for t in tools]
 
 
 # ---------- _bind_workflow_context ----------

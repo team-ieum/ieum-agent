@@ -137,10 +137,12 @@ def test_action_entries_mirror_app_presets():
         assert action["tool_key"] == preset["tool_key"]
         assert action["fixed"] == {"type": "ACTION", "event": action["id"], "config": {}}
     # 앱 프리셋의 거울 + 프리셋 없는 GitHub 액션 + AI에 싣지 않는 캘린더 삭제(ACTION 전용)
+    # + 프리셋 없이 ai.agent 도구 선택지로만 AI에 싣는 Slack 봇(spec 2026-10-20 §9)
     mirrored = {t["id"] for t in entries.values() if t["node_type"] == "ACTION"
                 and any(entries[pid]["tool_key"] == t["tool_key"] for pid in APP_PRESETS)}
     assert {t["id"] for t in entries.values() if t["node_type"] == "ACTION"} == \
-        mirrored | {"github.list_issues", "github.create_issue", "google_calendar.delete"}
+        mirrored | {"github.list_issues", "github.create_issue", "google_calendar.delete",
+                    "slack_bot.send_channel_message"}
 
 
 @pytest.mark.parametrize("tid, tool_key, keys", [

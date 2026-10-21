@@ -116,6 +116,18 @@ def test_필수_칸_비면_REQUIRED_칸_path와_title():
     assert errors[0]["nodeId"] == "s" and "선택하세요" in errors[0]["message"]
 
 
+def test_웹훅_노드에_남은_channel_값은_검증을_막지_않는다():
+    """channel 칸을 지우기 전에 저장된 노드가 정적 검증·실행 차단에 걸리면 안 된다."""
+    nodes, edges = _chain(_act("s", "slack.send_message", webhookCredentialId="wh-1", message="안녕", channel="#old"))
+    assert validate_workflow(nodes, edges) == []
+
+
+def test_Slack_봇_노드는_채널과_메시지가_필수다():
+    node = _act("s", "slack_bot.send_channel_message", thread_ts="")
+    assert [(e["code"], e["field"]) for e in field_errors(node)] == \
+        [("REQUIRED", "config.channel"), ("REQUIRED", "config.text")]
+
+
 def test_default_있는_필수_칸은_비어도_통과():
     node = {"id": "h", "type": "HTTP", "event": "http.request", "config": {"url": "https://example.com"}}  # method default GET
     assert field_errors(node) == []
@@ -400,6 +412,7 @@ FIXED_NODE_REQUIRED = {
     "notion.search": ["config.query"],
     "notion.update_page": ["config.page_id"],
     "slack.send_message": ["config.message", "config.webhookCredentialId"],
+    "slack_bot.send_channel_message": ["config.channel", "config.text"],
     "ai.reasoning": ["config.llmProvider", "config.prompt"],
     "github.new_issue": ["config.repoId"],
     "gmail.new_email": [],

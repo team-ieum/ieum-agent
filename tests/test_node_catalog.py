@@ -102,6 +102,7 @@ def test_option_source_fields_fixed_set():
     expected = {(a, k) for a in ai for k in ("model", "credentialId")} | {
         ("http.request", "webhookCredentialId"),
         ("slack.send_message", "webhookCredentialId"), ("discord.send_message", "webhookCredentialId"),
+        ("slack_bot.send_channel_message", "channel"),
         *[(f"google_sheets.{x}", k) for x in ("read", "write", "append")
           for k in ("spreadsheet_id", "sheet_name")],
         ("google_calendar.create", "calendar_id"), ("google_calendar.find", "calendar_id"),
@@ -173,6 +174,7 @@ EXPECTED_BRANDS = {
     "gmail.new_email": "gmail", "github.new_issue": "github",
     "http.request": "webhook", "approval.request": "webhook", "branch.if": "filter", "transform.map": "filter",
     "slack.send_message": "slack", "discord.send_message": "discord",
+    "slack_bot.send_channel_message": "slack",
     "notion.create_page": "notion", "notion.read_page": "notion",
     "notion.search": "notion", "notion.update_page": "notion",
     "notion.append_block": "notion", "notion.query_database": "notion",
@@ -281,6 +283,33 @@ def test_find_출력은_검색_약속을_따른다():
     """SCHEMA 앱 이벤트 약속 1 — found·total·items 필수."""
     keys = {f["key"] for f in tr.get_template("google_calendar.find")["outputFields"]}
     assert {"found", "total", "items"} <= keys
+
+
+def test_slack_bot_채널_메시지_계약():
+    """spec 2026-10-20 §9 — 칸·드롭다운·출력이 BE(slack.channels)·도구 시그니처와 맞물린다."""
+    e = _action("slack_bot.send_channel_message")
+    assert (e["app"], e["provider"], e["kind"], e["fixed"]["config"]["brand"]) == \
+        ("slack_bot", "slack", "action", "slack")
+    fields = {f["key"]: f for f in e["inputFields"]}
+    assert list(fields) == ["channel", "text", "thread_ts"]           # token은 주입 인자라 빠진다
+    assert (fields["channel"]["title"], fields["channel"]["optionsSource"], fields["channel"]["required"]) == \
+        ("채널", "slack.channels", True)
+    assert (fields["text"]["type"], fields["text"]["required"]) == ("text", True)
+    assert not fields["thread_ts"].get("required")
+    assert [f["key"] for f in e["outputFields"]] == ["ts", "channel", "permalink"]
+
+
+def test_slack_웹훅_노드는_이름을_바꾸고_channel_칸이_없다():
+    e = _action("slack.send_message")
+    assert e["title"] == "Slack 웹훅으로 보내기"
+    assert {f["key"] for f in e["inputFields"]} == {"message", "webhookCredentialId"}
+
+
+def test_AI_노드_도구_선택지에_Slack_두_가지가_이름으로_나뉜다():
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    names = {c["id"]: c["name"] for c in tools["choices"]}
+    assert names["slack"] == "Slack 웹훅으로 보내기"
+    assert names["builtin:slack_send_channel_message"] == "Slack 채널에 메시지 보내기"
 
 
 def test_catalog_entries_snapshot():
