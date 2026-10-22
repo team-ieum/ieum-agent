@@ -251,9 +251,15 @@ async def test_429는_본문_retry_after만큼_한_번_기다렸다_다시_부�
 
 
 @pytest.mark.asyncio
-async def test_retry_after가_5초를_넘으면_기다리지_않고_실패한다():
-    """다시 불러도 429다 — 429도 invalid request 한도에 든다(spec §13)."""
-    client, seen = _discord(send=[(429, {"message": "rate limited", "retry_after": 30.0}), (200, SENT)])
+@pytest.mark.parametrize("limited", [
+    {"message": "rate limited", "retry_after": 30.0},
+    '{"message": "rate limited", "retry_after": NaN}',       # JSON 본문에 NaN 리터럴 — max(nan, 0)은 nan
+    '{"message": "rate limited", "retry_after": Infinity}',
+    {"message": "rate limited", "retry_after": "NaN"},
+])
+async def test_retry_after가_5초를_넘으면_기다리지_않고_실패한다(limited):
+    """다시 불러도 429다 — 429도 invalid request 한도에 든다(spec §13). NaN·inf도 기다리지 않는다."""
+    client, seen = _discord(send=[(429, limited), (200, SENT)])
     sleep = AsyncMock()
 
     with patch("tools.discord_bot.asyncio.sleep", new=sleep):

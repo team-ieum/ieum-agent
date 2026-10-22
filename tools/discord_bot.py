@@ -71,13 +71,13 @@ def _json(response) -> dict:
 
 
 def _retry_after(body: dict) -> float | None:
-    """429 본문의 retry_after(소수 초). 없거나 숫자가 아니면 1초, 5초를 넘으면 None(기다리지 않는다)."""
+    """429 본문의 retry_after(소수 초). 없거나 숫자가 아니면 1초, 5초를 넘거나 NaN이면 None(기다리지 않는다)."""
     try:
         seconds = float(body.get("retry_after", 1.0))
     except (TypeError, ValueError):
         seconds = 1.0
-    seconds = max(seconds, 0.0)
-    return None if seconds > _MAX_RETRY_WAIT else seconds
+    # NaN은 모든 비교가 거짓 — `<=`로 물어야 NaN·inf가 None으로 떨어진다
+    return max(seconds, 0.0) if seconds <= _MAX_RETRY_WAIT else None
 
 
 async def _call(verb: str, path: str, token: str, **kwargs) -> tuple[int, dict]:
