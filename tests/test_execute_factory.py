@@ -885,3 +885,104 @@ async def test_run_react_agent_slack_token은_멀티_에이전트를_강제하�
 
     mock_agent_tool.assert_not_called()
     assert captured[-1]["name"] == "ieum_single_agent"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_single_agent", [True, False])
+@pytest.mark.parametrize("header_ids", [["111111111111111111"], []])
+async def test_run_react_agent_discord는_두_경로_모두_헤더값이_tools_config를_이긴다(use_single_agent, header_ids):
+    """불변식 (b): tools[].config에 token·allowed_guild_ids를 넣어도 바깥 partial(헤더 값)이 이긴다 — 헤더 목록이
+    비어도 []로 묶여 위조 목록이 살아남지 않는다. 바인딩된 함수를 실제로 불러 확인한다."""
+    import inspect
+    import json
+    from agents.execute.factory import run_react_agent
+
+    captured = []
+
+    def _llm_agent(**kwargs):
+        captured.append(kwargs)
+        return MagicMock()
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(1, final_text="보냈어요")
+
+    mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock(); mock_session.id = "s-discord"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    forged = "999999999999999999"
+    req = _make_request(tools=[{"name": "builtin:discord_send_channel_message",
+                                "config": {"channel_id": "333333333333333333", "token": "attacker",
+                                           "allowed_guild_ids": [forged]}}])
+
+    with patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
+         patch("agents.execute.factory.AgentTool", side_effect=lambda agent: MagicMock()), \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            provider="GEMINI",
+            request=req,
+            api_key="test-key",
+            user_id="u1",
+            discord_token="bot-t",
+            discord_guild_ids=header_ids,
+            session_service=mock_ss,
+            use_single_agent=use_single_agent,
+        )
+
+    tool = next(t for t in captured[-1]["tools"] if getattr(t, "name", None) == "discord_send_channel_message")
+    fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
+    assert (fn.keywords["token"], fn.keywords["allowed_guild_ids"]) == ("bot-t", header_ids)
+    assert list(inspect.signature(fn).parameters) == ["content"]
+
+    # 위조 서버의 채널이라고 답하는 Discord — 헤더 목록에 없으니 POST 없이 거절돼야 한다
+    get = AsyncMock(return_value=MagicMock(status_code=200, json=MagicMock(
+        return_value={"id": "333333333333333333", "type": 0, "guild_id": forged})))
+    post = AsyncMock(side_effect=AssertionError("POST 없음"))
+    with patch("tools.discord_bot.get_http_client", return_value=MagicMock(get=get, post=post)):
+        result = json.loads(await fn(content="hi"))
+    assert "error" in result and post.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_run_react_agent_discord_token은_멀티_에이전트를_강제하지_않는다():
+    """Discord 토큰도 빌트인 도구 바인딩에만 쓰인다 — Discord+Notion 노드도 단일 경로."""
+    from agents.execute.factory import run_react_agent
+
+    captured = []
+
+    def _llm_agent(**kwargs):
+        captured.append(kwargs)
+        return MagicMock()
+
+    async def _fake_run_async(**kwargs):
+        yield _make_event_with_calls(1, final_text="ok")
+
+    mock_runner = MagicMock(); mock_runner.run_async = _fake_run_async
+    mock_session = MagicMock(); mock_session.id = "s-discord-notion"
+    mock_ss = MagicMock()
+    mock_ss.create_session = AsyncMock(return_value=mock_session)
+    mock_ss.delete_session = AsyncMock()
+
+    req = _make_request(tools=[{"name": "builtin:discord_send_channel_message"}, {"name": "builtin:notion_search"}])
+
+    with patch("agents.execute.factory.build_notion_agent", new=AsyncMock(return_value=(MagicMock(tools=[]), []))), \
+         patch("agents.execute.factory.LlmAgent", side_effect=_llm_agent), \
+         patch("agents.execute.factory.AgentTool") as mock_agent_tool, \
+         patch("agents.execute.factory.Runner", return_value=mock_runner):
+        await run_react_agent(
+            model="gemini-2.5-flash",
+            provider="GEMINI",
+            request=req,
+            api_key="test-key",
+            user_id="u1",
+            discord_token="bot-t",
+            discord_guild_ids=["111111111111111111"],
+            notion_token="notion-token",
+            session_service=mock_ss,
+        )
+
+    mock_agent_tool.assert_not_called()
+    assert captured[-1]["name"] == "ieum_single_agent"

@@ -27,6 +27,7 @@ async def _call_middleware(**overrides):
         x_notion_token=None,
         x_github_token=None,
         x_slack_token=None,
+        x_discord_token=None,
         x_key_mode=None,
     )
     kwargs.update(overrides)
@@ -38,6 +39,26 @@ async def test_X_Slack_Token은_slack_token으로_넘어간다():
     creds = await _call_middleware(x_llm_api_key="sk-user", x_slack_token="xoxb-test")
     assert creds["slack_token"] == "xoxb-test"
     assert (await _call_middleware(x_llm_api_key="sk-user"))["slack_token"] is None
+
+
+@pytest.mark.asyncio
+async def test_X_Discord_헤더는_봇_토큰과_서버_ID_목록으로_넘어간다():
+    creds = await _call_middleware(x_llm_api_key="sk-user", x_discord_token="bot-t",
+                                   x_discord_guild_ids=" 111 , 222,,333 ")
+    assert (creds["discord_token"], creds["discord_guild_ids"]) == ("bot-t", ["111", "222", "333"])
+    # 서버 목록을 넘기지 않으면 기본값 Header() 객체가 들어온다 — str이 아니면 []
+    creds = await _call_middleware(x_llm_api_key="sk-user")
+    assert (creds["discord_token"], creds["discord_guild_ids"]) == (None, [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw, ids", [("", []), (" , ", []), ("111", ["111"]), (None, [])])
+async def test_ACTION_크레덴셜도_X_Discord_Guild_Ids를_목록으로_넘긴다(raw, ids):
+    from api.middleware.credential import get_action_credentials
+    creds = await get_action_credentials(x_user_id="u1", x_google_access_token=None, x_notion_token=None,
+                                         x_github_token=None, x_slack_token=None, x_discord_token="bot-t",
+                                         x_discord_guild_ids=raw)
+    assert (creds["discord_token"], creds["discord_guild_ids"]) == ("bot-t", ids)
 
 
 @pytest.mark.asyncio

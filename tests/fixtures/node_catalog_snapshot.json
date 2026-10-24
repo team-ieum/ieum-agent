@@ -78,7 +78,11 @@
           "choices": [
             {
               "id": "discord",
-              "name": "Discord 메시지 보내기"
+              "name": "Discord 웹훅으로 보내기"
+            },
+            {
+              "id": "builtin:discord_send_channel_message",
+              "name": "Discord 채널에 메시지 보내기"
             },
             {
               "id": "builtin:google_calendar_create",
@@ -431,7 +435,7 @@
     },
     {
       "app": "discord",
-      "appTitle": "Discord",
+      "appTitle": "Discord (웹훅)",
       "description": "등록한 웹훅으로 Discord에 메시지를 보내요.",
       "fixed": {
         "config": {
@@ -470,14 +474,84 @@
       "nodeType": "ACTION",
       "outputFields": [
         {
-          "key": "message",
-          "title": "결과 메시지",
+          "key": "id",
+          "title": "메시지 ID",
+          "type": "string"
+        },
+        {
+          "key": "channel_id",
+          "title": "채널 ID",
           "type": "string"
         }
       ],
       "provider": "discord",
-      "title": "Discord 메시지 보내기",
+      "title": "Discord 웹훅으로 보내기",
       "toolKey": "discord"
+    },
+    {
+      "app": "discord_bot",
+      "appTitle": "Discord",
+      "description": "연결한 Discord 서버의 채널에 봇으로 메시지를 보내요.",
+      "fixed": {
+        "config": {
+          "brand": "discord"
+        },
+        "event": "discord_bot.send_channel_message",
+        "type": "ACTION"
+      },
+      "id": "discord_bot.send_channel_message",
+      "inputFields": [
+        {
+          "description": "채널 목록을 고르는 데만 써요. 보낼 곳은 채널이 정해요",
+          "key": "guild_id",
+          "optionsSource": "discord.guilds",
+          "path": "config.guild_id",
+          "ref": false,
+          "title": "서버",
+          "type": "string"
+        },
+        {
+          "key": "channel_id",
+          "optionsInputs": [
+            "guild_id"
+          ],
+          "optionsSource": "discord.channels",
+          "path": "config.channel_id",
+          "required": true,
+          "title": "채널",
+          "type": "string"
+        },
+        {
+          "description": "최대 2,000자. @everyone·역할 멘션은 알림이 가지 않아요",
+          "key": "content",
+          "path": "config.content",
+          "required": true,
+          "title": "메시지",
+          "type": "text"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "id",
+          "title": "메시지 ID",
+          "type": "string"
+        },
+        {
+          "key": "channel_id",
+          "title": "채널 ID",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "title": "메시지 링크",
+          "type": "string"
+        }
+      ],
+      "provider": "discord",
+      "title": "Discord 채널에 메시지 보내기",
+      "toolKey": "builtin:discord_send_channel_message"
     },
     {
       "app": "github",

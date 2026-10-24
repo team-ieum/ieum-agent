@@ -110,15 +110,48 @@ async def test_토큰은_서비스_접두사로_갈라_주입한다(tool_key, pa
 
 def test_접두사가_가리키는_주입_인자가_실제_함수_시그니처에_있다():
     """도구를 추가했는데 인자 이름이 다르면 호출 때 TypeError가 난다 — 전수로 막는다."""
-    keys = [k for k in _TOOL_MAP if k.startswith(("builtin:google_", "builtin:notion_", "builtin:slack_"))]
+    keys = [k for k in _TOOL_MAP
+            if k.startswith(("builtin:google_", "builtin:notion_", "builtin:slack_", "builtin:discord_"))]
     keys += [f"builtin:{n}" for n in _DYNAMIC_SERVICE_ACTIONS["github"]]
     keys += list(_ACTION_ONLY_TOOLS)
     assert len(keys) > 10
     for key in keys:
         injected = action_executor._injected_args(
-            key, google_access_token="g", notion_token="n", github_token="h", slack_token="s")
-        assert len(injected) == 1, key
+            key, google_access_token="g", notion_token="n", github_token="h", slack_token="s",
+            discord_token="d", discord_guild_ids=["1"])
+        assert len(injected) == (2 if key.startswith("builtin:discord_") else 1), key
         assert set(injected) <= set(inspect.signature(resolve_action_fn(key)).parameters), key
+
+
+@pytest.mark.parametrize("ids, expected", [(["111", "222"], ["111", "222"]), ([], []), (None, [])])
+def test_Discord_봇_도구는_토큰과_허용_서버를_조건_없이_받는다(ids, expected):
+    """불변식 (a): 목록이 비어도 키를 싣는다 — 빠지면 config의 allowed_guild_ids가 살아남는다."""
+    assert action_executor._injected_args(
+        "builtin:discord_send_channel_message", google_access_token="g", notion_token="n", github_token="h",
+        slack_token="s", discord_token="d", discord_guild_ids=ids) == {"token": "d", "allowed_guild_ids": expected}
+
+
+@pytest.mark.asyncio
+async def test_Discord_ACTION은_config의_token_allowed_guild_ids를_주입값으로_덮는다():
+    seen = {}
+
+    async def fake(token: str, allowed_guild_ids: list, channel_id: str, content: str):
+        seen.update(token=token, allowed_guild_ids=allowed_guild_ids, channel_id=channel_id)
+        return _ok()
+
+    config = {"channel_id": "333333333333333333", "content": "hi", "guild_id": "999",
+              "token": "attacker", "allowed_guild_ids": ["999999999999999999"]}
+    result = await run_action(fake, _req("builtin:discord_send_channel_message", config), "u1",
+                              discord_token="bot-t", discord_guild_ids=[])
+
+    assert result.success is True
+    assert seen == {"token": "bot-t", "allowed_guild_ids": [], "channel_id": "333333333333333333"}
+
+
+def test_웹훅_discord_도구는_봇_토큰을_받지_않는다():
+    assert action_executor._injected_args(
+        "discord", google_access_token="g", notion_token="n", github_token="h", slack_token="s",
+        discord_token="d", discord_guild_ids=["1"]) == {}
 
 
 def test_웹훅_slack_도구는_봇_토큰을_받지_않는다():

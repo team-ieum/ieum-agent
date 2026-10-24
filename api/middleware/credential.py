@@ -10,6 +10,14 @@ from core.model_factory import is_self_hosted_eligible
 logger = logging.getLogger(__name__)
 
 
+def _split_ids(value) -> list[str]:
+    """X-Discord-Guild-Ids(쉼표로 이은 서버 ID) → 목록. 값이 str일 때만 나눈다 — 테스트가 의존성 함수를
+    직접 부르면 기본값이 Header() 객체로 들어온다. 공백은 떼고 빈 값은 버린다."""
+    if not isinstance(value, str):
+        return []
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
 async def get_llm_credentials(
     x_llm_provider: str = Header(..., alias="X-LLM-Provider"),
     x_llm_api_key: str | None = Header(None, alias="X-LLM-Api-Key"),
@@ -19,6 +27,8 @@ async def get_llm_credentials(
     x_notion_token: str | None = Header(None, alias="X-Notion-Token"),
     x_github_token: str | None = Header(None, alias="X-GitHub-Token"),
     x_slack_token: str | None = Header(None, alias="X-Slack-Token"),
+    x_discord_token: str | None = Header(None, alias="X-Discord-Token"),
+    x_discord_guild_ids: str | None = Header(None, alias="X-Discord-Guild-Ids"),
     x_key_mode: str | None = Header(None, alias="X-Key-Mode"),
 ):
     provider = x_llm_provider
@@ -60,6 +70,8 @@ async def get_llm_credentials(
         "notion_token": x_notion_token,
         "github_token": x_github_token,
         "slack_token": x_slack_token,
+        "discord_token": x_discord_token,
+        "discord_guild_ids": _split_ids(x_discord_guild_ids),
     }
 
 
@@ -69,6 +81,8 @@ async def get_action_credentials(
     x_notion_token: str | None = Header(None, alias="X-Notion-Token"),
     x_github_token: str | None = Header(None, alias="X-GitHub-Token"),
     x_slack_token: str | None = Header(None, alias="X-Slack-Token"),
+    x_discord_token: str | None = Header(None, alias="X-Discord-Token"),
+    x_discord_guild_ids: str | None = Header(None, alias="X-Discord-Guild-Ids"),
 ):
     """ACTION 실행(/v1/actions/execute)용 — LLM을 쓰지 않으므로 X-LLM-*·X-Key-Mode를 요구하지 않는다.
     get_llm_credentials와 일부러 분리했다(그쪽은 LLM 헤더가 없으면 400)."""
@@ -78,4 +92,6 @@ async def get_action_credentials(
         "notion_token": x_notion_token,
         "github_token": x_github_token,
         "slack_token": x_slack_token,
+        "discord_token": x_discord_token,
+        "discord_guild_ids": _split_ids(x_discord_guild_ids),
     }

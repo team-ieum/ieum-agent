@@ -81,6 +81,8 @@ async def run_agent(
     notion_token: str | None = None,
     github_token: str | None = None,
     slack_token: str | None = None,
+    discord_token: str | None = None,
+    discord_guild_ids: list[str] | None = None,
     session_service: BaseSessionService | None = None,
 ) -> AgentExecutionResult:
     start = time.monotonic()
@@ -106,6 +108,7 @@ async def run_agent(
                 notion_token=notion_token,
                 github_token=github_token,
                 slack_token=slack_token,
+                discord_token=discord_token,
             ),
         )
     except ExecutionGuardError as e:
@@ -159,6 +162,8 @@ async def run_agent(
                     notion_token=notion_token,
                     github_token=github_token,
                     slack_token=slack_token,
+                    discord_token=discord_token,
+                    discord_guild_ids=discord_guild_ids,
                     session_service=session_service,
                 )
             else:

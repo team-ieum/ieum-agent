@@ -17,6 +17,7 @@ def test_validate_tools_사설망_URL을_차단한다():
     ("builtin:github_list_issues", "GitHub"),
     ("builtin:github_create_issue", "GitHub"),
     ("builtin:slack_send_channel_message", "Slack"),
+    ("builtin:discord_send_channel_message", "Discord"),
 ])
 def test_validate_tools_토큰_누락을_거부한다(tool_key, label):
     with pytest.raises(ExecutionGuardError, match=label):
@@ -29,6 +30,8 @@ def test_validate_tools_토큰이_있으면_통과한다():
     ExecutionGuard.validate_tools([{"name": "builtin:google_sheets_read"}], google_access_token="g-token")
     ExecutionGuard.validate_tools([{"name": "builtin:slack_send_channel_message"}], slack_token="xoxb-test")
     ExecutionGuard.validate_tools([{"name": "slack"}])   # 웹훅은 봇 토큰 검사 대상이 아니다
+    ExecutionGuard.validate_tools([{"name": "builtin:discord_send_channel_message"}], discord_token="bot-t")
+    ExecutionGuard.validate_tools([{"name": "discord"}])
 
 
 def test_validate_tools_다른_서비스_토큰으로는_통과하지_못한다():
@@ -41,6 +44,8 @@ def test_validate_tools_다른_서비스_토큰으로는_통과하지_못한다(
     with pytest.raises(ExecutionGuardError, match="Slack"):
         ExecutionGuard.validate_tools(
             [{"name": "builtin:slack_send_channel_message"}], notion_token="n-token", github_token="gh-token")
+    with pytest.raises(ExecutionGuardError, match="Discord"):
+        ExecutionGuard.validate_tools([{"name": "builtin:discord_send_channel_message"}], slack_token="xoxb-test")
 
 
 @pytest.mark.parametrize("tools", [None, []])
@@ -63,6 +68,17 @@ def test_validate_execution은_simple_노드의_Slack_봇_도구를_거부한다
     with pytest.raises(ExecutionGuardError, match="react"):
         ExecutionGuard.validate_execution(request, slack_token="xoxb-test")
     ExecutionGuard.validate_execution(request.model_copy(update={"agentType": "react"}), slack_token="xoxb-test")
+
+
+def test_validate_execution은_simple_노드의_Discord_봇_도구를_거부한다():
+    """simple 경로는 바인딩하지 않는다 — 실리면 token·allowed_guild_ids가 LLM 스키마에 드러난다."""
+    request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="simple",
+                               tools=[{"name": "builtin:discord_send_channel_message"}])
+    with pytest.raises(ExecutionGuardError, match="react"):
+        ExecutionGuard.validate_execution(request, discord_token="bot-t")
+    ExecutionGuard.validate_execution(request.model_copy(update={"agentType": "react"}), discord_token="bot-t")
+    with pytest.raises(ExecutionGuardError, match="Discord"):
+        ExecutionGuard.validate_execution(request.model_copy(update={"agentType": "react"}))
 
 
 @pytest.mark.parametrize("tools", [[], None])

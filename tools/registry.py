@@ -26,7 +26,8 @@ from tools.google_calendar import google_calendar_delete
 # 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
 # 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증과 설정 폼에서 제외한다.
 RUNTIME_INJECTED_PARAMS: set[str] = {
-    "token",            # Notion / GitHub Integration Token, Slack 봇 토큰
+    "token",            # Notion / GitHub Integration Token, Slack·Discord 봇 토큰
+    "allowed_guild_ids",  # Discord 봇: 이 사용자가 연결한 서버 ID 목록(권한 목록 — 사용자 config로 받지 않는다)
     "access_token",     # Google OAuth Access Token
     "webhook_url",      # Slack / Discord Webhook URL
     "sender_email",     # Gmail SMTP

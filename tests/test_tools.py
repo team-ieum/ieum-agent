@@ -241,22 +241,43 @@ async def test_저장된_tools_config_channel은_AI_도구에_바인딩되지_�
 # Discord
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_send_discord_webhook_success():
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_client = _make_async_http_client(AsyncMock(return_value=mock_response))
+def _discord_sent(body):
+    """wait=true 응답 — Discord가 보낸 메시지 객체를 돌려준다."""
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json = MagicMock(return_value=body)
+    return response
 
-    with patch("tools.discord.get_http_client", return_value=mock_client):
-        result = await send_discord_webhook(
-            webhook_url="https://discord.com/api/webhooks/test",
-            content="hello",
-        )
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("webhook_url, called", [
+    ("https://discord.com/api/webhooks/1/abc", "https://discord.com/api/webhooks/1/abc?wait=true"),
+    ("https://discord.com/api/webhooks/1/abc?thread_id=9", "https://discord.com/api/webhooks/1/abc?thread_id=9&wait=true"),
+    ("https://discord.com/api/webhooks/1/abc#frag", "https://discord.com/api/webhooks/1/abc?wait=true#frag"),
+    ("https://discord.com/api/webhooks/1/abc?wait=false", "https://discord.com/api/webhooks/1/abc?wait=true"),
+])
+async def test_send_discord_webhook_success(webhook_url, called):
+    post = AsyncMock(return_value=_discord_sent({"id": "555", "channel_id": "666", "content": "hello"}))
+
+    with patch("tools.discord.get_http_client", return_value=_make_async_http_client(post)):
+        result = await send_discord_webhook(webhook_url=webhook_url, content="hello")
 
     assert_matches_outputs("discord.send_message", result)
-    parsed = json.loads(result)
-    assert parsed["success"] is True
-    assert parsed["message"] == "Discord 메시지 발송 성공"
+    assert json.loads(result) == {"success": True, "id": "555", "channel_id": "666"}
+    assert post.call_args.args[0] == called
+    assert post.call_args.kwargs["json"] == {"content": "hello", "username": "IEUM Bot"}
+
+
+@pytest.mark.asyncio
+async def test_send_discord_webhook_본문이_JSON이_아니어도_보낸_것은_성공이다():
+    """이미 보냈다 — 실패로 돌리면 BE 재시도가 같은 메시지를 또 보낸다."""
+    response = _discord_sent(None)
+    response.json.side_effect = ValueError("no json")
+
+    with patch("tools.discord.get_http_client", return_value=_make_async_http_client(AsyncMock(return_value=response))):
+        result = await send_discord_webhook(webhook_url="https://discord.com/api/webhooks/1/abc", content="hi")
+
+    assert json.loads(result) == {"success": True, "id": "", "channel_id": ""}
 
 
 @pytest.mark.asyncio

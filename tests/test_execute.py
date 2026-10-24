@@ -228,6 +228,34 @@ def test_execute_slack_token_forwarded_to_run_agent():
         assert mock_run.call_args.kwargs.get("slack_token") is None
 
 
+def test_execute_discord_headers_forwarded_to_run_agent():
+    """X-Discord-Token·X-Discord-Guild-Ids가 run_agent()의 discord_token·discord_guild_ids로 간다(없으면 None·[])."""
+    mock_result = AgentExecutionResult(success=True, output="ok")
+    with patch("api.routes.execute.run_agent", new=AsyncMock(return_value=mock_result)) as mock_run:
+        client.post("/v1/execute", json=PAYLOAD,
+                    headers={**HEADERS, "X-Discord-Token": "bot-t", "X-Discord-Guild-Ids": "111,222"})
+        assert (mock_run.call_args.kwargs["discord_token"], mock_run.call_args.kwargs["discord_guild_ids"]) == \
+            ("bot-t", ["111", "222"])
+        client.post("/v1/execute", json=PAYLOAD, headers=HEADERS)
+        assert (mock_run.call_args.kwargs["discord_token"], mock_run.call_args.kwargs["discord_guild_ids"]) == \
+            (None, [])
+
+
+@pytest.mark.asyncio
+async def test_run_agent는_discord_접근값을_가드와_react_실행에_넘긴다():
+    request = AgentNodeRequest(nodeId="node-1", renderedPrompt="보내줘", agentType="react",
+                               tools=[{"name": "builtin:discord_send_channel_message"}])
+    react = AsyncMock(return_value=("보냈어요", 0, 0, 0))
+    with patch("core.agent.run_react_agent", new=react), \
+         patch("core.agent.execution_logs.insert_one", new=AsyncMock()):
+        ok = await run_agent(request, "GEMINI", "test-key", "user-1", discord_token="bot-t", discord_guild_ids=["111"])
+        blocked = await run_agent(request, "GEMINI", "test-key", "user-1", discord_guild_ids=["111"])
+
+    assert ok.success is True and react.await_count == 1
+    assert (react.await_args.kwargs["discord_token"], react.await_args.kwargs["discord_guild_ids"]) == ("bot-t", ["111"])
+    assert blocked.success is False and "Discord" in blocked.errorMessage
+
+
 @pytest.mark.asyncio
 async def test_run_agent는_slack_token을_가드와_react_실행에_넘긴다():
     request = AgentNodeRequest(nodeId="node-1", renderedPrompt="보내줘", agentType="react",
