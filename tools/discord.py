@@ -16,15 +16,23 @@ async def send_discord_webhook(webhook_url: str, content: str, username: str = "
         username: 봇 사용자명 (optional, 기본값: IEUM Bot)
 
     Returns:
-        발송 성공 여부 메시지
+        보낸 메시지의 id·channel_id를 담은 JSON 문자열
     """
     try:
         payload = {"content": content, "username": username}
+        # wait=true여야 Discord가 204 대신 보낸 메시지 객체를 돌려준다(spec 2026-10-21 §8)
+        url = f"{webhook_url}{'&' if '?' in webhook_url else '?'}wait=true"
 
         client = get_http_client()
-        response = await client.post(webhook_url, json=payload, timeout=10.0)
+        response = await client.post(url, json=payload, timeout=10.0)
         response.raise_for_status()
-        return json.dumps({"success": True, "message": "Discord 메시지 발송 성공"}, ensure_ascii=False)
+        try:
+            sent = response.json()
+        except ValueError:  # 이미 보냈다 — 본문이 이상해도 실패로 돌리면 재시도가 메시지를 두 번 보낸다
+            sent = {}
+        sent = sent if isinstance(sent, dict) else {}
+        return json.dumps({"success": True, "id": str(sent.get("id") or ""),
+                           "channel_id": str(sent.get("channel_id") or "")}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return json.dumps({"error": f"{ToolErrorCode.EXECUTION_FAILED.message} (Discord: HTTP {e.response.status_code})"}, ensure_ascii=False)
     except Exception as e:

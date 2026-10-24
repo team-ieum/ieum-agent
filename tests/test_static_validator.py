@@ -122,6 +122,15 @@ def test_웹훅_노드에_남은_channel_값은_검증을_막지_않는다():
     assert validate_workflow(nodes, edges) == []
 
 
+def test_Discord_봇_노드는_서버_칸이_비어도_채널_참조식이면_통과한다():
+    """guild_id는 드롭다운용 칸이라 필수가 아니다 — 채널 ID 직접 입력·참조식 노드의 수동 실행을 막지 않는다(spec §9)."""
+    nodes, edges = _chain(_act("d", "discord_bot.send_channel_message",
+                               channel_id="{{nodes.t.output.channel}}", content="안녕"))
+    assert validate_workflow(nodes, edges) == []
+    assert [(e["code"], e["field"]) for e in field_errors(_act("d", "discord_bot.send_channel_message", guild_id="1"))] \
+        == [("REQUIRED", "config.channel_id"), ("REQUIRED", "config.content")]
+
+
 def test_Slack_봇_노드는_채널과_메시지가_필수다():
     node = _act("s", "slack_bot.send_channel_message", thread_ts="")
     assert [(e["code"], e["field"]) for e in field_errors(node)] == \
@@ -413,6 +422,7 @@ FIXED_NODE_REQUIRED = {
     "notion.update_page": ["config.page_id"],
     "slack.send_message": ["config.message", "config.webhookCredentialId"],
     "slack_bot.send_channel_message": ["config.channel", "config.text"],
+    "discord_bot.send_channel_message": ["config.channel_id", "config.content"],
     "ai.reasoning": ["config.llmProvider", "config.prompt"],
     "github.new_issue": ["config.repoId"],
     "gmail.new_email": [],

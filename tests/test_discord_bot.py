@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from common.error_code import ToolErrorCode
+from tests.action_outputs import assert_matches_outputs
 from tools.discord_bot import discord_send_channel_message
 
 API = "https://discord.com/api/v10"
@@ -58,6 +59,7 @@ async def test_채널을_확인하고_보내서_id_channel_id_url을_돌려준�
         ("GET", f"{API}/channels/{CH}"), ("POST", f"{API}/channels/{CH}/messages")]
     assert json.loads(seen[1].content) == {"content": "안녕", "allowed_mentions": {"parse": ["users"]}}
     assert all(r.headers["authorization"] == "Bot bot-token" for r in seen)
+    assert_matches_outputs("discord_bot.send_channel_message", result)
 
 
 @pytest.mark.asyncio

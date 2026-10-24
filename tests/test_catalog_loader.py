@@ -51,7 +51,7 @@ def test_only_presets_carry_match():
 
 def test_counts_and_builder_has_no_presets():
     t = tr.load_templates(force=True)
-    assert sum(1 for x in t.values() if not x.get("preset")) == 32
+    assert sum(1 for x in t.values() if not x.get("preset")) == 33
     assert sum(1 for x in t.values() if x.get("preset")) == 21
     assert not [x["id"] for x in tr.builder_entries() if x.get("preset")]
     assert list(t) == sorted(t)        # 생성 경로의 동점 처리(select_by_tags)가 순서에 기댄다

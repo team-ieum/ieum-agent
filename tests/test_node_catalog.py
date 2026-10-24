@@ -104,6 +104,8 @@ def test_앱_표시_이름은_apps_json_title이다():
     by_id = {e["id"]: e for e in node_catalog()["entries"]}
     assert by_id["slack.send_message"]["appTitle"] == "Slack (웹훅)"
     assert by_id["slack_bot.send_channel_message"]["appTitle"] == "Slack"
+    assert by_id["discord.send_message"]["appTitle"] == "Discord (웹훅)"
+    assert by_id["discord_bot.send_channel_message"]["appTitle"] == "Discord"
     assert by_id["google_calendar.find"]["appTitle"] == "Google Calendar"
 
 
@@ -123,6 +125,7 @@ def test_option_source_fields_fixed_set():
         ("http.request", "webhookCredentialId"),
         ("slack.send_message", "webhookCredentialId"), ("discord.send_message", "webhookCredentialId"),
         ("slack_bot.send_channel_message", "channel"),
+        ("discord_bot.send_channel_message", "guild_id"), ("discord_bot.send_channel_message", "channel_id"),
         *[(f"google_sheets.{x}", k) for x in ("read", "write", "append")
           for k in ("spreadsheet_id", "sheet_name")],
         ("google_calendar.create", "calendar_id"), ("google_calendar.find", "calendar_id"),
@@ -195,6 +198,7 @@ EXPECTED_BRANDS = {
     "http.request": "webhook", "approval.request": "webhook", "branch.if": "filter", "transform.map": "filter",
     "slack.send_message": "slack", "discord.send_message": "discord",
     "slack_bot.send_channel_message": "slack",
+    "discord_bot.send_channel_message": "discord",
     "notion.create_page": "notion", "notion.read_page": "notion",
     "notion.search": "notion", "notion.update_page": "notion",
     "notion.append_block": "notion", "notion.query_database": "notion",
@@ -330,6 +334,36 @@ def test_AI_노드_도구_선택지에_Slack_두_가지가_이름으로_나뉜�
     names = {c["id"]: c["name"] for c in tools["choices"]}
     assert names["slack"] == "Slack 웹훅으로 보내기"
     assert names["builtin:slack_send_channel_message"] == "Slack 채널에 메시지 보내기"
+
+
+def test_discord_bot_채널_메시지_계약():
+    """spec 2026-10-21 §9 — 서버(직속 칸) → 채널 → 메시지 순서, 채널 드롭다운은 서버 값을 입력으로 받는다."""
+    e = _action("discord_bot.send_channel_message")
+    assert (e["app"], e["provider"], e["kind"], e["fixed"]["config"]["brand"], e["toolKey"]) == \
+        ("discord_bot", "discord", "action", "discord", "builtin:discord_send_channel_message")
+    fields = {f["key"]: f for f in e["inputFields"]}
+    assert list(fields) == ["guild_id", "channel_id", "content"]    # token·allowed_guild_ids는 주입 인자라 빠진다
+    guild = fields["guild_id"]
+    assert (guild["title"], guild["optionsSource"], guild["ref"], guild.get("required", False)) == \
+        ("서버", "discord.guilds", False, False)                    # 실행에 안 쓰는 칸 — 필수면 참조식 채널 노드를 막는다
+    channel = fields["channel_id"]
+    assert (channel["title"], channel["optionsSource"], channel["optionsInputs"], channel["required"]) == \
+        ("채널", "discord.channels", ["guild_id"], True)
+    assert (fields["content"]["type"], fields["content"]["required"]) == ("text", True)
+    assert [f["key"] for f in e["outputFields"]] == ["id", "channel_id", "url"]
+
+
+def test_discord_웹훅_노드는_이름을_바꾸고_메시지_ID를_출력한다():
+    e = _action("discord.send_message")
+    assert e["title"] == "Discord 웹훅으로 보내기"
+    assert [f["key"] for f in e["outputFields"]] == ["id", "channel_id"]
+
+
+def test_AI_노드_도구_선택지에_Discord_두_가지가_이름으로_나뉜다():
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    names = {c["id"]: c["name"] for c in tools["choices"]}
+    assert names["discord"] == "Discord 웹훅으로 보내기"
+    assert names["builtin:discord_send_channel_message"] == "Discord 채널에 메시지 보내기"
 
 
 def test_catalog_entries_snapshot():
