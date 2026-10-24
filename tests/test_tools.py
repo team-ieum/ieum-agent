@@ -253,6 +253,8 @@ def _discord_sent(body):
 @pytest.mark.parametrize("webhook_url, called", [
     ("https://discord.com/api/webhooks/1/abc", "https://discord.com/api/webhooks/1/abc?wait=true"),
     ("https://discord.com/api/webhooks/1/abc?thread_id=9", "https://discord.com/api/webhooks/1/abc?thread_id=9&wait=true"),
+    ("https://discord.com/api/webhooks/1/abc#frag", "https://discord.com/api/webhooks/1/abc?wait=true#frag"),
+    ("https://discord.com/api/webhooks/1/abc?wait=false", "https://discord.com/api/webhooks/1/abc?wait=true"),
 ])
 async def test_send_discord_webhook_success(webhook_url, called):
     post = AsyncMock(return_value=_discord_sent({"id": "555", "channel_id": "666", "content": "hello"}))

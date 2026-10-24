@@ -21,7 +21,8 @@ async def send_discord_webhook(webhook_url: str, content: str, username: str = "
     try:
         payload = {"content": content, "username": username}
         # wait=true여야 Discord가 204 대신 보낸 메시지 객체를 돌려준다(spec 2026-10-21 §8)
-        url = f"{webhook_url}{'&' if '?' in webhook_url else '?'}wait=true"
+        # 기존 쿼리(thread_id)는 살리고 #fragment 앞에 넣는다 — 문자열로 이으면 fragment 안으로 들어가 전송되지 않는다
+        url = str(httpx.URL(webhook_url).copy_merge_params({"wait": "true"}))
 
         client = get_http_client()
         response = await client.post(url, json=payload, timeout=10.0)
