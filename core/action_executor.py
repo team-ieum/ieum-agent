@@ -28,9 +28,10 @@ def _failure(code: ErrorCode, message: str) -> ActionExecutionResult:
     )
 
 
-def _injected_args(tool_key: str, *, google_access_token, notion_token, github_token, slack_token) -> dict:
+def _injected_args(tool_key: str, *, google_access_token, notion_token, github_token, slack_token,
+                   discord_token=None, discord_guild_ids=None) -> dict:
     """헤더로 받은 도구 인증값 → 함수 인자. 서비스는 tool_key 접두사로 정한다(ExecutionGuard 토큰 검사와 같은 규칙).
-    notion·github·slack 봇 함수는 모두 `token`을 받으므로 인자 이름으로 갈라선 안 된다 — 토큰이 서로 섞인다."""
+    notion·github·slack·discord 봇 함수는 모두 `token`을 받으므로 인자 이름으로 갈라선 안 된다 — 토큰이 서로 섞인다."""
     if tool_key.startswith("builtin:google_"):
         return {"access_token": google_access_token}
     if tool_key.startswith("builtin:notion_"):
@@ -39,6 +40,9 @@ def _injected_args(tool_key: str, *, google_access_token, notion_token, github_t
         return {"token": github_token}
     if tool_key.startswith("builtin:slack_"):
         return {"token": slack_token}
+    if tool_key.startswith("builtin:discord_"):
+        # 조건 없이 둘 다 — 허용 서버 목록은 권한 목록이라 요청 config 값이 살아남으면 안 된다(불변식 a)
+        return {"token": discord_token, "allowed_guild_ids": list(discord_guild_ids or [])}
     return {}
 
 
@@ -64,7 +68,8 @@ def _to_result(raw) -> ActionExecutionResult:
     return ActionExecutionResult(success=True, output=OutputValidator.mask_response_content(data))
 
 
-async def _execute(fn, request: ActionExecutionRequest, google_access_token, notion_token, github_token, slack_token):
+async def _execute(fn, request: ActionExecutionRequest, google_access_token, notion_token, github_token, slack_token,
+                   discord_token, discord_guild_ids):
     tools = [{"name": request.toolKey, "config": request.config}]
     try:
         # SSRF 검사의 DNS 조회가 동기 블로킹이라 스레드 풀로 오프로드한다(run_agent와 같다).
@@ -73,7 +78,7 @@ async def _execute(fn, request: ActionExecutionRequest, google_access_token, not
             functools.partial(
                 ExecutionGuard.validate_tools, tools,
                 google_access_token=google_access_token, notion_token=notion_token, github_token=github_token,
-                slack_token=slack_token,
+                slack_token=slack_token, discord_token=discord_token,
             ),
         )
     except ExecutionGuardError as e:
@@ -84,7 +89,8 @@ async def _execute(fn, request: ActionExecutionRequest, google_access_token, not
     kwargs = {k: v for k, v in request.config.items() if k in params}  # webhookCredentialId·_names 등은 버린다
     kwargs.update(_injected_args(
         request.toolKey, google_access_token=google_access_token, notion_token=notion_token,
-        github_token=github_token, slack_token=slack_token))  # 겹치면 주입값이 이긴다
+        github_token=github_token, slack_token=slack_token,
+        discord_token=discord_token, discord_guild_ids=discord_guild_ids))  # 겹치면 주입값이 이긴다
     missing = [n for n, p in params.items() if p.default is inspect.Parameter.empty and n not in kwargs]
     if missing:
         return _failure(ErrorCode.AGENT_EXECUTION_FAILED, f"필수 입력이 없습니다: {', '.join(missing)}")
@@ -109,9 +115,12 @@ async def run_action(
     notion_token: str | None = None,
     github_token: str | None = None,
     slack_token: str | None = None,
+    discord_token: str | None = None,
+    discord_guild_ids: list[str] | None = None,
 ) -> ActionExecutionResult:
     start = time.monotonic()
-    result = await _execute(fn, request, google_access_token, notion_token, github_token, slack_token)
+    result = await _execute(fn, request, google_access_token, notion_token, github_token, slack_token,
+                            discord_token, discord_guild_ids)
     duration_ms = int((time.monotonic() - start) * 1000)
     try:
         # 기존 로그 함수를 그대로 쓴다. config는 기록하지 않는다(webhook URL 등 비밀이 들어 있다).

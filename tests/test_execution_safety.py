@@ -140,6 +140,31 @@ def test_output_validator_slack_token_masking():
         assert "[MASKED_SLACK_TOKEN]" in masked
 
 
+DISCORD_BOT_TOKEN = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTA" + ".GAbC-d." + "x9_Yz" * 8   # <id base64 26>.<6>.<40>
+
+
+def test_output_validator_discord_token_masking():
+    raw_text = f"Authorization: Bot {DISCORD_BOT_TOKEN}\nheaders={{'Authorization': 'Bot {DISCORD_BOT_TOKEN}'}}"
+    for masked in (OutputValidator.mask_response_content(raw_text), OutputValidator.mask_log_content(raw_text)):
+        assert DISCORD_BOT_TOKEN not in masked and "[MASKED_DISCORD_TOKEN]" in masked
+    # 메시지 링크·웹훅 URL·평범한 점 문장은 그대로
+    for keep in ("https://discord.com/channels/111111111111111111/333333333333333333/444444444444444444",
+                 "release v1.2.3 notes", "a.b.c"):
+        assert OutputValidator.mask_response_content(keep) == keep
+
+
+@pytest.mark.parametrize("text", ["A" * 1_000_000, ("A" * 30 + ".") * 30_000, ("A" * 30 + ".AAAAAA") * 30_000])
+def test_output_validator_긴_영숫자_문자열도_1초_안에_끝난다(text):
+    """lookbehind 없는 Discord 패턴은 점 없는 긴 문자열에서 길이의 제곱이다 — 1MB Drive 읽기 하나로 이벤트 루프가 멈춘다.
+    4만 자 앞부분을 먼저 잰다 — lookbehind가 빠지면 여기서 수 초로 실패한다(1MB부터 재면 실패 대신 수십 분 멈춘다)."""
+    import time
+    for sample in (text[:40_000], text):
+        t = time.monotonic()
+        OutputValidator.mask_response_content(sample)
+        OutputValidator.mask_log_content(sample)
+        assert time.monotonic() - t < 1, len(sample)
+
+
 def test_output_validator_bearer_masking():
     raw_text = "Authorization: Bearer mySecretTokenValue123!!"
     masked_res = OutputValidator.mask_response_content(raw_text)

@@ -15,7 +15,8 @@ from agents.execute.sub.github_agent import build_github_agent, GITHUB_PR_RULES
 from agents.execute.sub.communication_agent import build_communication_agent
 from agents.execute.sub.transform_agent import build_transform_agent, TRANSFORM_OUTPUT_RULES
 from agents.execute.sub.mcp_agent import build_mcp_agent
-from agents.base import _bind_workflow_context, _bind_google_token, _bind_notion_token, _bind_slack_token
+from agents.base import (_bind_workflow_context, _bind_google_token, _bind_notion_token, _bind_slack_token,
+                         _bind_discord_access)
 from core.model_factory import build_model_param, cost_model_name
 from core.config import get_current_time_info
 from core.usage_plugin import UsageTrackingPlugin
@@ -174,6 +175,8 @@ async def run_react_agent(
     notion_token: str | None = None,
     github_token: str | None = None,
     slack_token: str | None = None,
+    discord_token: str | None = None,
+    discord_guild_ids: list[str] | None = None,
     user_role: str | None = None,
     session_service: BaseSessionService | None = None,
     use_single_agent: bool = True,
@@ -182,7 +185,7 @@ async def run_react_agent(
     if session_service is None:
         session_service = MongoSessionService()
 
-    # Google·Slack 토큰은 빌트인 도구 바인딩에만 쓰여 서브에이전트가 없으므로 경로 분기 개수에 넣지 않는다(IEUM-AI-63)
+    # Google·Slack·Discord 토큰은 빌트인 도구 바인딩에만 쓰여 서브에이전트가 없으므로 경로 분기 개수에 넣지 않는다(IEUM-AI-63)
     active_tokens = [t for t in [notion_token, github_token] if t]
     has_custom_mcp = bool(request.mcp_servers)
     webhook_configs = _extract_webhook_configs(request.tools)
@@ -201,6 +204,8 @@ async def run_react_agent(
                 builtin_tools = _bind_notion_token(builtin_tools, notion_token)
             if slack_token:
                 builtin_tools = _bind_slack_token(builtin_tools, slack_token)
+            if discord_token:
+                builtin_tools = _bind_discord_access(builtin_tools, discord_token, discord_guild_ids)
             builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
 
             # notion/web/comm/github/transform 모두 능력 서술만 남기고 .tools를
@@ -334,6 +339,8 @@ async def run_react_agent(
             builtin_tools = _bind_notion_token(builtin_tools, notion_token)
         if slack_token:
             builtin_tools = _bind_slack_token(builtin_tools, slack_token)
+        if discord_token:
+            builtin_tools = _bind_discord_access(builtin_tools, discord_token, discord_guild_ids)
         builtin_tools = _bind_workflow_context(builtin_tools, request.workflowContext or {})
 
         # Main Agent 구성

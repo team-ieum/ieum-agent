@@ -180,7 +180,7 @@ async def test_취소되면_IN_PROGRESS_레코드가_해제된다(fake_records):
     from api.schemas.request import ActionExecutionRequest
 
     credentials = {"user_id": "user-1", "google_access_token": None, "notion_token": None, "github_token": "gh",
-                   "slack_token": None}
+                   "slack_token": None, "discord_token": None, "discord_guild_ids": []}
     with patch("api.routes.actions.run_action", new=AsyncMock(side_effect=asyncio.CancelledError())):
         with pytest.raises(asyncio.CancelledError):
             await execute_action(ActionExecutionRequest(**BODY), credentials=credentials, x_idempotency_key=KEY)
@@ -240,3 +240,67 @@ def test_Slack_ACTION은_봇_토큰이_없으면_200_실패_응답이다():
     res = _post(headers={"X-User-Id": "user-1", "X-Notion-Token": "secret_x"}, body=body)
     assert res.status_code == 200
     assert res.json()["success"] is False and "Slack" in res.json()["errorMessage"]
+
+
+# --- Discord 봇 ---------------------------------------------------------------------------------
+
+G_MINE, G_OTHER, D_CH, D_MSG = "111111111111111111", "999999999999999999", "333333333333333333", "444444444444444444"
+
+
+def _discord_http(channel_guild):
+    """진짜 httpx + MockTransport. GET 채널 조회는 channel_guild 서버의 텍스트 채널, POST는 보낸 메시지."""
+    import httpx
+
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"id": D_CH, "type": 0, "guild_id": channel_guild})
+        return httpx.Response(200, json={"id": D_MSG, "channel_id": D_CH})
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler)), seen
+
+
+def test_Discord_ACTION은_헤더_봇_토큰과_서버_목록으로_끝까지_실행된다():
+    """config의 token·allowed_guild_ids는 헤더 값에 진다. guild_id(직속 칸)·_names는 도구에 가지 않는다."""
+    http, seen = _discord_http(G_MINE)
+    body = {"nodeId": "node-1", "toolKey": "builtin:discord_send_channel_message",
+            "config": {"guild_id": G_MINE, "channel_id": D_CH, "content": "안녕", "token": "attacker",
+                       "allowed_guild_ids": [G_OTHER], "_names": {"channel_id": "#general"}}}
+
+    with patch("tools.discord_bot.get_http_client", return_value=http):
+        res = _post(headers={"X-User-Id": "user-1", "X-Discord-Token": "bot-t",
+                             "X-Discord-Guild-Ids": f" {G_OTHER}x , {G_MINE} ,"}, body=body)
+
+    assert res.json() == {"success": True, "errorMessage": None, "errorCode": None,
+                          "output": {"id": D_MSG, "channel_id": D_CH,
+                                     "url": f"https://discord.com/channels/{G_MINE}/{D_CH}/{D_MSG}"}}
+    assert [r.headers["authorization"] for r in seen] == ["Bot bot-t"] * 2
+
+
+@pytest.mark.parametrize("header_ids, config_ids", [
+    (G_MINE, [G_OTHER]),     # config로 남의 서버를 허용 목록에 넣어도
+    ("", [G_OTHER]),         # 헤더 목록이 비었는데 config로 채워도
+])
+def test_Discord_ACTION은_config의_allowed_guild_ids로_남의_서버에_쓰지_못한다(header_ids, config_ids):
+    """불변식 (a): 주입값이 config를 덮는다 — 채널이 G_OTHER 서버라 거절되고 POST는 없다."""
+    http, seen = _discord_http(G_OTHER)
+    body = {"nodeId": "node-1", "toolKey": "builtin:discord_send_channel_message",
+            "config": {"channel_id": D_CH, "content": "hi", "allowed_guild_ids": config_ids}}
+
+    with patch("tools.discord_bot.get_http_client", return_value=http):
+        res = _post(headers={"X-User-Id": "user-1", "X-Discord-Token": "bot-t", "X-Discord-Guild-Ids": header_ids},
+                    body=body)
+
+    assert res.status_code == 200 and res.json()["success"] is False
+    assert res.json()["errorCode"] == "ACTION_TOOL_FAILED"
+    assert all(r.method == "GET" for r in seen)
+
+
+def test_Discord_ACTION은_봇_토큰이_없으면_200_실패_응답이다():
+    body = {"nodeId": "node-1", "toolKey": "builtin:discord_send_channel_message",
+            "config": {"channel_id": D_CH, "content": "hi", "token": "attacker"}}
+    res = _post(headers={"X-User-Id": "user-1", "X-Discord-Guild-Ids": G_MINE}, body=body)
+    assert res.status_code == 200
+    assert res.json()["success"] is False and "Discord" in res.json()["errorMessage"]

@@ -30,15 +30,17 @@ class ExecutionGuard:
         notion_token: Optional[str] = None,
         github_token: Optional[str] = None,
         slack_token: Optional[str] = None,
+        discord_token: Optional[str] = None,
     ) -> None:
         """실행 직전 권한/보안 가드 검사를 수행한다."""
-        cls.validate_tools(request.tools, google_access_token, notion_token, github_token, slack_token)
-        # simple 경로(run_simple_agent)는 봇 토큰을 바인딩하지 않는다 — 실으면 `token`이 LLM 스키마에 드러나
-        # 모델(또는 프롬프트 인젝션)이 토큰 값을 채운다. 봇 도구는 react에서만 받는다.
+        cls.validate_tools(request.tools, google_access_token, notion_token, github_token, slack_token,
+                           discord_token=discord_token)
+        # simple 경로(run_simple_agent)는 봇 토큰을 바인딩하지 않는다 — 실으면 `token`·`allowed_guild_ids`가 LLM
+        # 스키마에 드러나 모델(또는 프롬프트 인젝션)이 값을 채운다. 봇 도구는 react에서만 받는다.
         if request.agentType != "react" and any(
-            (t.get("name") or "").startswith("builtin:slack_") for t in (request.tools or [])
+            (t.get("name") or "").startswith(("builtin:slack_", "builtin:discord_")) for t in (request.tools or [])
         ):
-            raise ExecutionGuardError("Slack 봇 도구는 react AI 노드에서만 쓸 수 있습니다.")
+            raise ExecutionGuardError("Slack·Discord 봇 도구는 react AI 노드에서만 쓸 수 있습니다.")
 
     @classmethod
     def validate_tools(
@@ -48,6 +50,7 @@ class ExecutionGuard:
         notion_token: Optional[str] = None,
         github_token: Optional[str] = None,
         slack_token: Optional[str] = None,
+        discord_token: Optional[str] = None,
     ) -> None:
         """도구 목록([{"name", "config"}, ...]) 가드. AI 노드(request.tools)와 ACTION 실행이 같이 쓴다."""
         if not tools:
@@ -75,6 +78,10 @@ class ExecutionGuard:
             if tname.startswith("builtin:slack_") and not slack_token:
                 raise ExecutionGuardError(
                     f"노드 실행 시 Slack 도구({tname})를 사용하지만 Slack 봇 토큰이 주입되지 않았습니다."
+                )
+            if tname.startswith("builtin:discord_") and not discord_token:
+                raise ExecutionGuardError(
+                    f"노드 실행 시 Discord 도구({tname})를 사용하지만 Discord 봇 토큰이 주입되지 않았습니다."
                 )
 
     @classmethod

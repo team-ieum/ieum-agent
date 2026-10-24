@@ -7,6 +7,9 @@ NOTION_TOKEN_PATTERN = r"secret_[a-zA-Z0-9_\-]+"
 GITHUB_TOKEN_PATTERN = r"gh[opsu]_[a-zA-Z0-9_]+|github_pat_[a-zA-Z0-9_]+"
 # Slack 봇(xoxb-)·refresh(xoxe-)·사용자(xoxp-). 회전 봇 토큰 xoxe.xoxb-…는 xoxb- 부분이 걸린다.
 SLACK_TOKEN_PATTERN = r"xox[bep]-[a-zA-Z0-9\-]+"
+# Discord 봇 토큰(<id base64>.<6>.<27+>). 앞의 lookbehind 필수 — 없으면 점 없는 긴 영숫자 문자열에서 시간이
+# 길이의 제곱(40K자 1.6초)이고, 마스킹은 ACTION 결과 전체에 이벤트 루프에서 동기로 돈다(spec 2026-10-21 §8).
+DISCORD_TOKEN_PATTERN = r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}"
 # 일반적인 API Key 및 Bearer 토큰 패턴
 API_KEY_PATTERN = r"(?i)(['\"]?(?:api[-_]?key|auth|token|credential)['\"]?)\s*[:=]\s*['\"]([a-zA-Z0-9_\-\.\=\+]{8,})['\"]"
 BEARER_TOKEN_PATTERN = r"(?i)bearer\s+([a-zA-Z0-9_\-\.\/\=\+]{10,})"
@@ -47,6 +50,9 @@ class OutputValidator:
 
         # 3-1. Slack 토큰 마스킹
         text = re.sub(SLACK_TOKEN_PATTERN, "[MASKED_SLACK_TOKEN]", text)
+
+        # 3-2. Discord 봇 토큰 마스킹
+        text = re.sub(DISCORD_TOKEN_PATTERN, "[MASKED_DISCORD_TOKEN]", text)
 
         # 4. Bearer 토큰 패턴 마스킹
         text = re.sub(BEARER_TOKEN_PATTERN, "Bearer [MASKED_BEARER_TOKEN]", text)

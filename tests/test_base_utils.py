@@ -6,6 +6,7 @@ from agents.base import (
     _bind_google_token,
     _bind_notion_token,
     _bind_slack_token,
+    _bind_discord_access,
     _bind_workflow_context,
 )
 from tools import _TOOL_MAP, get_tools_for_request
@@ -117,6 +118,25 @@ def test_bind_slack_token_binds_every_slack_bot_tool(tool_key):
 def test_bind_slack_token_does_not_touch_webhook_or_notion():
     tools = get_tools_for_request([{"name": "slack"}, {"name": "builtin:notion_search"}])
     bound = _bind_slack_token(tools, "xoxb-test")
+    assert [getattr(b, "func", None) for b in bound] == [getattr(t, "func", None) for t in tools]
+
+
+@pytest.mark.parametrize("tool_key", sorted(k for k in _TOOL_MAP if k.startswith("builtin:discord_")))
+@pytest.mark.parametrize("ids", [["111"], [], None])
+def test_bind_discord_access_binds_token_and_guild_ids(tool_key, ids):
+    """불변식 (b): 목록이 비어도 allowed_guild_ids를 묶는다 — LLM에는 두 인자 모두 안 보인다."""
+    params = inspect.signature(_TOOL_MAP[tool_key]).parameters
+    assert {"token", "allowed_guild_ids"} <= set(params)
+    bound = _bind_discord_access(get_tools_for_request([{"name": tool_key}]), "bot-t", ids)
+    fn = getattr(bound[0], "func", None) or getattr(bound[0], "_func", None)
+    assert fn.keywords == {"token": "bot-t", "allowed_guild_ids": list(ids or [])}
+    assert not {"token", "allowed_guild_ids"} & set(inspect.signature(fn).parameters)
+    assert "token:" not in fn.__doc__ and "allowed_guild_ids:" not in fn.__doc__
+
+
+def test_bind_discord_access_does_not_touch_webhook_or_slack():
+    tools = get_tools_for_request([{"name": "discord"}, {"name": "builtin:slack_send_channel_message"}])
+    bound = _bind_discord_access(tools, "bot-t", ["111"])
     assert [getattr(b, "func", None) for b in bound] == [getattr(t, "func", None) for t in tools]
 
 

@@ -32,6 +32,8 @@ async def execute(
             notion_token=credentials.get("notion_token"),
             github_token=credentials.get("github_token"),
             slack_token=credentials.get("slack_token"),
+            discord_token=credentials.get("discord_token"),
+            discord_guild_ids=credentials.get("discord_guild_ids"),
         )
     except BaseException:
         # 예외로 빠져도 IN_PROGRESS 레코드가 남으면 그 노드의 재시도가 전부 막힌다.

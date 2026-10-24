@@ -8,6 +8,7 @@ from tools.workflow_context import workflow_context as _workflow_context_fn
 _GOOGLE_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:google_")}
 _NOTION_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:notion_")}
 _SLACK_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:slack_")}
+_DISCORD_TOOL_FUNCTIONS = {fn for key, fn in _TOOL_MAP.items() if key.startswith("builtin:discord_")}
 _WORKFLOW_CONTEXT_FUNCTIONS = {_workflow_context_fn}
 
 
@@ -99,6 +100,21 @@ def _bind_slack_token(tools: list, slack_token: str) -> list:
         fn = _get_tool_function(tool)
         if fn is not None and _get_base_function(fn) in _SLACK_TOOL_FUNCTIONS:
             bound.append(_bind_tool_argument(tool, token=slack_token))
+        else:
+            bound.append(tool)
+    return bound
+
+
+def _bind_discord_access(tools: list, discord_token: str, discord_guild_ids: list | None) -> list:
+    """Discord 봇 도구(builtin:discord_*)에 봇 토큰과 허용 서버 목록을 바인딩한다(LLM에 숨긴다).
+    목록이 비어도 []로 묶는다 — 안쪽 _bind_config가 tools[].config.allowed_guild_ids를 먼저 묶었어도
+    바깥 partial이 이겨야 한다(불변식 b). 웹훅 도구 `discord`는 키에 builtin:이 없어 대상이 아니다."""
+    bound = []
+    for tool in tools:
+        fn = _get_tool_function(tool)
+        if fn is not None and _get_base_function(fn) in _DISCORD_TOOL_FUNCTIONS:
+            bound.append(_bind_tool_argument(tool, token=discord_token,
+                                             allowed_guild_ids=list(discord_guild_ids or [])))
         else:
             bound.append(tool)
     return bound
