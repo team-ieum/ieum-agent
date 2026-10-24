@@ -89,7 +89,7 @@ async def test_채널_ID는_공백을_떼고_숫자도_받으며_메시지는_st
     await _run(client, channel_id=f" {CH}\n", content=42)
     await _run(client, channel_id=int(CH), content="hi")
 
-    assert {str(r.url) for r in seen if r.method == "GET"} == {f"{API}/channels/{CH}"}
+    assert [str(r.url) for r in seen if r.method == "GET"] == [f"{API}/channels/{CH}"] * 2
     assert json.loads(seen[1].content)["content"] == "42"
 
 
