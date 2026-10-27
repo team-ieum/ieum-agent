@@ -149,6 +149,7 @@ activemq-data/
 
 # Environments
 .env
+.env.*
 .env.smoke
 .envrc
 .venv
@@ -234,3 +235,8 @@ scratch/
 
 # graphify 지식그래프 산출물
 graphify-out/
+
+# Version the deployment settings contract; runtime secrets remain ignored.
+!/docs/operations/
+/docs/operations/*
+!/docs/operations/bluegreen-secrets.md

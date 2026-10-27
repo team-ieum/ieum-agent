@@ -86,10 +86,13 @@ jobs:
 
       - name: Test
         env:
-          APP_MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
-          TEST_MONGODB_URL: ${{ secrets.AGENT_TEST_MONGODB_URL }}
-          TEST_MONGODB_DB_NAME: ${{ secrets.AGENT_TEST_MONGODB_DB_NAME }}
+          APP_MONGODB_URL: ${{ secrets.DEV_AGENT_MONGODB_URL || secrets.DEV_MONGODB_URL }}
+          TEST_MONGODB_URL: ${{ secrets.DEV_AGENT_TEST_MONGODB_URL || secrets.DEV_TEST_MONGODB_URL }}
+          TEST_MONGODB_DB_NAME: ${{ secrets.DEV_AGENT_TEST_MONGODB_DB_NAME || secrets.DEV_TEST_MONGODB_DB_NAME }}
         run: |
+          set +x
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/bluegreen -p 'test_*.py'
           export MONGODB_URL="${TEST_MONGODB_URL:-$APP_MONGODB_URL}"
           export MONGODB_DB_NAME="${TEST_MONGODB_DB_NAME:-ieum_test}"
 
@@ -118,42 +121,23 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy with a private candidate environment
+      - name: Deploy with prefixed GitHub Secrets
         env:
           IMAGE_TAG: ${{ github.sha }}
-          MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
-          MONGODB_DB_NAME: ${{ secrets.AGENT_MONGODB_DB_NAME }}
-          PORT: ${{ secrets.AGENT_PORT }}
-          CLAUDE_DEFAULT_MODEL: ${{ secrets.AGENT_CLAUDE_DEFAULT_MODEL }}
-          OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
-          GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
-          NOTION_MCP_URL: ${{ secrets.AGENT_NOTION_MCP_URL }}
-          NOTION_MCP_AUTH_TOKEN: ${{ secrets.AGENT_NOTION_MCP_AUTH_TOKEN }}
+          IEUM_AGENT_SECRETS_JSON: ${{ toJSON(secrets) }}
         run: |
+          set +x
           set -euo pipefail
           umask 077
           candidate_env="$(mktemp "$RUNNER_TEMP/ieum-agent-env.XXXXXX")"
           trap 'rm -f -- "$candidate_env"' EXIT
           trap 'exit 130' INT
           trap 'exit 143' TERM
-          python3 - "$candidate_env" <<'PY'
-          import os
-          import sys
-          from pathlib import Path
-
-          required = ('MONGODB_URL', 'MONGODB_DB_NAME', 'PORT', 'CLAUDE_DEFAULT_MODEL',
-                      'OPENAI_DEFAULT_MODEL', 'GEMINI_DEFAULT_MODEL')
-          optional = ('NOTION_MCP_URL', 'NOTION_MCP_AUTH_TOKEN')
-          missing = [key for key in required if not os.environ.get(key)]
-          if missing:
-              raise SystemExit('Missing GitHub Secrets for: ' + ', '.join('AGENT_' + key for key in missing))
-          values = {key: os.environ[key] for key in required + optional if os.environ.get(key)}
-          if any('\n' in value or '\r' in value for value in values.values()):
-              raise SystemExit('Agent environment values must be single lines')
-          Path(sys.argv[1]).write_text(''.join(key + '=' + value + '\n' for key, value in values.items()))
-          PY
+          python3 scripts/bluegreen/agent_env.py "$candidate_env"
+          unset IEUM_AGENT_SECRETS_JSON
           python3 /home/kwung/deploy/bluegreen/bluegreen.py --lock-timeout 14400 deploy \
             --job-deadline-epoch "$IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH" \
             --service agent \
             --image "$IMAGE_NAME:$IMAGE_TAG" \
-            --env-file "$candidate_env"
+            --env-file "$candidate_env" \
+            --replace-env
