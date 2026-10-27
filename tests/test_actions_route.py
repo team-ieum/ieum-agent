@@ -304,3 +304,25 @@ def test_Discord_ACTION은_봇_토큰이_없으면_200_실패_응답이다():
     res = _post(headers={"X-User-Id": "user-1", "X-Discord-Guild-Ids": G_MINE}, body=body)
     assert res.status_code == 200
     assert res.json()["success"] is False and "Discord" in res.json()["errorMessage"]
+
+
+# --- Notion DB 행 -----------------------------------------------------------------------------
+
+def test_Notion_행_수정_ACTION은_헤더_토큰으로_끝까지_실행되고_UI용_칸은_도구에_가지_않는다():
+    """config.data_source_id(시그니처 밖, 드롭다운용)·_names·token은 도구에 가지 않는다 — 실행은 행이 속한 DB를 따른다."""
+    from tests.test_notion_rows import PAGE, ROW, SCHEMA, _make_response
+    http = AsyncMock()
+    http.get = AsyncMock(side_effect=[_make_response(200, PAGE), _make_response(200, SCHEMA)])
+    http.patch = AsyncMock(side_effect=[_make_response(200, PAGE)])
+    body = {"nodeId": "node-1", "toolKey": "builtin:notion_update_row",
+            "config": {"data_source_id": "0" * 32, "row_id": ROW, "properties": {"점수": "7"}, "token": "attacker",
+                       "_names": {"data_source_id": "업무 DB", "properties": {"num": "점수"}}}}
+
+    with patch("tools.notion_rows.get_http_client", return_value=http):
+        res = _post(headers={"X-User-Id": "user-1", "X-Notion-Token": "n-token"}, body=body)
+
+    assert res.json() == {"success": True, "errorMessage": None, "errorCode": None,
+                          "output": {"pageId": ROW, "url": PAGE["url"]}}
+    assert {c.kwargs["headers"]["Authorization"] for c in http.get.await_args_list + http.patch.await_args_list} \
+        == {"Bearer n-token"}
+    assert http.patch.await_args.kwargs["json"] == {"properties": {"num": {"number": 7}}}

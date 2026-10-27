@@ -417,6 +417,8 @@ FIXED_NODE_REQUIRED = {
     "notion.append_block": ["config.content", "config.page_id"],
     "notion.create_page": ["config.content", "config.parent_page_id", "config.title"],
     "notion.query_database": ["config.database_id"],
+    "notion.create_row": ["config.data_source_id"],
+    "notion.update_row": ["config.row_id"],
     "notion.read_page": ["config.page_id"],
     "notion.search": ["config.query"],
     "notion.update_page": ["config.page_id"],

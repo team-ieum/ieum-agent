@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -135,6 +137,8 @@ def test_option_source_fields_fixed_set():
         ("notion.create_page", "parent_page_id"), ("notion.read_page", "page_id"),
         ("notion.update_page", "page_id"), ("notion.append_block", "page_id"),
         ("notion.query_database", "database_id"),
+        ("notion.create_row", "data_source_id"), ("notion.create_row", "template"),
+        ("notion.update_row", "data_source_id"), ("notion.update_row", "row_id"),
         *[(f"github.{x}", k) for x in ("list_issues", "create_issue") for k in ("owner", "repo")],
         ("github.new_issue", "repoId"),
     }
@@ -159,6 +163,10 @@ def _field(entry_id: str, key: str) -> dict:
     ("page_id", "페이지", {"notion.pages"}, None),
     ("parent_page_id", "상위 페이지", {"notion.pages"}, None),
     ("database_id", "데이터베이스", {"notion.databases"}, None),
+    ("data_source_id", "데이터베이스", {"notion.databases"}, None),
+    # D16: 공급원이 notion.pages인 page_id와 key를 나눈다 — 같은 key = 같은 공급원
+    ("row_id", "행", {"notion.data_source_items"}, ["data_source_id"]),
+    ("template", "템플릿", {"notion.templates"}, ["data_source_id"]),
     ("owner", "소유자", {"github.owners"}, None),
     ("repo", "저장소", {"github.repos"}, ["owner"]),
 ])
@@ -202,6 +210,7 @@ EXPECTED_BRANDS = {
     "notion.create_page": "notion", "notion.read_page": "notion",
     "notion.search": "notion", "notion.update_page": "notion",
     "notion.append_block": "notion", "notion.query_database": "notion",
+    "notion.create_row": "notion", "notion.update_row": "notion",
     "google_sheets.read": "sheets", "google_sheets.write": "sheets",
     "google_sheets.append": "sheets",
     "google_calendar.create": "google", "google_calendar.find": "google",
@@ -364,6 +373,36 @@ def test_AI_노드_도구_선택지에_Discord_두_가지가_이름으로_나뉜
     names = {c["id"]: c["name"] for c in tools["choices"]}
     assert names["discord"] == "Discord 웹훅으로 보내기"
     assert names["builtin:discord_send_channel_message"] == "Discord 채널에 메시지 보내기"
+
+
+def test_notion_DB_행_노드_계약():
+    """spec 2026-10-26 §3-2·§3-3 — 속성 칸은 DB를 고른 뒤 /fields로 받는 동적 칸, 칸 전체 참조식은 막는다."""
+    create, update = _action("notion.create_row"), _action("notion.update_row")
+    assert (create["toolKey"], update["toolKey"]) == ("builtin:notion_create_row", "builtin:notion_update_row")
+    assert (create["title"], update["title"]) == ("DB에 행 만들기", "DB 행 수정")
+    c = {f["key"]: f for f in create["inputFields"]}
+    u = {f["key"]: f for f in update["inputFields"]}
+    assert list(c) == ["data_source_id", "properties", "template", "content"]   # token은 주입 인자라 빠진다
+    assert list(u) == ["row_id", "properties", "content", "data_source_id"]     # 시그니처 밖 칸은 뒤에 붙는다
+    for fields in (c, u):
+        assert fields["properties"] == {"key": "properties", "title": "속성", "type": "dict", "ref": False,
+                                        "fieldsSource": "notion.properties", "fieldsInputs": ["data_source_id"],
+                                        "path": "config.properties"}
+        assert fields["data_source_id"]["ref"] is False
+        assert (fields["content"]["type"], fields["content"].get("required", False)) == ("text", False)
+    assert (c["data_source_id"]["required"], u["data_source_id"].get("required", False)) == (True, False)
+    assert (u["row_id"]["required"], u["row_id"].get("ref", True)) == (True, True)   # 앞 노드가 찾은 행을 참조식으로
+    assert (c["template"]["ref"], c["template"].get("required", False)) == (False, False)
+    for e in (create, update):
+        assert [f["key"] for f in e["outputFields"]] == ["pageId", "url"]
+        assert "optionsParams" not in json.dumps(e)   # /fields 응답 전용
+
+
+def test_AI_노드_도구_선택지에_Notion_DB_행_도구가_있다():
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    names = {c["id"]: c["name"] for c in tools["choices"]}
+    assert names["builtin:notion_create_row"] == "DB에 행 만들기"
+    assert names["builtin:notion_update_row"] == "DB 행 수정"
 
 
 def test_catalog_entries_snapshot():

@@ -20,6 +20,7 @@ from tools.notion import (
     notion_append_block,
     notion_query_database,
 )
+from tools.notion_rows import notion_create_row, notion_update_row
 from tools.google_sheets import google_sheets_read, google_sheets_write, google_sheets_append
 from tools.google_calendar import google_calendar_create, google_calendar_find, google_calendar_update
 from tools.google_drive import google_drive_read, google_drive_upload
@@ -82,6 +83,8 @@ _TOOL_MAP: dict = {
     "builtin:notion_update_page": notion_update_page,
     "builtin:notion_append_block": notion_append_block,
     "builtin:notion_query_database": notion_query_database,
+    "builtin:notion_create_row": notion_create_row,
+    "builtin:notion_update_row": notion_update_row,
     "builtin:google_sheets_read": google_sheets_read,
     "builtin:google_sheets_write": google_sheets_write,
     "builtin:google_sheets_append": google_sheets_append,

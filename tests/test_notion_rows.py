@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from common.error_code import ToolErrorCode
+from tests.action_outputs import assert_matches_outputs
 from tools.notion_rows import notion_create_row, notion_update_row
 
 API = "https://api.notion.com/v1"
@@ -82,6 +83,7 @@ async def test_만들기는_스키마를_읽고_data_source_부모로_행을_만
     result = await _create(client, properties={"이름": "회의록", "점수": 3})
 
     assert result == {"success": True, "pageId": "new-page", "url": "https://www.notion.so/new-page"}
+    assert_matches_outputs("notion.create_row", result)
     assert client.get.await_args.args[0] == f"{API}/data_sources/{DS}"
     assert client.post.await_args.args[0] == f"{API}/pages"
     assert client.post.await_args.kwargs["headers"]["Notion-Version"] == "2026-03-11"
@@ -326,6 +328,7 @@ async def test_수정은_행의_DB_스키마로_속성과_본문을_바꾼다():
     result = await _update(client, properties={"상태": "완료", "점수": ""}, content="새 본문")
 
     assert result == {"success": True, "pageId": ROW, "url": PAGE["url"]}
+    assert_matches_outputs("notion.update_row", result)
     assert [c.args[0] for c in client.get.await_args_list] == [f"{API}/pages/{ROW}", f"{API}/data_sources/{DS}"]
     assert [c.args[0] for c in client.patch.await_args_list] == [f"{API}/pages/{ROW}", f"{API}/pages/{ROW}/markdown"]
     assert _sent(client, "patch", 0) == {"properties": {"sts": {"status": {"name": "완료"}}}}  # 빈 값 = 그대로
