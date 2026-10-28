@@ -366,6 +366,38 @@ def test_칸_안에_중첩된_참조의_field는_그_칸_path():
     assert _codes(validate_workflow(*_chain(http))) == [("REF_UNKNOWN_NODE", "h", "config.headers")]
 
 
+DS_ID = "1f2e3d4c5b6a47988796a5b4c3d2e1f0"
+
+
+def test_동적_칸_안_참조식_field는_칸_경로와_키():
+    """spec 2026-10-26 §8 — ACTION 동적 칸(fieldsSource) 안의 참조는 <칸 경로>.<키>까지 짚는다. date처럼 한 단 더
+    들어간 값도 키에서 멈춘다."""
+    node = _act("r", "notion.create_row", data_source_id=DS_ID, properties={
+        "title": "{{nodes.t.output.subject}}", "a%3Bc": "{{nodes.zz.output.x}}",
+        "due": {"start": "{{nodes.gone.output.d}}"}})
+    assert _codes(validate_workflow(*_chain(node))) == [
+        ("REF_UNKNOWN_NODE", "r", "config.properties.a%3Bc"), ("REF_UNKNOWN_NODE", "r", "config.properties.due")]
+
+
+def test_동적_칸_전체를_참조식으로_채우면_REF_NOT_ALLOWED_dict_아니면_TYPE():
+    """칸 전체를 참조식 하나로 채우면 BE가 문자열로 치환해 dict 인자가 깨진다(spec §3-2 ref: false)."""
+    node = _act("r", "notion.update_row", row_id="{{nodes.t.output.row}}", properties="{{nodes.t.output.props}}")
+    assert [(e["code"], e["field"]) for e in field_errors(node)] == [("REF_NOT_ALLOWED", "config.properties")]
+    for bad in (["title"], "제목"):
+        node = _act("r", "notion.update_row", row_id="{{nodes.t.output.row}}", properties=bad)
+        assert [(e["code"], e["field"]) for e in field_errors(node)] == [("TYPE", "config.properties")]
+    # 안쪽 키별 REQUIRED·TYPE은 보지 않는다 — 스키마가 없다(D14)
+    node = _act("r", "notion.update_row", row_id="{{nodes.t.output.row}}", properties={"num": ["x"], "": None})
+    assert field_errors(node) == []
+
+
+def test_AI_노드_도구_config_안_속성_참조는_지금처럼_config_tools():
+    """동적 칸 경로는 ACTION만 — AI 노드 tools[].config는 프리셋(⑤)이 생길 때 config.tools.0.config.properties.<키>."""
+    ai = _ai("a", event="ai.agent", agentType="react", tools=[{"name": "builtin:notion_create_row", "config": {
+        "data_source_id": DS_ID, "properties": {"title": "{{nodes.zz.output.x}}"}}}])
+    assert _codes(validate_workflow(*_chain(ai))) == [("REF_UNKNOWN_NODE", "a", "config.tools")]
+
+
 def test_outputDynamic_미매칭_대상은_출력_칸을_보지_않는다():
     nodes, edges = _chain(_ai("b", prompt="{{nodes.t.output.anything}}"))  # manual.run = outputDynamic
     assert validate_workflow(nodes, edges) == []

@@ -310,6 +310,9 @@ def _ref_errors(node: dict, by_id: dict, preds: dict, outputs: dict):
         return
     entry = match_entry(node)
     field_paths = [f["path"] for f in entry["inputFields"]] if entry else []
+    # ACTION 동적 칸(fieldsSource) 안은 <칸 경로>.<키>까지 짚는다(spec 2026-10-26 §8). AI 노드 tools[].config는 그대로
+    dynamic = {f["path"] for f in entry["inputFields"] if f.get("fieldsSource")} \
+        if entry and entry["node_type"] == "ACTION" else set()
     unused = [p for p in field_paths if _unused_field(entry, node, p)]
     unused += [_CONDITION_ALIASES[p] for p in unused if p in _CONDITION_ALIASES]  # BE는 right가 없으면 rightValue를 읽는다
     anc = None
@@ -317,6 +320,8 @@ def _ref_errors(node: dict, by_id: dict, preds: dict, outputs: dict):
         if "{{" not in text or any(loc == p or loc.startswith(p + ".") for p in unused):
             continue
         field = next((p for p in field_paths if loc == p or loc.startswith(p + ".")), None)
+        if field in dynamic and loc != field:  # 키에는 `.`이 없다 — 저장 키는 `.`을 %2E로 바꾼다(D5)
+            field = f"{field}.{loc[len(field) + 1:].split('.', 1)[0]}"
         if text.rfind("{{") > text.rfind("}}"):
             yield _err("REF_FORMAT", "참조식의 '{{'가 닫히지 않았어요.", nid, field)
         for ref in _REF_RE.finditer(text):  # findall은 참조 수백만 개를 목록으로 먼저 만든다
