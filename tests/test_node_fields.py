@@ -55,6 +55,38 @@ def test_validate_field_partial_allows_missing_title_and_type():
     validate_field({"key": "prompt", "llm": {"hint": "h"}}, partial=True)
 
 
+# --- 동적 칸 fieldsSource·fieldsInputs (spec 2026-10-26 §3-1·§7-4) ----------------------
+
+def test_validate_field_accepts_dynamic_fields():
+    validate_field({"key": "properties", "title": "속성", "type": "dict", "ref": False,
+                    "fieldsSource": "notion.properties", "fieldsInputs": ["data_source_id"]})
+    validate_field({"key": "properties", "fieldsSource": "notion.properties"}, partial=True)  # type은 시그니처·덮어쓰기 병합 뒤 본다
+
+
+@pytest.mark.parametrize("bad, msg", [
+    ({"fieldsSource": "Notion Properties"}, "fieldsSource는 '<공급원>.<목록>'"),
+    ({"fieldsSource": ["notion.properties"]}, "fieldsSource는 '<공급원>.<목록>'"),
+    ({"fieldsSource": "notion.properties\n"}, "fieldsSource는 '<공급원>.<목록>'"),
+    ({"type": "object", "fieldsSource": "notion.properties"}, "type 'dict'"),
+    ({"fieldsInputs": ["data_source_id"]}, "fieldsSource와 함께"),
+    ({"fieldsSource": "notion.properties", "fieldsInputs": "data_source_id"}, "fieldsInputs는 칸 key 목록"),
+    ({"fieldsSource": "notion.properties", "fieldsInputs": [""]}, "fieldsInputs는 칸 key 목록"),
+    ({"optionsParams": {"data_source_id": "x"}}, "optionsParams"),  # /fields 응답 전용 — 카탈로그에는 쓰지 않는다
+])
+def test_validate_field_rejects_bad_dynamic_fields(bad, msg):
+    with pytest.raises(FieldError, match=msg):
+        validate_field({"key": "properties", "title": "속성", "type": "dict", **bad})
+
+
+def test_apply_overrides_fields_source_needs_dict_type():
+    """시그니처의 dict는 Field type object로 파생된다 — 덮어쓰기에서 type: dict를 빠뜨리면 기동이 실패한다."""
+    sig = [{"key": "properties", "title": "properties", "type": "object"}]
+    with pytest.raises(FieldError, match="type 'dict'"):
+        apply_overrides(sig, {"properties": {"fieldsSource": "notion.properties"}}, where="builtin:x")
+    out = apply_overrides(sig, {"properties": {"type": "dict", "fieldsSource": "notion.properties"}}, where="builtin:x")
+    assert out[0]["type"] == "dict" and out[0]["fieldsSource"] == "notion.properties"
+
+
 # --- signature_fields ----------------------------------------------------------------
 
 def _sample(token: str, a: str, b: int = 5, c: str | None = None, d: list[str] = None,

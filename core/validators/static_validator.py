@@ -29,7 +29,8 @@ MAX_NODES, MAX_EDGES, MAX_ERRORS, MAX_VALUE_LEN = 500, 2000, 200, 80
 # 200건이어도 제어문자 값(JSON에서 문자당 6바이트)이면 256KB를 넘는다 — 바이트로도 자른다. json.dumps 기본
 # ensure_ascii=True는 한글도 6바이트로 세서 실제 응답(UTF-8 3바이트)보다 크게 잡는다.
 MAX_ERROR_BYTES = 200_000
-# 위치 경로는 카탈로그 path(최대 41자)와만 비교한다 — 긴 키 아래 큰 목록에서 원소마다 긴 경로를 복사하지 않게 자른다
+# 위치 경로 상한 — 카탈로그 path(최대 41자)와 비교하고 동적 칸 오류의 field 문자열도 된다. 긴 키 아래 큰 목록에서
+# 원소마다 긴 경로를 복사하지 않게, 응답 field가 길어지지 않게 자른다(긴 키는 잘린다)
 _MAX_LOC = 256
 
 
@@ -310,6 +311,9 @@ def _ref_errors(node: dict, by_id: dict, preds: dict, outputs: dict):
         return
     entry = match_entry(node)
     field_paths = [f["path"] for f in entry["inputFields"]] if entry else []
+    # ACTION 동적 칸(fieldsSource) 안은 <칸 경로>.<키>까지 짚는다(spec 2026-10-26 §8). AI 노드 tools[].config는 그대로
+    dynamic = {f["path"] for f in entry["inputFields"] if f.get("fieldsSource")} \
+        if entry and entry["node_type"] == "ACTION" else set()
     unused = [p for p in field_paths if _unused_field(entry, node, p)]
     unused += [_CONDITION_ALIASES[p] for p in unused if p in _CONDITION_ALIASES]  # BE는 right가 없으면 rightValue를 읽는다
     anc = None
@@ -317,6 +321,8 @@ def _ref_errors(node: dict, by_id: dict, preds: dict, outputs: dict):
         if "{{" not in text or any(loc == p or loc.startswith(p + ".") for p in unused):
             continue
         field = next((p for p in field_paths if loc == p or loc.startswith(p + ".")), None)
+        if field in dynamic and loc != field:  # 키에는 `.`이 없다 — 저장 키는 `.`을 %2E로 바꾼다(D5)
+            field = f"{field}.{loc[len(field) + 1:].split('.', 1)[0]}"
         if text.rfind("{{") > text.rfind("}}"):
             yield _err("REF_FORMAT", "참조식의 '{{'가 닫히지 않았어요.", nid, field)
         for ref in _REF_RE.finditer(text):  # findall은 참조 수백만 개를 목록으로 먼저 만든다

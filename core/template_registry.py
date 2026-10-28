@@ -318,10 +318,11 @@ def load_templates(force: bool = False, tool_keys: set | None = None) -> dict:
             raise TemplateSchemaError(f"{t['id']}: 최종 inputFields(직속 + 도구 필드) key {dup} 중복")
         keys = set(keys)
         for f in t["inputFields"]:
-            bad = set(f.get("optionsInputs") or []) - keys
-            if bad:
-                raise TemplateSchemaError(
-                    f"{t['id']}: '{f['key']}'의 optionsInputs {sorted(bad)}가 같은 항목의 필드가 아니다.")
+            for attr in ("optionsInputs", "fieldsInputs"):
+                bad = set(f.get(attr) or []) - keys
+                if bad:
+                    raise TemplateSchemaError(
+                        f"{t['id']}: '{f['key']}'의 {attr} {sorted(bad)}가 같은 항목의 필드가 아니다.")
     seen: dict = {}
     for t in templates.values():
         if not t.get("preset") or "match" not in t:

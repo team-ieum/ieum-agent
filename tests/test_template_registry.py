@@ -62,7 +62,8 @@ _INTERNAL_TOOLS = {
 
 # 생성 프리셋 없이 ai.agent 도구 선택지(이벤트 title)로만 AI 노드에 싣는 도구(spec 2026-10-20 §9 — 프리셋을 만들지 않는다).
 # 생성(채팅) 경로는 이 도구로 노드를 만들지 못한다.
-_NO_PRESET_TOOLS = {"builtin:slack_send_channel_message", "builtin:discord_send_channel_message"}
+_NO_PRESET_TOOLS = {"builtin:slack_send_channel_message", "builtin:discord_send_channel_message",
+                    "builtin:notion_create_row", "builtin:notion_update_row"}  # spec 2026-10-26 §1: 프리셋 없음
 
 
 def test_every_user_facing_tool_has_template():

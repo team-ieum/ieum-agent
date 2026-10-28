@@ -285,3 +285,11 @@ def test_discord_봇_도구는_token과_허용_서버를_주입받고_brand는_d
     assert [n for n, s in spec.items() if s["class"] == "required"] == ["channel_id", "content"]
     assert brand_for_node({"type": "AI", "event": "ai.agent",
                            "config": {"tools": [{"name": "builtin:discord_send_channel_message"}]}}) == "discord"
+
+
+def test_notion_DB_행_도구는_token을_주입받고_brand는_notion이다():
+    for key, required in (("builtin:notion_create_row", ["data_source_id"]), ("builtin:notion_update_row", ["row_id"])):
+        spec = tool_param_spec(key)
+        assert spec["token"]["class"] == "runtime_injected"
+        assert [n for n, s in spec.items() if s["class"] == "required"] == required
+        assert brand_for_node({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": key}]}}) == "notion"

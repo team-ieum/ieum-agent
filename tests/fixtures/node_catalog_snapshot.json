@@ -125,6 +125,10 @@
               "name": "Notion 페이지 만들기"
             },
             {
+              "id": "builtin:notion_create_row",
+              "name": "DB에 행 만들기"
+            },
+            {
               "id": "builtin:notion_query_database",
               "name": "Notion 데이터베이스 조회"
             },
@@ -139,6 +143,10 @@
             {
               "id": "builtin:notion_update_page",
               "name": "Notion 페이지 수정"
+            },
+            {
+              "id": "builtin:notion_update_row",
+              "name": "DB 행 수정"
             },
             {
               "id": "slack",
@@ -1864,6 +1872,78 @@
     {
       "app": "notion",
       "appTitle": "Notion",
+      "description": "Notion 데이터베이스에 새 행을 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "notion"
+        },
+        "event": "notion.create_row",
+        "type": "ACTION"
+      },
+      "id": "notion.create_row",
+      "inputFields": [
+        {
+          "description": "행을 만들 데이터베이스",
+          "key": "data_source_id",
+          "optionsSource": "notion.databases",
+          "path": "config.data_source_id",
+          "ref": false,
+          "required": true,
+          "title": "데이터베이스",
+          "type": "string"
+        },
+        {
+          "fieldsInputs": [
+            "data_source_id"
+          ],
+          "fieldsSource": "notion.properties",
+          "key": "properties",
+          "path": "config.properties",
+          "ref": false,
+          "title": "속성",
+          "type": "dict"
+        },
+        {
+          "description": "비우면 템플릿 없이 만들어요",
+          "key": "template",
+          "optionsInputs": [
+            "data_source_id"
+          ],
+          "optionsSource": "notion.templates",
+          "path": "config.template",
+          "ref": false,
+          "title": "템플릿",
+          "type": "string"
+        },
+        {
+          "description": "Markdown. 템플릿과 같이 쓸 수 없어요",
+          "key": "content",
+          "path": "config.content",
+          "title": "본문",
+          "type": "text"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "pageId",
+          "title": "페이지 ID",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "title": "페이지 주소",
+          "type": "string"
+        }
+      ],
+      "provider": "notion",
+      "title": "DB에 행 만들기",
+      "toolKey": "builtin:notion_create_row"
+    },
+    {
+      "app": "notion",
+      "appTitle": "Notion",
       "description": "데이터베이스의 행을 가져와요.",
       "fixed": {
         "config": {
@@ -2120,6 +2200,77 @@
       "provider": "notion",
       "title": "Notion 페이지 수정",
       "toolKey": "builtin:notion_update_page"
+    },
+    {
+      "app": "notion",
+      "appTitle": "Notion",
+      "description": "Notion 데이터베이스 행의 속성이나 본문을 바꿔요.",
+      "fixed": {
+        "config": {
+          "brand": "notion"
+        },
+        "event": "notion.update_row",
+        "type": "ACTION"
+      },
+      "id": "notion.update_row",
+      "inputFields": [
+        {
+          "description": "수정할 행",
+          "key": "row_id",
+          "optionsInputs": [
+            "data_source_id"
+          ],
+          "optionsSource": "notion.data_source_items",
+          "path": "config.row_id",
+          "required": true,
+          "title": "행",
+          "type": "string"
+        },
+        {
+          "fieldsInputs": [
+            "data_source_id"
+          ],
+          "fieldsSource": "notion.properties",
+          "key": "properties",
+          "path": "config.properties",
+          "ref": false,
+          "title": "속성",
+          "type": "dict"
+        },
+        {
+          "description": "넣으면 본문 전체를 바꿔요",
+          "key": "content",
+          "path": "config.content",
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "description": "행 목록과 속성 칸을 불러올 DB예요. 실행은 행이 속한 DB를 따라요",
+          "key": "data_source_id",
+          "optionsSource": "notion.databases",
+          "path": "config.data_source_id",
+          "ref": false,
+          "title": "데이터베이스",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "pageId",
+          "title": "페이지 ID",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "title": "페이지 주소",
+          "type": "string"
+        }
+      ],
+      "provider": "notion",
+      "title": "DB 행 수정",
+      "toolKey": "builtin:notion_update_row"
     },
     {
       "app": "schedule",
