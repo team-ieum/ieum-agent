@@ -35,12 +35,34 @@ class ExecutionGuard:
         """실행 직전 권한/보안 가드 검사를 수행한다."""
         cls.validate_tools(request.tools, google_access_token, notion_token, github_token, slack_token,
                            discord_token=discord_token)
-        # simple 경로(run_simple_agent)는 봇 토큰을 바인딩하지 않는다 — 실으면 `token`·`allowed_guild_ids`가 LLM
-        # 스키마에 드러나 모델(또는 프롬프트 인젝션)이 값을 채운다. 봇 도구는 react에서만 받는다.
-        if request.agentType != "react" and any(
-            (t.get("name") or "").startswith(("builtin:slack_", "builtin:discord_")) for t in (request.tools or [])
-        ):
-            raise ExecutionGuardError("Slack·Discord 봇 도구는 react AI 노드에서만 쓸 수 있습니다.")
+        if request.agentType != "react":
+            unbound = cls._tools_with_unbound_injected_params(request.tools)
+            if unbound:
+                raise ExecutionGuardError(
+                    f"도구 {', '.join(unbound)}는 react AI 노드(ai.agent)에서만 쓸 수 있습니다."
+                )
+
+    @staticmethod
+    def _tools_with_unbound_injected_params(tools: Optional[list]) -> list[str]:
+        """simple 경로(run_simple_agent)는 workflow_context_data 말고 주입 인자(토큰·웹훅·SMTP)를 바인딩하지 않는다 —
+        남으면 LLM 스키마에 드러나 모델(또는 프롬프트 인젝션)이 값을 채운다. simple과 같게 도구를 만들어
+        (tools[].config·_AI_DEFAULTS가 묶은 인자는 시그니처에서 빠진다) 남은 주입 인자가 있는 도구 이름을 돌려준다."""
+        import inspect
+        from tools import get_tools_for_request
+        from tools.registry import RUNTIME_INJECTED_PARAMS
+
+        params = RUNTIME_INJECTED_PARAMS - {"workflow_context_data"}
+        unbound = []
+        for t in tools or []:
+            if not isinstance(t, dict) or t.get("name") == "mcp":  # MCP는 함수 시그니처가 없다
+                continue
+            try:
+                built = get_tools_for_request([t])
+            except TypeError:  # config가 매핑이 아닌 비정상 입력 — 판정을 건너뛰고 실행 단계의 실패 처리에 맡긴다
+                continue
+            if any(params & inspect.signature(ft.func).parameters.keys() for ft in built):
+                unbound.append(t["name"])
+        return unbound
 
     @classmethod
     def validate_tools(
