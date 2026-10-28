@@ -154,6 +154,7 @@ async def test_값_변환표(key, value, expected):
     ("분류", {"name": "업무"}, ["분류", "객체"]),       # Notion 형식 값을 빈 값으로 버리지 않는다(D7)
     ("태그", [{"name": "x"}], ["태그", "객체"]),        # 목록 안 객체를 str(dict)로 보내지 않는다
     ("분류", ["업무"], ["분류", "목록"]),               # str(list)가 영구 옵션 "['업무']"이 되지 않게(D8)
+    ("마감", {"date": "2026-11-01"}, ["마감", "{start, end}"]),  # start 없는 dict를 조용히 버리지 않는다
 ])
 async def test_변환_실패는_행을_만들지_않는다(key, value, words):
     client = _client(get=[_ok(SCHEMA)])
@@ -195,6 +196,26 @@ async def test_없는_속성은_실패하고_쓸_수_있는_속성_목록을_알
 
 
 @pytest.mark.asyncio
+async def test_두_키가_같은_속성으로_풀리면_실패한다():
+    """저장 키(ID)와 이름이 같은 속성을 가리키면 뒤 값이 앞 값을 조용히 덮지 않는다."""
+    client = _client(get=[_ok(SCHEMA)])
+
+    result = await _create(client, properties={"title": "a", "이름": "b"})
+
+    assert "'이름' 속성이 두 번 들어왔어요" in result["error"]
+    assert client.post.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_오류에_싣는_사용자_값은_자른다():
+    client = _client(get=[_ok(SCHEMA)])
+
+    result = await _create(client, properties={"점수": "x" * 100_000})
+
+    assert "점수" in result["error"] and len(result["error"]) < 200
+
+
+@pytest.mark.asyncio
 async def test_안쪽_names_키는_속성으로_보고_실패한다():
     """spec §6 — properties 안쪽엔 _names 규칙이 없다. dict 값이라고 빈 값으로 버리지 않는다(D7)."""
     client = _client(get=[_ok(SCHEMA)])
@@ -227,6 +248,18 @@ async def test_빈_값이면_스키마에_없는_키여도_실패하지_않는�
     result = await _create(client, properties={"지운속성": "", "이름": "제목"})
 
     assert result["success"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [[""], [None], ["", " "]])
+async def test_빈_항목만_든_목록은_빈_값이다(value):
+    """spec §6 — 목록 안 미해결 참조(BE가 "")도 빈 값. 지운 속성 키여도 실패하지 않는다."""
+    client = _client(get=[_ok(SCHEMA)], post=[_ok(CREATED)])
+
+    result = await _create(client, properties={"지운속성": value, "이름": "제목"})
+
+    assert result["success"] is True
+    assert set(_sent(client)["properties"]) == {"title"}
 
 
 @pytest.mark.asyncio

@@ -31,15 +31,23 @@ def _result(**body) -> str:
 
 
 def _blank(value) -> bool:
-    """빈 값(spec §6): None·공백 문자열·[]·start가 빈 date dict({} 포함). BE는 못 푼 참조를 ""로 보낸다.
+    """빈 값(spec §6): None·공백 문자열·빈 항목만 든 목록([] 포함)·start가 빈 date dict({} 포함). BE는 못 푼 참조를 ""로 보낸다.
     dict는 date 모양(start·end만)일 때만 빈 값이다 — {"name": …}·안쪽 _names는 키 해석(D7)으로 넘긴다."""
-    if value is None or value == []:
+    if value is None:
         return True
+    if isinstance(value, list):
+        return all(_blank(v) for v in value)
     if isinstance(value, str):
         return not value.strip()
     if isinstance(value, dict):
         return set(value) <= {"start", "end"} and _blank(value.get("start"))
     return False
+
+
+def _clip(value) -> str:
+    """오류에 싣는 사용자 값·키 — 80자를 넘으면 자르고 '…'(static_validator _clip과 같은 규칙)."""
+    s = str(value)
+    return s if len(s) <= 80 else s[:80] + "…"
 
 
 def _notion_id(value) -> str | None:
@@ -78,7 +86,7 @@ def _option(prop: dict, value, *, create: bool) -> dict:
     if create or any(o.get("name") == text for o in options):
         return {"name": text}
     names = ", ".join(str(o.get("name")) for o in options)
-    raise _Invalid(f"'{prop['name']}'에 '{text}' 상태가 없어요. 고를 수 있는 값: {names}")
+    raise _Invalid(f"'{prop['name']}'에 '{_clip(text)}' 상태가 없어요. 고를 수 있는 값: {names}")
 
 
 def _number(prop: dict, value):
@@ -96,7 +104,7 @@ def _number(prop: dict, value):
             number = math.nan
         if math.isfinite(number):
             return number
-    raise _Invalid(f"'{prop['name']}'에는 숫자를 넣어 주세요(지금 '{value}')")
+    raise _Invalid(f"'{prop['name']}'에는 숫자를 넣어 주세요(지금 '{_clip(value)}')")
 
 
 def _checkbox(prop: dict, value) -> bool:
@@ -104,10 +112,12 @@ def _checkbox(prop: dict, value) -> bool:
         return value
     if isinstance(value, str) and value.strip().lower() in ("true", "false"):
         return value.strip().lower() == "true"
-    raise _Invalid(f"'{prop['name']}'에는 true 또는 false를 넣어 주세요(지금 '{value}')")
+    raise _Invalid(f"'{prop['name']}'에는 true 또는 false를 넣어 주세요(지금 '{_clip(value)}')")
 
 
-def _date(value) -> dict | None:
+def _date(name: str, value) -> dict | None:
+    if isinstance(value, dict) and set(value) - {"start", "end"}:
+        raise _Invalid(f"'{name}'에는 {{start, end}} 객체를 넣어 주세요")
     start, end = (value.get("start"), value.get("end")) if isinstance(value, dict) else (value, None)
     if _blank(start):
         return None
@@ -136,7 +146,7 @@ def _convert(prop: dict, value):
     if ptype in ("select", "status"):
         return _option(prop, value, create=ptype == "select")
     if ptype == "date":
-        return _date(value)
+        return _date(name, value)
     if ptype in _MAX_LENGTH:
         text = str(value).strip()
         if len(text) > _MAX_LENGTH[ptype]:
@@ -159,7 +169,7 @@ def _build(schema: dict, properties: dict) -> dict:
     비워 둔 칸의 속성이 DB에서 지워져도 잃는 값이 없다(D7은 값이 있을 때만)."""
     props = [p for p in (schema.get("properties") or {}).values()
              if isinstance(p, dict) and isinstance(p.get("id"), str) and isinstance(p.get("name"), str)]
-    out = {}
+    out, seen = {}, set()
     for key, value in properties.items():
         if _blank(value):
             continue
@@ -167,7 +177,10 @@ def _build(schema: dict, properties: dict) -> dict:
             or next((p for p in props if p["name"] == key), None)
         if prop is None:
             names = ", ".join(f"{p['name']}({p.get('type')})" for p in props if p.get("type") in _WRITABLE)
-            raise _Invalid(f"'{key}' 속성이 이 데이터베이스에 없어요. 쓸 수 있는 속성: {names}")
+            raise _Invalid(f"'{_clip(key)}' 속성이 이 데이터베이스에 없어요. 쓸 수 있는 속성: {names}")
+        if prop["id"] in seen:
+            raise _Invalid(f"'{prop['name']}' 속성이 두 번 들어왔어요")
+        seen.add(prop["id"])
         if prop.get("type") not in _WRITABLE:
             raise _Invalid(f"'{prop['name']}' 속성은 쓸 수 없어요({prop.get('type')})")
         converted = _convert(prop, value)
