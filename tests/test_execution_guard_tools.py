@@ -65,7 +65,7 @@ def test_validate_execution은_simple_노드의_Slack_봇_도구를_거부한다
     """run_simple_agent는 봇 토큰을 바인딩하지 않는다 — 실리면 token 인자가 LLM 스키마에 드러난다."""
     request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="simple",
                                tools=[{"name": "builtin:slack_send_channel_message"}])
-    with pytest.raises(ExecutionGuardError, match="react"):
+    with pytest.raises(ExecutionGuardError, match=r"builtin:slack_send_channel_message.*react AI 노드\(ai\.agent\)에서만"):
         ExecutionGuard.validate_execution(request, slack_token="xoxb-test")
     ExecutionGuard.validate_execution(request.model_copy(update={"agentType": "react"}), slack_token="xoxb-test")
 
@@ -74,11 +74,54 @@ def test_validate_execution은_simple_노드의_Discord_봇_도구를_거부한�
     """simple 경로는 바인딩하지 않는다 — 실리면 token·allowed_guild_ids가 LLM 스키마에 드러난다."""
     request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="simple",
                                tools=[{"name": "builtin:discord_send_channel_message"}])
-    with pytest.raises(ExecutionGuardError, match="react"):
+    with pytest.raises(ExecutionGuardError, match=r"builtin:discord_send_channel_message.*react AI 노드\(ai\.agent\)에서만"):
         ExecutionGuard.validate_execution(request, discord_token="bot-t")
     ExecutionGuard.validate_execution(request.model_copy(update={"agentType": "react"}), discord_token="bot-t")
     with pytest.raises(ExecutionGuardError, match="Discord"):
         ExecutionGuard.validate_execution(request.model_copy(update={"agentType": "react"}))
+
+
+@pytest.mark.parametrize("tool_key, tokens", [
+    ("builtin:notion_create_row", {"notion_token": "n-token"}),
+    ("builtin:google_sheets_read", {"google_access_token": "g-token"}),
+    ("gmail", {}),
+])
+def test_validate_execution은_simple_노드의_주입_인자_도구를_거부한다(tool_key, tokens):
+    """simple 경로는 token·access_token·SMTP를 바인딩하지 않는다 — 남은 주입 인자는 LLM이 채운다."""
+    request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="simple", tools=[{"name": tool_key}])
+    with pytest.raises(ExecutionGuardError, match=rf"{tool_key}.*react AI 노드\(ai\.agent\)에서만"):
+        ExecutionGuard.validate_execution(request, **tokens)
+
+
+@pytest.mark.parametrize("tool_key", [
+    "builtin:http_fetch", "builtin:web_search", "builtin:json_parse", "builtin:text_extract",
+    "builtin:date_format", "builtin:workflow_context",
+])
+def test_validate_execution은_simple_노드의_주입_인자_없는_도구를_통과시킨다(tool_key):
+    request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="simple", tools=[{"name": tool_key}])
+    ExecutionGuard.validate_execution(request)
+
+
+@pytest.mark.parametrize("tool_key", ["slack", "discord"])
+def test_validate_execution은_simple_웹훅_도구를_config_webhook_url이_있을_때만_통과시킨다(tool_key):
+    request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="simple",
+                               tools=[{"name": tool_key, "config": {"webhook_url": "https://hooks.example.com/x"}}])
+    ExecutionGuard.validate_execution(request)
+    with pytest.raises(ExecutionGuardError, match=rf"{tool_key}.*react AI 노드\(ai\.agent\)에서만"):
+        ExecutionGuard.validate_execution(request.model_copy(update={"tools": [{"name": tool_key}]}))
+
+
+def test_validate_execution은_simple_도구_config가_매핑이_아니면_판정을_건너뛴다():
+    # 가드 밖으로 TypeError가 새면 실행 로그 없이 500 — 판정만 건너뛰고 실행 단계의 실패 처리에 맡긴다
+    request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="simple",
+                               tools=[{"name": "builtin:web_search", "config": "abc"}])
+    ExecutionGuard.validate_execution(request)
+
+
+def test_validate_execution은_react_노드의_Notion_도구를_통과시킨다():
+    request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="react",
+                               tools=[{"name": "builtin:notion_create_row"}])
+    ExecutionGuard.validate_execution(request, notion_token="n-token")
 
 
 @pytest.mark.parametrize("tools", [[], None])
