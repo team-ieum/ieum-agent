@@ -27,7 +27,7 @@ _AUTH_PROVIDER = {"google_oauth": "GOOGLE", "github_token": "GITHUB", "notion_to
 MAX_CANDIDATES = 20
 MAX_LOOKUPS_PER_TURN = 5
 MAX_TESTS_PER_TURN = 3
-TURN_SECONDS = 540       # 턴 본체 시간 상한(spec §3.5, 엔진 asyncio.timeout과 같은 값)
+TURN_SECONDS = 540       # 턴 본체 시간 상한(spec §3.5) — 엔진 TURN_TIMEOUT_SECONDS가 이 값이다(한 상수)
 MIN_TEST_SECONDS = 200   # BE 테스트 요청 timeout 190초 + 여유 — 이보다 적게 남으면 테스트를 시작하지 않는다
 
 
@@ -452,3 +452,67 @@ def finish(turn: Turn, state) -> dict:
     turn.ask = f"완료 전 확인 — {summary}. {ASK_FINISH}"
     return {"status": "awaiting_confirmation", "message": "완료 확인은 시스템이 붙이니 이번 턴은 짧게 마치세요."}
 
+
+
+# ── LLM에 주는 래퍼 ────────────────────────────────────────────────────────
+
+def make_tools(turn: Turn) -> list:
+    """turn을 잡은 도구 12개. 독스트링이 LLM이 보는 설명이다. tool_context는 ADK가 넣는다(LLM 인자 아님)."""
+
+    def find_events_(query: str = "") -> dict:
+        """만들 수 있는 노드(이벤트) 메뉴를 찾는다. query는 앱·동작 단어(예: 'slack 보내기', 'calendar').
+        맞는 것이 없으면 전체 메뉴를 준다. 여기서 받은 event만 add_node에 쓸 수 있다."""
+        return find_events(query)
+
+    def set_outline_(tool_context: ToolContext, steps: list[str], workflowName: str) -> dict:
+        """사용자에게 보여 줄 개요(단계 이름 목록)와 워크플로우 이름(한국어, 짧게)을 저장한다. 첫 턴에 부른다."""
+        return set_outline(tool_context.state, steps, workflowName)
+
+    async def check_connection_(app: str) -> dict:
+        """앱(find_events의 app 값) 연결 여부. 연결이 없으면 message를 사용자에게 그대로 안내하고 노드를 만들지 않는다."""
+        return await check_connection(turn, app)
+
+    async def add_node_(event: str, label: str, after: str = "", branch: str = "") -> dict:
+        """노드를 하나 만든다. after = 앞 노드 id(그 뒤에 연결), 앞 노드가 분기(branch.if)면 branch='true'|'false' 필수.
+        연결이 필요한 앱이 미연결이면 거절한다. 돌려준 node_id를 이후 도구에 쓴다."""
+        return await add_node(turn, event, label, after, branch)
+
+    def get_fields_(tool_context: ToolContext, node_id: str) -> dict:
+        """노드의 칸 목록(path·제목·타입·필수·선택지·드롭다운·동적 칸·현재 값), 앞 노드들의 출력 이름, 이 노드의 검증 에러."""
+        return get_fields(turn, tool_context.state, node_id)
+
+    async def list_options_(tool_context: ToolContext, node_id: str, field_path: str, q: str = "") -> dict:
+        """드롭다운 칸(dropdown)의 실제 후보 {id, name}을 최대 20개 조회한다. q로 이름을 좁힌다. 턴당 조회 5회까지."""
+        return await list_options(turn, tool_context.state, node_id, field_path, q)
+
+    async def load_dynamic_fields_(tool_context: ToolContext, node_id: str, field_path: str) -> dict:
+        """동적 칸(dynamic, 예: Notion DB 속성)의 안쪽 칸 목록을 조회한다. 값은 set_fields로 {키: 값} 객체를 넣는다."""
+        return await load_dynamic_fields(turn, tool_context.state, node_id, field_path)
+
+    def set_fields_(tool_context: ToolContext, node_id: str, values: dict) -> dict:
+        """칸 값을 쓴다. values = {get_fields의 path: 값}. 표시 이름은 'config._names.<칸>'. 앞 노드 값은
+        '{{nodes.<id>.output.<이름>}}'. 거절된 칸(rejected)과 노드 검증 에러(errors)를 돌려준다."""
+        return set_fields(turn, tool_context.state, node_id, values)
+
+    def connect_(source: str, target: str, branch: str = "") -> dict:
+        """두 노드를 잇는다. source가 분기(branch.if)면 branch='true'|'false' 필수."""
+        return connect(turn, source, target, branch)
+
+    def remove_node_(node_id: str) -> dict:
+        """노드와 그 연결을 지운다. 마지막 남은 노드는 지울 수 없다."""
+        return remove_node(turn, node_id)
+
+    async def test_node_(tool_context: ToolContext, node_id: str) -> dict:
+        """노드를 테스트한다. 쓰기 노드는 사용자 확인을 먼저 받는다(awaiting_confirmation이면 그 턴은 짧게 마친다).
+        결과는 status와 출력 이름·타입뿐이다 — 샘플 내용은 시스템이 사용자에게 직접 보여 준다."""
+        return await test_node(turn, tool_context.state, node_id)
+
+    def finish_(tool_context: ToolContext) -> dict:
+        """모든 노드 테스트(또는 건너뛰기)·검증이 끝났는지 보고, 끝났으면 사용자에게 완료 확인을 받는다."""
+        return finish(turn, tool_context.state)
+
+    fns = [find_events_, set_outline_, check_connection_, add_node_, get_fields_, list_options_,
+           load_dynamic_fields_, set_fields_, connect_, remove_node_, test_node_, finish_]
+    for fn in fns:
+        fn.__name__ = fn.__name__.rstrip("_")
+    return fns
