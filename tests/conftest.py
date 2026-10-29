@@ -12,7 +12,10 @@ os.environ["MONGODB_DB_NAME"] = "ieum_test"
 # 필요한 테스트는 monkeypatch.setattr(settings, ...)로 각자 켠다.
 # NOTE(부채): 근본 원인은 "테스트가 개발자 .env를 로드한다"는 것. 여기 격리는 증상
 # 처치이며, 테스트에서 .env 자동 로드를 끄는 것이 정답 — 별도 이슈로 추적할 것.
-for _k in ("SELF_HOSTED_LLM_BASE_URL", "SELF_HOSTED_LLM_MODEL", "SELF_HOSTED_LLM_API_KEY"):
+# AGENT_INTERNAL_TOKEN·BACKEND_BASE_URL도 같은 이유 — 개발자 .env에 값이 있으면 라우트 테스트가 전부 401이 되거나
+# 대화형 생성 도구가 실제 BE를 부른다. 켜야 하는 테스트는 monkeypatch로 각자 켠다.
+for _k in ("SELF_HOSTED_LLM_BASE_URL", "SELF_HOSTED_LLM_MODEL", "SELF_HOSTED_LLM_API_KEY",
+           "AGENT_INTERNAL_TOKEN", "BACKEND_BASE_URL"):
     os.environ[_k] = ""
 
 import pytest

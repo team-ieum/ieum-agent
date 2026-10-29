@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from api.routes import execute, actions, generate, chat, node_catalog, validate
 from common.exception import CodedHTTPException
+from core.config import settings
 from core.template_registry import validate_registry
 from db.mongodb import ensure_indexes
 from tools.http_client import close_http_client
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
     # 카탈로그 오류는 기동 실패다(spec §5.3) — 경고로 넘기면 첫 생성·검증 요청에서야 500으로 드러난다.
     # Mongo보다 먼저 본다: 카탈로그 문제를 DB 장애와 섞지 않는다.
     validate_registry()
+    if not settings.AGENT_INTERNAL_TOKEN:
+        logger.warning("internal token not set — agent accepts unauthenticated requests")
     try:
         await ensure_indexes()
     except Exception:
@@ -48,7 +51,10 @@ async def coded_http_exception_handler(request: Request, exc: CodedHTTPException
     )
 
 from api.middleware.tracing import TraceIdMiddleware
+from api.middleware.internal_token import InternalTokenMiddleware
 app.add_middleware(TraceIdMiddleware)
+# 마지막에 더한 것이 가장 바깥 — 토큰 없는 요청은 span·라우팅 전에 끊는다
+app.add_middleware(InternalTokenMiddleware)
 
 app.include_router(execute.router, prefix="/v1")
 app.include_router(actions.router, prefix="/v1")
