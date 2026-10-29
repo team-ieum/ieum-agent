@@ -5,6 +5,7 @@ import copy
 import functools
 import os
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 
@@ -26,6 +27,8 @@ _AUTH_PROVIDER = {"google_oauth": "GOOGLE", "github_token": "GITHUB", "notion_to
 MAX_CANDIDATES = 20
 MAX_LOOKUPS_PER_TURN = 5
 MAX_TESTS_PER_TURN = 3
+TURN_SECONDS = 540       # 턴 본체 시간 상한(spec §3.5, 엔진 asyncio.timeout과 같은 값)
+MIN_TEST_SECONDS = 200   # BE 테스트 요청 timeout 190초 + 여유 — 이보다 적게 남으면 테스트를 시작하지 않는다
 
 
 @dataclass
@@ -45,6 +48,7 @@ class Turn:
     ask: str | None = None                      # 응답 맨 끝 확인 질문(마지막 것 하나)
     pending: dict | None = None                 # ask와 짝인 확인 대기 — 응답을 조립한 뒤에만 state에 저장한다(엔진)
     created: list = field(default_factory=list)  # 이번 턴에 만든 노드 id(아직 BE 저장 전)
+    deadline: float = field(default_factory=lambda: time.monotonic() + TURN_SECONDS)  # time.monotonic() 기준
 
     def node(self, node_id) -> dict | None:
         return next((n for n in self.nodes if n.get("id") == node_id), None)
@@ -349,3 +353,102 @@ async def load_dynamic_fields(turn: Turn, state, node_id: str, field_path: str) 
                                if isinstance(c, dict)]
         out.append(item)
     return {"fields": out, "how": f"set_fields({{'{field_path}': {{키: 값}}}})로 넣어요."}
+
+
+# ── 테스트·완료 ────────────────────────────────────────────────────────────
+
+_PY_TYPE = {str: "string", bool: "boolean", int: "integer", float: "number", dict: "object", list: "list",
+            type(None): "null"}
+# 참조식에 쓸 수 있는 이름만 LLM에 준다(REF_BODY_RE와 같은 글자) — 외부 데이터가 키 이름으로 들어오는 것도 막는다
+_OUTPUT_KEY = re.compile(r"[A-Za-z0-9_]{1,64}")
+
+
+def _record(state, node_id: str, status: str, h: str, fields: list | None = None) -> None:
+    tests = dict(state.get("tests") or {})
+    tests[node_id] = {"status": status, "hash": h, **({"fields": fields} if fields is not None else {})}
+    state["tests"] = tests
+
+
+async def test_node(turn: Turn, state, node_id: str) -> dict:
+    """노드 테스트(spec §5). LLM이 받는 것은 status와 출력 필드 이름·타입뿐 — 샘플 값·실패 문구는 코드가 응답 끝에 붙인다.
+    확인 대기는 turn.pending에만 두고 엔진이 응답을 조립한 뒤 저장한다 — 턴이 오류로 끝나 질문이 안 나가면 대기도 없다."""
+    node = turn.node(node_id)
+    if node is None:
+        return _err("없는 노드예요.")
+    kind = how_to_test(node)
+    h = node_hash(node)
+    label = clean(node.get("label") or node.get("event"))
+    if kind == "listen":
+        _record(state, node_id, "skipped", h)
+        turn.notes.append(f"{label}: 웹훅 트리거는 완료 후 수신 주소로 요청을 보내 테스트할 수 있어요.")
+        return {"status": "skipped"}
+    errors = node_errors(turn.nodes, turn.edges, node_id)
+    if errors:
+        return {"status": "blocked", "errors": _brief(errors)}
+    if kind == "write":
+        c = turn.confirmed
+        confirmed = bool(c and c.get("node_id") == node_id and c.get("hash") == h)
+        if confirmed and turn.confirm_used:  # 같은 확인으로 또(병렬 호출 포함) — 실행도, 새 확인도 없다
+            return {"status": "already_tested", "message": "이번 턴에 이미 테스트했어요. 결과는 시스템이 사용자에게 보여 줘요."}
+        if not confirmed:
+            # 상류가 skipped면 선택지는 건너뛰기뿐 — 이 대기의 "네"도 건너뛰기로 판정한다(engine.judge_turn_start)
+            skip_only = any(node_status(turn.node(a), state) == "skipped" for a in _ancestors(turn, node_id))
+            summary = target_summary(node, state.get("options_seen"))
+            turn.pending = {"node_id": node_id, "hash": h, "summary": summary, "skip_only": skip_only}
+            turn.ask = f"테스트 전 확인 — {summary}. {ASK_SKIP_ONLY if skip_only else ASK_TEST}"
+            return {"status": "awaiting_confirmation",
+                    "message": "사용자 확인을 기다려요. 확인 질문은 시스템이 붙이니 이번 턴은 짧게 마치세요."}
+    config = node.get("config") if isinstance(node.get("config"), dict) else {}
+    # 이번 턴에 만든 AI 노드는 저장 전 — BE가 저장 때 요청 credentialId를 넣는다(ChatService.java:582-585). 저장된 노드가
+    # 비어 있으면 BE가 self-hosted·베타 키로 돌리므로(AgentNodeExecutor.java:126-137) 그대로 BE에 맡긴다
+    if (node.get("event") == "ai.reasoning" and node_id in turn.created
+            and not str(config.get("credentialId") or "").strip()):
+        return {"status": "later", "message": "AI 노드는 저장된 뒤 다음 턴에 테스트할 수 있어요. 사용자에게 다음 메시지를 부탁하세요."}
+    if turn.test_runs >= MAX_TESTS_PER_TURN:
+        return {"status": "limit", "message": f"이번 턴 테스트 한도({MAX_TESTS_PER_TURN}회)를 다 썼어요. 다음 턴에 이어서 해요."}
+    if turn.deadline - time.monotonic() < MIN_TEST_SECONDS:
+        return {"status": "later", "message": "이번 턴은 남은 시간이 부족해요. 다음 턴에 테스트하자고 사용자에게 다음 메시지를 부탁하세요."}
+    # later·limit·시간 판정을 모두 통과한 뒤에만 확인을 쓴다 — 실행하지 못한 확인은 남겨 둔다
+    if kind == "write":
+        turn.confirm_used = True  # 확인 한 번 = 실행 한 번. await 전에 막아 병렬 호출도 한 번만 돈다
+        state["confirmed"] = None
+    turn.test_runs += 1
+    r = await turn.backend.test_node(turn.workflow_id, node)
+    if "error" in r:
+        e = r["error"]
+        if e.get("code") == "TEST_SAMPLE_MISSING":
+            missing = [m for m in ((e.get("data") or {}).get("missingNodeIds") or []) if isinstance(m, str)]
+            if kind != "write" and missing and all(
+                    turn.node(m) is not None and node_status(turn.node(m), state) == "skipped" for m in missing):
+                _record(state, node_id, "skipped", h)  # 참조 칸은 위 node_errors로 정적 확인을 마쳤다
+                return {"status": "skipped", "message": "앞 단계를 건너뛰어 이 노드도 건너뛰었어요."}
+            return {"status": "missing_upstream", "missingNodeIds": missing}
+        return {"status": "error", "error": _explain(e, node.get("event"))}
+    data = r["data"] or {}
+    if data.get("status") == "SUCCESS":
+        output = data.get("output") if isinstance(data.get("output"), dict) else {}
+        fields = [{"key": k, "type": _PY_TYPE.get(type(v), "object")}
+                  for k, v in output.items() if isinstance(k, str) and _OUTPUT_KEY.fullmatch(k)][:MAX_CANDIDATES]
+        _record(state, node_id, "success", h, [f["key"] for f in fields])
+        turn.notes.append(f"{label}: {sample_summary(output)}")
+        return {"status": "success", "fields": fields}
+    _record(state, node_id, "failed", h)
+    turn.notes.append(f"{label}: 테스트 실패 — {clean(data.get('error') or '원인 미상', 120)}")
+    if kind == "app_trigger":
+        turn.pending = {"node_id": node_id, "hash": h, "summary": label}
+        turn.ask = f"{label}의 최근 항목을 가져오지 못했어요. {ASK_TEST}"
+    return {"status": "failed"}
+
+
+def finish(turn: Turn, state) -> dict:
+    """완료 판정(spec §5.4). 통과해도 바로 DONE이 아니다 — 켜질 트리거·쓰기 대상을 보여 주고 다음 턴 확인을 받는다."""
+    remaining = [{"node_id": n["id"], "label": clean(n.get("label") or ""), "status": node_status(n, state)}
+                 for n in turn.nodes if node_status(n, state) not in DONE_STATUSES]
+    errors = validate_workflow(turn.nodes, turn.edges)
+    if remaining or errors:
+        return {"ok": False, "remaining": remaining, "errors": _brief(errors)[:10]}
+    summary = finish_summary(turn.nodes, state.get("options_seen"))
+    turn.pending = {"node_id": FINISH, "hash": workflow_hash(turn.nodes, turn.edges), "summary": summary}
+    turn.ask = f"완료 전 확인 — {summary}. {ASK_FINISH}"
+    return {"status": "awaiting_confirmation", "message": "완료 확인은 시스템이 붙이니 이번 턴은 짧게 마치세요."}
+
