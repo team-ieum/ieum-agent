@@ -192,3 +192,160 @@ def remove_node(turn: Turn, node_id: str) -> dict:
     turn.nodes[:] = [n for n in turn.nodes if n.get("id") != node_id]
     turn.edges[:] = [e for e in turn.edges if node_id not in (e.get("source"), e.get("target"))]
     return {"ok": True}
+
+
+# ── 칸 ────────────────────────────────────────────────────────────────────
+
+# GOOGLE_SCOPE_REQUIRED(403)의 공급원 → 추가할 권한(BE IntegrationOptionControllerDocs의 scope_groups 표)
+_GOOGLE_SCOPE = {"spreadsheets": "Sheets", "worksheets": "Sheets", "files": "Drive", "folders": "Drive",
+                 "calendars": "Calendar", "writable_calendars": "Calendar", "events": "Calendar"}
+# test_node는 노드 event(google_calendar.update)를 넘긴다 — 앱으로 정한다
+_GOOGLE_APP = {"gmail": "Gmail", "google_sheets": "Sheets", "google_drive": "Drive", "google_calendar": "Calendar"}
+
+
+def _explain(error: dict, source: str | None) -> dict:
+    code = error.get("code")
+    if code == "GOOGLE_SCOPE_REQUIRED":
+        app, _, resource = (source or "").partition(".")
+        group = _GOOGLE_SCOPE.get(resource) or _GOOGLE_APP.get(app, "해당 서비스")
+        return {"code": code, "message": f"설정 > 연동의 Google 연결에서 {group} 권한을 추가해 주세요."}
+    return {"code": code, "message": clean(error.get("message") or "", 120)}
+
+
+def _brief(errors: list) -> list:
+    return [{"field": e["field"], "code": e["code"], "message": e["message"]} for e in errors]
+
+
+def _ancestors(turn: Turn, node_id: str) -> list[str]:
+    seen, stack = [], [e.get("source") for e in turn.edges if e.get("target") == node_id]
+    while stack:
+        cur = stack.pop()
+        if cur not in seen and turn.node(cur) is not None:
+            seen.append(cur)
+            stack.extend(e.get("source") for e in turn.edges if e.get("target") == cur)
+    return seen
+
+
+def _outputs(node: dict, state) -> list[str] | None:
+    """참조식에 쓸 출력 이름 — 테스트 샘플의 키, 없으면 카탈로그(outputFields·outputsFrom). 알 수 없으면 None."""
+    test = (state.get("tests") or {}).get(node["id"])
+    if test and test.get("fields"):
+        return list(test["fields"])
+    declared = _declared_outputs(node)
+    return sorted(declared) if declared is not None else None
+
+
+def _shown(value):
+    return value[:500] if isinstance(value, str) else value
+
+
+def get_fields(turn: Turn, state, node_id: str) -> dict:
+    node = turn.node(node_id)
+    if node is None:
+        return _err("없는 노드예요.")
+    out = []
+    for path, f in writable_fields(node).items():
+        item = {"path": path, "title": clean(f.get("title") or f["key"]), "type": f["type"],
+                "required": bool(f.get("required"))}
+        if f.get("description"):
+            item["description"] = clean(f["description"], 120)
+        if f.get("choices"):
+            item["choices"] = [{"id": c["id"], "name": clean(c.get("name") or c["id"])}
+                               for c in f["choices"][:MAX_CANDIDATES]]
+        if f.get("optionsSource"):
+            item["dropdown"] = True
+        if f.get("fieldsSource"):
+            item["dynamic"] = True
+        value = _get_by_path(node, path)
+        if value not in (None, "", [], {}):
+            item["value"] = _shown(value)
+        out.append(item)
+    upstream = [{"node_id": a, "label": clean(turn.node(a).get("label") or ""),
+                 "outputs": _outputs(turn.node(a), state)} for a in _ancestors(turn, node_id)]
+    return {"node_id": node_id, "event": node.get("event"), "fields": out, "upstream": upstream,
+            "errors": _brief(node_errors(turn.nodes, turn.edges, node_id))}
+
+
+def set_fields(turn: Turn, state, node_id: str, values: dict) -> dict:
+    node = turn.node(node_id)
+    if node is None:
+        return _err("없는 노드예요.")
+    if not isinstance(values, dict):
+        return _err("values는 {path: 값} 객체예요.")
+    applied, rejected = apply_fields(node, values, state)
+    return {"applied": applied, "rejected": rejected, "errors": _brief(node_errors(turn.nodes, turn.edges, node_id))}
+
+
+def _inputs(node: dict, field_path: str, keys) -> tuple[dict, str | None]:
+    """optionsInputs·fieldsInputs 칸 값(같은 부모 경로의 형제 칸) → 쿼리. 비었거나 참조식이면 이유."""
+    parent = field_path.rpartition(".")[0]
+    params = {}
+    for key in keys or []:
+        value = _get_by_path(node, f"{parent}.{key}")
+        if value in (None, ""):
+            return {}, f"먼저 '{key}' 칸을 채워야 후보를 볼 수 있어요."
+        if not isinstance(value, str) or "{{" in value:
+            return {}, f"'{key}' 칸이 앞 단계 값이면 후보를 볼 수 없어요. 사용자에게 직접 물어보세요."
+        params[key] = value
+    return params, None
+
+
+def _spend_lookup(turn: Turn) -> str | None:
+    if turn.lookups >= MAX_LOOKUPS_PER_TURN:
+        return f"이번 턴 조회 한도({MAX_LOOKUPS_PER_TURN}회)를 다 썼어요. 사용자에게 먼저 물어보세요."
+    turn.lookups += 1
+    return None
+
+
+async def list_options(turn: Turn, state, node_id: str, field_path: str, q: str = "") -> dict:
+    node = turn.node(node_id)
+    f = writable_fields(node).get(field_path) if node else None
+    if f is None or not f.get("optionsSource"):
+        return _err("드롭다운 칸이 아니에요(get_fields의 dropdown 칸만).")
+    params, reason = _inputs(node, field_path, f.get("optionsInputs"))
+    if reason:
+        return _err(reason)
+    reason = _spend_lookup(turn)
+    if reason:
+        return _err(reason)
+    if q:
+        params["q"] = q[:100]
+    r = await turn.backend.options(f["optionsSource"], params)
+    if "error" in r:
+        return {"error": _explain(r["error"], f["optionsSource"])}
+    data = r["data"] or {}
+    items = [i for i in (data.get("items") or []) if isinstance(i, dict) and i.get("id") not in (None, "")]
+    picked = [{"id": str(i["id"]), "name": clean(i.get("name") or i["id"])} for i in items[:MAX_CANDIDATES]]
+    seen = dict(state.get("options_seen") or {})
+    key = f"{node_id}|{field_path}"
+    seen[key] = {**(seen.get(key) or {}), **{p["id"]: p["name"] for p in picked}}
+    state["options_seen"] = seen
+    return {"items": picked, "more": bool(data.get("nextCursor")) or len(items) > MAX_CANDIDATES}
+
+
+async def load_dynamic_fields(turn: Turn, state, node_id: str, field_path: str) -> dict:
+    node = turn.node(node_id)
+    f = writable_fields(node).get(field_path) if node else None
+    if f is None or not f.get("fieldsSource"):
+        return _err("동적 칸이 아니에요(get_fields의 dynamic 칸만).")
+    params, reason = _inputs(node, field_path, f.get("fieldsInputs"))
+    if reason:
+        return _err(reason)
+    reason = _spend_lookup(turn)
+    if reason:
+        return _err(reason)
+    r = await turn.backend.fields(f["fieldsSource"], params)
+    if "error" in r:
+        return {"error": _explain(r["error"], f["fieldsSource"])}
+    out = []
+    # ponytail: 안쪽 칸 50개까지 — 속성이 아주 많은 DB는 뒤쪽 칸을 채팅으로 못 고른다
+    for inner in ((r["data"] or {}).get("fields") or [])[:50]:
+        if not isinstance(inner, dict) or not isinstance(inner.get("key"), str):
+            continue
+        item = {"key": inner["key"], "title": clean(inner.get("title") or inner["key"]),
+                "type": inner.get("type"), "required": bool(inner.get("required"))}
+        if inner.get("choices"):
+            item["choices"] = [clean(c.get("name") or c.get("id")) for c in inner["choices"][:MAX_CANDIDATES]
+                               if isinstance(c, dict)]
+        out.append(item)
+    return {"fields": out, "how": f"set_fields({{'{field_path}': {{키: 값}}}})로 넣어요."}
