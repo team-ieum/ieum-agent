@@ -1,6 +1,6 @@
 from enum import Enum
-from typing import Optional, List
-from pydantic import BaseModel
+from typing import Any, Literal, Optional, List
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge, McpServerMeta, WebhookMeta
 from api.schemas.request import McpServerConfig
 from api.schemas.response import UsageRecord
@@ -81,3 +81,34 @@ class ChatResponse(BaseModel):
     # designer·reviewer의 모든 LLM 호출을 합산한 토큰 사용량. backend의 베타 토큰 쿼터 차감에 쓰인다.
     # 모델이 토큰을 보고하지 않으면 None (/v1/execute의 AgentExecutionResult.usage와 동일 규약).
     usage: Optional[UsageRecord] = None
+
+
+# ── 대화형 노드 단위 생성(/v1/chat/stream, spec 2026-10-28 §2.1) ─────────────────────────────
+
+class LooseNode(BaseModel):
+    """대화형 생성의 노드. id·event 비공백만 본다 — BUILDING으로 저장된 미완성 노드(cron 없는 schedule, method 없는
+    http 등)가 다음 턴에 돌아와도 422가 나지 않게 한다. 모르는 키(position·description·type 등)는 그대로 둔다."""
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    event: str = Field(pattern=r"^\S+$")
+
+    @field_validator("id")
+    @classmethod
+    def _id_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("노드 id가 비었습니다.")
+        return v
+
+
+class BuildChatRequest(ChatRequest):
+    currentNodes: Optional[List[LooseNode]] = None
+    # 엣지도 모르는 키(BE 엣지 id 등)를 지우지 않고 돌려준다
+    currentEdges: Optional[List[dict[str, Any]]] = None
+
+
+class BuildChatResponse(ChatResponse):
+    """노드·엣지는 dict 그대로(요청에서 온 키 보존). buildState는 항상 싣는다 — DONE은 finish 확인 턴에만."""
+    nodes: Optional[List[dict[str, Any]]] = None
+    edges: Optional[List[dict[str, Any]]] = None
+    buildState: Literal["BUILDING", "DONE"] = "BUILDING"
