@@ -6,9 +6,8 @@ from fastapi.testclient import TestClient
 
 from main import app
 from api.middleware.credential import get_llm_credentials
-from api.schemas.chat import BuildChatResponse, ChatResponse, ChatResponseType
+from api.schemas.chat import BuildChatResponse, ChatResponseType
 from core.builder.engine import build_turn
-from core.workflow_chat import chat_workflow_stream
 
 
 def override_credentials():
@@ -37,47 +36,6 @@ CHAT_PAYLOAD = {
     "availableIntegrations": [],
     "unavailableIntegrations": [],
 }
-
-
-def _make_response():
-    return ChatResponse(
-        message="완성됐어요",
-        type=ChatResponseType.WORKFLOW_GENERATED,
-        rawPrompt="워크플로우 만들어줘",
-    )
-
-
-# ─────────────────── chat_workflow_stream 단위 (옛 엔진 — PR②에서 지운다) ───────────────────
-
-@pytest.mark.asyncio
-async def test_stream_단계_이벤트_후_done_순서로_방출():
-    async def fake(on_stage=None, **kwargs):
-        on_stage("designing")
-        on_stage("reviewing")
-        return _make_response()
-
-    with patch("core.workflow_chat.chat_workflow", fake):
-        events = [ev async for ev in chat_workflow_stream(prompt="x")]
-
-    assert events[0] == ("stage", {"stage": "designing"})
-    assert events[1] == ("stage", {"stage": "reviewing"})
-    assert events[2][0] == "done"
-    assert isinstance(events[2][1], ChatResponse)
-    assert events[2][1].type == ChatResponseType.WORKFLOW_GENERATED
-
-
-@pytest.mark.asyncio
-async def test_stream_예외_시_error_이벤트_방출():
-    async def fake(on_stage=None, **kwargs):
-        on_stage("designing")
-        raise ValueError("boom")
-
-    with patch("core.workflow_chat.chat_workflow", fake):
-        events = [ev async for ev in chat_workflow_stream(prompt="x")]
-
-    assert events[0] == ("stage", {"stage": "designing"})
-    assert events[-1][0] == "error"
-    assert "boom" in events[-1][1]["message"]
 
 
 # ─────────────────── /v1/chat/stream 엔드포인트 = 대화형 엔진 (IEUM-AI-84) ───────────────────
@@ -135,3 +93,10 @@ def test_chat_stream_id_없는_노드는_422():
     with patch("api.routes.chat.build_turn_stream") as fake:
         assert client.post("/v1/chat/stream", json=payload).status_code == 422
     fake.assert_not_called()
+
+
+def test_REST_채팅은_410():
+    """새 엔진은 WebSocket 스트림 전용 — 블로킹 /v1/chat은 옛 엔진과 함께 지웠다."""
+    response = client.post("/v1/chat", json=CHAT_PAYLOAD)
+    assert response.status_code == 410
+    assert response.json() == {"detail": "채팅은 워크플로우 화면의 실시간 채팅에서만 쓸 수 있어요."}

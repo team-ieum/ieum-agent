@@ -1,14 +1,16 @@
 """워크플로우 정적 검증(로드맵 ④) — 실행 없이 노드별 에러를 **모아서** 돌려준다.
 
 spec: ieum-backend docs/superpowers/specs/2026-10-12-node-static-validation-design.md §3·§4.
-POST /v1/workflows/validate가 쓴다. 채팅·generate 경로(WorkflowValidator.validate)는 이 모듈을 쓰지
-않는다 — 슬롯으로 고칠 수 없는 칸 때문에 채팅 수정이 영구히 막히는 것을 피한다(spec §3.8, ⑤에서 붙인다).
+POST /v1/workflows/validate와 대화형 생성(core/builder — 노드 검증·finish)이 쓴다.
 에러 하나 = {nodeId, field, code, message}. code 고정 목록은 spec §4.2."""
 import json
 import re
 
 from core.template_registry import _get_by_path, match_entry, trigger_type_of
-from core.validators.workflow_validator import REF_BODY_RE
+
+# 참조식 본문 {{ 여기 }}. BE 실행기(ExecutionCursor.VARIABLE_PATTERN)와 같은 규칙 — 실제로 치환하는 쪽이 진실이다.
+# id [a-zA-Z0-9-]+, 경로 [a-zA-Z0-9_.]+(중첩 issues.0.title 허용). 옛 workflow_validator.py에서 옮겼다.
+REF_BODY_RE = re.compile(r"nodes\.([a-zA-Z0-9-]+)\.output\.([a-zA-Z0-9_.]+)")
 
 # 중괄호 없는 본문만 — `.*?`는 닫히지 않은 `{{` 반복에서 제곱 시간이 걸린다(모든 실행 경로가 부른다)
 _REF_RE = re.compile(r"\{\{([^{}]*)\}\}")
@@ -150,7 +152,7 @@ def _cron_errors(node: dict) -> list[dict]:
     if not isinstance(cron, str):
         return [_err("CRON", "cron 표현식은 문자열이어야 합니다.", node.get("id"), "config.cron")]
     # BE CronConverter.toQuartz(:25-30)와 같은 필드 수 규칙: 5(Unix) 또는 6/7(Quartz). REST 저장은
-    # Quartz 6/7필드를 받으므로 5필드 전용 WorkflowValidator._validate_cron을 쓰면 오탐한다.
+    # Quartz 6/7필드를 받으므로 5필드만 받으면 오탐한다.
     # ponytail: 필드 수·문자 집합만 본다. 값 범위(분 0-59 등)는 저장 시 BE CronExpression이 검증.
     parts = cron.split()
     if len(parts) not in (5, 6, 7) or not all(_CRON_PART_RE.match(p) for p in parts):

@@ -4,9 +4,7 @@ FE 명세·BE executor가 보는 이름은 left/right인데 agent는 leftValue/r
 FE 기술정보 칸이 비었다. agent는 이제 left/right만 만들고, 구표기로 저장된 워크플로우가
 수정 요청으로 되돌아오면 스키마 관문에서 표준 표기로 옮긴다.
 """
-import glob
 import json
-import os
 
 import pytest
 
@@ -14,7 +12,6 @@ import core.template_registry as tr
 from api.schemas.chat import ChatRequest
 from api.schemas.generate_workflow import WorkflowNode
 from core.template_registry import SlotFillError, dehydrate_node, hydrate_node
-from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
 
 _LEFT_EXPR = "{{nodes.node-1.output.output}}"
 CANONICAL_CFG = {"operator": "equals", "left": _LEFT_EXPR, "right": "urgent"}
@@ -45,26 +42,6 @@ def test_condition_template_uses_canonical_keys():
     assert set(tpl["golden_snippet"]["config"]) == {"operator", "left", "right"}
 
 
-def test_no_legacy_condition_keys_in_design_assets():
-    """설계 자산(템플릿·레퍼런스 문서)과 chat 설계 프롬프트에 구표기가 남아 있지 않다.
-    한 곳이라도 남으면 모델이 그대로 따라 써 표기가 다시 갈라진다."""
-    from core.workflow_chat import _SYSTEM_PROMPT_BASE
-
-    import core.skill_loader
-
-    paths = glob.glob(os.path.join(tr.CATALOG_DIR, "events", "*", "*.json"))
-    paths.append(os.path.join(tr.CATALOG_DIR, "presets.json"))
-    ref_dir = os.path.join(core.skill_loader.SKILL_DIR, "references")
-    paths += glob.glob(os.path.join(ref_dir, "*.md"))
-    assert paths, "설계 자산 경로 탐색 실패"
-
-    sources = {p: open(p, encoding="utf-8").read() for p in paths}
-    sources["_SYSTEM_PROMPT_BASE"] = _SYSTEM_PROMPT_BASE
-    offenders = [name for name, text in sources.items()
-                 if "leftValue" in text or "rightValue" in text]
-    assert not offenders, f"구표기(leftValue/rightValue) 잔존: {offenders}"
-
-
 # ── 하이드레이션(생성 경로) ────────────────────────────────────────────────
 
 def test_hydrate_condition_emits_canonical_keys_only():
@@ -84,16 +61,6 @@ def test_hydrate_requires_each_condition_slot(missing):
     slots.pop(missing)
     with pytest.raises(SlotFillError, match=missing):
         hydrate_node(_condition_draft(**slots))
-
-
-def test_validator_rejects_legacy_key_on_node():
-    """구표기 키는 화이트리스트 밖이다 — 하류로 흘리면 검증에서 걸린다(스키마 관문 정규화의 근거)."""
-    with pytest.raises(WorkflowValidationError, match="leftValue"):
-        WorkflowValidator.validate(
-            [{"id": "node-1", "type": "TRIGGER", "event": "manual.run", "label": "시작", "config": {}},
-             _condition_node(LEGACY_CFG)],
-            [{"source": "node-1", "target": "node-2", "conditionType": None}],
-        )
 
 
 # ── 스키마 검증 + 레거시 정규화 ────────────────────────────────────────────

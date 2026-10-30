@@ -4,9 +4,7 @@
 단일 진실 원천으로 로드·검증한다. 스키마는 catalog/SCHEMA.md.
 원본 JSON은 inputFields·fields로 필드를 정의하고, slots·allowed_config_fields는 로더가 파생한다(core.node_fields).
 
-소비처:
-- skill_loader(#4): menu_index() + select_by_tags() 로 항상층/검색층 주입
-- workflow_validator(#5): allowed_config_fields() 로 config 필드 화이트리스트
+소비처: 노드 카탈로그 API·정적 검증(match_entry)·ACTION 실행·대화형 생성(core/builder — builder_entries·match_entry).
 """
 import os
 import re
@@ -604,7 +602,7 @@ def hydrate_node(
       model_override가 있으면 model 슬롯은 resolve_model(provider, model_override)로 해석한다
       (호출부가 서버 측 저장분에서 뽑아 넘기는 값 — 채팅 재렌더 시 사용자가 고른 모델 보존).
       LLM slots의 model은 여전히 무시한다.
-    의미 검증(llmProvider/cron/tool/참조 등)은 호출부의 WorkflowValidator가 담당한다."""
+    의미 검증은 호출부가 담당한다."""
     if not isinstance(draft, dict):
         raise SlotFillError("노드 draft는 객체여야 합니다.")
     tid = draft.get("templateId")

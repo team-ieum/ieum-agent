@@ -1,13 +1,12 @@
 """SSOT 통합 + 드리프트 방지 (#8)
 
-노드 템플릿 레지스트리(파일 SSOT) 하나에서 프롬프트(skill_loader)·검증(validator)·
-검색(태그)이 일관되게 파생되는지, 그리고 드리프트가 생기면 CI가 실패하는지 검증한다.
+노드 템플릿 레지스트리(파일 SSOT) 하나에서 허용 키·도구 키·검색(태그)이 일관되게 파생되는지,
+그리고 드리프트가 생기면 CI가 실패하는지 검증한다.
 """
 import pytest
 
 from core import template_registry as tr
 from tests.catalog_paths import apps
-from core.validators.workflow_validator import WorkflowValidator, WorkflowValidationError
 
 
 # --- 드리프트 게이트: 레지스트리 ↔ _TOOL_MAP ↔ 검증 ↔ 태그 ---
@@ -38,41 +37,11 @@ def test_golden_snippet_tool_keys_in_tool_map():
             assert name in keys, f"{tpl['id']}: 스니펫 도구 '{name}' 드리프트"
 
 
-def test_ai_golden_snippets_pass_field_validation():
-    """레지스트리↔검증(#7) 정합: AI 골든 스니펫의 enum/필수값이 validator를 통과한다."""
-    for tpl in tr.all_templates():
-        if tpl["node_type"] != "AI":
-            continue
-        snip = tpl.get("golden_snippet")
-        if not snip:
-            continue
-        # 예외가 발생하면 실패
-        WorkflowValidator._validate_ai_node_fields(snip.get("config", {}), snip.get("id", "x"))
-
-
 def test_every_template_has_tags_and_menu():
     """레지스트리↔검색 정합: 모든 템플릿은 비어있지 않은 tags와 menu를 가진다(검색 가능)."""
     for tpl in tr.all_templates():
         assert tpl["tags"], f"{tpl['id']}: tags 비어있음"
         assert tpl["menu"].strip(), f"{tpl['id']}: menu 비어있음"
-
-
-# --- 환각 회귀: 골든 워크플로우가 새 파이프라인(#5/#6/#7 포함)을 통과 ---
-
-def _wf_from_structural_and_tool(struct_tpl_id, tool_tpl_id):
-    """구조 트리거 + 도구 노드 1개로 최소 워크플로우를 조립한다(참조식 없는 스니펫만)."""
-    trigger = dict(tr.get_template("schedule.every")["golden_snippet"])
-    trigger["id"] = "node-1"
-    tool_snip = dict(tr.get_template(tool_tpl_id)["golden_snippet"])
-    tool_snip = {**tool_snip, "id": "node-2",
-                 "config": {k: v for k, v in tool_snip["config"].items()}}
-    return [trigger, tool_snip], [{"source": "node-1", "target": "node-2"}]
-
-
-def test_no_reference_tool_snippet_validates_end_to_end():
-    """참조식이 없는 도구 스니펫(web_search)은 트리거와 결합해 전체 검증을 통과한다."""
-    nodes, edges = _wf_from_structural_and_tool("schedule.every", "ai.web_search")
-    WorkflowValidator.validate(nodes, edges)
 
 
 def test_drift_detection_fails_on_unknown_tool_key():
