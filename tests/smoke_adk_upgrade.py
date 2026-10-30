@@ -150,9 +150,20 @@ async def test_smoke_structured_output():
     from google.adk.agents import LlmAgent
     from pydantic import BaseModel
 
+    # 중첩 모델 필수: list[dict]는 additionalProperties가 돼 Developer API 모드에서 거부된다.
+    class _PlanNode(BaseModel):
+        id: str
+        templateId: str
+        role: str
+        description: str
+
+    class _PlanEdge(BaseModel):
+        source: str
+        target: str
+
     class WorkflowPlanSchema(BaseModel):  # 옛 /v1/generate-workflow Planner 출력 모양(구조화 출력 경로 스모크용)
-        nodes: list[dict]
-        edges: list[dict]
+        nodes: list[_PlanNode]
+        edges: list[_PlanEdge]
         justification: str
 
     agent = LlmAgent(name="planner", model=_model(),
