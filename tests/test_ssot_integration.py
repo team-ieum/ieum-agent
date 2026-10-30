@@ -44,18 +44,6 @@ def test_every_template_has_tags_and_menu():
         assert tpl["menu"].strip(), f"{tpl['id']}: menu 비어있음"
 
 
-# --- 환각 회귀: 골든 워크플로우가 새 파이프라인(#5/#6/#7 포함)을 통과 ---
-
-def _wf_from_structural_and_tool(struct_tpl_id, tool_tpl_id):
-    """구조 트리거 + 도구 노드 1개로 최소 워크플로우를 조립한다(참조식 없는 스니펫만)."""
-    trigger = dict(tr.get_template("schedule.every")["golden_snippet"])
-    trigger["id"] = "node-1"
-    tool_snip = dict(tr.get_template(tool_tpl_id)["golden_snippet"])
-    tool_snip = {**tool_snip, "id": "node-2",
-                 "config": {k: v for k, v in tool_snip["config"].items()}}
-    return [trigger, tool_snip], [{"source": "node-1", "target": "node-2"}]
-
-
 def test_drift_detection_fails_on_unknown_tool_key():
     """레지스트리에 _TOOL_MAP 밖 tool_key가 들어오면 검증이 실패한다(CI 드리프트 게이트)."""
     bad = {

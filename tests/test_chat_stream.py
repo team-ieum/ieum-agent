@@ -99,3 +99,4 @@ def test_REST_채팅은_410():
     """새 엔진은 WebSocket 스트림 전용 — 블로킹 /v1/chat은 옛 엔진과 함께 지웠다."""
     response = client.post("/v1/chat", json=CHAT_PAYLOAD)
     assert response.status_code == 410
+    assert response.json() == {"detail": "채팅은 워크플로우 화면의 실시간 채팅에서만 쓸 수 있어요."}

@@ -12,22 +12,6 @@ from core import template_registry as tr
 from core.template_registry import dehydrate_node, hydrate_node
 
 
-def _gated_workflow(approval_config: dict):
-    """TRIGGER → APPROVAL → AI. AI는 게이트 출력(승인자)을 참조한다."""
-    nodes = [
-        {"id": "node-1", "type": "TRIGGER", "event": "schedule.every", "label": "매일 아침 9시",
-         "config": {"cron": "0 9 * * *"}},
-        {"id": "node-2", "type": "APPROVAL", "label": "발송 전 승인",
-         "description": "보내기 전에 담당자가 확인하고 승인해요.", "config": approval_config},
-        {"id": "node-3", "type": "AI", "label": "뉴스 수집",
-         "config": {"llmProvider": "GEMINI", "agentType": "react",
-                    "tools": [{"name": "builtin:web_search"}],
-                    "prompt": "{{nodes.node-2.output.approvedBy}} 님이 승인했으니 최신 뉴스를 수집해줘"}},
-    ]
-    edges = [{"source": "node-1", "target": "node-2"}, {"source": "node-2", "target": "node-3"}]
-    return nodes, edges
-
-
 def test_approval_template_registered():
     tr.validate_registry()
     tpl = tr.get_template("approval.request")

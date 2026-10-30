@@ -102,11 +102,11 @@ graph TD
 - 입력된 렌더링된 프롬프트와 연결된 도구를 기반으로 에이전트가 동작합니다.
 - 멀티 에이전트 모드와 Latency가 최적화된 단일 ReAct 에이전트 모드를 지원합니다.
 
-### 3. ACTION Node Execution (`POST /v1/actions/execute`)
+### 2. ACTION Node Execution (`POST /v1/actions/execute`)
 - ACTION 노드와 단일 노드 테스트가 앱 도구 하나를 LLM 없이 실행할 때 호출됩니다. LLM 헤더는 필요 없고 `X-User-Id`와 도구 토큰 헤더(`X-Google-Access-Token`·`X-Notion-Token`·`X-GitHub-Token`)만 받습니다.
 - 요청 `{nodeId, toolKey, config}` → 응답 `{success, output, errorMessage, errorCode}`. `X-Idempotency-Key`를 주면 성공 응답을 캐시해 재시도에서 쓰기 도구가 다시 실행되지 않습니다.
 
-### 4. Interactive Chat (`POST /v1/chat/stream`)
+### 3. Interactive Chat (`POST /v1/chat/stream`)
 - 사용자와 대화하며 워크플로우를 노드 하나씩 만들고 고칩니다(SSE). REST `POST /v1/chat`은 410입니다.
 
 ---

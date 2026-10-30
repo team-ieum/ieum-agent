@@ -602,7 +602,7 @@ def hydrate_node(
       model_override가 있으면 model 슬롯은 resolve_model(provider, model_override)로 해석한다
       (호출부가 서버 측 저장분에서 뽑아 넘기는 값 — 채팅 재렌더 시 사용자가 고른 모델 보존).
       LLM slots의 model은 여전히 무시한다.
-    의미 검증(llmProvider/cron/tool/참조 등)은 호출부의 WorkflowValidator가 담당한다."""
+    의미 검증은 호출부가 담당한다."""
     if not isinstance(draft, dict):
         raise SlotFillError("노드 draft는 객체여야 합니다.")
     tid = draft.get("templateId")

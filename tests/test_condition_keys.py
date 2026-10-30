@@ -4,9 +4,7 @@ FE 명세·BE executor가 보는 이름은 left/right인데 agent는 leftValue/r
 FE 기술정보 칸이 비었다. agent는 이제 left/right만 만들고, 구표기로 저장된 워크플로우가
 수정 요청으로 되돌아오면 스키마 관문에서 표준 표기로 옮긴다.
 """
-import glob
 import json
-import os
 
 import pytest
 
