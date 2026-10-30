@@ -6,7 +6,6 @@ import pytest
 
 from core import template_registry as tr
 from core.template_registry import SlotFillError, TemplateSchemaError
-from core.validators.workflow_validator import WorkflowValidator
 from tests.catalog_paths import apps, copy_catalog, edit_entry, read_raw
 
 APP_PRESETS = [
@@ -230,13 +229,6 @@ def test_old_spreadsheet_name_slot_error_names_new_slot():
     with pytest.raises(SlotFillError) as e:
         tr.hydrate_node(draft, provider="GEMINI")
     assert "spreadsheet_name" in str(e.value) and "spreadsheet_id_name" in str(e.value)
-
-
-def test_ai_node_with_top_level_names_passes_whitelist():
-    node = {"id": "n2", "type": "AI", "label": "l", "config": {
-        "agentType": "simple", "credentialId": "", "tools": [], "llmProvider": "GEMINI",
-        "model": "m", "prompt": "p", "_names": {"credentialId": "내 키"}}}
-    WorkflowValidator._validate_config_fields(node, "n2")
 
 
 def test_http_allows_webhook_credential_but_no_slot():

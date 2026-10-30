@@ -40,20 +40,6 @@ def test_resolve_template_for_structural_node():
     assert tpl and tpl["id"] == "transform.map"
 
 
-def test_golden_snippets_pass_node_validation():
-    """모든 golden_snippet은 단독 1노드 워크플로우로서 노드 검증을 통과해야 한다.
-    (참조식이 있는 스니펫은 선행 노드가 없어 제외 — #8 전체 회귀에서 통합 검증)"""
-    from core.validators.workflow_validator import WorkflowValidator
-
-    for tpl in tr.all_templates():
-        snip = tpl.get("golden_snippet")
-        if not snip:
-            continue
-        # TRIGGER 스니펫만 단독 검증 가능(나머지는 TRIGGER 시작 규칙/참조 때문에 통합 테스트 영역)
-        if snip.get("type") == "TRIGGER":
-            WorkflowValidator.validate([snip], [])
-
-
 # 가공/내부 도구는 독립 노드 템플릿이 아니라 실행 시 자동 부착된다.
 _INTERNAL_TOOLS = {
     "builtin:workflow_context", "builtin:json_parse",

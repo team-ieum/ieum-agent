@@ -18,21 +18,6 @@ class WebhookMeta(BaseModel):
     displayName: Optional[str] = None
 
 
-class GenerateWorkflowRequest(BaseModel):
-    prompt: str
-    # 사용자가 보유한 MCP 서버 카탈로그 메타(이름/설명/catalogId). backend가 채워 보낸다.
-    # 비어 있으면 생성 단계에서 MCP를 배정하지 않는다(환각 방지).
-    available_mcp_servers: Optional[List[McpServerMeta]] = None
-
-
-class WorkflowNodeDraft(BaseModel):
-    """LLM이 생성하는 노드 초안. 구조는 만들지 않고 templateId 선택 + 가변값(slots)만 채운다.
-    시스템이 template_registry.hydrate_node로 완성된 WorkflowNode로 변환한다."""
-    id: Optional[str] = None
-    templateId: str
-    slots: Dict[str, Any] = {}
-
-
 # CONDITION config 키의 구표기 → 표준 표기(IEUM-AI-55). FE 명세와 BE executor가 보는 이름은
 # left/right이고 agent는 이제 그 이름만 만든다. 다만 구표기로 저장된 워크플로우가 수정 요청
 # (/v1/chat의 currentNodes)으로 되돌아오므로, 노드 입출력의 단일 관문인
@@ -143,26 +128,3 @@ class WorkflowEdge(BaseModel):
     target: str
     conditionType: Optional[str] = None   # CONDITION 노드 분기: "true" | "false" | null
 
-
-class GenerateWorkflowResponse(BaseModel):
-    nodes: List[WorkflowNode]
-    edges: List[WorkflowEdge]
-    rawPrompt: str                     # 생성에 사용된 원본 사용자 요청
-
-
-class PlanNode(BaseModel):
-    id: str
-    templateId: str                    # 레지스트리 템플릿 id (Planner가 카탈로그에서 선택). node_type/도구는 템플릿이 결정.
-    role: str                          # 노드가 수행할 구체적 역할 설명
-    description: str                   # 상세 동작 설명
-
-
-class PlanEdge(BaseModel):
-    source: str
-    target: str
-
-
-class WorkflowPlanSchema(BaseModel):
-    nodes: List[PlanNode]
-    edges: List[PlanEdge]
-    justification: str                 # 이 계획을 수립한 타당성 및 논리 설명
