@@ -207,6 +207,11 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
     except (LlmCallsLimitExceededError, TimeoutError):
         logger.warning("[build] 턴이 상한에서 끊김 wf=%s", workflow_id)
         cut_short = True
+    except Exception:  # 제공자 429·503 등 — 바뀐 노드는 살려 BUILDING으로 돌려준다(사용자 결정), 대기는 버린다
+        if _canon(nodes, edges) == before:
+            raise
+        logger.warning("[build] 턴이 오류로 끊김 — 바뀐 노드를 돌려준다 wf=%s", workflow_id, exc_info=True)
+        cut_short, turn.pending, turn.ask = True, None, None
 
     session = await svc.get_session(app_name=APP_NAME, user_id=user_id, session_id=session_id)
     state = session.state if session else {}

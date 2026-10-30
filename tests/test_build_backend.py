@@ -89,3 +89,19 @@ async def test_토큰이나_주소가_없으면_부르지_않는다(be, monkeypa
     monkeypatch.setattr(settings, "BACKEND_BASE_URL", "")
     assert (await Backend("tok").connections())["error"]["code"] == "BACKEND_UNAVAILABLE"
     be.request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_내부_토큰이_있으면_요청마다_함께_싣는다(be, monkeypatch):
+    monkeypatch.setattr(settings, "AGENT_INTERNAL_TOKEN", " s3cret ")
+    await Backend("tok").connections()
+    kwargs = be.request.call_args.kwargs
+    assert kwargs["headers"] == {"X-Delegation-Token": "tok", "X-Internal-Token": "s3cret"}
+    assert "follow_redirects" not in kwargs  # 클라이언트 기본(False) 유지
+
+
+@pytest.mark.asyncio
+async def test_내부_토큰이_공백뿐이면_싣지_않는다(be, monkeypatch):
+    monkeypatch.setattr(settings, "AGENT_INTERNAL_TOKEN", "   ")
+    await Backend("tok").connections()
+    assert be.request.call_args.kwargs["headers"] == {"X-Delegation-Token": "tok"}

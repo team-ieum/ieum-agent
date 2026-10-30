@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from google.adk.tools.tool_context import ToolContext
 
 from core.builder.backend import Backend
-from core.builder.fields import apply_fields, clean, node_errors, writable_fields
+from core.builder.fields import _CONTROL, apply_fields, clean, node_errors, writable_fields
 from core.builder.hitl import (ASK_FINISH, ASK_SKIP_ONLY, ASK_TEST, FINISH, finish_summary, how_to_test,
                                sample_summary, target_summary)
 from core.builder.state import DONE_STATUSES, node_hash, node_status, workflow_hash
@@ -29,6 +29,10 @@ MAX_LOOKUPS_PER_TURN = 5
 MAX_TESTS_PER_TURN = 3
 TURN_SECONDS = 540       # 턴 본체 시간 상한(spec §3.5) — 엔진 TURN_TIMEOUT_SECONDS가 이 값이다(한 상수)
 MIN_TEST_SECONDS = 200   # BE 테스트 요청 timeout 190초 + 여유 — 이보다 적게 남으면 테스트를 시작하지 않는다
+# BE 조회(공용 클라이언트 30초) + 여유 — 시간 상한이 BE 호출 중에 걸리면 짝 없는 function_call이 세션에 남는다
+MIN_LOOKUP_SECONDS = 35
+SHORT_ON_TIME = "이번 턴은 시간이 부족해요, 다음 메시지에서 이어서 할게요"
+MAX_OPTION_ID = 200
 
 
 @dataclass
@@ -102,6 +106,8 @@ async def check_connection(turn: Turn, app: str) -> dict:
     auth = meta.get("auth")
     if not auth:
         result = {"connected": True}
+    elif _short_on_time(turn):  # 캐시하지 않는다 — 다음 턴에 다시 본다
+        return {"connected": False, "message": SHORT_ON_TIME}
     elif auth == "webhook_credential":
         r = await turn.backend.options(f"{meta['provider']}.webhooks", {})
         ok = "data" in r and bool((r["data"] or {}).get("items"))
@@ -294,7 +300,13 @@ def _inputs(node: dict, field_path: str, keys) -> tuple[dict, str | None]:
     return params, None
 
 
+def _short_on_time(turn: Turn) -> bool:
+    return turn.deadline - time.monotonic() < MIN_LOOKUP_SECONDS
+
+
 def _spend_lookup(turn: Turn) -> str | None:
+    if _short_on_time(turn):
+        return SHORT_ON_TIME
     if turn.lookups >= MAX_LOOKUPS_PER_TURN:
         return f"이번 턴 조회 한도({MAX_LOOKUPS_PER_TURN}회)를 다 썼어요. 사용자에게 먼저 물어보세요."
     turn.lookups += 1
@@ -318,7 +330,9 @@ async def list_options(turn: Turn, state, node_id: str, field_path: str, q: str 
     if "error" in r:
         return {"error": _explain(r["error"], f["optionsSource"])}
     data = r["data"] or {}
-    items = [i for i in (data.get("items") or []) if isinstance(i, dict) and i.get("id") not in (None, "")]
+    # id는 정확 일치로 써야 해 자르지 않고 버린다(시트 탭 제목 등 외부 텍스트가 id가 된다)
+    items = [i for i in (data.get("items") or []) if isinstance(i, dict) and i.get("id") not in (None, "")
+             and len(str(i["id"])) <= MAX_OPTION_ID and not _CONTROL.search(str(i["id"]))]
     picked = [{"id": str(i["id"]), "name": clean(i.get("name") or i["id"])} for i in items[:MAX_CANDIDATES]]
     seen = dict(state.get("options_seen") or {})
     key = f"{node_id}|{field_path}"
@@ -377,6 +391,7 @@ async def test_node(turn: Turn, state, node_id: str) -> dict:
         return _err("없는 노드예요.")
     kind = how_to_test(node)
     h = node_hash(node)
+    sent = copy.deepcopy(node)  # BE에는 hash를 잰 모양을 보낸다
     label = clean(node.get("label") or node.get("event"))
     if kind == "listen":
         _record(state, node_id, "skipped", h)
@@ -413,7 +428,7 @@ async def test_node(turn: Turn, state, node_id: str) -> dict:
         turn.confirm_used = True  # 확인 한 번 = 실행 한 번. await 전에 막아 병렬 호출도 한 번만 돈다
         state["confirmed"] = None
     turn.test_runs += 1
-    r = await turn.backend.test_node(turn.workflow_id, node)
+    r = await turn.backend.test_node(turn.workflow_id, sent)
     if "error" in r:
         e = r["error"]
         if e.get("code") == "TEST_SAMPLE_MISSING":

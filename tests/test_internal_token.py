@@ -44,3 +44,12 @@ def test_값이_없으면_기동_로그에_경고(caplog):
         with TestClient(app):
             pass
     assert "internal token not set — agent accepts unauthenticated requests" in caplog.text
+
+
+def test_공백뿐인_값은_빈_값으로_본다(monkeypatch, caplog):
+    monkeypatch.setattr(settings, "AGENT_INTERNAL_TOKEN", "  ")
+    assert client.get("/v1/nodes/catalog").status_code == 200
+    with caplog.at_level(logging.WARNING, logger="main"):
+        with TestClient(app):
+            pass
+    assert "internal token not set" in caplog.text

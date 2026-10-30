@@ -120,7 +120,7 @@ async def test_쓰기_노드_확인_흐름과_샘플은_LLM에_안_간다(env):
                        script=[("test_node", {"node_id": "s"}), "확인해 주세요"])
     be.test_node.assert_not_awaited()
     assert resp.type.value == "CLARIFICATION_NEEDED"
-    assert resp.message.endswith("· 채널: (목록에서 확인 안 됨, id=C1). 테스트할까요? (네 / 건너뛰기)")
+    assert resp.message.endswith('· 채널: (목록에서 확인 안 됨, id=C1) · 이름 "알림". 테스트할까요? (네 / 건너뛰기)')
     assert (await _state(svc))["pending"]["node_id"] == "s"
     resp = await _turn("네", [TRIGGER, SLACK], [EDGE], llm=llm,
                        script=[("test_node", {"node_id": "s"}), ("test_node", {"node_id": "s"}), "테스트했어요"])
@@ -357,3 +357,21 @@ async def test_도구가_예외를_던져도_바뀐_노드는_남고_턴이_끝�
             "붙였어요"])
     assert resp.type.value == "WORKFLOW_MODIFIED" and len(resp.nodes) == 2 and resp.message.startswith("붙였어요")
     assert any("AttributeError" in r for r in llm.requests[2:])
+
+
+@pytest.mark.asyncio
+async def test_제공자_오류로_끝나도_바뀐_노드는_BUILDING으로(env):
+    svc, be, llm = env
+    resp = await _turn("만들어", [TRIGGER], [], llm=llm, script=[
+        ("add_node", {"event": "transform.map", "label": "변환", "after": "t"}), RuntimeError("503")])
+    assert resp.type.value == "WORKFLOW_MODIFIED" and resp.buildState == "BUILDING" and len(resp.nodes) == 2
+    assert resp.message.startswith(engine.CUT_SHORT_MESSAGE)
+    assert (await _state(svc))["pending"] is None
+
+
+@pytest.mark.asyncio
+async def test_칸만_고친_턴도_WORKFLOW_MODIFIED(env):
+    svc, be, llm = env
+    resp = await _turn("내용 바꿔", [TRIGGER, SLACK], [EDGE], llm=llm, script=[
+        ("set_fields", {"node_id": "s", "values": {"config.text": "안녕"}}), "바꿨어요"])
+    assert resp.type.value == "WORKFLOW_MODIFIED" and resp.nodes[1]["config"]["text"] == "안녕"

@@ -37,6 +37,7 @@ async def test_읽기_노드는_바로_실행하고_LLM에는_필드_이름_타�
     assert state["tests"]["f"] == {"status": "success", "hash": node_hash(FIND), "fields": ["items", "total", "found"]}
     assert turn.notes[0].startswith("일정: 테스트 성공 — items: ")
     turn.backend.test_node.assert_awaited_once_with("wf", turn.node("f"))
+    assert turn.backend.test_node.await_args.args[1] is not turn.node("f")  # hash를 잰 시점의 사본
 
 
 @pytest.mark.asyncio
@@ -47,9 +48,9 @@ async def test_쓰기_노드는_확인_전에_실행하지_않고_코드_요약�
     assert out["status"] == "awaiting_confirmation"
     turn.backend.test_node.assert_not_awaited()
     assert turn.pending == {"node_id": "s", "hash": node_hash(SLACK), "skip_only": False,
-                            "summary": "Slack 채널에 메시지 보내기(알림) · 채널: #general"}
+                            "summary": 'Slack 채널에 메시지 보내기 · 채널: #general · 이름 "알림"'}
     assert "pending" not in state  # 대기는 응답을 조립한 뒤 엔진이 저장한다
-    assert turn.ask == "테스트 전 확인 — Slack 채널에 메시지 보내기(알림) · 채널: #general. 테스트할까요? (네 / 건너뛰기)"
+    assert turn.ask == '테스트 전 확인 — Slack 채널에 메시지 보내기 · 채널: #general · 이름 "알림". 테스트할까요? (네 / 건너뛰기)'
 
 
 @pytest.mark.asyncio
@@ -182,7 +183,7 @@ async def test_모르는_event_노드는_쓰기로_보고_칸은_비어_있다()
     turn = _turn([TRIGGER, other])
     assert tools.get_fields(turn, {}, "u")["fields"] == []
     assert (await tools.test_node(turn, {}, "u"))["status"] == "awaiting_confirmation"
-    assert turn.ask.startswith("테스트 전 확인 — newapp.do_thing(새 앱). ")
+    assert turn.ask.startswith('테스트 전 확인 — newapp.do_thing · 이름 "새 앱". ')
     assert tools.finish(turn, {})["remaining"][-1] == {"node_id": "u", "label": "새 앱", "status": "untested"}
     turn.backend.test_node.assert_not_awaited()
 
@@ -203,8 +204,8 @@ def test_완료_조건이_맞으면_확인_대기():
     assert out["status"] == "awaiting_confirmation"
     assert turn.pending["node_id"] == FINISH
     assert turn.pending["hash"] == workflow_hash(turn.nodes, turn.edges)
-    assert turn.ask == ("완료 전 확인 — 켜지는 트리거: 스케줄(매일) cron 0 9 * * * / 실행 때 쓰는 곳: "
-                        "Slack 채널에 메시지 보내기(알림) · 채널: #general. 완료할까요? (네 / 아니요)")
+    assert turn.ask == ('완료 전 확인 — 켜지는 트리거: 스케줄 cron 0 9 * * * · 이름 "매일" / 실행 때 쓰는 곳: '
+                        'Slack 채널에 메시지 보내기 · 채널: #general · 이름 "알림". 완료할까요? (네 / 아니요)')
 
 
 def test_완료는_검증_에러도_본다():

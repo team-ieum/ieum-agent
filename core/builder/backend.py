@@ -23,10 +23,15 @@ class Backend:
         if not settings.BACKEND_BASE_URL or not self._token:
             return {"error": dict(_UNAVAILABLE)}
         url = settings.BACKEND_BASE_URL.rstrip("/") + "/api/v1/" + "/".join(quote(str(p), safe="") for p in parts)
+        headers = {"X-Delegation-Token": self._token}
+        # BE는 내부 토큰이 설정돼 있으면 위임 요청에도 일치를 요구한다(계약 2026-10-30). 공유 클라이언트 기본 헤더에
+        # 넣지 않는다 — 외부 도구도 같은 클라이언트를 쓴다
+        internal = settings.AGENT_INTERNAL_TOKEN.strip()
+        if internal:
+            headers["X-Internal-Token"] = internal
         try:
             response = await get_http_client().request(
-                method, url, params=params, json=json,
-                headers={"X-Delegation-Token": self._token},
+                method, url, params=params, json=json, headers=headers,
                 timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT)
         except httpx.HTTPError:
             return {"error": dict(_UNAVAILABLE)}

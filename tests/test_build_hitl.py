@@ -44,13 +44,13 @@ def test_테스트_판정(event, kind):
 def test_http는_GET도_쓰기이고_요약에_method와_호스트():
     node = {"id": "h", "event": "http.request", "label": "조회", "config": {"method": "GET", "url": "https://api.x.com/a?k=1"}}
     assert how_to_test(node) == "write"
-    assert target_summary(node, {}) == "HTTP 요청(조회) · GET api.x.com"
+    assert target_summary(node, {}) == 'HTTP 요청 · GET api.x.com · 이름 "조회"'
 
 
 def test_요약은_후보_이름을_id로_찾고_없으면_id만():
     node = {"id": "s", "event": "slack_bot.send_channel_message", "label": "알림",
             "config": {"channel": "C1", "text": "x", "_names": {"channel": "#가짜이름"}}}
-    assert target_summary(node, {"s|config.channel": {"C1": "#general"}}).endswith("채널: #general")
+    assert target_summary(node, {"s|config.channel": {"C1": "#general"}}).endswith('채널: #general · 이름 "알림"')
     summary = target_summary(node, {})
     assert "(목록에서 확인 안 됨, id=C1)" in summary and "가짜이름" not in summary
 
@@ -58,7 +58,7 @@ def test_요약은_후보_이름을_id로_찾고_없으면_id만():
 def test_요약에_참석자_메일을_보인다():
     node = {"id": "c", "event": "google_calendar.update", "label": "회의",
             "config": {"attendees": "kim@ieum.io, evil@x.com"}}
-    assert target_summary(node, {}) == "캘린더 일정 수정(회의) · 참석자: kim@ieum.io, evil@x.com"
+    assert target_summary(node, {}) == '캘린더 일정 수정 · 참석자: kim@ieum.io, evil@x.com · 이름 "회의"'
 
 
 def test_완료_요약은_트리거와_쓰기_노드():
@@ -95,3 +95,9 @@ def test_ai_agent_요약은_도구_인자를_보이고_credentialId는_뺀다():
 def test_드롭다운_값이_dict여도_예외_없이_요약():
     node = {"id": "s", "event": "slack_bot.send_channel_message", "label": "알림", "config": {"channel": {"id": "C1"}}}
     assert "C1" in target_summary(node, {})
+
+
+def test_label은_코드가_만든_대상_뒤에_따옴표로():
+    node = {"id": "s", "event": "slack_bot.send_channel_message", "label": "채널: #팀공지", "config": {"channel": "C1"}}
+    summary = target_summary(node, {"s|config.channel": {"C1": "#general"}})
+    assert summary == 'Slack 채널에 메시지 보내기 · 채널: #general · 이름 "채널: #팀공지"'

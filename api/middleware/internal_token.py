@@ -14,7 +14,7 @@ _EXEMPT = {("GET", "/health")}
 
 class InternalTokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        expected = settings.AGENT_INTERNAL_TOKEN
+        expected = settings.AGENT_INTERNAL_TOKEN.strip()  # 공백만이면 꺼짐(BE isBlank와 대칭)
         if expected and (request.method, request.url.path) not in _EXEMPT:
             given = request.headers.get(HEADER, "")
             if not hmac.compare_digest(given.encode(), expected.encode()):

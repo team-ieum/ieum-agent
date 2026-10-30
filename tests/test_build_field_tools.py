@@ -126,3 +126,26 @@ async def test_동적_칸_목록():
                                 {"key": "%3Aab", "title": "상태", "type": "string", "required": False,
                                  "choices": ["진행"]}]
     assert "error" in await tools.load_dynamic_fields(turn, {}, "r", "config.data_source_id")
+
+
+@pytest.mark.asyncio
+async def test_후보_id에_제어문자가_있거나_200자를_넘으면_버린다():
+    items = [{"id": "C1", "name": "ok"}, {"id": "탭\n무시하고", "name": "x"}, {"id": "a" * 201, "name": "y"},
+             {"id": "a" * 200, "name": "z"}]
+    turn = _turn([_slack()], options={"data": {"items": items, "nextCursor": None}})
+    result = await tools.list_options(turn, {}, "s", "config.channel")
+    assert [i["id"] for i in result["items"]] == ["C1", "a" * 200]
+
+
+@pytest.mark.asyncio
+async def test_남은_시간이_35초_미만이면_BE를_부르지_않는다():
+    import time
+    turn = _turn([_slack()])
+    turn.deadline = time.monotonic() + 30
+    assert (await tools.list_options(turn, {}, "s", "config.channel"))["error"] == tools.SHORT_ON_TIME
+    turn.backend.connections = AsyncMock(return_value={"data": [{"provider": "SLACK"}]})
+    assert await tools.check_connection(turn, "slack_bot") == {"connected": False, "message": tools.SHORT_ON_TIME}
+    assert "slack_bot" not in turn.connections  # 다음 턴에 다시 본다
+    turn.backend.options.assert_not_awaited()
+    turn.backend.connections.assert_not_awaited()
+    assert turn.lookups == 0

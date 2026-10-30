@@ -142,3 +142,14 @@ def test_삭제는_엣지도_지우고_마지막_노드는_거절():
     assert "error" in tools.remove_node(turn, "t")
     assert "error" in tools.remove_node(turn, "nope")
     assert len(turn.nodes) == 1
+
+
+@pytest.mark.asyncio
+async def test_add_node는_카탈로그_fixed_config를_오염시키지_않는다():
+    from core.template_registry import load_templates
+    turn = _turn(nodes=[_trigger()])
+    first = turn.node((await tools.add_node(turn, "ai.reasoning", "a", after="t"))["node_id"])
+    first["config"]["tools"].append({"name": "x"})
+    second = turn.node((await tools.add_node(turn, "ai.reasoning", "b", after="t"))["node_id"])
+    assert second["config"]["tools"] == []
+    assert load_templates()["ai.reasoning"]["fixed"]["config"] == {"agentType": "simple", "credentialId": "", "tools": []}

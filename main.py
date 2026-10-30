@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     # 카탈로그 오류는 기동 실패다(spec §5.3) — 경고로 넘기면 첫 생성·검증 요청에서야 500으로 드러난다.
     # Mongo보다 먼저 본다: 카탈로그 문제를 DB 장애와 섞지 않는다.
     validate_registry()
-    if not settings.AGENT_INTERNAL_TOKEN:
+    if not settings.AGENT_INTERNAL_TOKEN.strip():
         logger.warning("internal token not set — agent accepts unauthenticated requests")
     try:
         await ensure_indexes()

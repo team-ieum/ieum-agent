@@ -43,7 +43,13 @@ def how_to_test(node: dict) -> str:
 
 def _title(node: dict) -> str:
     entry = event_entry(node)
-    return clean(f"{entry['title'] if entry else node.get('event')}({node.get('label') or ''})", 80)
+    return clean(entry["title"] if entry else node.get("event"), 80)
+
+
+def _named(text: str, node: dict) -> str:
+    """LLM이 정한 label은 코드가 만든 사실 뒤에 따옴표로 — 대상 문구로 위장하지 못한다."""
+    label = clean(node.get("label") or "", 60)
+    return f'{text} · 이름 "{label}"' if label else text
 
 
 def target_summary(node: dict, options_seen: dict) -> str:
@@ -93,7 +99,7 @@ def target_summary(node: dict, options_seen: dict) -> str:
         name = ((options_seen or {}).get(f"{node['id']}|{path}") or {}).get(value)
         shown = clean(name) if name else f"(목록에서 확인 안 됨, id={clean(value)})"
         parts.append(f"{clean(f.get('title') or f['key'], 30)}: {shown}")
-    return " · ".join(parts)
+    return _named(" · ".join(parts), node)
 
 
 def finish_summary(nodes: list, options_seen: dict) -> str:
@@ -104,7 +110,7 @@ def finish_summary(nodes: list, options_seen: dict) -> str:
         if entry is None or entry["node_type"] != "TRIGGER":
             continue
         cron = ((n.get("config") or {}).get("cron") if isinstance(n.get("config"), dict) else None)
-        triggers.append(_title(n) + (f" cron {clean(cron, 40)}" if cron else ""))
+        triggers.append(_named(_title(n) + (f" cron {clean(cron, 40)}" if cron else ""), n))
     writes = [target_summary(n, options_seen) for n in nodes if how_to_test(n) == "write"]
     text = f"켜지는 트리거: {', '.join(triggers) or '없음'}"
     if writes:
