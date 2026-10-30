@@ -1,14 +1,15 @@
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from api.middleware.credential import get_llm_credentials
-from api.schemas.chat import ChatRequest, ChatResponse
+from api.schemas.chat import BuildChatRequest, ChatRequest, ChatResponse
 from common.error_code import ErrorCode
 from common.exception import llm_http_exception
-from core.workflow_chat import chat_workflow, chat_workflow_stream
+from core.builder.engine import build_turn_stream
+from core.workflow_chat import chat_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -60,18 +61,26 @@ async def chat_endpoint(
 
 @router.post("/chat/stream")
 async def chat_stream_endpoint(
-    request: ChatRequest,
+    request: BuildChatRequest,
     credentials: dict = Depends(get_llm_credentials),
+    x_delegation_token: str | None = Header(None, alias="X-Delegation-Token"),
 ):
-    """워크플로우 설계 진행 단계를 SSE로 스트리밍한다.
-
-    이벤트 순서: stage(designing → reviewing) → done(완성 ChatResponse). 실행 중 예외는
-    error 이벤트로 전달된다. 블로킹 /v1/chat과 동일한 최종 결과를 만들되 진행 상황을 실시간 전달한다.
-    """
-    kwargs = _build_chat_kwargs(request, credentials)
+    """대화형 노드 단위 생성 한 턴을 SSE로 낸다(spec 2026-10-28). 이벤트: stage(designing) → done(BuildChatResponse)
+    또는 error. 블로킹 /v1/chat은 옛 엔진 그대로다(새 엔진은 WebSocket 스트림 전용)."""
+    kwargs = dict(
+        prompt=request.prompt,
+        provider=credentials["provider"],
+        api_key=credentials["api_key"],
+        user_id=credentials["user_id"],
+        user_role=credentials.get("user_role"),
+        workflow_id=request.workflowId,
+        current_nodes=[n.model_dump() for n in request.currentNodes or []],
+        current_edges=request.currentEdges or [],
+        delegation_token=x_delegation_token,
+    )
 
     async def event_publisher():
-        async for event, data in chat_workflow_stream(**kwargs):
+        async for event, data in build_turn_stream(**kwargs):
             data_str = data.model_dump_json() if event == "done" else json.dumps(data, ensure_ascii=False)
             yield {"event": event, "data": data_str}
 

@@ -43,3 +43,13 @@ async def test_get_user_state_returns_empty_dict():
     svc.collection = None
 
     assert await svc.get_user_state(app_name="ieum-agent", user_id="u1") == {}
+
+
+@pytest.mark.asyncio
+async def test_세션_조회_키_인덱스를_만든다():
+    """대화형 생성은 턴마다 build-{user}-{wf} 세션을 (id, app_name, user_id)로 찾는다(spec 2026-10-28 §4)."""
+    from unittest.mock import patch
+    import db.mongodb as mongodb
+    with patch.object(mongodb.agent_sessions, "create_index", AsyncMock()) as create_index:
+        await mongodb.ensure_indexes()
+    create_index.assert_any_await([("id", 1), ("app_name", 1), ("user_id", 1)])
