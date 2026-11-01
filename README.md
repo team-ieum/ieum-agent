@@ -23,8 +23,7 @@ Google ADK(Agent Development Kit)와 MongoDB를 활용하여 멀티 에이전트
 graph TD
     User([Client / Spring Backend]) -->|HTTP Request| API[FastAPI Entrypoint]
     API -->|Routing| Execute[v1/execute]
-    API -->|Routing| Generate[v1/generate-workflow]
-    API -->|Routing| Chat[v1/chat]
+    API -->|Routing| Chat[v1/chat/stream]
 
     Execute -->|Run Agent| Factory{Agent Factory}
     Factory -->|Simple Task| Single[Single ReAct Agent]
@@ -61,44 +60,9 @@ graph TD
 
 이음 에이전트 서비스가 워크플로우를 생성(Generation)하고 실행(Execution)하는 전체 파이프라인의 상세 라이프사이클입니다.
 
-### 1. 워크플로우 생성 프로세스 (Workflow Generation Flow)
+### 1. 대화형 노드 단위 생성 (`POST /v1/chat/stream`)
 
-사용자가 자연어로 자동화하고자 하는 파이프라인을 묘사하면, 내부적으로 generate_workflow는 다음과 같은 밸리데이션 루프를 통해 스키마에 안전한 형태의 워크플로우 JSON을 생성합니다.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as Client / Backend
-    participant Route as api/routes/generate.py
-    participant Core as core/workflow_generator.py
-    participant Agent as agents/generate/factory.py
-    participant LLM as LLM API
-    participant Validator as core/validators/workflow_validator.py
-    participant DB as MongoDB
-
-    Client->>Route: POST /v1/generate-workflow (Prompt, MCP Servers)
-    Route->>Core: generate_workflow()
-    Core->>Agent: run_generate_agent()
-    
-    rect rgb(240, 248, 255)
-        note right of Agent: Reflexion Loop (최대 시도 횟수 제한)
-        Agent->>LLM: 워크플로우 JSON 생성 요청
-        LLM-->>Agent: Raw JSON String
-        Agent->>Core: validate_fn() 콜백 실행
-        Core->>Validator: Pydantic & 의미론적 상세 검증 (WorkflowValidator.validate)
-        alt 검증 통과 (Valid JSON)
-            Validator-->>Core: OK (GenerateWorkflowResponse)
-            Core-->>Agent: Validated Response
-        else 검증 실패 (Invalid JSON/구조 오류)
-            Validator-->>Core: ValidationError / WorkflowValidationError
-            Core-->>Agent: 피드백(오류 메시지) 포함 재요청 루프 진행
-        end
-    end
-
-    Core->>DB: 생성 결과 로깅 (generate_workflow_logs)
-    Core-->>Route: GenerateWorkflowResponse (Nodes, Edges, Raw Prompt)
-    Route-->>Client: 200 OK (Workflow JSON)
-```
+BE가 WebSocket 채팅 한 턴을 위임하면 `core/builder/`가 노드 하나씩 만든다 — 이벤트 고르기(`find_events`) → 연결 확인 → `add_node` → 칸 채우기(`get_fields`·`list_options`·`set_fields`) → 노드 테스트(쓰기 노드는 사용자 확인 뒤) → `finish`. BE 조회·테스트는 `X-Delegation-Token`으로 사용자 대신 부른다(`BACKEND_BASE_URL`). 응답 `buildState`가 `BUILDING`이면 BE는 트리거를 끈 채 저장하고, `finish` 확인 턴의 `DONE`에서 켠다.
 
 ### 2. 워크플로우 실행 프로세스 (Workflow Execution Flow)
 
@@ -138,15 +102,12 @@ graph TD
 - 입력된 렌더링된 프롬프트와 연결된 도구를 기반으로 에이전트가 동작합니다.
 - 멀티 에이전트 모드와 Latency가 최적화된 단일 ReAct 에이전트 모드를 지원합니다.
 
-### 2. Workflow Generation (`POST /v1/generate-workflow`)
-- 자연어로 전달된 사용자 요구사항을 분석하여, 적절한 Node와 Edge를 갖춘 이음 워크플로우 규격을 자동으로 설계 및 생성합니다.
-
-### 3. ACTION Node Execution (`POST /v1/actions/execute`)
+### 2. ACTION Node Execution (`POST /v1/actions/execute`)
 - ACTION 노드와 단일 노드 테스트가 앱 도구 하나를 LLM 없이 실행할 때 호출됩니다. LLM 헤더는 필요 없고 `X-User-Id`와 도구 토큰 헤더(`X-Google-Access-Token`·`X-Notion-Token`·`X-GitHub-Token`)만 받습니다.
 - 요청 `{nodeId, toolKey, config}` → 응답 `{success, output, errorMessage, errorCode}`. `X-Idempotency-Key`를 주면 성공 응답을 캐시해 재시도에서 쓰기 도구가 다시 실행되지 않습니다.
 
-### 4. Interactive Chat (`POST /v1/chat`)
-- 사용자와 대화를 나누며 워크플로우를 점진적으로 설계·수정하고, 필요한 외부 연동 상태를 진단 및 설정합니다.
+### 3. Interactive Chat (`POST /v1/chat/stream`)
+- 사용자와 대화하며 워크플로우를 노드 하나씩 만들고 고칩니다(SSE). REST `POST /v1/chat`은 410입니다.
 
 ---
 

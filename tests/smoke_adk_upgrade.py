@@ -148,7 +148,23 @@ async def test_smoke_structured_output():
     """structured output(output_schema) — planner/reviewer가 쓰는 경로.
     genai 2.x response_schema 변환 + 응답이 스키마로 파싱되는지."""
     from google.adk.agents import LlmAgent
-    from api.schemas.generate_workflow import WorkflowPlanSchema
+    from pydantic import BaseModel
+
+    # 중첩 모델 필수: list[dict]는 additionalProperties가 돼 Developer API 모드에서 거부된다.
+    class _PlanNode(BaseModel):
+        id: str
+        templateId: str
+        role: str
+        description: str
+
+    class _PlanEdge(BaseModel):
+        source: str
+        target: str
+
+    class WorkflowPlanSchema(BaseModel):  # 옛 /v1/generate-workflow Planner 출력 모양(구조화 출력 경로 스모크용)
+        nodes: list[_PlanNode]
+        edges: list[_PlanEdge]
+        justification: str
 
     agent = LlmAgent(name="planner", model=_model(),
                      instruction="사용자 요청을 nodes/edges/justification JSON Plan으로 출력하라.",

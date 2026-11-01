@@ -15,10 +15,7 @@ class ErrorCode(Enum):
     UNKNOWN_TOOL                 = (400, "지원하지 않는 도구입니다.")
     ACTION_TOOL_FAILED           = (502, "앱 도구 실행에 실패했습니다.")
     MONGODB_ERROR                = (500, "데이터베이스 오류가 발생했습니다.")
-    WORKFLOW_GENERATION_FAILED   = (500, "워크플로우 생성에 실패했습니다.")
-    WORKFLOW_PARSE_FAILED        = (502, "워크플로우 JSON 파싱에 실패했습니다. 다시 시도해주세요.")
     CHAT_EXECUTION_FAILED        = (500, "채팅 처리에 실패했습니다.")
-    CHAT_PARSE_FAILED            = (502, "채팅 워크플로우 파싱에 실패했습니다. 다시 시도해주세요.")
 
     def __init__(self, status_code: int, message: str):
         self.status_code = status_code

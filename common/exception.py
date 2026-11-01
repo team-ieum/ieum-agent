@@ -91,10 +91,3 @@ def is_rate_limit_error(e: Exception) -> bool:
         if _from_provider_module(exc) and _BARE_429.search(str(exc)):
             return True
     return False
-
-
-def llm_http_exception(e: Exception, fallback: ErrorCode) -> HTTPException:
-    """LLM provider 예외를 HTTP status로 매핑. 429는 그대로, 나머지는 fallback."""
-    if is_rate_limit_error(e):
-        return CodedHTTPException(ErrorCode.RATE_LIMITED)
-    return CodedHTTPException(fallback)

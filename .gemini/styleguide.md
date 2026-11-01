@@ -6,10 +6,10 @@ Spring Boot 백엔드에서 HTTP로 위임받아 Google ADK를 통해 에이전�
 
 ## 디렉토리 구조
 ```
-api/routes/        — FastAPI 라우터 (execute, generate, chat)
+api/routes/        — FastAPI 라우터 (execute, actions, chat, node_catalog, validate)
 api/schemas/       — Pydantic 요청/응답 스키마
 api/middleware/     — 인증 미들웨어 (credential.py)
-core/              — 핵심 비즈니스 로직 (agent.py, workflow_generator.py, workflow_chat.py, node_hydration.py)
+core/              — 핵심 비즈니스 로직 (agent.py, builder/ 대화형 노드 단위 생성)
 tools/             — 빌트인 도구 함수 (slack, discord, gmail, notion, google_*, http_fetch, mcp, utils)
 common/            — 에러 코드(ErrorCode, ToolErrorCode), 커스텀 예외
 db/                — MongoDB 연결(mongodb.py), 컬렉션 스키마 문서(models.py)

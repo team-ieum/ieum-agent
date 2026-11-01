@@ -1,14 +1,16 @@
 """워크플로우 정적 검증(로드맵 ④) — 실행 없이 노드별 에러를 **모아서** 돌려준다.
 
 spec: ieum-backend docs/superpowers/specs/2026-10-12-node-static-validation-design.md §3·§4.
-POST /v1/workflows/validate가 쓴다. 채팅·generate 경로(WorkflowValidator.validate)는 이 모듈을 쓰지
-않는다 — 슬롯으로 고칠 수 없는 칸 때문에 채팅 수정이 영구히 막히는 것을 피한다(spec §3.8, ⑤에서 붙인다).
+POST /v1/workflows/validate와 대화형 생성(core/builder — 노드 검증·finish)이 쓴다.
 에러 하나 = {nodeId, field, code, message}. code 고정 목록은 spec §4.2."""
 import json
 import re
 
 from core.template_registry import _get_by_path, match_entry, trigger_type_of
-from core.validators.workflow_validator import REF_BODY_RE
+
+# 참조식 본문 {{ 여기 }}. BE 실행기(ExecutionCursor.VARIABLE_PATTERN)와 같은 규칙 — 실제로 치환하는 쪽이 진실이다.
+# id [a-zA-Z0-9-]+, 경로 [a-zA-Z0-9_.]+(중첩 issues.0.title 허용). 옛 workflow_validator.py에서 옮겼다.
+REF_BODY_RE = re.compile(r"nodes\.([a-zA-Z0-9-]+)\.output\.([a-zA-Z0-9_.]+)")
 
 # 중괄호 없는 본문만 — `.*?`는 닫히지 않은 `{{` 반복에서 제곱 시간이 걸린다(모든 실행 경로가 부른다)
 _REF_RE = re.compile(r"\{\{([^{}]*)\}\}")
@@ -29,7 +31,8 @@ MAX_NODES, MAX_EDGES, MAX_ERRORS, MAX_VALUE_LEN = 500, 2000, 200, 80
 # 200건이어도 제어문자 값(JSON에서 문자당 6바이트)이면 256KB를 넘는다 — 바이트로도 자른다. json.dumps 기본
 # ensure_ascii=True는 한글도 6바이트로 세서 실제 응답(UTF-8 3바이트)보다 크게 잡는다.
 MAX_ERROR_BYTES = 200_000
-# 위치 경로는 카탈로그 path(최대 41자)와만 비교한다 — 긴 키 아래 큰 목록에서 원소마다 긴 경로를 복사하지 않게 자른다
+# 위치 경로 상한 — 카탈로그 path(최대 41자)와 비교하고 동적 칸 오류의 field 문자열도 된다. 긴 키 아래 큰 목록에서
+# 원소마다 긴 경로를 복사하지 않게, 응답 field가 길어지지 않게 자른다(긴 키는 잘린다)
 _MAX_LOC = 256
 
 
@@ -149,7 +152,7 @@ def _cron_errors(node: dict) -> list[dict]:
     if not isinstance(cron, str):
         return [_err("CRON", "cron 표현식은 문자열이어야 합니다.", node.get("id"), "config.cron")]
     # BE CronConverter.toQuartz(:25-30)와 같은 필드 수 규칙: 5(Unix) 또는 6/7(Quartz). REST 저장은
-    # Quartz 6/7필드를 받으므로 5필드 전용 WorkflowValidator._validate_cron을 쓰면 오탐한다.
+    # Quartz 6/7필드를 받으므로 5필드만 받으면 오탐한다.
     # ponytail: 필드 수·문자 집합만 본다. 값 범위(분 0-59 등)는 저장 시 BE CronExpression이 검증.
     parts = cron.split()
     if len(parts) not in (5, 6, 7) or not all(_CRON_PART_RE.match(p) for p in parts):
@@ -310,6 +313,9 @@ def _ref_errors(node: dict, by_id: dict, preds: dict, outputs: dict):
         return
     entry = match_entry(node)
     field_paths = [f["path"] for f in entry["inputFields"]] if entry else []
+    # ACTION 동적 칸(fieldsSource) 안은 <칸 경로>.<키>까지 짚는다(spec 2026-10-26 §8). AI 노드 tools[].config는 그대로
+    dynamic = {f["path"] for f in entry["inputFields"] if f.get("fieldsSource")} \
+        if entry and entry["node_type"] == "ACTION" else set()
     unused = [p for p in field_paths if _unused_field(entry, node, p)]
     unused += [_CONDITION_ALIASES[p] for p in unused if p in _CONDITION_ALIASES]  # BE는 right가 없으면 rightValue를 읽는다
     anc = None
@@ -317,6 +323,8 @@ def _ref_errors(node: dict, by_id: dict, preds: dict, outputs: dict):
         if "{{" not in text or any(loc == p or loc.startswith(p + ".") for p in unused):
             continue
         field = next((p for p in field_paths if loc == p or loc.startswith(p + ".")), None)
+        if field in dynamic and loc != field:  # 키에는 `.`이 없다 — 저장 키는 `.`을 %2E로 바꾼다(D5)
+            field = f"{field}.{loc[len(field) + 1:].split('.', 1)[0]}"
         if text.rfind("{{") > text.rfind("}}"):
             yield _err("REF_FORMAT", "참조식의 '{{'가 닫히지 않았어요.", nid, field)
         for ref in _REF_RE.finditer(text):  # findall은 참조 수백만 개를 목록으로 먼저 만든다

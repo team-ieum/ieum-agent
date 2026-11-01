@@ -35,6 +35,7 @@ def node_catalog() -> dict:
             "kind": t["kind"],
             "provider": t["provider"],
             "app": t["app"],
+            "appTitle": t["app_title"],
             "nodeType": t["node_type"],
             "title": t["title"],
             "description": t["description"],
@@ -42,6 +43,8 @@ def node_catalog() -> dict:
             "inputFields": [_public_field(f) for f in t["inputFields"]],
             "outputFields": [_public_field(f) for f in t["outputFields"]],
         }
+        if t["tool_key"]:  # ai.agent tools 선택지 id → 이 항목(칸 = inputFields)
+            entry["toolKey"] = t["tool_key"]
         if t.get("outputDynamic"):
             entry["outputDynamic"] = True
         if t.get("outputsFrom"):

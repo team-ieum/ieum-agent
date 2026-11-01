@@ -158,6 +158,12 @@ class BuildEnvironmentTest(unittest.TestCase):
                     with self.subTest(key=key,kind='reserved control'):
                         self.assert_rejected(secret_payload(extra={PREFIX+suffix:value}),'reserved_configuration')
 
+    def test_delegated_backend_requests_keep_the_controller_owned_same_color_address(self):
+        for key in ('BACKEND_BASE_URL', 'BACKENDBASEURL', 'BACKEND__BASE_URL'):
+            with self.subTest(key=key):
+                self.assert_rejected(secret_payload(extra={PREFIX + key: 'http://legacy.invalid:8080'}),
+                                     'reserved_configuration')
+
     def test_port_cannot_change_the_fixed_health_endpoint_or_add_uvicorn_arguments(self):
         for value in ('8001','08000','8000 --reload','$(touch injected)','8000; echo injected'):
             values=valid_env();values['PORT']=value

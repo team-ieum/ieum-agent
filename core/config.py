@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # backend가 끊기 전에 agent가 정리된 에러를 반환하도록 한다.
     AGENT_TIMEOUT_SECONDS: int = 150
 
+    # BE→agent 공유 비밀(spec 2026-10-28 §7.4). 비어 있으면 검사를 끈다(배포 순서가 어긋나도 끊기지 않게) — 값이 생기면 강제.
+    AGENT_INTERNAL_TOKEN: str = ""
+    # 대화형 생성이 위임 토큰으로 부르는 BE 내부 주소(spec §7.3). 비어 있으면 BE 도구가 BACKEND_UNAVAILABLE을 돌려준다.
+    BACKEND_BASE_URL: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"

@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import inspect
 import logging
 from google.adk.agents import LlmAgent
@@ -27,6 +28,17 @@ GITHUB_PR_RULES = (
 )
 
 _INSTRUCTION = _CAPABILITY + GITHUB_PR_RULES
+
+
+def _bind_token(fn, **bound_args):
+    """fn의 토큰 파라미터를 바인딩한 partial(LLM이 보는 시그니처에서 토큰을 뺀다). 옛 core/workflow_chat.py에서 옮겼다."""
+    sig = inspect.signature(fn)
+    p = functools.partial(fn, **bound_args)
+    p.__name__ = fn.__name__
+    p.__doc__ = fn.__doc__
+    p.__signature__ = sig.replace(parameters=[v for k, v in sig.parameters.items() if k not in bound_args])
+    p.__annotations__ = {k: v for k, v in getattr(fn, "__annotations__", {}).items() if k not in bound_args}
+    return p
 
 
 async def build_github_agent(
@@ -66,7 +78,6 @@ async def build_github_agent(
             "GitHub Copilot MCP 연결 실패 (권한 부족 또는 타임아웃). 로컬 Python GitHub API 도구로 폴백합니다. 에러: %s",
             str(e)
         )
-        from core.workflow_chat import _bind_token
         from tools.github import github_list_orgs, github_list_repos, github_list_issues, github_list_pull_requests
         from google.adk.tools.function_tool import FunctionTool
         

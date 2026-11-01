@@ -6,6 +6,7 @@ docs/superpowers/specs/2026-10-05-node-catalog-design.md §2·§5). 템플릿·�
 않는 순수 함수만 둔다 — 로더(core.template_registry)가 이 함수들을 조립한다."""
 import copy
 import inspect
+import re
 import types
 import typing
 
@@ -17,8 +18,12 @@ class FieldError(ValueError):
 VALID_FIELD_TYPES = {"string", "text", "integer", "number", "boolean", "datetime",
                      "cron", "json", "dict", "object"}
 VALID_SLOT_KINDS = {"string", "enum", "provider", "model", "cron", "expr", "mapping", "http_method"}
+# optionsParams는 /fields 응답 Field 전용이라 넣지 않는다 — 카탈로그 칸이 처음 쓸 때 그 PR에서 허용한다(spec 2026-10-26 §3-1)
 _FIELD_ATTRS = {"key", "title", "type", "description", "required", "default", "choices",
-                "optionsSource", "optionsInputs", "list", "children", "dynamic", "ref", "llm", "path"}
+                "optionsSource", "optionsInputs", "fieldsSource", "fieldsInputs",
+                "list", "children", "dynamic", "ref", "llm", "path"}
+# fieldsSource 형식 = optionsSource와 같은 <공급원>.<목록>(카탈로그 scripts/validate.py OPTIONS_SOURCE_RE)
+_SOURCE_RE = re.compile(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*")
 _LLM_ATTRS = {"hint", "slot", "name", "kind", "inject"}
 _INJECT = {"provider", "model"}
 _PY_TYPES = {str: "string", int: "integer", float: "number", bool: "boolean", dict: "object"}
@@ -82,6 +87,18 @@ def validate_field(field: dict, *, partial: bool = False) -> None:
         ids = [c["id"] for c in choices]
         if len(ids) != len(set(ids)):
             raise FieldError(f"'{key}': choices id 중복")
+    source = field.get("fieldsSource")
+    if source is not None and not (isinstance(source, str) and _SOURCE_RE.fullmatch(source)):
+        raise FieldError(f"'{key}': fieldsSource는 '<공급원>.<목록>' 형식이어야 합니다.")
+    # partial(덮어쓰기)은 type이 없을 수 있다 — 시그니처와 병합한 뒤 apply_overrides가 다시 본다
+    if source is not None and "type" in field and field["type"] != "dict":
+        raise FieldError(f"'{key}': fieldsSource는 type 'dict' 칸에만 씁니다.")
+    if "fieldsInputs" in field:
+        if source is None:
+            raise FieldError(f"'{key}': fieldsInputs는 fieldsSource와 함께 씁니다.")
+        inputs = field["fieldsInputs"]
+        if not (isinstance(inputs, list) and all(isinstance(i, str) and i for i in inputs)):
+            raise FieldError(f"'{key}': fieldsInputs는 칸 key 목록이어야 합니다.")
     if "llm" in field:  # null도 거부 — merge_common이 dict로 펼친다
         llm = field["llm"]
         if not isinstance(llm, dict) or set(llm) - _LLM_ATTRS:

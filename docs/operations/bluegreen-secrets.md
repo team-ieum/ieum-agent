@@ -68,8 +68,8 @@ DB 이름을 `ieum_test`로 강제하므로 Secret의 다른 DB 이름을 지정
 이번 초기 등록 도구는 앱 필수 6개와 호스트용 테스트 연결 2개를 요구한다.
 테스트 설정은 CI 전용으로 runtime 후보에서 제외한다.
 Notion MCP·OTLP·플랫폼 Gemini·Tavily 등 실제 사용하는 기능의 설정은 주석을 해제해 추가한다.
-`DEV_COM_AGENT_INTERNAL_TOKEN`은 최신 DEV 앱 코드와 통합한 뒤 Backend와 같은 값을 사용한다.
-Python 3.11과 이미지 이름은 workflow 고정값이며 컨테이너·색상별 IP·같은 색상 Backend 주소는
+최신 DEV의 내부 인증·위임 호출 코드를 통합했다. `DEV_COM_AGENT_INTERNAL_TOKEN`은 Backend와 같은 값을 사용한다.
+`BACKEND_BASE_URL`은 사용자 Secrets로 덮어쓰지 못하게 예약한다. Python 3.11과 이미지 이름은 workflow 고정값이며 컨테이너·색상별 IP·같은 색상 Backend 주소는
 공통 controller가 관리하므로 이번 Secrets 파일에 복제하지 않는다.
 
 ## 배포 흐름과 색상별 스냅샷

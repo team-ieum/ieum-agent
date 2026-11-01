@@ -5,7 +5,9 @@ import re
 from google.adk.tools.function_tool import FunctionTool
 
 from tools.slack import send_slack_message
+from tools.slack_bot import slack_send_channel_message
 from tools.discord import send_discord_webhook
+from tools.discord_bot import discord_send_channel_message
 from tools.gmail import send_gmail
 from tools.http_fetch import http_fetch
 from tools.web_search import web_search
@@ -18,6 +20,7 @@ from tools.notion import (
     notion_append_block,
     notion_query_database,
 )
+from tools.notion_rows import notion_create_row, notion_update_row
 from tools.google_sheets import google_sheets_read, google_sheets_write, google_sheets_append
 from tools.google_calendar import google_calendar_create, google_calendar_find, google_calendar_update
 from tools.google_drive import google_drive_read, google_drive_upload
@@ -68,7 +71,9 @@ def _bind_config(fn, config: dict | None):
 
 _TOOL_MAP: dict = {
     "slack": send_slack_message,
+    "builtin:slack_send_channel_message": slack_send_channel_message,
     "discord": send_discord_webhook,
+    "builtin:discord_send_channel_message": discord_send_channel_message,
     "gmail": send_gmail,
     "builtin:http_fetch": http_fetch,
     "builtin:web_search": web_search,
@@ -78,6 +83,8 @@ _TOOL_MAP: dict = {
     "builtin:notion_update_page": notion_update_page,
     "builtin:notion_append_block": notion_append_block,
     "builtin:notion_query_database": notion_query_database,
+    "builtin:notion_create_row": notion_create_row,
+    "builtin:notion_update_row": notion_update_row,
     "builtin:google_sheets_read": google_sheets_read,
     "builtin:google_sheets_write": google_sheets_write,
     "builtin:google_sheets_append": google_sheets_append,

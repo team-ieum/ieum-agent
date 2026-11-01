@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -49,7 +51,7 @@ def test_entry_shape_and_default_attrs_omitted():
     e = next(e for e in node_catalog()["entries"] if e["id"] == "schedule.every")
     assert e == {
         "id": "schedule.every", "kind": "trigger", "provider": "ieum",
-        "nodeType": "TRIGGER", "app": "schedule",
+        "nodeType": "TRIGGER", "app": "schedule", "appTitle": "스케줄",
         "title": "스케줄", "description": "정해둔 시각마다 시작해요.",
         "fixed": {"type": "TRIGGER", "event": "schedule.every", "config": {"brand": "webhook"}},
         "inputFields": [{"key": "cron", "title": "실행 주기", "type": "cron", "required": True,
@@ -87,6 +89,28 @@ def test_dynamic_markers_and_app_in_entries():
     assert by_id["manual.run"]["app"] == "manual"      # 내장 항목도 앱 키가 있다
 
 
+def test_도구_선택지마다_toolKey가_같은_ACTION_항목이_하나다():
+    """FE가 AI 도구 칸을 ACTION 항목 inputFields로 그린다(FE 순서 0-F) — choice.id == entry.toolKey로 찾는다."""
+    entries = node_catalog()["entries"]
+    agent = next(e for e in entries if e["id"] == "ai.agent")
+    choices = next(f for f in agent["inputFields"] if f["key"] == "tools")["choices"]
+    assert choices
+    for c in choices:
+        hits = [e for e in entries if e.get("toolKey") == c["id"]]
+        assert len(hits) == 1, c
+        assert (hits[0]["nodeType"], hits[0]["title"]) == ("ACTION", c["name"])
+    assert "toolKey" not in agent                      # 도구 없는 항목은 키를 생략한다
+
+
+def test_앱_표시_이름은_apps_json_title이다():
+    by_id = {e["id"]: e for e in node_catalog()["entries"]}
+    assert by_id["slack.send_message"]["appTitle"] == "Slack (웹훅)"
+    assert by_id["slack_bot.send_channel_message"]["appTitle"] == "Slack"
+    assert by_id["discord.send_message"]["appTitle"] == "Discord (웹훅)"
+    assert by_id["discord_bot.send_channel_message"]["appTitle"] == "Discord"
+    assert by_id["google_calendar.find"]["appTitle"] == "Google Calendar"
+
+
 def test_agent_tools_field_is_not_ref():
     """tools는 목록 구조라 참조식 칸이 아니다(BE parseTools·agent 모두 리스트를 기대한다)."""
     agent = next(e for e in node_catalog()["entries"] if e["id"] == "ai.agent")
@@ -102,6 +126,8 @@ def test_option_source_fields_fixed_set():
     expected = {(a, k) for a in ai for k in ("model", "credentialId")} | {
         ("http.request", "webhookCredentialId"),
         ("slack.send_message", "webhookCredentialId"), ("discord.send_message", "webhookCredentialId"),
+        ("slack_bot.send_channel_message", "channel"),
+        ("discord_bot.send_channel_message", "guild_id"), ("discord_bot.send_channel_message", "channel_id"),
         *[(f"google_sheets.{x}", k) for x in ("read", "write", "append")
           for k in ("spreadsheet_id", "sheet_name")],
         ("google_calendar.create", "calendar_id"), ("google_calendar.find", "calendar_id"),
@@ -111,6 +137,8 @@ def test_option_source_fields_fixed_set():
         ("notion.create_page", "parent_page_id"), ("notion.read_page", "page_id"),
         ("notion.update_page", "page_id"), ("notion.append_block", "page_id"),
         ("notion.query_database", "database_id"),
+        ("notion.create_row", "data_source_id"), ("notion.create_row", "template"),
+        ("notion.update_row", "data_source_id"), ("notion.update_row", "row_id"),
         *[(f"github.{x}", k) for x in ("list_issues", "create_issue") for k in ("owner", "repo")],
         ("github.new_issue", "repoId"),
     }
@@ -135,6 +163,10 @@ def _field(entry_id: str, key: str) -> dict:
     ("page_id", "페이지", {"notion.pages"}, None),
     ("parent_page_id", "상위 페이지", {"notion.pages"}, None),
     ("database_id", "데이터베이스", {"notion.databases"}, None),
+    ("data_source_id", "데이터베이스", {"notion.databases"}, None),
+    # D16: 공급원이 notion.pages인 page_id와 key를 나눈다 — 같은 key = 같은 공급원
+    ("row_id", "행", {"notion.data_source_items"}, ["data_source_id"]),
+    ("template", "템플릿", {"notion.templates"}, ["data_source_id"]),
     ("owner", "소유자", {"github.owners"}, None),
     ("repo", "저장소", {"github.repos"}, ["owner"]),
 ])
@@ -173,9 +205,12 @@ EXPECTED_BRANDS = {
     "gmail.new_email": "gmail", "github.new_issue": "github",
     "http.request": "webhook", "approval.request": "webhook", "branch.if": "filter", "transform.map": "filter",
     "slack.send_message": "slack", "discord.send_message": "discord",
+    "slack_bot.send_channel_message": "slack",
+    "discord_bot.send_channel_message": "discord",
     "notion.create_page": "notion", "notion.read_page": "notion",
     "notion.search": "notion", "notion.update_page": "notion",
     "notion.append_block": "notion", "notion.query_database": "notion",
+    "notion.create_row": "notion", "notion.update_row": "notion",
     "google_sheets.read": "sheets", "google_sheets.write": "sheets",
     "google_sheets.append": "sheets",
     "google_calendar.create": "google", "google_calendar.find": "google",
@@ -281,6 +316,93 @@ def test_find_출력은_검색_약속을_따른다():
     """SCHEMA 앱 이벤트 약속 1 — found·total·items 필수."""
     keys = {f["key"] for f in tr.get_template("google_calendar.find")["outputFields"]}
     assert {"found", "total", "items"} <= keys
+
+
+def test_slack_bot_채널_메시지_계약():
+    """spec 2026-10-20 §9 — 칸·드롭다운·출력이 BE(slack.channels)·도구 시그니처와 맞물린다."""
+    e = _action("slack_bot.send_channel_message")
+    assert (e["app"], e["provider"], e["kind"], e["fixed"]["config"]["brand"]) == \
+        ("slack_bot", "slack", "action", "slack")
+    fields = {f["key"]: f for f in e["inputFields"]}
+    assert list(fields) == ["channel", "text", "thread_ts"]           # token은 주입 인자라 빠진다
+    assert (fields["channel"]["title"], fields["channel"]["optionsSource"], fields["channel"]["required"]) == \
+        ("채널", "slack.channels", True)
+    assert (fields["text"]["type"], fields["text"]["required"]) == ("text", True)
+    assert not fields["thread_ts"].get("required")
+    assert [f["key"] for f in e["outputFields"]] == ["ts", "channel", "permalink"]
+
+
+def test_slack_웹훅_노드는_이름을_바꾸고_channel_칸이_없다():
+    e = _action("slack.send_message")
+    assert e["title"] == "Slack 웹훅으로 보내기"
+    assert {f["key"] for f in e["inputFields"]} == {"message", "webhookCredentialId"}
+
+
+def test_AI_노드_도구_선택지에_Slack_두_가지가_이름으로_나뉜다():
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    names = {c["id"]: c["name"] for c in tools["choices"]}
+    assert names["slack"] == "Slack 웹훅으로 보내기"
+    assert names["builtin:slack_send_channel_message"] == "Slack 채널에 메시지 보내기"
+
+
+def test_discord_bot_채널_메시지_계약():
+    """spec 2026-10-21 §9 — 서버(직속 칸) → 채널 → 메시지 순서, 채널 드롭다운은 서버 값을 입력으로 받는다."""
+    e = _action("discord_bot.send_channel_message")
+    assert (e["app"], e["provider"], e["kind"], e["fixed"]["config"]["brand"], e["toolKey"]) == \
+        ("discord_bot", "discord", "action", "discord", "builtin:discord_send_channel_message")
+    fields = {f["key"]: f for f in e["inputFields"]}
+    assert list(fields) == ["guild_id", "channel_id", "content"]    # token·allowed_guild_ids는 주입 인자라 빠진다
+    guild = fields["guild_id"]
+    assert (guild["title"], guild["optionsSource"], guild["ref"], guild.get("required", False)) == \
+        ("서버", "discord.guilds", False, False)                    # 실행에 안 쓰는 칸 — 필수면 참조식 채널 노드를 막는다
+    channel = fields["channel_id"]
+    assert (channel["title"], channel["optionsSource"], channel["optionsInputs"], channel["required"]) == \
+        ("채널", "discord.channels", ["guild_id"], True)
+    assert (fields["content"]["type"], fields["content"]["required"]) == ("text", True)
+    assert [f["key"] for f in e["outputFields"]] == ["id", "channel_id", "url"]
+
+
+def test_discord_웹훅_노드는_이름을_바꾸고_메시지_ID를_출력한다():
+    e = _action("discord.send_message")
+    assert e["title"] == "Discord 웹훅으로 보내기"
+    assert [f["key"] for f in e["outputFields"]] == ["id", "channel_id"]
+
+
+def test_AI_노드_도구_선택지에_Discord_두_가지가_이름으로_나뉜다():
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    names = {c["id"]: c["name"] for c in tools["choices"]}
+    assert names["discord"] == "Discord 웹훅으로 보내기"
+    assert names["builtin:discord_send_channel_message"] == "Discord 채널에 메시지 보내기"
+
+
+def test_notion_DB_행_노드_계약():
+    """spec 2026-10-26 §3-2·§3-3 — 속성 칸은 DB를 고른 뒤 /fields로 받는 동적 칸, 칸 전체 참조식은 막는다."""
+    create, update = _action("notion.create_row"), _action("notion.update_row")
+    assert (create["toolKey"], update["toolKey"]) == ("builtin:notion_create_row", "builtin:notion_update_row")
+    assert (create["title"], update["title"]) == ("DB에 행 만들기", "DB 행 수정")
+    c = {f["key"]: f for f in create["inputFields"]}
+    u = {f["key"]: f for f in update["inputFields"]}
+    assert list(c) == ["data_source_id", "properties", "template", "content"]   # token은 주입 인자라 빠진다
+    assert list(u) == ["row_id", "properties", "content", "data_source_id"]     # 시그니처 밖 칸은 뒤에 붙는다
+    for fields in (c, u):
+        assert fields["properties"] == {"key": "properties", "title": "속성", "type": "dict", "ref": False,
+                                        "fieldsSource": "notion.properties", "fieldsInputs": ["data_source_id"],
+                                        "path": "config.properties"}
+        assert fields["data_source_id"]["ref"] is False
+        assert (fields["content"]["type"], fields["content"].get("required", False)) == ("text", False)
+    assert (c["data_source_id"]["required"], u["data_source_id"].get("required", False)) == (True, False)
+    assert (u["row_id"]["required"], u["row_id"].get("ref", True)) == (True, True)   # 앞 노드가 찾은 행을 참조식으로
+    assert (c["template"]["ref"], c["template"].get("required", False)) == (False, False)
+    for e in (create, update):
+        assert [f["key"] for f in e["outputFields"]] == ["pageId", "url"]
+        assert "optionsParams" not in json.dumps(e)   # /fields 응답 전용
+
+
+def test_AI_노드_도구_선택지에_Notion_DB_행_도구가_있다():
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    names = {c["id"]: c["name"] for c in tools["choices"]}
+    assert names["builtin:notion_create_row"] == "DB에 행 만들기"
+    assert names["builtin:notion_update_row"] == "DB 행 수정"
 
 
 def test_catalog_entries_snapshot():

@@ -3,9 +3,8 @@
 도구 함수의 시그니처(`inspect.signature`)에서 파라미터 명세를 자동 파생한다.
 현재 소비처: 노드 카탈로그·생성 슬롯 파생(core/template_registry — RUNTIME_INJECTED_PARAMS로
 실행 시 주입 인자를 뺀다, GET /v1/nodes/catalog), 생성 노드 brand 주입(apply_service_brand —
-workflow_generator·workflow_chat). 파라미터 스펙·블루프린트(tool_param_spec·service_blueprint)는
-(추후) RAG 색인용으로 지금은 테스트만 부른다. 검증기(workflow_validator)는 이 모듈이 아니라
-_TOOL_MAP과 core/template_registry를 쓴다.
+core/builder 대화형 생성), 대화형 생성의 금지 칸(core/builder/fields — RUNTIME_INJECTED_PARAMS).
+파라미터 스펙·블루프린트(tool_param_spec·service_blueprint)는 (추후) RAG 색인용으로 지금은 테스트만 부른다.
 
 도구를 추가/변경하면 _TOOL_MAP에 함수만 등록하면 되고, 별도의 스펙/문서를
 손으로 관리할 필요가 없다(drift 0).
@@ -26,7 +25,8 @@ from tools.google_calendar import google_calendar_delete
 # 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
 # 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증과 설정 폼에서 제외한다.
 RUNTIME_INJECTED_PARAMS: set[str] = {
-    "token",            # Notion / GitHub Integration Token
+    "token",            # Notion / GitHub Integration Token, Slack·Discord 봇 토큰
+    "allowed_guild_ids",  # Discord 봇: 이 사용자가 연결한 서버 ID 목록(권한 목록 — 사용자 config로 받지 않는다)
     "access_token",     # Google OAuth Access Token
     "webhook_url",      # Slack / Discord Webhook URL
     "sender_email",     # Gmail SMTP

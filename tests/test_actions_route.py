@@ -179,7 +179,8 @@ async def test_취소되면_IN_PROGRESS_레코드가_해제된다(fake_records):
     from api.routes.actions import execute_action
     from api.schemas.request import ActionExecutionRequest
 
-    credentials = {"user_id": "user-1", "google_access_token": None, "notion_token": None, "github_token": "gh"}
+    credentials = {"user_id": "user-1", "google_access_token": None, "notion_token": None, "github_token": "gh",
+                   "slack_token": None, "discord_token": None, "discord_guild_ids": []}
     with patch("api.routes.actions.run_action", new=AsyncMock(side_effect=asyncio.CancelledError())):
         with pytest.raises(asyncio.CancelledError):
             await execute_action(ActionExecutionRequest(**BODY), credentials=credentials, x_idempotency_key=KEY)
@@ -207,3 +208,121 @@ def test_캘린더_삭제는_ACTION으로_열리고_구글_토큰이_주입된�
     assert res.json()["success"] is True
     assert res.json()["output"] == {"eventId": "evt-1", "deleted": True}
     assert http.delete.call_args.kwargs["headers"]["Authorization"] == "Bearer g-token"
+
+
+def test_Slack_ACTION은_헤더_봇_토큰으로_끝까지_실행된다():
+    """실제 slack_send_channel_message를 부르고 HTTP만 목킹한다. config의 token은 헤더 토큰에 진다."""
+    def _ok(body):
+        resp = MagicMock(status_code=200, headers={})
+        resp.json.return_value = body
+        return resp
+
+    info = _ok({"ok": True, "channel": {"id": "C1", "is_channel": True, "is_private": False}})
+    link = _ok({"ok": True, "permalink": "https://t.slack.com/archives/C1/p1"})
+    http = AsyncMock()
+    http.get = AsyncMock(side_effect=lambda url, **kw: info if url.endswith("/conversations.info") else link)
+    http.post = AsyncMock(return_value=_ok({"ok": True, "channel": "C1", "ts": "1.0"}))
+    body = {"nodeId": "node-1", "toolKey": "builtin:slack_send_channel_message",
+            "config": {"channel": "C1", "text": "안녕", "token": "attacker", "_names": {"channel": "#general"}}}
+
+    with patch("tools.slack_bot.get_http_client", return_value=http):
+        res = _post(headers={"X-User-Id": "user-1", "X-Slack-Token": "xoxb-test"}, body=body)
+
+    assert res.status_code == 200
+    assert res.json() == {"success": True, "errorMessage": None, "errorCode": None,
+                          "output": {"ts": "1.0", "channel": "C1", "permalink": "https://t.slack.com/archives/C1/p1"}}
+    calls = http.get.call_args_list + http.post.call_args_list
+    assert [c.kwargs["headers"]["Authorization"] for c in calls] == ["Bearer xoxb-test"] * 3
+
+
+def test_Slack_ACTION은_봇_토큰이_없으면_200_실패_응답이다():
+    body = {"nodeId": "node-1", "toolKey": "builtin:slack_send_channel_message", "config": {"channel": "C1", "text": "hi"}}
+    res = _post(headers={"X-User-Id": "user-1", "X-Notion-Token": "secret_x"}, body=body)
+    assert res.status_code == 200
+    assert res.json()["success"] is False and "Slack" in res.json()["errorMessage"]
+
+
+# --- Discord 봇 ---------------------------------------------------------------------------------
+
+G_MINE, G_OTHER, D_CH, D_MSG = "111111111111111111", "999999999999999999", "333333333333333333", "444444444444444444"
+
+
+def _discord_http(channel_guild):
+    """진짜 httpx + MockTransport. GET 채널 조회는 channel_guild 서버의 텍스트 채널, POST는 보낸 메시지."""
+    import httpx
+
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"id": D_CH, "type": 0, "guild_id": channel_guild})
+        return httpx.Response(200, json={"id": D_MSG, "channel_id": D_CH})
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler)), seen
+
+
+def test_Discord_ACTION은_헤더_봇_토큰과_서버_목록으로_끝까지_실행된다():
+    """config의 token·allowed_guild_ids는 헤더 값에 진다. guild_id(직속 칸)·_names는 도구에 가지 않는다."""
+    http, seen = _discord_http(G_MINE)
+    body = {"nodeId": "node-1", "toolKey": "builtin:discord_send_channel_message",
+            "config": {"guild_id": G_MINE, "channel_id": D_CH, "content": "안녕", "token": "attacker",
+                       "allowed_guild_ids": [G_OTHER], "_names": {"channel_id": "#general"}}}
+
+    with patch("tools.discord_bot.get_http_client", return_value=http):
+        res = _post(headers={"X-User-Id": "user-1", "X-Discord-Token": "bot-t",
+                             "X-Discord-Guild-Ids": f" {G_OTHER}x , {G_MINE} ,"}, body=body)
+
+    assert res.json() == {"success": True, "errorMessage": None, "errorCode": None,
+                          "output": {"id": D_MSG, "channel_id": D_CH,
+                                     "url": f"https://discord.com/channels/{G_MINE}/{D_CH}/{D_MSG}"}}
+    assert [r.headers["authorization"] for r in seen] == ["Bot bot-t"] * 2
+
+
+@pytest.mark.parametrize("header_ids, config_ids", [
+    (G_MINE, [G_OTHER]),     # config로 남의 서버를 허용 목록에 넣어도
+    ("", [G_OTHER]),         # 헤더 목록이 비었는데 config로 채워도
+])
+def test_Discord_ACTION은_config의_allowed_guild_ids로_남의_서버에_쓰지_못한다(header_ids, config_ids):
+    """불변식 (a): 주입값이 config를 덮는다 — 채널이 G_OTHER 서버라 거절되고 POST는 없다."""
+    http, seen = _discord_http(G_OTHER)
+    body = {"nodeId": "node-1", "toolKey": "builtin:discord_send_channel_message",
+            "config": {"channel_id": D_CH, "content": "hi", "allowed_guild_ids": config_ids}}
+
+    with patch("tools.discord_bot.get_http_client", return_value=http):
+        res = _post(headers={"X-User-Id": "user-1", "X-Discord-Token": "bot-t", "X-Discord-Guild-Ids": header_ids},
+                    body=body)
+
+    assert res.status_code == 200 and res.json()["success"] is False
+    assert res.json()["errorCode"] == "ACTION_TOOL_FAILED"
+    assert all(r.method == "GET" for r in seen)
+
+
+def test_Discord_ACTION은_봇_토큰이_없으면_200_실패_응답이다():
+    body = {"nodeId": "node-1", "toolKey": "builtin:discord_send_channel_message",
+            "config": {"channel_id": D_CH, "content": "hi", "token": "attacker"}}
+    res = _post(headers={"X-User-Id": "user-1", "X-Discord-Guild-Ids": G_MINE}, body=body)
+    assert res.status_code == 200
+    assert res.json()["success"] is False and "Discord" in res.json()["errorMessage"]
+
+
+# --- Notion DB 행 -----------------------------------------------------------------------------
+
+def test_Notion_행_수정_ACTION은_헤더_토큰으로_끝까지_실행되고_UI용_칸은_도구에_가지_않는다():
+    """config.data_source_id(시그니처 밖, 드롭다운용)·_names·token은 도구에 가지 않는다 — 실행은 행이 속한 DB를 따른다."""
+    from tests.test_notion_rows import PAGE, ROW, SCHEMA, _make_response
+    http = AsyncMock()
+    http.get = AsyncMock(side_effect=[_make_response(200, PAGE), _make_response(200, SCHEMA)])
+    http.patch = AsyncMock(side_effect=[_make_response(200, PAGE)])
+    body = {"nodeId": "node-1", "toolKey": "builtin:notion_update_row",
+            "config": {"data_source_id": "0" * 32, "row_id": ROW, "properties": {"점수": "7"}, "token": "attacker",
+                       "_names": {"data_source_id": "업무 DB", "properties": {"num": "점수"}}}}
+
+    with patch("tools.notion_rows.get_http_client", return_value=http):
+        res = _post(headers={"X-User-Id": "user-1", "X-Notion-Token": "n-token"}, body=body)
+
+    assert res.json() == {"success": True, "errorMessage": None, "errorCode": None,
+                          "output": {"pageId": ROW, "url": PAGE["url"]}}
+    assert {c.kwargs["headers"]["Authorization"] for c in http.get.await_args_list + http.patch.await_args_list} \
+        == {"Bearer n-token"}
+    assert http.patch.await_args.kwargs["json"] == {"properties": {"num": {"number": 7}}}

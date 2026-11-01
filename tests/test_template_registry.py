@@ -40,32 +40,23 @@ def test_resolve_template_for_structural_node():
     assert tpl and tpl["id"] == "transform.map"
 
 
-def test_golden_snippets_pass_node_validation():
-    """모든 golden_snippet은 단독 1노드 워크플로우로서 노드 검증을 통과해야 한다.
-    (참조식이 있는 스니펫은 선행 노드가 없어 제외 — #8 전체 회귀에서 통합 검증)"""
-    from core.validators.workflow_validator import WorkflowValidator
-
-    for tpl in tr.all_templates():
-        snip = tpl.get("golden_snippet")
-        if not snip:
-            continue
-        # TRIGGER 스니펫만 단독 검증 가능(나머지는 TRIGGER 시작 규칙/참조 때문에 통합 테스트 영역)
-        if snip.get("type") == "TRIGGER":
-            WorkflowValidator.validate([snip], [])
-
-
 # 가공/내부 도구는 독립 노드 템플릿이 아니라 실행 시 자동 부착된다.
 _INTERNAL_TOOLS = {
     "builtin:workflow_context", "builtin:json_parse",
     "builtin:text_extract", "builtin:date_format",
 }
 
+# 생성 프리셋 없이 ai.agent 도구 선택지(이벤트 title)로만 AI 노드에 싣는 도구(spec 2026-10-20 §9 — 프리셋을 만들지 않는다).
+# 생성(채팅) 경로는 이 도구로 노드를 만들지 못한다.
+_NO_PRESET_TOOLS = {"builtin:slack_send_channel_message", "builtin:discord_send_channel_message",
+                    "builtin:notion_create_row", "builtin:notion_update_row"}  # spec 2026-10-26 §1: 프리셋 없음
+
 
 def test_every_user_facing_tool_has_template():
     """가공/내부 도구를 제외한 모든 _TOOL_MAP 키는 템플릿으로 노출되어야 한다(드리프트 게이트)."""
     keys = tr._tool_map_keys()
     covered = {t["tool_key"] for t in tr.all_templates() if t["tool_key"]}
-    expected = keys - _INTERNAL_TOOLS
+    expected = keys - _INTERNAL_TOOLS - _NO_PRESET_TOOLS
     missing = expected - covered
     assert not missing, f"템플릿 미커버 tool_key: {sorted(missing)}"
 

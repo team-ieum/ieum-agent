@@ -6,14 +6,10 @@ from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 
 from api.middleware.credential import get_llm_credentials
-from api.routes.chat import _build_chat_kwargs
-from api.schemas.chat import ChatRequest
 from api.schemas.request import AgentNodeRequest
 from api.schemas.response import AgentExecutionResult
 from core.agent import run_agent, save_execution_log
 from core.config import settings
-from core.workflow_chat import _save_chat_log
-from core.workflow_generator import _save_generate_workflow_log
 from main import app
 
 
@@ -26,10 +22,39 @@ async def _call_middleware(**overrides):
         x_google_access_token=None,
         x_notion_token=None,
         x_github_token=None,
+        x_slack_token=None,
+        x_discord_token=None,
         x_key_mode=None,
     )
     kwargs.update(overrides)
     return await get_llm_credentials(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_X_Slack_Token은_slack_token으로_넘어간다():
+    creds = await _call_middleware(x_llm_api_key="sk-user", x_slack_token="xoxb-test")
+    assert creds["slack_token"] == "xoxb-test"
+    assert (await _call_middleware(x_llm_api_key="sk-user"))["slack_token"] is None
+
+
+@pytest.mark.asyncio
+async def test_X_Discord_헤더는_봇_토큰과_서버_ID_목록으로_넘어간다():
+    creds = await _call_middleware(x_llm_api_key="sk-user", x_discord_token="bot-t",
+                                   x_discord_guild_ids=" 111 , 222,,333 ")
+    assert (creds["discord_token"], creds["discord_guild_ids"]) == ("bot-t", ["111", "222", "333"])
+    # 서버 목록을 넘기지 않으면 기본값 Header() 객체가 들어온다 — str이 아니면 []
+    creds = await _call_middleware(x_llm_api_key="sk-user")
+    assert (creds["discord_token"], creds["discord_guild_ids"]) == (None, [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw, ids", [("", []), (" , ", []), ("111", ["111"]), (None, [])])
+async def test_ACTION_크레덴셜도_X_Discord_Guild_Ids를_목록으로_넘긴다(raw, ids):
+    from api.middleware.credential import get_action_credentials
+    creds = await get_action_credentials(x_user_id="u1", x_google_access_token=None, x_notion_token=None,
+                                         x_github_token=None, x_slack_token=None, x_discord_token="bot-t",
+                                         x_discord_guild_ids=raw)
+    assert (creds["discord_token"], creds["discord_guild_ids"]) == ("bot-t", ids)
 
 
 @pytest.mark.asyncio
@@ -130,39 +155,6 @@ async def test_run_agent_byok_mode_respects_model_override():
         await run_agent(request, "GEMINI", "sk-user", "user-1")
     assert mock_simple.call_args.kwargs["model"] == "gemini-3.5-pro"
     assert mock_logs.insert_one.call_args.args[0]["keyMode"] is None
-
-
-# ---------------------------------------------------------------------------
-# Task 4: chat/generate/modify key_mode 스레딩 테스트
-# ---------------------------------------------------------------------------
-
-def test_build_chat_kwargs_passes_key_mode():
-    request = ChatRequest(prompt="워크플로우 만들어줘", availableIntegrations=[], unavailableIntegrations=[])
-    credentials = {"provider": "GEMINI", "api_key": "pk", "user_id": "u1", "key_mode": "platform"}
-    kwargs = _build_chat_kwargs(request, credentials)
-    assert kwargs["key_mode"] == "platform"
-
-
-@pytest.mark.asyncio
-async def test_generate_log_records_key_mode():
-    with patch("core.workflow_generator.generate_workflow_logs") as mock_logs:
-        mock_logs.insert_one = AsyncMock()
-        await _save_generate_workflow_log(
-            prompt="p", provider="GEMINI", model="gemini-3.7-flash",
-            success=True, duration_ms=10, key_mode="platform",
-        )
-    assert mock_logs.insert_one.call_args.args[0]["keyMode"] == "platform"
-
-
-@pytest.mark.asyncio
-async def test_chat_log_records_key_mode():
-    with patch("core.workflow_chat.chat_logs") as mock_logs:
-        mock_logs.insert_one = AsyncMock()
-        await _save_chat_log(
-            prompt="p", provider="GEMINI", model="gemini-3.7-flash",
-            user_id="u1", success=True, duration_ms=10, key_mode="platform",
-        )
-    assert mock_logs.insert_one.call_args.args[0]["keyMode"] == "platform"
 
 
 # ---------------------------------------------------------------------------

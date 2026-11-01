@@ -6,7 +6,6 @@ import pytest
 
 from core import template_registry as tr
 from core.template_registry import SlotFillError, TemplateSchemaError
-from core.validators.workflow_validator import WorkflowValidator
 from tests.catalog_paths import apps, copy_catalog, edit_entry, read_raw
 
 APP_PRESETS = [
@@ -96,6 +95,23 @@ def test_options_inputs_must_point_to_same_entry(tmp_path, monkeypatch):
         _load_from(tmp_path, monkeypatch, mutate)
 
 
+def _add_dynamic_field(inputs):
+    return lambda d: edit_entry(d, "http.request", lambda raw: raw["inputFields"].append(
+        {"key": "props", "title": "속성", "type": "dict", "fieldsSource": "x.props", "fieldsInputs": inputs}))
+
+
+def test_fields_inputs_must_point_to_same_entry(tmp_path, monkeypatch):
+    """fieldsInputs도 optionsInputs와 같은 규칙 — 최종 inputFields(직속 + 도구 필드) key만 가리킨다."""
+    with pytest.raises(TemplateSchemaError, match=r"'props'의 fieldsInputs \['nope'\]"):
+        _load_from(tmp_path, monkeypatch, _add_dynamic_field(["nope"]))
+
+
+def test_fields_source_loads_and_reaches_entry(tmp_path, monkeypatch):
+    templates = _load_from(tmp_path, monkeypatch, _add_dynamic_field(["url"]))
+    props = next(f for f in templates["http.request"]["inputFields"] if f["key"] == "props")
+    assert (props["fieldsSource"], props["fieldsInputs"]) == ("x.props", ["url"])
+
+
 def test_final_input_field_keys_unique(tmp_path, monkeypatch):
     """직속 필드와 도구 필드를 합친 최종 inputFields에서도 key가 겹치면 거부한다(FE 폼은 key로 칸을 찾는다)."""
     def mutate(d):
@@ -137,10 +153,14 @@ def test_action_entries_mirror_app_presets():
         assert action["tool_key"] == preset["tool_key"]
         assert action["fixed"] == {"type": "ACTION", "event": action["id"], "config": {}}
     # 앱 프리셋의 거울 + 프리셋 없는 GitHub 액션 + AI에 싣지 않는 캘린더 삭제(ACTION 전용)
+    # + 프리셋 없이 ai.agent 도구 선택지로만 AI에 싣는 Slack·Discord 봇·Notion DB 행(spec 2026-10-20 §9, 2026-10-21 §9,
+    #   2026-10-26 §1)
     mirrored = {t["id"] for t in entries.values() if t["node_type"] == "ACTION"
                 and any(entries[pid]["tool_key"] == t["tool_key"] for pid in APP_PRESETS)}
     assert {t["id"] for t in entries.values() if t["node_type"] == "ACTION"} == \
-        mirrored | {"github.list_issues", "github.create_issue", "google_calendar.delete"}
+        mirrored | {"github.list_issues", "github.create_issue", "google_calendar.delete",
+                    "slack_bot.send_channel_message", "discord_bot.send_channel_message",
+                    "notion.create_row", "notion.update_row"}
 
 
 @pytest.mark.parametrize("tid, tool_key, keys", [
@@ -209,13 +229,6 @@ def test_old_spreadsheet_name_slot_error_names_new_slot():
     with pytest.raises(SlotFillError) as e:
         tr.hydrate_node(draft, provider="GEMINI")
     assert "spreadsheet_name" in str(e.value) and "spreadsheet_id_name" in str(e.value)
-
-
-def test_ai_node_with_top_level_names_passes_whitelist():
-    node = {"id": "n2", "type": "AI", "label": "l", "config": {
-        "agentType": "simple", "credentialId": "", "tools": [], "llmProvider": "GEMINI",
-        "model": "m", "prompt": "p", "_names": {"credentialId": "내 키"}}}
-    WorkflowValidator._validate_config_fields(node, "n2")
 
 
 def test_http_allows_webhook_credential_but_no_slot():

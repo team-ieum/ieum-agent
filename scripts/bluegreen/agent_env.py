@@ -42,7 +42,7 @@ EXCLUDED_KEYS = frozenset((
 # The controller owns signal propagation. Python/shell bootstrap settings are not
 # application options and could execute code or bypass the fixed launcher.
 RESERVED_KEYS = (
-    'TINI_KILL_PROCESS_GROUP', 'GITHUB_TOKEN', 'AGENT_ENV', SECRETS_VARIABLE,
+    'TINI_KILL_PROCESS_GROUP', 'BACKEND_BASE_URL', 'GITHUB_TOKEN', 'AGENT_ENV', SECRETS_VARIABLE,
     'PATH', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONSTARTUP', 'PYTHONINSPECT', 'PYTHONWARNINGS',
     'PYTHONBREAKPOINT', 'BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS',
     'LD_PRELOAD', 'LD_LIBRARY_PATH',
