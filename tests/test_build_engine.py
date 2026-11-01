@@ -72,16 +72,17 @@ async def _state(svc):
     return (await svc.get_session(app_name="ieum-agent", user_id="u", session_id="build-u-wf")).state
 
 
-def test_도구는_12개이고_토큰_인자가_없다():
+def test_도구는_13개이고_토큰_인자가_없다():
     from google.adk.tools.function_tool import FunctionTool
     from core.builder.tools import Turn, make_tools
     turn = Turn(workflow_id="wf", provider="GEMINI", backend=MagicMock(), nodes=[], edges=[])
     decls = {d.name: d for d in (FunctionTool(fn)._get_declaration() for fn in make_tools(turn))}
     assert set(decls) == {"find_events", "set_outline", "check_connection", "add_node", "get_fields", "list_options",
-                          "load_dynamic_fields", "set_fields", "connect", "remove_node", "test_node", "finish"}
+                          "load_dynamic_fields", "set_fields", "connect", "remove_node", "test_node", "finish", "pick_model"}
     params = {name: set((d.parameters_json_schema or {}).get("properties") or {}) for name, d in decls.items()}
     assert params["set_fields"] == {"node_id", "values"} and params["finish"] == set()
     assert params["add_node"] == {"event", "label", "after", "branch"}
+    assert params["pick_model"] == {"node_id"}
     assert not set().union(*params.values()) & {"tool_context", "token", "delegation_token", "turn", "state"}
 
 

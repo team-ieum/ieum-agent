@@ -15,6 +15,7 @@ from core.builder.backend import Backend
 from core.builder.fields import _CONTROL, apply_fields, clean, node_errors, writable_fields
 from core.builder.hitl import (ASK_FINISH, ASK_SKIP_ONLY, ASK_TEST, FINISH, finish_summary, how_to_test,
                                sample_summary, target_summary)
+from core.builder.model_pick import NO_KEY_MESSAGE, ask_text, load_choices
 from core.builder.state import DONE_STATUSES, node_hash, node_status, workflow_hash
 from core.provider_config import resolve_model
 from core.template_registry import CATALOG_DIR, _get_by_path, _read_json, builder_entries, event_entry
@@ -33,6 +34,9 @@ MIN_TEST_SECONDS = 200   # BE 테스트 요청 timeout 190초 + 여유 — 이�
 MIN_LOOKUP_SECONDS = 35
 SHORT_ON_TIME = "이번 턴은 시간이 부족해요, 다음 메시지에서 이어서 할게요"
 MAX_OPTION_ID = 200
+MIN_PICK_SECONDS = 2 * MIN_LOOKUP_SECONDS  # 카드 조회는 BE 왕복 두 번(키 → 모델)
+MODEL_ASKED = "모델 카드는 시스템이 붙여요. 이번 턴은 짧게 마치세요."
+MODEL_FIRST = "AI 모델을 먼저 고른 뒤에 이어서 해요. 이번 턴은 짧게 마치세요."
 
 
 @dataclass
@@ -52,6 +56,7 @@ class Turn:
     ask: str | None = None                      # 응답 맨 끝 확인 질문(마지막 것 하나)
     pending: dict | None = None                 # ask와 짝인 확인 대기 — 응답을 조립한 뒤에만 state에 저장한다(엔진)
     created: list = field(default_factory=list)  # 이번 턴에 만든 노드 id(아직 BE 저장 전)
+    model_choices: list | None = None           # 턴당 모델 카드 후보 캐시(load_choices의 choices)
     deadline: float = field(default_factory=lambda: time.monotonic() + TURN_SECONDS)  # time.monotonic() 기준
 
     def node(self, node_id) -> dict | None:
@@ -127,6 +132,49 @@ async def check_connection(turn: Turn, app: str) -> dict:
     return result
 
 
+# ── 모델 카드(spec 2026-10-30 §5) ───────────────────────────────────────────
+# credentialId는 turn.pending.choices(엔진이 세션 state에 저장)에만 — 도구 결과·ask에 넣지 않는다
+
+def _hold(turn: Turn, pending: dict, ask: str) -> bool:
+    """한 응답 대기 하나, 카드 우선 — 카드 대기가 이미 있으면 아무것도 바꾸지 않고 False."""
+    if (turn.pending or {}).get("kind") == "model_pick":
+        return False
+    turn.pending, turn.ask = pending, ask
+    return True
+
+
+async def _choices(turn: Turn) -> dict:
+    if turn.model_choices is not None:
+        return {"choices": turn.model_choices}
+    if turn.deadline - time.monotonic() < MIN_PICK_SECONDS:
+        return {"error": SHORT_ON_TIME}
+    r = await load_choices(turn.backend, turn.provider)
+    if "choices" in r:  # 오류는 캐시하지 않는다
+        turn.model_choices = r["choices"]
+    return r
+
+
+async def _ask_model(turn: Turn, node: dict) -> dict:
+    r = await _choices(turn)
+    if "error" in r:
+        return {"status": "error", "message": r["error"]}
+    if not r["choices"]:
+        return {"status": "needs_key", "message": NO_KEY_MESSAGE}
+    # hash는 임시값 — 같은 턴에 set_fields로 칸이 바뀌므로 엔진이 턴 끝에 다시 잰다
+    _hold(turn, {"kind": "model_pick", "node_id": node["id"], "hash": node_hash(node), "choices": r["choices"]},
+          ask_text(r["choices"]))
+    return {"status": "needs_model", "message": MODEL_ASKED}  # hold가 False여도 — 다음 턴 test_node가 다시 띄운다
+
+
+async def pick_model(turn: Turn, node_id: str) -> dict:
+    node = turn.node(node_id)
+    if node is None:
+        return _err("없는 노드예요.")
+    if node.get("event") != "ai.reasoning":
+        return _err("모델 카드는 AI 노드(ai.reasoning)에만 띄워요.")
+    return await _ask_model(turn, node)
+
+
 # ── 노드·엣지 ──────────────────────────────────────────────────────────────
 
 def _branch_error(source: dict, branch: str) -> str | None:
@@ -163,6 +211,12 @@ async def add_node(turn: Turn, event: str, label: str, after: str = "", branch: 
     connection = await check_connection(turn, entry["app"])
     if not connection["connected"]:
         return _err("연결이 필요해서 노드를 만들지 않았어요.", message=connection.get("message"))
+    if event == "ai.reasoning":
+        r = await _choices(turn)
+        if "error" in r:
+            return _err("AI 키 목록을 조회하지 못했어요.", message=r["error"])
+        if not r["choices"]:
+            return _err("AI 키가 없어 노드를 만들지 않았어요.", message=NO_KEY_MESSAGE)
     node = {"id": str(uuid.uuid4()), "event": event, "type": entry["node_type"],
             "label": clean(label) or entry["title"], "config": copy.deepcopy(entry["fixed"]["config"])}
     if entry["node_type"] == "AI":
@@ -173,6 +227,8 @@ async def add_node(turn: Turn, event: str, label: str, after: str = "", branch: 
     turn.created.append(node["id"])
     if after:
         turn.edges.append(_edge(after, node["id"], branch))
+    if event == "ai.reasoning":
+        return {"node_id": node["id"], **(await _ask_model(turn, node))}
     return {"node_id": node["id"]}
 
 
@@ -409,16 +465,15 @@ async def test_node(turn: Turn, state, node_id: str) -> dict:
             # 상류가 skipped면 선택지는 건너뛰기뿐 — 이 대기의 "네"도 건너뛰기로 판정한다(engine.judge_turn_start)
             skip_only = any(node_status(turn.node(a), state) == "skipped" for a in _ancestors(turn, node_id))
             summary = target_summary(node, state.get("options_seen"))
-            turn.pending = {"node_id": node_id, "hash": h, "summary": summary, "skip_only": skip_only}
-            turn.ask = f"테스트 전 확인 — {summary}. {ASK_SKIP_ONLY if skip_only else ASK_TEST}"
+            if not _hold(turn, {"node_id": node_id, "hash": h, "summary": summary, "skip_only": skip_only},
+                         f"테스트 전 확인 — {summary}. {ASK_SKIP_ONLY if skip_only else ASK_TEST}"):
+                return {"status": "later", "message": MODEL_FIRST}
             return {"status": "awaiting_confirmation",
                     "message": "사용자 확인을 기다려요. 확인 질문은 시스템이 붙이니 이번 턴은 짧게 마치세요."}
     config = node.get("config") if isinstance(node.get("config"), dict) else {}
-    # 이번 턴에 만든 AI 노드는 저장 전 — BE가 저장 때 요청 credentialId를 넣는다(ChatService.java:582-585). 저장된 노드가
-    # 비어 있으면 BE가 self-hosted·베타 키로 돌리므로(AgentNodeExecutor.java:126-137) 그대로 BE에 맡긴다
-    if (node.get("event") == "ai.reasoning" and node_id in turn.created
-            and not str(config.get("credentialId") or "").strip()):
-        return {"status": "later", "message": "AI 노드는 저장된 뒤 다음 턴에 테스트할 수 있어요. 사용자에게 다음 메시지를 부탁하세요."}
+    # 키가 비면 카드 — BE 주입·self-hosted에 맡기지 않는다(spec 2026-10-30 §5.3)
+    if node.get("event") == "ai.reasoning" and not str(config.get("credentialId") or "").strip():
+        return await _ask_model(turn, node)
     if turn.test_runs >= MAX_TESTS_PER_TURN:
         return {"status": "limit", "message": f"이번 턴 테스트 한도({MAX_TESTS_PER_TURN}회)를 다 썼어요. 다음 턴에 이어서 해요."}
     if turn.deadline - time.monotonic() < MIN_TEST_SECONDS:
@@ -450,21 +505,26 @@ async def test_node(turn: Turn, state, node_id: str) -> dict:
     _record(state, node_id, "failed", h)
     turn.notes.append(f"{label}: 테스트 실패 — {clean(data.get('error') or '원인 미상', 120)}")
     if kind == "app_trigger":
-        turn.pending = {"node_id": node_id, "hash": h, "summary": label}
-        turn.ask = f"{label}의 최근 항목을 가져오지 못했어요. {ASK_TEST}"
+        _hold(turn, {"node_id": node_id, "hash": h, "summary": label}, f"{label}의 최근 항목을 가져오지 못했어요. {ASK_TEST}")
     return {"status": "failed"}
 
 
-def finish(turn: Turn, state) -> dict:
+async def finish(turn: Turn, state) -> dict:
     """완료 판정(spec §5.4). 통과해도 바로 DONE이 아니다 — 켜질 트리거·쓰기 대상을 보여 주고 다음 턴 확인을 받는다."""
+    unkeyed = next((n for n in turn.nodes if n.get("event") == "ai.reasoning"
+                    and not str(((n.get("config") if isinstance(n.get("config"), dict) else {})
+                                 .get("credentialId")) or "").strip()), None)
+    if unkeyed is not None:
+        return await _ask_model(turn, unkeyed)
     remaining = [{"node_id": n["id"], "label": clean(n.get("label") or ""), "status": node_status(n, state)}
                  for n in turn.nodes if node_status(n, state) not in DONE_STATUSES]
     errors = validate_workflow(turn.nodes, turn.edges)
     if remaining or errors:
         return {"ok": False, "remaining": remaining, "errors": _brief(errors)[:10]}
     summary = finish_summary(turn.nodes, state.get("options_seen"))
-    turn.pending = {"node_id": FINISH, "hash": workflow_hash(turn.nodes, turn.edges), "summary": summary}
-    turn.ask = f"완료 전 확인 — {summary}. {ASK_FINISH}"
+    if not _hold(turn, {"node_id": FINISH, "hash": workflow_hash(turn.nodes, turn.edges), "summary": summary},
+                 f"완료 전 확인 — {summary}. {ASK_FINISH}"):
+        return {"status": "later", "message": MODEL_FIRST}
     return {"status": "awaiting_confirmation", "message": "완료 확인은 시스템이 붙이니 이번 턴은 짧게 마치세요."}
 
 
@@ -472,7 +532,7 @@ def finish(turn: Turn, state) -> dict:
 # ── LLM에 주는 래퍼 ────────────────────────────────────────────────────────
 
 def make_tools(turn: Turn) -> list:
-    """turn을 잡은 도구 12개. 독스트링이 LLM이 보는 설명이다. tool_context는 ADK가 넣는다(LLM 인자 아님)."""
+    """turn을 잡은 도구 13개. 독스트링이 LLM이 보는 설명이다. tool_context는 ADK가 넣는다(LLM 인자 아님)."""
 
     def find_events_(query: str = "") -> dict:
         """만들 수 있는 노드(이벤트) 메뉴를 찾는다. query는 앱·동작 단어(예: 'slack 보내기', 'calendar').
@@ -489,7 +549,8 @@ def make_tools(turn: Turn) -> list:
 
     async def add_node_(event: str, label: str, after: str = "", branch: str = "") -> dict:
         """노드를 하나 만든다. after = 앞 노드 id(그 뒤에 연결), 앞 노드가 분기(branch.if)면 branch='true'|'false' 필수.
-        연결이 필요한 앱이 미연결이면 거절한다. 돌려준 node_id를 이후 도구에 쓴다."""
+        연결이 필요한 앱이 미연결이면 거절한다. 돌려준 node_id를 이후 도구에 쓴다.
+        AI 노드(ai.reasoning)는 모델 카드를 시스템이 붙인다(needs_model이면 짧게 마친다). 키가 없으면 만들지 않고 message를 그대로 안내한다."""
         return await add_node(turn, event, label, after, branch)
 
     def get_fields_(tool_context: ToolContext, node_id: str) -> dict:
@@ -522,12 +583,16 @@ def make_tools(turn: Turn) -> list:
         결과는 status와 출력 이름·타입뿐이다 — 샘플 내용은 시스템이 사용자에게 직접 보여 준다."""
         return await test_node(turn, tool_context.state, node_id)
 
-    def finish_(tool_context: ToolContext) -> dict:
+    async def finish_(tool_context: ToolContext) -> dict:
         """모든 노드 테스트(또는 건너뛰기)·검증이 끝났는지 보고, 끝났으면 사용자에게 완료 확인을 받는다."""
-        return finish(turn, tool_context.state)
+        return await finish(turn, tool_context.state)
+
+    async def pick_model_(node_id: str) -> dict:
+        """이미 있는 AI 노드의 모델·키를 다시 고르게 카드를 띄운다(예: '모델 바꿔줘'). 모델·키는 직접 정하지 않는다."""
+        return await pick_model(turn, node_id)
 
     fns = [find_events_, set_outline_, check_connection_, add_node_, get_fields_, list_options_,
-           load_dynamic_fields_, set_fields_, connect_, remove_node_, test_node_, finish_]
+           load_dynamic_fields_, set_fields_, connect_, remove_node_, test_node_, finish_, pick_model_]
     for fn in fns:
         fn.__name__ = fn.__name__.rstrip("_")
     return fns

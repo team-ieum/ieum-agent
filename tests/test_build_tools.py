@@ -93,7 +93,7 @@ async def test_노드는_UUID_id_고정값_엣지와_함께():
 
 @pytest.mark.asyncio
 async def test_AI_노드_초기값():
-    turn = _turn(nodes=[_trigger()])
+    turn = _turn(nodes=[_trigger()], webhooks=["k1"])
     node = turn.node((await tools.add_node(turn, "ai.reasoning", "요약", after="t"))["node_id"])
     cfg = node["config"]
     assert cfg["llmProvider"] == "GEMINI" and cfg["model"]
@@ -147,7 +147,7 @@ def test_삭제는_엣지도_지우고_마지막_노드는_거절():
 @pytest.mark.asyncio
 async def test_add_node는_카탈로그_fixed_config를_오염시키지_않는다():
     from core.template_registry import load_templates
-    turn = _turn(nodes=[_trigger()])
+    turn = _turn(nodes=[_trigger()], webhooks=["k1"])
     first = turn.node((await tools.add_node(turn, "ai.reasoning", "a", after="t"))["node_id"])
     first["config"]["tools"].append({"name": "x"})
     second = turn.node((await tools.add_node(turn, "ai.reasoning", "b", after="t"))["node_id"])

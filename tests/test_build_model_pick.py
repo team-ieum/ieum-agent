@@ -196,3 +196,115 @@ def test_apply_choice는_config가_없으면_새로_만든다():
     node = {"id": "a", "event": "ai.reasoning", "config": None}
     mp.apply_choice(node, {"credentialId": "c", "provider": "OPENAI", "model": "m", "label": "x"})
     assert node["config"] == {"credentialId": "c", "llmProvider": "OPENAI", "model": "m"}
+
+
+# ── 카드를 띄우는 자리(add_node·pick_model·test_node·finish) ───────────────────
+
+import time  # noqa: E402
+
+from core.builder import tools  # noqa: E402
+from core.builder.state import baseline_of  # noqa: E402
+from core.builder.tools import Turn  # noqa: E402
+
+T = {"id": "t", "event": "manual.run", "type": "TRIGGER", "label": "시작", "config": {}}
+SLACK = {"id": "s", "event": "slack_bot.send_channel_message", "type": "ACTION", "label": "알림",
+         "config": {"channel": "C1", "text": "x"}}
+
+
+def _turn(nodes, **kw):
+    return Turn(workflow_id="wf", provider="GEMINI", backend=_be(**kw), nodes=[dict(n) for n in nodes],
+                edges=[{"source": "t", "target": n["id"]} for n in nodes if n["id"] != "t"])
+
+
+@pytest.mark.asyncio
+async def test_키가_없으면_AI_노드를_만들지_않고_안내():
+    turn = _turn([T], keys={})
+    r = await tools.add_node(turn, "ai.reasoning", "요약", after="t")
+    assert "error" in r and r["message"] == mp.NO_KEY_MESSAGE
+    assert len(turn.nodes) == 1 and turn.edges == []
+    assert turn.pending is None
+
+
+@pytest.mark.asyncio
+async def test_AI_노드는_키_빈_채로_만들고_카드_대기():
+    turn = _turn([T])
+    r = await tools.add_node(turn, "ai.reasoning", "요약", after="t")
+    assert r["status"] == "needs_model"
+    node = turn.node(r["node_id"])
+    assert node["config"]["credentialId"] == ""
+    assert turn.pending["kind"] == "model_pick" and turn.pending["node_id"] == r["node_id"]
+    assert turn.pending["hash"] == node_hash(node)
+    assert turn.ask.startswith("AI 노드에 쓸 모델을 골라 주세요: ① ")
+    assert "cred-" not in str(r)
+
+
+@pytest.mark.asyncio
+async def test_AI_노드_둘이면_조회_한_번_카드_하나():
+    turn = _turn([T])
+    first = await tools.add_node(turn, "ai.reasoning", "a", after="t")
+    second = await tools.add_node(turn, "ai.reasoning", "b", after="t")
+    assert second["status"] == "needs_model"
+    assert sum(1 for c in turn.backend.options.await_args_list if c.args[0] == "ieum.credentials") == 3
+    assert turn.pending["node_id"] == first["node_id"]
+
+
+@pytest.mark.asyncio
+async def test_시간이_70초_안_남으면_카드_조회를_시작하지_않는다():
+    turn = _turn([T])
+    turn.deadline = time.monotonic() + 50
+    r = await tools.add_node(turn, "ai.reasoning", "요약", after="t")
+    assert "error" in r and r["message"] == tools.SHORT_ON_TIME
+    turn.backend.options.assert_not_awaited()
+    assert len(turn.nodes) == 1
+
+
+@pytest.mark.asyncio
+async def test_키_조회_오류는_노드를_만들지_않는다():
+    turn = _turn([T], fail="ieum.credentials")
+    r = await tools.add_node(turn, "ai.reasoning", "요약", after="t")
+    assert "error" in r and r["message"] == "조회 불가"
+    assert len(turn.nodes) == 1 and turn.pending is None
+
+
+@pytest.mark.asyncio
+async def test_pick_model은_ai_reasoning에만():
+    old = {"id": "g", "event": "ai.agent", "type": "AI", "label": "옛", "config": {"credentialId": "", "tools": []}}
+    turn = _turn([T, SLACK, old, AI])
+    for node_id in ("s", "g", "nope"):
+        assert "error" in await tools.pick_model(turn, node_id)
+    assert (await tools.pick_model(turn, "a"))["status"] == "needs_model"
+
+
+@pytest.mark.asyncio
+async def test_키가_빈_AI_노드는_테스트하지_않고_카드():
+    turn = _turn([T, AI])
+    turn.backend.test_node = AsyncMock()
+    assert (await tools.test_node(turn, {}, "a"))["status"] == "needs_model"
+    turn.backend.test_node.assert_not_awaited()
+    assert turn.pending["kind"] == "model_pick"
+
+
+@pytest.mark.asyncio
+async def test_카드_대기가_있으면_쓰기_확인은_미룬다():
+    turn = _turn([T, AI, SLACK])
+    await tools.add_node(turn, "ai.reasoning", "요약", after="t")
+    assert await tools.test_node(turn, {}, "s") == {"status": "later", "message": tools.MODEL_FIRST}
+    assert turn.pending["kind"] == "model_pick"
+    assert "테스트할까요" not in turn.ask
+
+
+@pytest.mark.asyncio
+async def test_finish는_키_빈_AI_노드에_카드():
+    turn = _turn([T, AI])
+    state = {"baseline": baseline_of([T, AI])}
+    assert (await tools.finish(turn, state))["status"] == "needs_model"
+    assert "완료할까요" not in turn.ask
+
+
+@pytest.mark.asyncio
+async def test_finish는_옛_ai_agent는_건드리지_않는다():
+    old = {"id": "g", "event": "ai.agent", "type": "AI", "label": "옛", "config": {"credentialId": "", "tools": []}}
+    turn = _turn([T, old])
+    out = await tools.finish(turn, {"baseline": baseline_of([T, old])})
+    assert out.get("status") != "needs_model"
+    turn.backend.options.assert_not_awaited()

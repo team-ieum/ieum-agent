@@ -139,16 +139,16 @@ async def test_상류_샘플_없음과_상류_skipped():
 
 
 @pytest.mark.asyncio
-async def test_이번_턴에_만든_AI_노드만_크레덴셜이_비면_다음_턴():
+async def test_AI_노드는_키가_있을_때만_테스트():
     ai = {"id": "a", "event": "ai.reasoning", "type": "AI", "label": "요약",
           "config": {"llmProvider": "GEMINI", "model": "m", "credentialId": "", "prompt": "요약"}}
     turn = _turn([TRIGGER, ai])
-    turn.created.append("a")  # 저장 전 — BE가 저장 때 요청 credentialId를 넣는다
-    assert (await tools.test_node(turn, {}, "a"))["status"] == "later"
+    turn.backend.options = AsyncMock(return_value={"data": {"items": [{"id": "k1", "name": "업무용"}], "nextCursor": None}})
+    assert (await tools.test_node(turn, {}, "a"))["status"] == "needs_model"
     turn.backend.test_node.assert_not_awaited()
-    saved = _turn([TRIGGER, ai])  # 저장된 노드가 비어 있으면 BE가 self-hosted·베타 키로 돌린다
-    assert (await tools.test_node(saved, {}, "a"))["status"] == "success"
-    saved.backend.test_node.assert_awaited_once()
+    keyed = _turn([TRIGGER, dict(ai, config=dict(ai["config"], credentialId="k1"))])
+    assert (await tools.test_node(keyed, {}, "a"))["status"] == "success"
+    keyed.backend.test_node.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -184,23 +184,25 @@ async def test_모르는_event_노드는_쓰기로_보고_칸은_비어_있다()
     assert tools.get_fields(turn, {}, "u")["fields"] == []
     assert (await tools.test_node(turn, {}, "u"))["status"] == "awaiting_confirmation"
     assert turn.ask.startswith('테스트 전 확인 — newapp.do_thing · 이름 "새 앱". ')
-    assert tools.finish(turn, {})["remaining"][-1] == {"node_id": "u", "label": "새 앱", "status": "untested"}
+    assert (await tools.finish(turn, {}))["remaining"][-1] == {"node_id": "u", "label": "새 앱", "status": "untested"}
     turn.backend.test_node.assert_not_awaited()
 
 
-def test_완료는_남은_일을_돌려준다():
+@pytest.mark.asyncio
+async def test_완료는_남은_일을_돌려준다():
     turn = _turn([TRIGGER, SLACK])
-    out = tools.finish(turn, {"tests": {"t": {"status": "success", "hash": node_hash(TRIGGER)}}})
+    out = await tools.finish(turn, {"tests": {"t": {"status": "success", "hash": node_hash(TRIGGER)}}})
     assert out["ok"] is False
     assert out["remaining"] == [{"node_id": "s", "label": "알림", "status": "untested"}]
 
 
-def test_완료_조건이_맞으면_확인_대기():
+@pytest.mark.asyncio
+async def test_완료_조건이_맞으면_확인_대기():
     turn = _turn([TRIGGER, SLACK])
     state = {"baseline": baseline_of([TRIGGER]),
              "tests": {"s": {"status": "skipped", "hash": node_hash(SLACK)}},
              "options_seen": {"s|config.channel": {"C1": "#general"}}}
-    out = tools.finish(turn, state)
+    out = await tools.finish(turn, state)
     assert out["status"] == "awaiting_confirmation"
     assert turn.pending["node_id"] == FINISH
     assert turn.pending["hash"] == workflow_hash(turn.nodes, turn.edges)
@@ -208,11 +210,12 @@ def test_완료_조건이_맞으면_확인_대기():
                         'Slack 채널에 메시지 보내기 · 채널: #general · 이름 "알림". 완료할까요? (네 / 아니요)')
 
 
-def test_완료는_검증_에러도_본다():
+@pytest.mark.asyncio
+async def test_완료는_검증_에러도_본다():
     orphan = {"id": "o", "event": "transform.map", "type": "TRANSFORM", "label": "외톨이", "config": {"mappings": {}}}
     turn = _turn([TRIGGER, orphan], edges=[])
     state = {"baseline": baseline_of([TRIGGER, orphan])}
-    out = tools.finish(turn, state)
+    out = await tools.finish(turn, state)
     assert out["ok"] is False and out["remaining"] == [] and out["errors"][0]["code"] == "ORPHAN_NODE"
 
 
