@@ -376,3 +376,65 @@ async def test_칸만_고친_턴도_WORKFLOW_MODIFIED(env):
     resp = await _turn("내용 바꿔", [TRIGGER, SLACK], [EDGE], llm=llm, script=[
         ("set_fields", {"node_id": "s", "values": {"config.text": "안녕"}}), "바꿨어요"])
     assert resp.type.value == "WORKFLOW_MODIFIED" and resp.nodes[1]["config"]["text"] == "안녕"
+
+
+def _llm_options(be, keys=(("cred-g1", "개인"),)):
+    async def options(source, params):
+        rows = list(keys) if source == "ieum.credentials" and params["llmProvider"] == "GEMINI" else []
+        if source == "ai.models":
+            rows = [("gemini-other", "Gemini 다른 모델")]
+        return {"data": {"items": [{"id": i, "name": n} for i, n in rows], "nextCursor": None}}
+    be.options = AsyncMock(side_effect=options)
+
+
+AI_ADD = ("add_node", {"event": "ai.reasoning", "label": "요약", "after": "t"})
+
+
+@pytest.mark.asyncio
+async def test_AI_노드를_만든_턴은_카드_options와_글자_목록(env):
+    svc, be, llm = env
+    _llm_options(be)
+    resp = await _turn("요약 붙여", [TRIGGER], [], llm=llm, script=[AI_ADD, "AI 노드를 만들었어요"])
+    assert resp.type.value == "WORKFLOW_MODIFIED"
+    assert [o.value for o in resp.options] == ["1", "2"]
+    assert resp.options[0].description == '내 Gemini 키 "개인" · 추천'
+    assert resp.message.endswith('② Gemini 다른 모델 (내 Gemini 키 "개인")')
+    assert "cred-g1" not in resp.model_dump_json()
+    assert (await _state(svc))["pending"]["kind"] == "model_pick"
+
+
+@pytest.mark.asyncio
+async def test_같은_턴에_prompt를_채워도_카드_선택이_적용된다(env, monkeypatch):
+    from core.provider_config import resolve_model
+    svc, be, llm = env
+    _llm_options(be)
+    monkeypatch.setattr("core.builder.tools.uuid.uuid4", lambda: "a1")
+    resp1 = await _turn("요약 붙여", [TRIGGER], [], llm=llm, script=[
+        AI_ADD, ("set_fields", {"node_id": "a1", "values": {"config.prompt": "요약해"}}), "만들었어요"])
+    assert (await _state(svc))["pending"]["hash"] == node_hash(resp1.nodes[1])
+    resp2 = await _turn("1", resp1.nodes, resp1.edges, llm=llm, script=["골랐어요"])
+    cfg = resp2.nodes[1]["config"]
+    assert (cfg["credentialId"], cfg["llmProvider"], cfg["model"]) == ("cred-g1", "GEMINI", resolve_model("GEMINI"))
+    assert cfg["prompt"] == "요약해"
+
+
+@pytest.mark.asyncio
+async def test_같은_턴에_지운_AI_노드는_카드가_없다(env, monkeypatch):
+    svc, be, llm = env
+    _llm_options(be)
+    monkeypatch.setattr("core.builder.tools.uuid.uuid4", lambda: "a1")
+    resp = await _turn("요약 붙여", [TRIGGER], [], llm=llm, script=[
+        AI_ADD, ("remove_node", {"node_id": "a1"}), "지웠어요"])
+    assert resp.options == []
+    assert "모델을 골라 주세요" not in resp.message
+    assert (await _state(svc))["pending"] is None
+
+
+@pytest.mark.asyncio
+async def test_오류로_끝난_턴은_카드가_없다(env):
+    svc, be, llm = env
+    _llm_options(be)
+    resp = await _turn("요약 붙여", [TRIGGER], [], llm=llm, script=[AI_ADD, RuntimeError("503")])
+    assert resp.options == []
+    assert resp.message.startswith(engine.CUT_SHORT_MESSAGE)
+    assert (await _state(svc))["pending"] is None

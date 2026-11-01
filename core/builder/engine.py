@@ -22,7 +22,7 @@ from common.error_code import ErrorCode
 from core.builder.backend import Backend
 from core.builder.fields import clean
 from core.builder.hitl import FINISH, classify_reply
-from core.builder.model_pick import PROVIDER_TITLE, apply_choice, match_choice
+from core.builder.model_pick import PROVIDER_TITLE, apply_choice, match_choice, options_of
 from core.builder.state import baseline_of, node_hash, node_status, prune, remember_user_input, workflow_hash
 from core.builder.tools import TURN_SECONDS, Turn, make_tools
 from core.config import get_current_time_info
@@ -232,6 +232,12 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
     changed = _canon(nodes, edges) != before
     message = CUT_SHORT_MESSAGE if cut_short else " ".join(" ".join(texts).split())
     tail = list(turn.notes)
+    if (turn.pending or {}).get("kind") == "model_pick":  # 사용자가 보는 턴 끝 모양이 다음 턴 "그 사이 바뀜" 기준
+        target = turn.node(turn.pending["node_id"])
+        if target is None:  # 같은 턴에 지운 노드 — 카드 없음
+            turn.pending, turn.ask = None, None
+        else:
+            turn.pending["hash"] = node_hash(target)
     end_delta = {"confirmed": None, "pending": turn.pending}  # 대기는 질문이 실린 응답을 만든 여기서만 저장한다
     if changed and (state.get("baseline") or {}) and not state.get("paused_notice"):
         tail.append(PAUSED_NOTICE)
@@ -247,6 +253,7 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
         nodes=nodes if changed else None, edges=edges if changed else None, rawPrompt=prompt,
         # 첫 노드가 생기는 턴에만(BE는 저장 전 버전 ≤1일 때만 이름을 반영한다)
         workflowName=(state.get("outline") or {}).get("workflowName") if changed and was_empty else None,
+        options=options_of(turn.pending["choices"]) if (turn.pending or {}).get("kind") == "model_pick" else [],
         usage=_usage(usage))
     logger.info("[build] wf=%s type=%s nodes=%d calls_cut=%s", workflow_id, response.type.value, len(nodes), cut_short)
     return response
