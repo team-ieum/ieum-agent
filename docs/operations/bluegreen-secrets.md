@@ -1,35 +1,37 @@
-# Agent 개발 배포의 DEV_ Secrets
+# Agent 개발 배포의 DEV_COM_ Secrets
 
-이 문서는 2026-10-28 로컬 변경 기준이다. GitHub Secrets 등록·조회, 서버 적용, 커밋·push는 수행하지 않았다.
+이 문서는 2026-11-02 로컬 변경 기준이다. GitHub Secrets 등록·조회, 서버 적용, 커밋·push는 수행하지 않았다.
 
 ## 설정 원본과 자동 수집
 
-Agent 저장소의 개발 배포는 **DEV_로 시작하는 개별 GitHub Actions Secrets**를 원본으로 사용한다.
+Agent 저장소의 개발 배포는 **DEV_COM_로 시작하는 개별 GitHub Actions Secrets**를 원본으로 사용한다.
 접두사를 한 번 제거하고 기존 Agent 변수명 별칭을 적용한다. 일반 새 앱 설정은 별도 workflow 매핑이나
 허용 목록 변경 없이 수집한다. 앱이 그 설정을 실제로 읽어야 기능에 반영된다.
 
 ```text
-DEV_AGENT_MONGODB_URL        → MONGODB_URL
-DEV_AGENT_CLAUDE_DEFAULT_MODEL → CLAUDE_DEFAULT_MODEL
-DEV_NEW_OPTION               → NEW_OPTION
+DEV_COM_AGENT_MONGODB_URL        → MONGODB_URL
+DEV_COM_AGENT_CLAUDE_DEFAULT_MODEL → CLAUDE_DEFAULT_MODEL
+DEV_COM_NEW_OPTION               → NEW_OPTION
 ```
 
-직접 `DEV_MONGODB_URL`처럼 실제 앱 이름에 접두사를 붙여도 된다. 별칭과 직접 이름을 동시에 등록하면
+직접 `DEV_COM_MONGODB_URL`처럼 실제 앱 이름에 접두사를 붙여도 된다. 별칭과 직접 이름을 동시에 등록하면
 충돌로 거부한다. 대소문자와 밑줄을 무시한 등가 이름도 중복으로 취급한다. `MAIN_`, `DEVELOPMENT_`,
-`DEVX_`, 접두사 없는 기존 Secrets는 앱 후보에 포함하지 않는다. 기존 이름을 자동 복사·삭제하지 않았다.
+`DEVX_`, 접두사 없는 기존 Secrets는 앱 후보에 포함하지 않는다. 이전 `DEV_`와 색상별
+`DEV_BLUE_`·`DEV_GREEN_`도 수집하거나 누락값 fallback으로 사용하지 않는다.
+기존 이름을 자동 복사·삭제하지 않았다. 기존 Legacy workflow용 Secrets를 유지하면서 새 이름을 추가한다.
 
 ## 기존 이름 매핑과 필수값
 
 | GitHub Secret 이름 | 앱 환경변수 | 정책 |
 |---|---|---|
-| `DEV_AGENT_MONGODB_URL` | `MONGODB_URL` | 필수 |
-| `DEV_AGENT_MONGODB_DB_NAME` | `MONGODB_DB_NAME` | 필수 |
-| `DEV_AGENT_PORT` | `PORT` | 필수, `8000` |
-| `DEV_AGENT_CLAUDE_DEFAULT_MODEL` | `CLAUDE_DEFAULT_MODEL` | 필수 |
-| `DEV_AGENT_OPENAI_DEFAULT_MODEL` | `OPENAI_DEFAULT_MODEL` | 필수 |
-| `DEV_AGENT_GEMINI_DEFAULT_MODEL` | `GEMINI_DEFAULT_MODEL` | 필수 |
-| `DEV_AGENT_NOTION_MCP_URL` | `NOTION_MCP_URL` | 선택 |
-| `DEV_AGENT_NOTION_MCP_AUTH_TOKEN` | `NOTION_MCP_AUTH_TOKEN` | 선택 |
+| `DEV_COM_AGENT_MONGODB_URL` | `MONGODB_URL` | 필수 |
+| `DEV_COM_AGENT_MONGODB_DB_NAME` | `MONGODB_DB_NAME` | 필수 |
+| `DEV_COM_AGENT_PORT` | `PORT` | 필수, `8000` |
+| `DEV_COM_AGENT_CLAUDE_DEFAULT_MODEL` | `CLAUDE_DEFAULT_MODEL` | 필수 |
+| `DEV_COM_AGENT_OPENAI_DEFAULT_MODEL` | `OPENAI_DEFAULT_MODEL` | 필수 |
+| `DEV_COM_AGENT_GEMINI_DEFAULT_MODEL` | `GEMINI_DEFAULT_MODEL` | 필수 |
+| `DEV_COM_AGENT_NOTION_MCP_URL` | `NOTION_MCP_URL` | 선택 |
+| `DEV_COM_AGENT_NOTION_MCP_AUTH_TOKEN` | `NOTION_MCP_AUTH_TOKEN` | 선택 |
 
 필수 6개는 기존 workflow 계약을 유지하며 누락·빈 문자열·공백만 있는 값이면 실패한다.
 기존 선택 2개가 정확한 빈 문자열이면 후보에서 생략해 앱 기본값을 사용한다.
@@ -45,9 +47,9 @@ pytest 단계는 다음 DEV 이름을 명시적으로 읽는다. 오른쪽 직�
 
 | 우선 Secret | 대체 이름 | 사용 목적 |
 |---|---|---|
-| `DEV_AGENT_TEST_MONGODB_URL` | `DEV_TEST_MONGODB_URL` | 테스트 DB 연결 |
-| `DEV_AGENT_TEST_MONGODB_DB_NAME` | `DEV_TEST_MONGODB_DB_NAME` | 테스트 DB 이름 |
-| `DEV_AGENT_MONGODB_URL` | `DEV_MONGODB_URL` | 기존 테스트 URL fallback |
+| `DEV_COM_AGENT_TEST_MONGODB_URL` | `DEV_COM_TEST_MONGODB_URL` | 테스트 DB 연결 |
+| `DEV_COM_AGENT_TEST_MONGODB_DB_NAME` | `DEV_COM_TEST_MONGODB_DB_NAME` | 테스트 DB 이름 |
+| `DEV_COM_AGENT_MONGODB_URL` | `DEV_COM_MONGODB_URL` | 기존 테스트 URL fallback |
 
 테스트 URL이 없으면 기존처럼 앱 MongoDB URL을 사용하고, 테스트 DB 이름은 `ieum_test`를 기본값으로
 사용한다. 테스트용 별도 URI·DB를 준비해 두는 것이 적절하다. 위 테스트 전용 URL·DB 이름은 Agent
@@ -56,10 +58,24 @@ runtime 후보에서 대소문자·밑줄 변형까지 제외한다. 고정 CI �
 
 로컬 검증은 합성 값만 사용한다. 운영·개발 DB에 실제 pytest를 실행한 결과로 표현하지 않는다.
 
+앱 Mongo URI는 공용 데이터망의 `ieum-mongo` 같은 Docker 이름을 사용할 수 있지만,
+pytest는 러너 호스트에서 실행되므로 테스트 URI는 호스트에서 접근 가능해야 한다.
+별도의 테스트 전용 접속 정보와 `ieum_test` DB를 준비한다. 현재 `tests/conftest.py`는
+DB 이름을 `ieum_test`로 강제하므로 Secret의 다른 DB 이름을 지정해도 그대로 쓰이지 않는다.
+
+일괄 등록용 비공개 파일은 Infra의 `.local-docs/agent-dev.secrets.env`이며,
+`.local-docs/register-agent-dev-secrets.py`가 로컬 검증 후 `--apply`에서만 GitHub CLI를 호출한다.
+이번 초기 등록 도구는 앱 필수 6개와 호스트용 테스트 연결 2개를 요구한다.
+테스트 설정은 CI 전용으로 runtime 후보에서 제외한다.
+Notion MCP·OTLP·플랫폼 Gemini·Tavily 등 실제 사용하는 기능의 설정은 주석을 해제해 추가한다.
+`DEV_COM_AGENT_INTERNAL_TOKEN`은 최신 DEV 앱 코드와 통합한 뒤 Backend와 같은 값을 사용한다.
+Python 3.11과 이미지 이름은 workflow 고정값이며 컨테이너·색상별 IP·같은 색상 Backend 주소는
+공통 controller가 관리하므로 이번 Secrets 파일에 복제하지 않는다.
+
 ## 배포 흐름과 색상별 스냅샷
 
 1. 마지막 배포 단계에서만 `IEUM_AGENT_SECRETS_JSON: ${{ toJSON(secrets) }}`로 Secrets JSON을 받는다.
-2. `scripts/bluegreen/agent_env.py`가 DEV_ 항목만 선택·검증하고 새 빈 0600 임시 후보에 기록한다.
+2. `scripts/bluegreen/agent_env.py`가 DEV_COM_ 항목만 선택·검증하고 새 빈 0600 임시 후보에 기록한다.
    이전 후보나 서버 원본 `.env`를 합치거나 append하지 않는다.
 3. shell은 JSON 원본을 unset한 뒤 후보 경로만 controller에 전달한다.
 4. `deploy --service agent --env-file 후보 --replace-env`로 새 색상의 사용자 설정을 전체 교체한다.
@@ -95,7 +111,7 @@ Agent 앱이 load_dotenv와 BaseSettings의 `.env` 읽기를 지원하더라도,
 ## 보안상 범위
 
 `toJSON(secrets)`는 해당 실행이 접근 가능한 전체 Secrets를 runner 단계에 일시 전달한다.
-DEV_ 필터는 **앱 전달 범위**를 줄이며 runner 원본 접근 범위를 제한하는 기능은 아니다.
+DEV_COM_ 필터는 **앱 전달 범위**를 줄이며 runner 원본 접근 범위를 제한하는 기능은 아니다.
 원문 JSON·값은 shell 코드·argv·GITHUB_ENV·빌드 입력·로그·업로드에 복사하지 않는다.
 private 후보·색상 스냅샷·Docker 환경에는 평문 값이 존재하며 Docker 관리자는 이를 조회할 수 있다.
 workflow job에는 environment 지정이 없으므로 repository 또는 접근이 허용된 organization Secrets를 쓴다.

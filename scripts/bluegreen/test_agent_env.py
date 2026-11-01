@@ -1,4 +1,4 @@
-"""Agent DEV_ settings and workflow regressions; synthetic data only."""
+"""Agent DEV_COM_ settings and workflow regressions; synthetic data only."""
 
 import importlib.util
 import io
@@ -20,7 +20,7 @@ SCRIPT = Path(__file__).with_name('agent_env.py')
 REPOSITORY = Path(__file__).resolve().parents[2]
 WORKFLOW = REPOSITORY / '.github/workflows/agent-dev-server.yml'
 SECRET = 'synthetic-credential-never-print-this'
-PREFIX = 'DEV_'
+PREFIX = 'DEV_COM_'
 TRANSPORT = 'IEUM_AGENT_SECRETS_JSON'
 DEFAULT_PAYLOAD = object()
 spec = importlib.util.spec_from_file_location('agent_env_under_test', SCRIPT)
@@ -100,12 +100,26 @@ class BuildEnvironmentTest(unittest.TestCase):
         self.assertNotIn('NOTION_MCP_AUTH_TOKEN',second)
         self.assertNotIn('NEW_SERVICE_TOKEN',second)
 
-    def test_only_dev_prefix_is_selected_and_no_old_source_is_a_fallback(self):
+    def test_only_dev_common_prefix_is_selected_and_no_old_source_is_a_fallback(self):
         extra={'GITHUB_TOKEN':SECRET,'AWS_SECRET_ACCESS_KEY':SECRET,'MAIN_MONGODB_URL':SECRET,
                'AGENT_MONGODB_URL':SECRET,'DEVELOPMENT_TOKEN':SECRET,'DEVX_TOKEN':SECRET,
                'AGENT_ENV':'MONGODB_URL='+SECRET}
         self.assertEqual(records(agent_env.build_environment(secret_payload(extra=extra))), valid_env())
         self.assert_rejected(json.dumps({'AGENT_MONGODB_URL':SECRET,'AGENT_ENV':SECRET}))
+
+    def test_legacy_color_and_other_environment_secrets_are_not_fallbacks(self):
+        for prefix in ('DEV_', 'DEV_BLUE_', 'DEV_GREEN_', 'MAIN_COM_', 'AWS_'):
+            with self.subTest(prefix=prefix):
+                old = {prefix + key: value for key, value in valid_env().items()}
+                self.assert_rejected(json.dumps(old), 'missing_required_configuration')
+
+    def test_other_namespaces_cannot_override_or_leak_into_common_candidate(self):
+        extra = {}
+        for prefix in ('DEV_', 'DEV_BLUE_', 'DEV_GREEN_', 'MAIN_COM_', 'AWS_'):
+            for key in ('PORT', 'AGENT_MONGODB_URL', 'PYTHONPATH',
+                        'TINI_KILL_PROCESS_GROUP', 'PRIVATE_DEPLOYMENT_VALUE'):
+                extra[prefix + key] = 'unselected-value'
+        self.assertEqual(records(agent_env.build_environment(secret_payload(extra=extra))), valid_env())
 
     def test_test_database_and_fixed_build_metadata_never_enter_runtime_candidate(self):
         extras={PREFIX+key:SECRET for key in ('AGENT_TEST_MONGODB_URL','AGENT_TEST_MONGODB_DB_NAME',
@@ -115,7 +129,7 @@ class BuildEnvironmentTest(unittest.TestCase):
 
     def test_case_is_normalized_but_source_names_and_suffixes_must_be_ascii_env_names(self):
         data={key.lower():value for key,value in secret_data().items()}
-        data['Dev_New_Token']=SECRET
+        data['Dev_Com_New_Token']=SECRET
         self.assertEqual(records(agent_env.build_environment(json.dumps(data))), {**valid_env(),'NEW_TOKEN':SECRET})
         for suffix in ('','1KEY','KEY-NAME','KEY SPACE','서울','ß','KEY\nBAD'):
             with self.subTest(kind='invalid selected name'):
@@ -135,7 +149,7 @@ class BuildEnvironmentTest(unittest.TestCase):
 
     def test_exact_duplicate_json_names_are_rejected(self):
         data=secret_payload()
-        self.assert_rejected(data[:-1]+',"DEV_PORT":"8000"}', 'duplicate_secret_name')
+        self.assert_rejected(data[:-1]+',"DEV_COM_PORT":"8000"}', 'duplicate_secret_name')
 
     def test_controller_and_process_bootstrap_keys_cannot_override_runtime(self):
         for key in agent_env.RESERVED_KEYS+('IEUM_DEPLOYMENT_FUTURE_CONTROL',):
@@ -162,7 +176,7 @@ class BuildEnvironmentTest(unittest.TestCase):
 
     def test_malformed_nonobject_nonstring_and_deep_json_are_sanitized(self):
         for payload in (None,'',{},b'{}','[','{'+SECRET,'[]','null','true','123',json.dumps(SECRET),
-                        '{"DEV_NESTED":'+'['*1500+'0'+']'*1500+'}'):
+                        '{"DEV_COM_NESTED":'+'['*1500+'0'+']'*1500+'}'):
             self.assert_rejected(payload)
         for value in (None,0,True,[],{}, {'nested':SECRET}):
             values=valid_env();values['MONGODB_URL']=value
@@ -537,9 +551,9 @@ class AgentWorkflowTest(unittest.TestCase):
 
 
     def test_ci_uses_prefixed_test_database_secrets_without_deploying_them(self):
-        self.assertIn('APP_MONGODB_URL: ${{ secrets.DEV_AGENT_MONGODB_URL || secrets.DEV_MONGODB_URL }}',self.source)
-        self.assertIn('TEST_MONGODB_URL: ${{ secrets.DEV_AGENT_TEST_MONGODB_URL || secrets.DEV_TEST_MONGODB_URL }}',self.source)
-        self.assertIn('TEST_MONGODB_DB_NAME: ${{ secrets.DEV_AGENT_TEST_MONGODB_DB_NAME || secrets.DEV_TEST_MONGODB_DB_NAME }}',self.source)
+        self.assertIn('APP_MONGODB_URL: ${{ secrets.DEV_COM_AGENT_MONGODB_URL || secrets.DEV_COM_MONGODB_URL }}',self.source)
+        self.assertIn('TEST_MONGODB_URL: ${{ secrets.DEV_COM_AGENT_TEST_MONGODB_URL || secrets.DEV_COM_TEST_MONGODB_URL }}',self.source)
+        self.assertIn('TEST_MONGODB_DB_NAME: ${{ secrets.DEV_COM_AGENT_TEST_MONGODB_DB_NAME || secrets.DEV_COM_TEST_MONGODB_DB_NAME }}',self.source)
         self.assertIn('export MONGODB_URL="${TEST_MONGODB_URL:-$APP_MONGODB_URL}"',self.source)
         self.assertIn('export MONGODB_DB_NAME="${TEST_MONGODB_DB_NAME:-ieum_test}"',self.source)
         self.assertIn('pytest tests/',self.source)

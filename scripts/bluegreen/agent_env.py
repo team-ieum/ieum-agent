@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a private deployment candidate from DEV_ Actions secrets.
+"""Build a private deployment candidate from DEV_COM_ Actions secrets.
 
 This module never reads a server .env file, expands shell expressions, or prints
 configuration values. The controller owns the final per-color runtime snapshots.
@@ -16,7 +16,7 @@ import sys
 
 MAX_ENV_BYTES = 48 * 1024
 MAX_JSON_BYTES = 96 * 1024
-SECRET_PREFIX = 'DEV_'
+SECRET_PREFIX = 'DEV_COM_'
 SECRETS_VARIABLE = 'IEUM_AGENT_SECRETS_JSON'
 FORBIDDEN_CHARACTERS = '\x00\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029'
 

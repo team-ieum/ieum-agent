@@ -86,9 +86,9 @@ jobs:
 
       - name: Test
         env:
-          APP_MONGODB_URL: ${{ secrets.DEV_AGENT_MONGODB_URL || secrets.DEV_MONGODB_URL }}
-          TEST_MONGODB_URL: ${{ secrets.DEV_AGENT_TEST_MONGODB_URL || secrets.DEV_TEST_MONGODB_URL }}
-          TEST_MONGODB_DB_NAME: ${{ secrets.DEV_AGENT_TEST_MONGODB_DB_NAME || secrets.DEV_TEST_MONGODB_DB_NAME }}
+          APP_MONGODB_URL: ${{ secrets.DEV_COM_AGENT_MONGODB_URL || secrets.DEV_COM_MONGODB_URL }}
+          TEST_MONGODB_URL: ${{ secrets.DEV_COM_AGENT_TEST_MONGODB_URL || secrets.DEV_COM_TEST_MONGODB_URL }}
+          TEST_MONGODB_DB_NAME: ${{ secrets.DEV_COM_AGENT_TEST_MONGODB_DB_NAME || secrets.DEV_COM_TEST_MONGODB_DB_NAME }}
         run: |
           set +x
           set -euo pipefail
