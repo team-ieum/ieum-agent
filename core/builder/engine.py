@@ -22,7 +22,8 @@ from common.error_code import ErrorCode
 from core.builder.backend import Backend
 from core.builder.fields import clean
 from core.builder.hitl import FINISH, classify_reply
-from core.builder.state import baseline_of, node_status, prune, remember_user_input, workflow_hash
+from core.builder.model_pick import PROVIDER_TITLE, apply_choice, match_choice
+from core.builder.state import baseline_of, node_hash, node_status, prune, remember_user_input, workflow_hash
 from core.builder.tools import TURN_SECONDS, Turn, make_tools
 from core.config import get_current_time_info
 from core.model_factory import build_model_param, cost_model_name
@@ -100,6 +101,7 @@ def _instruction(provider: str, nodes: list, edges: list, state) -> str:
 
 def judge_turn_start(state, prompt: str, nodes: list, edges: list) -> dict:
     """턴 시작 판정(코드, LLM 전). 대기는 바로 다음 턴에만 판정하고 언제나 지운다(spec §5.2).
+    카드 대기(kind=model_pick)는 노드 사본에 세 칸을 직접 쓴다(LLM 전).
     결과: delta(run_async state_delta) · confirmed · done(finish 확인 통과) · hint(사용자 메시지 뒤에 붙일 시스템 안내)."""
     ids = [n["id"] for n in nodes]
     tests = prune(state.get("tests"), ids)
@@ -108,7 +110,19 @@ def judge_turn_start(state, prompt: str, nodes: list, edges: list) -> dict:
         baseline = baseline_of(nodes)
     pending = state.get("pending")
     confirmed, done, hint = None, False, None
-    if pending:
+    if pending and pending.get("kind") == "model_pick":
+        choice = match_choice(prompt, pending.get("choices") or [])
+        target = next((n for n in nodes if n["id"] == pending.get("node_id")), None)
+        if choice is None:
+            hint = "[시스템] 모델 선택은 취소됐어요. 사용자 메시지에 답하세요."
+        elif target is None or node_hash(target) != pending.get("hash"):
+            hint = "[시스템] 모델을 고르는 사이 AI 노드가 바뀌거나 지워져 넣지 않았어요. 필요하면 pick_model을 다시 부르세요."
+        else:
+            apply_choice(target, choice)
+            hint = (f"[시스템] AI 노드 {target['id']}('{clean(target.get('label') or target['id'])}')에 {choice['label']}"
+                    f"(내 {PROVIDER_TITLE[choice['provider']]} 키 \"{choice['key']}\")을 넣었어요. "
+                    f"필요하면 test_node('{target['id']}')로 테스트하세요.")
+    elif pending:
         reply = classify_reply(prompt)
         target = next((n for n in nodes if n["id"] == pending.get("node_id")), None)
         label = clean((target or {}).get("label") or pending.get("node_id"))

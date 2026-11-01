@@ -86,3 +86,9 @@ def match_choice(text: str, choices: list) -> dict | None:
         return next((c for c in choices if c["n"] == n), None)
     same = [c for c in choices if c["label"] == t]
     return same[0] if len(same) == 1 else None
+
+
+def apply_choice(node: dict, choice: dict) -> None:
+    if not isinstance(node.get("config"), dict):
+        node["config"] = {}
+    node["config"].update(credentialId=choice["credentialId"], llmProvider=choice["provider"], model=choice["model"])

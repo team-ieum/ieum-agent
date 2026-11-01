@@ -127,3 +127,72 @@ def test_같은_label이_둘이면_이름으로_못_고른다():
                                {"CLAUDE": [{"id": CLAUDE, "name": "같음"}, {"id": "h", "name": "같음"}]})
     assert mp.match_choice("같음", choices) is None
     assert mp.match_choice("2", choices)["n"] == 2
+
+
+from core.builder import engine  # noqa: E402
+from core.builder.state import node_hash  # noqa: E402
+
+AI = {"id": "a", "event": "ai.reasoning", "type": "AI", "label": "요약",
+      "config": {"agentType": "simple", "credentialId": "", "tools": [], "llmProvider": "GEMINI",
+                 "model": GEMINI, "prompt": "요약"}}
+
+
+def _pick_state(node=AI):
+    choices = mp.build_choices("GEMINI", {"GEMINI": {"id": "cred-g1", "name": "개인"},
+                                          "CLAUDE": {"id": "cred-c1", "name": "업무용"}},
+                               {"CLAUDE": [{"id": "claude-haiku-x", "name": "Claude Haiku"}]})
+    return {"pending": {"kind": "model_pick", "node_id": "a", "hash": node_hash(node), "choices": choices}}
+
+
+def _ai_nodes():
+    return [dict(AI, config=dict(AI["config"]))]
+
+
+def _three(node):
+    c = node["config"]
+    return c["credentialId"], c["llmProvider"], c["model"]
+
+
+@pytest.mark.parametrize("prompt", ["3", "③", "3번", "Claude Haiku"])
+def test_번호로_고르면_세_칸을_한_번에_쓴다(prompt):
+    nodes = _ai_nodes()
+    out = engine.judge_turn_start(_pick_state(), prompt, nodes, [])
+    assert _three(nodes[0]) == ("cred-c1", "CLAUDE", "claude-haiku-x")
+    assert {k: v for k, v in nodes[0]["config"].items() if k not in ("credentialId", "llmProvider", "model")} == \
+        {k: v for k, v in AI["config"].items() if k not in ("credentialId", "llmProvider", "model")}
+    assert out["delta"]["pending"] is None
+    assert "Claude Haiku" in out["hint"] and "업무용" in out["hint"] and "cred-c1" not in out["hint"]
+    assert "test_node('a')" in out["hint"]
+    assert out["confirmed"] is None and out["done"] is False
+
+
+def test_label로도_고른다():
+    nodes = _ai_nodes()
+    out = engine.judge_turn_start(_pick_state(), "Claude Haiku", nodes, [])
+    assert _three(nodes[0]) == ("cred-c1", "CLAUDE", "claude-haiku-x")
+    assert out["delta"]["pending"] is None
+
+
+@pytest.mark.parametrize("prompt", ["음 글쎄", "네"])
+def test_엉뚱한_답은_대기_폐기_노드_그대로(prompt):
+    nodes = _ai_nodes()
+    out = engine.judge_turn_start(_pick_state(), prompt, nodes, [])
+    assert nodes[0]["config"] == AI["config"]
+    assert "취소" in out["hint"] and out["delta"]["pending"] is None
+    assert out["confirmed"] is None and out["done"] is False
+
+
+def test_노드가_바뀌었거나_지워졌으면_넣지_않는다():
+    nodes = _ai_nodes()
+    nodes[0]["config"]["prompt"] = "바뀐 요약"
+    out = engine.judge_turn_start(_pick_state(), "3", nodes, [])
+    assert nodes[0]["config"]["credentialId"] == "" and "pick_model" in out["hint"]
+    assert out["delta"]["pending"] is None
+    out = engine.judge_turn_start(_pick_state(), "3", [], [])
+    assert "pick_model" in out["hint"] and out["delta"]["pending"] is None
+
+
+def test_apply_choice는_config가_없으면_새로_만든다():
+    node = {"id": "a", "event": "ai.reasoning", "config": None}
+    mp.apply_choice(node, {"credentialId": "c", "provider": "OPENAI", "model": "m", "label": "x"})
+    assert node["config"] == {"credentialId": "c", "llmProvider": "OPENAI", "model": "m"}
