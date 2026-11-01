@@ -308,3 +308,20 @@ async def test_finish는_옛_ai_agent는_건드리지_않는다():
     out = await tools.finish(turn, {"baseline": baseline_of([T, old])})
     assert out.get("status") != "needs_model"
     turn.backend.options.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_키_조회_오류는_캐시하지_않는다():
+    bad, good = _opts(fail="ieum.credentials").side_effect, _opts().side_effect
+    n = {"calls": 0}
+
+    async def options(source, params):
+        n["calls"] += 1
+        return await (bad if n["calls"] == 1 else good)(source, params)
+    turn = _turn([T, AI])
+    turn.backend.options = AsyncMock(side_effect=options)
+    turn.backend.test_node = AsyncMock()
+    r = await tools.add_node(turn, "ai.reasoning", "요약", after="t")
+    assert "error" in r and len(turn.nodes) == 2
+    assert (await tools.test_node(turn, {}, "a"))["status"] == "needs_model"
+    turn.backend.test_node.assert_not_awaited()
