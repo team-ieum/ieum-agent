@@ -1,0 +1,17 @@
+# Runtime settings are injected by the controller, never baked into the image.
+.env
+.env.*
+**/.env
+**/.env.*
+.git
+**/.git
+**/__pycache__
+.pytest_cache
+.venv
+venv
+scratch/
+.ai
+.claude
+.mcp.json
+.envrc
+**/.envrc

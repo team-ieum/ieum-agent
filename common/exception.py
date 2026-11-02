@@ -91,4 +91,3 @@ def is_rate_limit_error(e: Exception) -> bool:
         if _from_provider_module(exc) and _BARE_429.search(str(exc)):
             return True
     return False
-

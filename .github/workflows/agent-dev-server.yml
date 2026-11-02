@@ -7,79 +7,72 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: agent_dev_server
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   PYTHON_VERSION: '3.11'
   IMAGE_NAME: ieum-agent-dev
-  CONTAINER_NAME: ieum-agent
-  DOCKER_NETWORK: ieum_net_green
-  AGENT_IP: 10.10.10.14
-  ENV_FILE: /home/kwung/deploy/ieum-agent/.env
 
 jobs:
   deploy:
+    # Covers bounded cross-repository lock waiting plus this job's build and deployment.
+    timeout-minutes: 360
     name: Deploy Agent to Self Hosted Server
     runs-on:
       group: ieum_dev_server
       labels: [self-hosted, linux, x64, ieum-agent]
 
     steps:
+      - name: Establish deployment job budget
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBUDGET'
+          from datetime import datetime, timezone
+          import json
+          import os
+          import time
+          import urllib.request
+
+          try:
+              # A workflow attempt starts before this job, so queue/setup time reduces the budget too.
+              run_id, attempt = os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT']
+              endpoint = (os.environ['GITHUB_API_URL'].rstrip('/') + '/repos/' + os.environ['GITHUB_REPOSITORY']
+                  + '/actions/runs/' + run_id + '/attempts/' + attempt)
+              request = urllib.request.Request(endpoint, headers={
+                  'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
+                  'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  raw = response.read(1024 * 1024 + 1)
+              if len(raw) > 1024 * 1024:
+                  raise ValueError()
+              data = json.loads(raw)
+              if str(data['id']) != run_id or str(data['run_attempt']) != attempt:
+                  raise ValueError()
+              started = datetime.fromisoformat(data['run_started_at'].replace('Z', '+00:00'))
+              now = time.time()
+              if started.tzinfo is None or started.timestamp() > now:
+                  raise ValueError()
+              # Leave two minutes before the runner's 360-minute job timeout.
+              deadline = int(started.timestamp()) + 360 * 60 - 120
+              if deadline - now < 9000:
+                  raise ValueError()
+              with open(os.environ['GITHUB_ENV'], 'a') as output:
+                  output.write('IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH=' + str(deadline) + '\n')
+          except Exception:
+              # Never echo the request, token, response or environment.
+              raise SystemExit('Unable to establish sufficient deployment job time; retry in a fresh job') from None
+          PYBUDGET
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Render server env file from GitHub Secrets
-        env:
-          MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
-          MONGODB_DB_NAME: ${{ secrets.AGENT_MONGODB_DB_NAME }}
-          PORT: ${{ secrets.AGENT_PORT }}
-          CLAUDE_DEFAULT_MODEL: ${{ secrets.AGENT_CLAUDE_DEFAULT_MODEL }}
-          OPENAI_DEFAULT_MODEL: ${{ secrets.AGENT_OPENAI_DEFAULT_MODEL }}
-          GEMINI_DEFAULT_MODEL: ${{ secrets.AGENT_GEMINI_DEFAULT_MODEL }}
-          NOTION_MCP_URL: ${{ secrets.AGENT_NOTION_MCP_URL }}
-          NOTION_MCP_AUTH_TOKEN: ${{ secrets.AGENT_NOTION_MCP_AUTH_TOKEN }}
-          AGENT_INTERNAL_TOKEN: ${{ secrets.AGENT_INTERNAL_TOKEN }}
-          # 대화형 생성이 위임 토큰으로 부르는 BE(같은 도커 네트워크의 dev BE 컨테이너, spec 2026-10-28 §7.3)
-          BACKEND_BASE_URL: http://10.10.10.11:8080
-        run: |
-          missing_vars=()
-          [ -n "$MONGODB_URL" ] || missing_vars+=("AGENT_MONGODB_URL")
-          [ -n "$MONGODB_DB_NAME" ] || missing_vars+=("AGENT_MONGODB_DB_NAME")
-          [ -n "$PORT" ] || missing_vars+=("AGENT_PORT")
-          [ -n "$CLAUDE_DEFAULT_MODEL" ] || missing_vars+=("AGENT_CLAUDE_DEFAULT_MODEL")
-          [ -n "$OPENAI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_OPENAI_DEFAULT_MODEL")
-          [ -n "$GEMINI_DEFAULT_MODEL" ] || missing_vars+=("AGENT_GEMINI_DEFAULT_MODEL")
-
-          if [ ${#missing_vars[@]} -gt 0 ]; then
-            echo "::error::Missing GitHub Secrets for: ${missing_vars[*]}"
-            exit 1
-          fi
-
-          mkdir -p "$(dirname "$ENV_FILE")"
-          umask 077
-          tmp_env="$(mktemp)"
-
-          {
-            printf 'MONGODB_URL=%s\n' "$MONGODB_URL"
-            printf 'MONGODB_DB_NAME=%s\n' "$MONGODB_DB_NAME"
-            printf 'PORT=%s\n' "$PORT"
-            printf 'CLAUDE_DEFAULT_MODEL=%s\n' "$CLAUDE_DEFAULT_MODEL"
-            printf 'OPENAI_DEFAULT_MODEL=%s\n' "$OPENAI_DEFAULT_MODEL"
-            printf 'GEMINI_DEFAULT_MODEL=%s\n' "$GEMINI_DEFAULT_MODEL"
-            # NOTION_MCP_URL / NOTION_MCP_AUTH_TOKEN은 선택값. 미설정 시 config.py 기본값을 사용한다.
-            if [ -n "$NOTION_MCP_URL" ]; then printf 'NOTION_MCP_URL=%s\n' "$NOTION_MCP_URL"; fi
-            if [ -n "$NOTION_MCP_AUTH_TOKEN" ]; then printf 'NOTION_MCP_AUTH_TOKEN=%s\n' "$NOTION_MCP_AUTH_TOKEN"; fi
-            # 비어 있으면 agent가 검사를 끈 채 기동한다(BE보다 먼저 값이 생기면 BE→agent가 전부 401이 되므로 선택값)
-            if [ -n "$AGENT_INTERNAL_TOKEN" ]; then printf 'AGENT_INTERNAL_TOKEN=%s\n' "$AGENT_INTERNAL_TOKEN"; fi
-            printf 'BACKEND_BASE_URL=%s\n' "$BACKEND_BASE_URL"
-          } > "$tmp_env"
-
-          mv "$tmp_env" "$ENV_FILE"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -93,10 +86,13 @@ jobs:
 
       - name: Test
         env:
-          APP_MONGODB_URL: ${{ secrets.AGENT_MONGODB_URL }}
-          TEST_MONGODB_URL: ${{ secrets.AGENT_TEST_MONGODB_URL }}
-          TEST_MONGODB_DB_NAME: ${{ secrets.AGENT_TEST_MONGODB_DB_NAME }}
+          APP_MONGODB_URL: ${{ secrets.DEV_COM_AGENT_MONGODB_URL || secrets.DEV_COM_MONGODB_URL }}
+          TEST_MONGODB_URL: ${{ secrets.DEV_COM_AGENT_TEST_MONGODB_URL || secrets.DEV_COM_TEST_MONGODB_URL }}
+          TEST_MONGODB_DB_NAME: ${{ secrets.DEV_COM_AGENT_TEST_MONGODB_DB_NAME || secrets.DEV_COM_TEST_MONGODB_DB_NAME }}
         run: |
+          set +x
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/bluegreen -p 'test_*.py'
           export MONGODB_URL="${TEST_MONGODB_URL:-$APP_MONGODB_URL}"
           export MONGODB_DB_NAME="${TEST_MONGODB_DB_NAME:-ieum_test}"
 
@@ -108,31 +104,40 @@ jobs:
             -t $IMAGE_NAME:${{ github.sha }} \
             -t $IMAGE_NAME:latest .
 
-      - name: Restart agent container
-        run: |
-          docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1 \
-            || docker network create --subnet 10.10.10.0/24 "$DOCKER_NETWORK"
-
-          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-
-          docker run -d \
-            --name "$CONTAINER_NAME" \
-            --restart unless-stopped \
-            --network "$DOCKER_NETWORK" \
-            --ip "$AGENT_IP" \
-            --env-file "$ENV_FILE" \
-            "$IMAGE_NAME:latest"
-
-      - name: Health check
+      - name: Verify installed blue-green release
         env:
-          PORT: ${{ secrets.AGENT_PORT }}
+          CONTROLLER_SHA: ${{ vars.BLUEGREEN_CONTROLLER_SHA256 }}
+          HELPER_SHA: ${{ vars.BLUEGREEN_HELPER_SHA256 }}
         run: |
-          for i in $(seq 1 30); do
-            if curl -fsS "http://$AGENT_IP:$PORT/health" >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
+          set -euo pipefail
+          if [[ ! "$CONTROLLER_SHA" =~ ^[a-f0-9]{64}$ || ! "$HELPER_SHA" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::Configure the approved BLUEGREEN_CONTROLLER_SHA256 and BLUEGREEN_HELPER_SHA256 variables first"
+            exit 1
+          fi
+          if ! printf '%s  %s\n' \
+            "$CONTROLLER_SHA" /home/kwung/deploy/bluegreen/bluegreen.py \
+            "$HELPER_SHA" /usr/local/sbin/ieum-bluegreen-nginx | sha256sum -c - >/dev/null 2>&1; then
+            echo "::error::Installed blue-green controller/helper does not match the approved release"
+            exit 1
+          fi
 
-          docker logs --tail 100 "$CONTAINER_NAME"
-          exit 1
+      - name: Deploy with prefixed GitHub Secrets
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          IEUM_AGENT_SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          candidate_env="$(mktemp "$RUNNER_TEMP/ieum-agent-env.XXXXXX")"
+          trap 'rm -f -- "$candidate_env"' EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          python3 scripts/bluegreen/agent_env.py "$candidate_env"
+          unset IEUM_AGENT_SECRETS_JSON
+          python3 /home/kwung/deploy/bluegreen/bluegreen.py --lock-timeout 14400 deploy \
+            --job-deadline-epoch "$IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH" \
+            --service agent \
+            --image "$IMAGE_NAME:$IMAGE_TAG" \
+            --env-file "$candidate_env" \
+            --replace-env

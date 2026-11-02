@@ -44,4 +44,3 @@ class ExecutionLog(BaseModel):
     usage: Optional[TokenUsage] = None           # UsageRecord 구조와 동일
     durationMs: int
     createdAt: datetime
-
