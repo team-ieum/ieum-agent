@@ -283,30 +283,42 @@ async def test_기존_워크플로우_첫_변경_턴에만_자동_실행_멈춤_
     assert engine.PAUSED_NOTICE not in resp.message
 
 
+async def _done(llm):
+    await _turn("시작", [TRIGGER, SLACK], [EDGE], llm=llm, script=["안내"])
+    await _turn("끝내자", [TRIGGER, SLACK], [EDGE], llm=llm, script=[("finish", {}), "확인"])
+    assert (await _turn("네", [TRIGGER, SLACK], [EDGE], llm=None)).buildState == "DONE"
+
+
 @pytest.mark.asyncio
-async def test_켜진_워크플로우의_이름만_바꾼_턴은_DONE_유지(env):
+async def test_완료_확인_뒤_이름만_바꾼_턴은_DONE_유지(env):
     svc, be, llm = env
+    await _done(llm)
     rename = [("rename_node", {"node_id": "s", "label": "알림 보내기"}), "바꿨어요"]
     resp = await _turn("이름 바꿔", [TRIGGER, SLACK], [EDGE], llm=llm, script=rename)
     assert resp.type.value == "WORKFLOW_MODIFIED" and resp.buildState == "DONE"
     assert resp.nodes[1]["label"] == "알림 보내기" and engine.PAUSED_NOTICE not in resp.message
-    resp = await _turn("변환 추가", [TRIGGER, SLACK], [EDGE], llm=llm,
+    resp = await _turn("변환 추가", resp.nodes, [EDGE], llm=llm,
                        script=[("add_node", {"event": "transform.map", "label": "변환", "after": "s"}), "붙였어요"])
+    assert resp.buildState == "BUILDING" and engine.PAUSED_NOTICE in resp.message
+    rename = [("rename_node", {"node_id": "t", "label": "시작"}), "바꿨어요"]
+    assert (await _turn("이름 바꿔", resp.nodes, resp.edges, llm=llm, script=rename)).buildState == "BUILDING"
+
+
+@pytest.mark.asyncio
+async def test_완료_확인_없는_세션의_이름_변경은_BUILDING(env):
+    svc, be, llm = env  # 빈 세션 = 처음 열었거나 7일 만료 — BUILDING으로 저장된 워크플로우일 수 있다
+    rename = [("rename_node", {"node_id": "s", "label": "알림 보내기"}), "바꿨어요"]
+    resp = await _turn("이름 바꿔", [TRIGGER, SLACK], [EDGE], llm=llm, script=rename)
     assert resp.buildState == "BUILDING" and engine.PAUSED_NOTICE in resp.message
 
 
 @pytest.mark.asyncio
-async def test_멈춘_뒤나_새로_만드는_중의_이름_변경은_BUILDING(env):
+async def test_이름_변경과_완료_확인이_같은_턴이면_BUILDING(env):
     svc, be, llm = env
-    rename = [("rename_node", {"node_id": "t", "label": "시작"}), "바꿨어요"]
-    await _turn("변환 추가", [TRIGGER, SLACK], [EDGE], llm=llm,
-                script=[("add_node", {"event": "transform.map", "label": "변환", "after": "s"}), "붙였어요"])
-    assert (await _turn("이름 바꿔", [TRIGGER, SLACK], [EDGE], llm=llm, script=rename)).buildState == "BUILDING"
-    await svc.delete_session(app_name="ieum-agent", user_id="u", session_id="build-u-wf")
-    resp = await _turn("만들어", [], [], llm=llm, script=[("add_node", {"event": "manual.run", "label": "시작"}), "됐어요"])
-    t = resp.nodes[0]["id"]
-    rename = [("rename_node", {"node_id": t, "label": "수동"}), "바꿨어요"]
-    assert (await _turn("이름 바꿔", resp.nodes, [], llm=llm, script=rename)).buildState == "BUILDING"
+    await _done(llm)
+    resp = await _turn("이름 바꾸고 끝내", [TRIGGER, SLACK], [EDGE], llm=llm, script=[
+        ("rename_node", {"node_id": "s", "label": "알림 보내기"}), ("finish", {}), "확인"])
+    assert resp.buildState == "BUILDING" and resp.message.endswith("완료할까요? (네 / 아니요)")
 
 
 @pytest.mark.asyncio
