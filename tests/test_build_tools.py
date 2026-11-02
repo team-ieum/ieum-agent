@@ -166,3 +166,9 @@ async def test_add_node는_카탈로그_fixed_config를_오염시키지_않는�
     second = turn.node((await tools.add_node(turn, "ai.reasoning", "b", after="t"))["node_id"])
     assert second["config"]["tools"] == []
     assert load_templates()["ai.reasoning"]["fixed"]["config"] == {"agentType": "simple", "credentialId": "", "tools": []}
+
+
+def test_메뉴는_옛_schedule_every와_ai_agent를_뺀다():
+    ids = {t["id"] for t in tools.menu()}
+    assert "schedule.every" not in ids and "ai.agent" not in ids
+    assert "schedule.daily" in ids

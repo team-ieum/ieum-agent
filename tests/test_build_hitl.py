@@ -1,7 +1,7 @@
 """테스트 판정·확인 응답·코드 요약 (spec 2026-10-28 §5.1·§5.2, IEUM-AI-84)."""
 import pytest
 
-from core.builder.hitl import classify_reply, finish_summary, sample_summary, target_summary, how_to_test
+from core.builder.hitl import classify_reply, finish_summary, sample_summary, schedule_text, target_summary, how_to_test
 
 
 @pytest.mark.parametrize("text", ["네", "네!", " 예 ", "응.", "ㅇㅇ", "ㄱ", "좋아~", "진행", "테스트해", "YES", "ok"])
@@ -101,3 +101,23 @@ def test_label은_코드가_만든_대상_뒤에_따옴표로():
     node = {"id": "s", "event": "slack_bot.send_channel_message", "label": "채널: #팀공지", "config": {"channel": "C1"}}
     summary = target_summary(node, {"s|config.channel": {"C1": "#general"}})
     assert summary == 'Slack 채널에 메시지 보내기 · 채널: #general · 이름 "채널: #팀공지"'
+
+
+@pytest.mark.parametrize("event,config,expected", [
+    ("schedule.hourly", {}, "매시간"),
+    ("schedule.hourly", {"weekends": False}, "매시간(주말 제외)"),
+    ("schedule.daily", {"hour": "9"}, "매일 오전 9시"),
+    ("schedule.daily", {"hour": "0", "weekends": False}, "매일 자정(주말 제외)"),
+    ("schedule.weekly", {"weekday": "FRI", "hour": "17"}, "매주 금요일 오후 5시"),
+    ("schedule.monthly", {"day": "L", "hour": "12"}, "매월 마지막 날 정오"),
+    ("schedule.monthly", {"day": "15", "hour": "9"}, "매월 15일 오전 9시"),
+    ("schedule.every", {"cron": "0 9 * * *"}, None),
+])
+def test_스케줄_문장(event, config, expected):
+    assert schedule_text({"id": "t", "event": event, "config": config}) == expected
+
+
+def test_완료_요약은_새_스케줄을_문장으로_cron_없이():
+    node = {"id": "t", "event": "schedule.weekly", "config": {"weekday": "FRI", "hour": "17"}}
+    text = finish_summary([node], {})
+    assert text.startswith("켜지는 트리거: 매주 금요일 오후 5시") and "cron" not in text
