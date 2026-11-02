@@ -260,6 +260,18 @@ def remove_node(turn: Turn, node_id: str) -> dict:
     return {"ok": True}
 
 
+def rename_node(turn: Turn, node_id: str, label: str) -> dict:
+    """label만 바꾼다 — id를 지키므로 참조식·테스트 기록이 그대로다(label은 node_hash 밖)."""
+    node = turn.node(node_id)
+    if node is None:
+        return _err("없는 노드예요.")
+    label = clean(label)
+    if not label:
+        return _err("새 이름이 비었어요.")
+    node["label"] = label
+    return {"ok": True, "label": label}  # 60자에서 잘린 실제 이름
+
+
 # ── 칸 ────────────────────────────────────────────────────────────────────
 
 # GOOGLE_SCOPE_REQUIRED(403)의 공급원 → 추가할 권한(BE IntegrationOptionControllerDocs의 scope_groups 표)
@@ -532,7 +544,7 @@ async def finish(turn: Turn, state) -> dict:
 # ── LLM에 주는 래퍼 ────────────────────────────────────────────────────────
 
 def make_tools(turn: Turn) -> list:
-    """turn을 잡은 도구 13개. 독스트링이 LLM이 보는 설명이다. tool_context는 ADK가 넣는다(LLM 인자 아님)."""
+    """turn을 잡은 도구 14개. 독스트링이 LLM이 보는 설명이다. tool_context는 ADK가 넣는다(LLM 인자 아님)."""
 
     def find_events_(query: str = "") -> dict:
         """만들 수 있는 노드(이벤트) 메뉴를 찾는다. query는 앱·동작 단어(예: 'slack 보내기', 'calendar').
@@ -578,6 +590,10 @@ def make_tools(turn: Turn) -> list:
         """노드와 그 연결을 지운다. 마지막 남은 노드는 지울 수 없다."""
         return remove_node(turn, node_id)
 
+    def rename_node_(node_id: str, label: str) -> dict:
+        """노드 이름만 바꾼다. 이름을 바꿀 때 노드를 지우고 다시 만들지 않는다(id가 바뀌면 참조·테스트 기록이 깨진다)."""
+        return rename_node(turn, node_id, label)
+
     async def test_node_(tool_context: ToolContext, node_id: str) -> dict:
         """노드를 테스트한다. 쓰기 노드는 사용자 확인을 먼저 받는다(awaiting_confirmation이면 그 턴은 짧게 마친다).
         결과는 status와 출력 이름·타입뿐이다 — 샘플 내용은 시스템이 사용자에게 직접 보여 준다."""
@@ -592,7 +608,7 @@ def make_tools(turn: Turn) -> list:
         return await pick_model(turn, node_id)
 
     fns = [find_events_, set_outline_, check_connection_, add_node_, get_fields_, list_options_,
-           load_dynamic_fields_, set_fields_, connect_, remove_node_, test_node_, finish_, pick_model_]
+           load_dynamic_fields_, set_fields_, connect_, remove_node_, rename_node_, test_node_, finish_, pick_model_]
     for fn in fns:
         fn.__name__ = fn.__name__.rstrip("_")
     return fns
