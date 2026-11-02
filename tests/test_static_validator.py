@@ -461,6 +461,10 @@ FIXED_NODE_REQUIRED = {
     "github.new_issue": ["config.repoId"],
     "gmail.new_email": [],
     "schedule.every": ["config.cron"],
+    "schedule.hourly": [],
+    "schedule.daily": ["config.hour"],
+    "schedule.weekly": ["config.hour", "config.weekday"],
+    "schedule.monthly": ["config.day", "config.hour"],
     "webhook.catch": [],
     # ai.agent fixed(tools [], agentType react)는 AI라 프리셋 match를 보고 ai.github_query가 된다 — 도구를 고르기 전 모양
     "ai.agent": ["config.llmProvider", "config.prompt"],

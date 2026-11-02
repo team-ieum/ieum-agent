@@ -102,6 +102,27 @@ def target_summary(node: dict, options_seen: dict) -> str:
     return _named(" · ".join(parts), node)
 
 
+SCHEDULE_EVENTS = {"schedule.hourly", "schedule.daily", "schedule.weekly", "schedule.monthly"}
+
+
+def schedule_text(node: dict) -> str | None:
+    """새 스케줄 노드 → "매주 금요일 오후 5시(주말 제외)" 같은 문장. 그 밖이거나 choices에 없는 값이면 None."""
+    entry = event_entry(node)
+    if entry is None or entry["event"] not in SCHEDULE_EVENTS:
+        return None
+    config = node.get("config") if isinstance(node.get("config"), dict) else {}
+    parts = [entry["title"]]
+    for f in entry["inputFields"]:
+        if not f.get("choices"):
+            continue
+        name = next((c["name"] for c in f["choices"] if c["id"] == config.get(f["key"])), None)
+        if name is None:
+            return None
+        parts.append(name)
+    has_weekends = any(f["key"] == "weekends" for f in entry["inputFields"])
+    return " ".join(parts) + ("(주말 제외)" if has_weekends and config.get("weekends") is False else "")
+
+
 def finish_summary(nodes: list, options_seen: dict) -> str:
     """완료 확인 요약 — 켜질 트리거와 쓰기 노드별 대상."""
     triggers = []
@@ -109,8 +130,11 @@ def finish_summary(nodes: list, options_seen: dict) -> str:
         entry = event_entry(n)
         if entry is None or entry["node_type"] != "TRIGGER":
             continue
-        cron = ((n.get("config") or {}).get("cron") if isinstance(n.get("config"), dict) else None)
-        triggers.append(_named(_title(n) + (f" cron {clean(cron, 40)}" if cron else ""), n))
+        text = schedule_text(n)
+        if text is None:
+            cron = ((n.get("config") or {}).get("cron") if isinstance(n.get("config"), dict) else None)
+            text = _title(n) + (f" cron {clean(cron, 40)}" if cron else "")
+        triggers.append(_named(text, n))
     writes = [target_summary(n, options_seen) for n in nodes if how_to_test(n) == "write"]
     text = f"켜지는 트리거: {', '.join(triggers) or '없음'}"
     if writes:

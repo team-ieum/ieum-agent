@@ -69,8 +69,8 @@ def _apps() -> dict:
 
 
 def menu() -> list[dict]:
-    """생성 메뉴 = 빌더 메뉴에서 ai.agent를 뺀 것(spec §3.1). 앱 ai.* 프리셋은 builder가 아니라 이미 없다."""
-    return [t for t in builder_entries() if t["id"] != "ai.agent"]
+    """생성 메뉴 = 빌더 메뉴에서 ai.agent와 옛 schedule.every를 뺀 것(spec §3.1). 앱 ai.* 프리셋은 builder가 아니라 이미 없다."""
+    return [t for t in builder_entries() if t["id"] not in ("ai.agent", "schedule.every")]
 
 
 def _err(reason: str, **extra) -> dict:
@@ -329,7 +329,7 @@ def get_fields(turn: Turn, state, node_id: str) -> dict:
             item["description"] = clean(f["description"], 120)
         if f.get("choices"):
             item["choices"] = [{"id": c["id"], "name": clean(c.get("name") or c["id"])}
-                               for c in f["choices"][:MAX_CANDIDATES]]
+                               for c in f["choices"]]
         if f.get("optionsSource"):
             item["dropdown"] = True
         if f.get("fieldsSource"):

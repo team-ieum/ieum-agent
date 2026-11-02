@@ -149,3 +149,11 @@ async def test_남은_시간이_35초_미만이면_BE를_부르지_않는다():
     turn.backend.options.assert_not_awaited()
     turn.backend.connections.assert_not_awaited()
     assert turn.lookups == 0
+
+
+def test_칸_목록은_카탈로그_고정_choices를_자르지_않는다():
+    node = {"id": "m", "event": "schedule.monthly", "type": "TRIGGER", "label": "매월", "config": {}}
+    fields = {f["path"]: f for f in tools.get_fields(_turn([node]), {}, "m")["fields"]}
+    days = {c["id"] for c in fields["config.day"]["choices"]}
+    hours = {c["id"] for c in fields["config.hour"]["choices"]}
+    assert {"L", "28"} <= days and "23" in hours
