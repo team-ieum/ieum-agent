@@ -108,7 +108,7 @@ class BuildChatRequest(ChatRequest):
 
 
 class BuildChatResponse(ChatResponse):
-    """노드·엣지는 dict 그대로(요청에서 온 키 보존). buildState는 항상 싣는다 — DONE은 finish 확인 턴과 완료 뒤 이름만 바뀐 턴에만."""
+    """노드·엣지는 dict 그대로(요청에서 온 키 보존). buildState는 항상 싣는다 — DONE은 finish 확인 턴에만."""
     nodes: Optional[List[dict[str, Any]]] = None
     edges: Optional[List[dict[str, Any]]] = None
     buildState: Literal["BUILDING", "DONE"] = "BUILDING"

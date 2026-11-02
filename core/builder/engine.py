@@ -1,7 +1,6 @@
 """대화형 노드 단위 생성 엔진(spec 2026-10-28 §2·§3.5·§4) — /v1/chat/stream 한 턴.
 
 턴 = 세션 불러오기 → 턴 시작 판정(확인 응답·상태 정리, 코드) → Designer LLM 루프(도구) → 응답 조립(type·buildState는 코드).
-DONE은 완료 확인 턴과, 완료 확인 뒤 이름(label)만 바뀐 턴에만 나간다.
 세션 id는 build-{user}-{wf}(옛 Designer JSON 대화와 섞이지 않게). 노드는 dict 그대로 다룬다."""
 import asyncio
 import copy
@@ -186,7 +185,7 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
     if not workflow_id:
         raise ValueError(NO_WORKFLOW_MESSAGE)
     nodes, edges = copy.deepcopy(current_nodes or []), copy.deepcopy(current_edges or [])
-    before, before_hash, was_empty = _canon(nodes, edges), workflow_hash(nodes, edges), not nodes
+    before, was_empty = _canon(nodes, edges), not nodes
     svc = _session_service()
     session_id = f"build-{user_id}-{workflow_id}"
     session = await _load_session(svc, user_id, session_id)
@@ -196,7 +195,7 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
     if judged["done"]:  # 완료 확인 — LLM 없이 DONE. 노드가 안 바뀌어도 WORKFLOW_MODIFIED + 전체 nodes·edges(계약)
         # 완료 모양이 새 기준 — 새로 만든 워크플로우도 이후 수정 턴에 "자동 실행이 멈췄습니다"가 붙고, 완료 노드는 passed다
         await svc.append_event(session, Event(author="user", content=user_message, actions=EventActions(
-            state_delta={**judged["delta"], "baseline": baseline_of(nodes), "paused_notice": False, "live": True})))
+            state_delta={**judged["delta"], "baseline": baseline_of(nodes), "paused_notice": False})))
         return BuildChatResponse(message=DONE_MESSAGE, type=ChatResponseType.WORKFLOW_MODIFIED, nodes=nodes,
                                  edges=edges, rawPrompt=prompt, buildState="DONE")
 
@@ -244,15 +243,9 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
         else:
             turn.pending["hash"] = node_hash(target)
     end_delta = {"confirmed": None, "pending": turn.pending}  # 대기는 질문이 실린 응답을 만든 여기서만 저장한다
-    # 이 채팅에서 완료 확인한 뒤 아직 안 바뀐 워크플로우에서 이름(label)만 바뀌면 DONE으로 저장해 트리거를 끄지 않는다.
-    # live는 완료 확인 턴만 켠다 — 세션이 만료돼도 BUILDING 쪽으로만 틀린다(workflow_hash는 label을 안 본다)
-    label_only = (changed and state.get("live") and not turn.pending
-                  and workflow_hash(nodes, edges) == before_hash)
-    if changed and not label_only:
-        end_delta["live"] = False
-        if state.get("baseline") and not state.get("paused_notice"):
-            tail.append(PAUSED_NOTICE)
-            end_delta["paused_notice"] = True
+    if changed and (state.get("baseline") or {}) and not state.get("paused_notice"):
+        tail.append(PAUSED_NOTICE)
+        end_delta["paused_notice"] = True
     if turn.ask:
         tail.append(turn.ask)
     if session is not None:  # 확인은 그 턴에서만 — 턴이 끝나면 지운다
@@ -265,7 +258,7 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
         # 첫 노드가 생기는 턴에만(BE는 저장 전 버전 ≤1일 때만 이름을 반영한다)
         workflowName=(state.get("outline") or {}).get("workflowName") if changed and was_empty else None,
         options=options_of(turn.pending["choices"]) if (turn.pending or {}).get("kind") == "model_pick" else [],
-        usage=_usage(usage), buildState="DONE" if label_only else "BUILDING")
+        usage=_usage(usage))
     logger.info("[build] wf=%s type=%s nodes=%d calls_cut=%s", workflow_id, response.type.value, len(nodes), cut_short)
     return response
 
