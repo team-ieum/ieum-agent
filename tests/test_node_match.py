@@ -15,7 +15,7 @@ from core import template_registry as tr
     ({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "mcp", "config": {"catalogId": "c"}}]}},
      "ai.mcp"),
     ({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "builtin:web_search"}]}}, "ai.web_search"),
-    # 노드 type 표기는 보지 않는다 — 프리셋 match의 type은 event가 정한 AI(정적 검증 경로는 WorkflowNode를 거치지 않는다)
+    # 노드 type 표기는 보지 않는다 — 프리셋 match의 type은 event가 정한 AI(정적 검증 경로는 type을 정규화하지 않는다)
     ({"type": "ai", "event": "ai.agent", "config": {"tools": [{"name": "mcp", "config": {}}]}}, "ai.mcp"),
     ({"event": "ai.agent", "config": {"tools": [{"name": "builtin:web_search"}]}}, "ai.web_search"),
     # 도구 2개 이상이면 첫 도구 전용 폼이 아니라 AI 에이전트 폼으로 연다

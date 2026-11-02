@@ -1,7 +1,6 @@
 """앱 트리거(빌더 전용) 카탈로그 계약 — spec 2026-10-11-app-triggers-design §2."""
 import pytest
 
-from api.schemas.generate_workflow import WorkflowNode
 from core import template_registry as tr
 from core.node_catalog import node_catalog
 from core.template_registry import PASSTHROUGH_TEMPLATE_ID, SlotFillError
@@ -56,15 +55,6 @@ def test_github_entry_shape():
             {"key": "createdAt", "title": "만든 시각", "type": "datetime"},
         ],
     }
-
-
-def test_trigger_entries_accepted_by_workflow_node_schema():
-    """카탈로그 TRIGGER 항목은 전부 채팅 currentNodes 스키마가 받는다(어긋나면 수정이 422)."""
-    for t in tr.all_entries():
-        if t["node_type"] == "TRIGGER":
-            config = {**t["fixed"]["config"], "cron": "0 9 * * *"}
-            node = WorkflowNode(id="node-1", event=t["id"], label=t["id"], config=config)
-            assert node.type == "TRIGGER"
 
 
 def test_앱_트리거는_생성_경로에_없다():
