@@ -111,6 +111,7 @@ def test_label은_코드가_만든_대상_뒤에_따옴표로():
     ("schedule.weekly", {"weekday": "FRI", "hour": "17"}, "매주 금요일 오후 5시"),
     ("schedule.monthly", {"day": "L", "hour": "12"}, "매월 마지막 날 정오"),
     ("schedule.monthly", {"day": "15", "hour": "9"}, "매월 15일 오전 9시"),
+    ("schedule.weekly", {"weekday": "SAT", "hour": "9", "weekends": False}, "매주 토요일 오전 9시"),
     ("schedule.every", {"cron": "0 9 * * *"}, None),
 ])
 def test_스케줄_문장(event, config, expected):

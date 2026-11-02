@@ -119,7 +119,8 @@ def schedule_text(node: dict) -> str | None:
         if name is None:
             return None
         parts.append(name)
-    return " ".join(parts) + ("(주말 제외)" if config.get("weekends") is False else "")
+    has_weekends = any(f["key"] == "weekends" for f in entry["inputFields"])
+    return " ".join(parts) + ("(주말 제외)" if has_weekends and config.get("weekends") is False else "")
 
 
 def finish_summary(nodes: list, options_seen: dict) -> str:

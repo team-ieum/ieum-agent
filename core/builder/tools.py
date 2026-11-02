@@ -329,7 +329,7 @@ def get_fields(turn: Turn, state, node_id: str) -> dict:
             item["description"] = clean(f["description"], 120)
         if f.get("choices"):
             item["choices"] = [{"id": c["id"], "name": clean(c.get("name") or c["id"])}
-                               for c in f["choices"][:MAX_CANDIDATES]]
+                               for c in f["choices"]]
         if f.get("optionsSource"):
             item["dropdown"] = True
         if f.get("fieldsSource"):
