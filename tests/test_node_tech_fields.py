@@ -2,48 +2,15 @@
 
 FE 노드 카드가 표시하는 값이고 backend는 agent 응답 노드를 그대로 저장하므로,
 agent가 넣지 않으면 그 필드는 영영 존재하지 않는다.
-model은 LLM이 아니라 시스템이 주입하고, serviceType은 템플릿 상수이며 실행에 관여하지 않는다.
+serviceType은 폐지됐고 실행에 관여하지 않는다.
 """
-import json
-import os
-
 import pytest
 
 from core import template_registry as tr
 from tests.catalog_paths import apps
-from core.provider_config import resolve_model
-from core.template_registry import (
-    SlotFillError,
-    dehydrate_node,
-    hydrate_node,
-    hydrate_nodes,
-    slot_catalog_text,
-)
 
 
-_SLOTS = {
-    "ai.reasoning": {"prompt": "요약해줘"},
-    "ai.slack_send": {"prompt": "슬랙으로 보내줘"},
-    "ai.mcp": {"prompt": "도구 호출", "catalogId": "srv-1"},
-}
-
-
-def _draft(template_id: str, **extra_slots) -> dict:
-    slots = {"label": "테스트", "description": "이 노드가 하는 일을 쉽게 설명해요."}
-    slots.update(_SLOTS.get(template_id, {"prompt": "지시"}))
-    slots.update(extra_slots)
-    return {"id": "node-1", "templateId": template_id, "slots": slots}
-
-
-# --- model: 시스템 주입 ---------------------------------------------------------
-
-@pytest.mark.parametrize("provider", ["CLAUDE", "OPENAI", "GEMINI"])
-def test_hydrated_ai_node_has_provider_default_model(provider):
-    """AI 노드에 model이 채워지고 요청 provider의 기본 모델(resolve_model)과 일치한다."""
-    node = hydrate_node(_draft("ai.reasoning"), provider=provider)
-    assert node["config"]["model"] == resolve_model(provider)
-    assert node["config"]["llmProvider"] == provider
-
+# --- model: 기본 모델 계약 -------------------------------------------------------
 
 def test_default_model_contract_values():
     """노드에 실릴 기본 모델명은 backend GET /api/v1/providers의 ModelInfo.id와 맞춰야 하는 계약이다.
@@ -55,55 +22,13 @@ def test_default_model_contract_values():
     assert Settings.model_fields["GEMINI_DEFAULT_MODEL"].default == "gemini-3.7-flash"
 
 
-def test_every_ai_template_hydrates_with_model():
-    """모든 AI 템플릿이 model 슬롯을 갖고 하이드레이션 결과에 값이 들어간다."""
-    for tpl in tr.all_templates():
-        if tpl["node_type"] != "AI":
-            continue
-        kinds = {s["name"]: s["kind"] for s in tpl["slots"]}
-        assert kinds.get("model") == "model", f"{tpl['id']}: model 슬롯 없음/kind 불일치"
-        assert "model" in tpl["allowed_config_fields"], f"{tpl['id']}: allowed_config_fields 누락"
-        node = hydrate_node(_draft(tpl["id"]), provider="CLAUDE")
-        assert node["config"]["model"] == resolve_model("CLAUDE"), tpl["id"]
-
-
-def test_llm_supplied_model_is_overwritten():
-    """LLM이 model 슬롯에 임의 값을 넣어도 시스템 주입값이 이긴다(모델명 날조 차단)."""
-    node = hydrate_node(_draft("ai.reasoning", model="gpt-4-turbo-날조"), provider="CLAUDE")
-    assert node["config"]["model"] == resolve_model("CLAUDE")
-
-
-def test_model_slot_marked_auto_injected_in_catalog():
-    """Builder에게 주는 슬롯 카탈로그에서 model은 '자동주입(작성금지)'로 표기된다."""
-    for line in slot_catalog_text().split("\n"):
-        if "model(" in line:
-            assert "model(model,자동주입(작성금지))" in line, line
-
-
-def test_model_excluded_from_dehydrate():
-    """역변환(draft)에는 model이 실리지 않는다 — 재하이드레이션 때 다시 주입된다."""
-    node = hydrate_node(_draft("ai.reasoning"), provider="CLAUDE")
-    draft = dehydrate_node(node)
-    assert "model" not in draft["slots"]
-    assert "llmProvider" not in draft["slots"]
-
-
-def test_model_slot_requires_provider():
-    """provider 없이 하이드레이션하면 model을 주입할 수 없어 실패한다(LLM 값으로 대체 불가)."""
-    with pytest.raises(SlotFillError):
-        hydrate_node(_draft("ai.reasoning", model="아무거나"))
-
-
 # --- serviceType: 템플릿 상수 ---------------------------------------------------
 
 def test_no_node_or_entry_carries_service_type():
-    """config.serviceType은 폐지됐다(spec §4) — 항목 fixed에도, 생성 노드에도 없다."""
+    """config.serviceType은 폐지됐다(spec §4) — 항목 fixed에도, 입력 칸에도 없다."""
     for tpl in tr.all_entries():
         assert "serviceType" not in tpl["fixed"]["config"], tpl["id"]
-        assert "serviceType" not in tpl["allowed_config_fields"], tpl["id"]
-    for tpl in tr.all_templates():
-        if tpl["node_type"] == "AI":
-            assert "serviceType" not in hydrate_node(_draft(tpl["id"]), provider="CLAUDE")["config"], tpl["id"]
+        assert "config.serviceType" not in {f["path"] for f in tpl["inputFields"]}, tpl["id"]
 
 
 def test_invalid_service_type_rejected_by_schema_gate():
@@ -132,43 +57,14 @@ def test_execute_request_ignores_service_type():
 # 동작으로 검증한다. 소스 텍스트 grep은 정확한 주석에도 걸려 '올바른 주석 삭제'가 해결책이 된다.
 
 
-# --- 레거시 워크플로우 -----------------------------------------------------------
-
-def test_legacy_node_round_trip_backfills_both_fields():
-    """model/serviceType 도입 이전에 저장된 노드도 수정 왕복에서 실패 없이 값이 채워진다.
-
-    두 필드 모두 LLM이 채우는 슬롯이 아니므로(시스템 주입 / 템플릿 fixed) 레거시 draft에
-    값이 없어도 SlotFillError가 나지 않는다."""
-    legacy = {
-        "id": "node-3", "type": "AI", "event": "ai.agent", "label": "Slack 알림",
-        "description": "정리된 내용을 슬랙으로 보내드려요.",
-        "config": {"llmProvider": "CLAUDE", "credentialId": "", "prompt": "보내줘",
-                   "agentType": "react", "tools": [{"name": "slack"}]},
-    }
-    draft = dehydrate_node(legacy)
-    assert "model" not in draft["slots"]
-
-    node = hydrate_node(draft, provider="GEMINI")
-    assert node["config"]["model"] == resolve_model("GEMINI")
-    assert "serviceType" not in node["config"]
-
-
-# modify 경로의 model·serviceType 후처리 테스트는 제거했다.
-# 그 후처리 자체가 리뷰 3라운드 내내 회귀를 만들어 걷어냈다 — 노드가 어느 앱인지는 full-node
-# JSON만 보고 결정론적으로 답할 수 없다. 템플릿에서 복원하는 draft 방식 전환은 IEUM-AI-58.
-# 생성 경로(하이드레이션)의 두 필드 계약은 위 테스트들이 그대로 지킨다.
-
-
-def test_hydrated_ai_node_event_rule():
-    """AI 노드 event 규칙(spec §4): 도구 없는 simple AI = ai.reasoning, 도구가 있거나 프리셋 모양 = ai.agent.
-    생성·채팅은 둘 다 hydrate_node로 노드를 만들므로 이 층에서 고정한다."""
+def test_ai_template_event_rule():
+    """AI 노드 event 규칙(spec §4): 도구 없는 simple AI = ai.reasoning, 도구가 있거나 프리셋 모양 = ai.agent."""
     seen = set()
-    for tpl in tr.all_templates():
+    for tpl in tr._generation_templates().values():
         if tpl["node_type"] != "AI":
             continue
-        node = hydrate_node(_draft(tpl["id"]), provider="CLAUDE")
-        cfg = node["config"]
+        cfg = tpl["fixed"]["config"]
         simple = cfg.get("agentType") == "simple" and not cfg.get("tools")
-        assert node["event"] == ("ai.reasoning" if simple else "ai.agent"), tpl["id"]
-        seen.add(node["event"])
+        assert tpl["fixed"]["event"] == ("ai.reasoning" if simple else "ai.agent"), tpl["id"]
+        seen.add(tpl["fixed"]["event"])
     assert seen == {"ai.reasoning", "ai.agent"}

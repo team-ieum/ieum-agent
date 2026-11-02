@@ -242,7 +242,7 @@ def test_action_entries_never_fall_through_to_default_brand():
 
 
 def test_catalog_does_not_mutate_registry_fixed():
-    """brand는 응답 복사본에만 얹는다 — 레지스트리 fixed는 생성 경로(hydrate_node)와 공유한다."""
+    """brand는 응답 복사본에만 얹는다 — 레지스트리 fixed는 빌더 add_node와 공유한다."""
     node_catalog()
     node_catalog()
     for t in tr.all_entries():
@@ -268,12 +268,6 @@ def test_ai_reasoning_출력_칸_입력과_outputsFrom():
     }
     assert e["outputsFrom"] == "config.outputFields"
     assert e["outputFields"] == [{"key": "output", "title": "결과", "type": "text"}]
-
-
-def test_출력_칸은_생성_슬롯이_아니다():
-    """LLM이 칸을 설계하는 건 ⑤단계다. 슬롯이 되면 채팅 draft에 실려 LLM이 날조·삭제할 수 있다."""
-    assert "outputFields" not in {s["name"] for s in tr.get_template("ai.reasoning")["slots"]}
-    assert "outputFields" in tr.get_template("ai.reasoning")["allowed_config_fields"]
 
 
 def test_출력_칸_타입_선택지는_agent_규칙과_같다():

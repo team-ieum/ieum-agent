@@ -1,8 +1,8 @@
 import pytest
 
 from core.node_fields import (
-    AI_COMMON_FIELDS, AI_COMMON_KEYS, FieldError, UNIVERSAL_SLOTS, apply_overrides,
-    derive_allowed_config, derive_slots, merge_common, names_path, signature_fields, validate_field,
+    AI_COMMON_FIELDS, AI_COMMON_KEYS, FieldError, apply_overrides, merge_common, names_path, signature_fields,
+    validate_field,
 )
 
 
@@ -154,57 +154,8 @@ def test_ai_common_order_matches_legacy_slot_order():
         validate_field(f)
 
 
-# --- names_path / derive_slots / derive_allowed_config ----------------------------------
+# --- names_path ----------------------------------------------------------------------
 
 def test_names_path():
     assert names_path("config.tools.0.config.spreadsheet_id") == "config.tools.0.config._names.spreadsheet_id"
     assert names_path("config.credentialId") == "config._names.credentialId"
-
-
-def _with_path(fields, prefix):
-    return [{**f, "path": f.get("path") or f"{prefix}{f['key']}"} for f in fields]
-
-
-def test_derive_slots_rules():
-    direct = _with_path([
-        {"key": "llmProvider", "title": "p", "type": "string", "required": True, "llm": {"inject": "provider"}},
-        {"key": "method", "title": "m", "type": "string", "required": True,
-         "choices": [{"id": "GET", "name": "GET"}], "llm": {"kind": "http_method"}},
-        {"key": "op", "title": "o", "type": "string", "choices": [{"id": "eq", "name": "같음"}]},
-        {"key": "cron", "title": "c", "type": "cron", "required": True},
-        {"key": "mappings", "title": "m", "type": "dict"},
-        {"key": "systemMessage", "title": "s", "type": "text", "llm": {"slot": False}},
-    ], "config.")
-    tool = _with_path([
-        {"key": "spreadsheet_id", "title": "s", "type": "string", "required": True,
-         "optionsSource": "google.spreadsheets", "llm": {"hint": "ID만", "name": "표시 이름"}},
-        {"key": "cell_range", "title": "r", "type": "string", "required": True},
-    ], "config.tools.0.config.")
-    slots = derive_slots(direct, tool)
-    assert slots[:2] == UNIVERSAL_SLOTS
-    rows = [(s["name"], s["path"], s["required"], s["kind"]) for s in slots[2:]]
-    assert rows == [
-        ("llmProvider", "config.llmProvider", True, "provider"),
-        ("method", "config.method", True, "http_method"),
-        ("op", "config.op", False, "enum"),
-        ("cron", "config.cron", True, "cron"),
-        ("mappings", "config.mappings", False, "mapping"),
-        ("spreadsheet_id", "config.tools.0.config.spreadsheet_id", False, "string"),
-        ("spreadsheet_id_name", "config.tools.0.config._names.spreadsheet_id", False, "string"),
-    ]
-    by = {s["name"]: s for s in slots}
-    assert by["op"]["enum"] == ["eq"]
-    assert by["spreadsheet_id"]["description"] == "ID만"
-    assert by["spreadsheet_id_name"]["description"] == "표시 이름"
-
-
-def test_derive_allowed_config():
-    direct = _with_path([
-        {"key": "prompt", "title": "p", "type": "text"},
-        {"key": "model", "title": "m", "type": "string", "optionsSource": "ai.models"},
-        {"key": "catalogId", "title": "c", "type": "string", "optionsSource": "ieum.mcp_servers",
-         "path": "config.tools.0.config.catalogId"},
-    ], "config.")
-    assert derive_allowed_config({"agentType": "react", "tools": []}, direct) == [
-        "_names", "agentType", "model", "prompt", "tools"]
-    assert derive_allowed_config({}, _with_path([{"key": "url", "title": "u", "type": "string"}], "config.")) == ["url"]

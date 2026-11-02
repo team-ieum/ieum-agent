@@ -4,7 +4,6 @@ import json
 import pytest
 
 from core import template_registry as tr
-from core.template_registry import SlotFillError
 from tests.catalog_paths import apps, event_path
 
 # 메모리상 정규화된 모양만 쓴다(파일 형식과 무관) — 생성 경로 필터만 검증한다.
@@ -12,7 +11,6 @@ _FAKE = {
     "id": "action.fake_send", "node_type": "ACTION", "tool_key": "slack",
     "tags": ["가짜전송"], "menu": "가짜 전송", "builder": True, "generation": False,
     "fixed": {"type": "ACTION", "config": {"tools": [{"name": "slack"}]}},
-    "slots": [], "allowed_config_fields": ["tools"],
 }
 
 
@@ -25,23 +23,8 @@ def with_fake(monkeypatch):
 
 def test_builder_only_entry_hidden_from_generation_views(with_fake):
     assert _FAKE["id"] in {t["id"] for t in tr.all_entries()}
-    assert _FAKE["id"] not in {t["id"] for t in tr.all_templates()}
-    assert _FAKE["id"] not in tr.menu_index()
-    assert _FAKE["id"] not in tr.slot_catalog_text()
-    assert _FAKE["id"] not in tr.template_ids()
-    assert tr.node_type_of_template(_FAKE["id"]) is None
+    assert _FAKE["id"] not in tr._generation_templates()
     assert all(t["id"] != _FAKE["id"] for t in tr.select_by_tags("가짜전송 해줘"))
-
-
-def test_hydrate_rejects_builder_only_template(with_fake):
-    with pytest.raises(SlotFillError, match="존재하지 않는 templateId"):
-        tr.hydrate_node({"id": "n1", "templateId": _FAKE["id"], "slots": {}}, provider="GEMINI")
-
-
-def test_action_node_not_matched_for_generation(with_fake):
-    node = {"id": "n1", "type": "ACTION", "label": "x", "config": {"tools": [{"name": "slack"}]}}
-    assert tr.resolve_template_for_node(node) is None
-    assert tr.allowed_config_fields_for_node(node) is None
 
 
 def test_generation_flag_must_be_bool():

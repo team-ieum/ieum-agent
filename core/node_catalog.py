@@ -21,7 +21,7 @@ def _public_field(field: dict) -> dict:
 
 def _fixed_with_brand(t: dict) -> dict:
     """FE가 노드를 만들 때 쓰는 fixed에 brand를 얹는다(FE 목록 아이콘·BE 연동 목록은 config.brand만 본다).
-    레지스트리 항목의 fixed는 생성 경로와 공유하므로 복사본에만 넣는다."""
+    레지스트리 항목의 fixed는 다른 소비처(빌더 add_node)와 공유하므로 복사본에만 넣는다."""
     fixed = copy.deepcopy(t["fixed"])
     fixed["config"]["brand"] = t["brand"]
     return fixed

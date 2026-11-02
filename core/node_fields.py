@@ -1,7 +1,6 @@
 """노드 카탈로그 필드(Field) — 형식 검증과 파생 규칙.
 
-템플릿 JSON(catalog/(ieum-node-catalog))과 도구 시그니처에서 입력 필드를 만들고, 그 필드에서
-생성 슬롯·허용 config 키를 파생한다. 형식은 catalog/SCHEMA.md와 spec(ieum-backend
+템플릿 JSON(catalog/(ieum-node-catalog))과 도구 시그니처에서 입력 필드를 만든다. 형식은 catalog/SCHEMA.md와 spec(ieum-backend
 docs/superpowers/specs/2026-10-05-node-catalog-design.md §2·§5). 템플릿·도구 모듈을 import하지
 않는 순수 함수만 둔다 — 로더(core.template_registry)가 이 함수들을 조립한다."""
 import copy
@@ -27,14 +26,6 @@ _SOURCE_RE = re.compile(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*")
 _LLM_ATTRS = {"hint", "slot", "name", "kind", "inject"}
 _INJECT = {"provider", "model"}
 _PY_TYPES = {str: "string", int: "integer", float: "number", bool: "boolean", dict: "object"}
-
-# 모든 노드 공통(노드 최상위 label·description). 필드 목록이 아니라 슬롯으로만 존재한다.
-UNIVERSAL_SLOTS = [
-    {"name": "label", "path": "label", "required": True, "kind": "string", "description": "노드 라벨"},
-    {"name": "description", "path": "description", "required": True, "kind": "string",
-     "description": "이 노드가 무슨 일을 하는지 일반 사용자에게 알려주는 자연어 1문장. 도구 키·필드명·"
-                    "변수 참조식 같은 기술 용어 없이, 사용자가 얻는 결과 중심으로 쓴다."},
-]
 
 # node_type AI 항목의 inputFields 앞에 로더가 붙인다. 순서 = 기존 슬롯 순서(llmProvider·model·prompt).
 AI_COMMON_FIELDS = [
@@ -185,53 +176,3 @@ def names_path(path: str) -> str:
     """표시 이름 캐시 경로: `<부모>._names.<key>`."""
     head, _, key = path.rpartition(".")
     return f"{head}._names.{key}"
-
-
-def _slot_kind(field: dict) -> str:
-    llm = field.get("llm") or {}
-    if "kind" in llm:
-        return llm["kind"]
-    if "inject" in llm:
-        return llm["inject"]
-    if field.get("choices"):
-        return "enum"
-    return {"cron": "cron", "dict": "mapping"}.get(field["type"], "string")
-
-
-def derive_slots(direct: list[dict], tool: list[dict]) -> list[dict]:
-    """생성 슬롯 = 공통(label·description) + 직속 필드 + optionsSource가 있는 도구 필드.
-    도구 필드 슬롯은 항상 선택(AI 노드에서는 비워도 AI가 결정). llm.slot=false는 제외,
-    llm.name이 있으면 바로 뒤에 `<key>_name` 표시 이름 슬롯."""
-    slots = copy.deepcopy(UNIVERSAL_SLOTS)
-    candidates = [(f, False) for f in direct] + [(f, True) for f in tool if f.get("optionsSource")]
-    for field, is_tool in candidates:
-        llm = field.get("llm") or {}
-        if llm.get("slot") is False:
-            continue
-        slot = {
-            "name": field["key"],
-            "path": field["path"],
-            "required": False if is_tool else bool(field.get("required")),
-            "kind": _slot_kind(field),
-            "description": llm.get("hint") or field.get("description") or field["title"],
-        }
-        if field.get("choices"):
-            slot["enum"] = [c["id"] for c in field["choices"]]
-        slots.append(slot)
-        if llm.get("name"):
-            slots.append({"name": f"{field['key']}_name", "path": names_path(field["path"]),
-                          "required": False, "kind": "string", "description": llm["name"]})
-    return slots
-
-
-def derive_allowed_config(fixed_config: dict, direct: list[dict]) -> list[str]:
-    """허용 config 키 = fixed.config 키 ∪ 직속 필드 경로의 최상위 키 ∪ (직속 optionsSource 필드가 있으면 _names)."""
-    allowed = set(fixed_config)
-    for field in direct:
-        parts = field["path"].split(".")
-        if parts[0] != "config" or len(parts) < 2:
-            continue
-        allowed.add(parts[1])
-        if len(parts) == 2 and field.get("optionsSource"):
-            allowed.add("_names")
-    return sorted(allowed)

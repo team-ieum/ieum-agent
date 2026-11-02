@@ -2,7 +2,7 @@
 
 카탈로그 서브모듈 `catalog/`(ieum-node-catalog)의 `events/<앱>/<이벤트>.json`·`presets.json`·`apps.json`을
 단일 진실 원천으로 로드·검증한다. 스키마는 catalog/SCHEMA.md.
-원본 JSON은 inputFields·fields로 필드를 정의하고, slots·allowed_config_fields는 로더가 파생한다(core.node_fields).
+원본 JSON은 inputFields·fields로 필드를 정의하고, 로더가 공통 필드를 붙여 정규화한다(core.node_fields).
 
 소비처: 노드 카탈로그 API·정적 검증(match_entry)·ACTION 실행·대화형 생성(core/builder — builder_entries·match_entry).
 """
@@ -11,11 +11,8 @@ import re
 import copy
 import json
 import glob
-import logging
 
 from api.schemas.generate_workflow import TRIGGER_TYPES
-
-logger = logging.getLogger(__name__)
 
 CATALOG_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "catalog"))
 # 프리셋으로 만든 노드의 event. 프리셋은 이벤트가 아니다(spec §3) — 출처 프리셋은 저장하지 않는다.
@@ -24,30 +21,11 @@ _NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _KINDS = {"trigger", "action", "search"}
 _SUBMODULE_HINT = "`git submodule update --init`으로 catalog/를 받아라"
 
-# 플랫폼이 모든 노드 config에 주입/정규화하는 공통 필드(_normalize_node 참고).
-# 노드 타입과 무관하게 허용된다(런타임 주입 또는 리소스 ID 플레이스홀더).
-UNIVERSAL_CONFIG_FIELDS = {
-    "credentialId", "access_token", "parent_page_id", "spreadsheet_id", "calendar_id",
-    "brand",
-}
-
 _VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL", "ACTION"}
-# LLM이 값을 쓰지 못하고 시스템이 요청 provider에서 계산해 주입하는 슬롯 kind.
-_SYSTEM_INJECTED_KINDS = {"provider", "model"}
 
 _REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "fixed"}
 _GENERATION_TOP_KEYS = {"tags", "menu"}  # generation 항목만 필수(LLM 메뉴·태그 검색용)
-_LEGACY_TOP_KEYS = {"slots", "allowed_config_fields"}  # 이제 파생값 — 파일에 쓰면 거부
-
-# resolve_template_for_node가 매칭 템플릿을 찾지 못한 노드용 센티넬 templateId.
-# dehydrate_node가 None(드롭) 대신 이 templateId를 단 draft를 반환해 MODIFY 왕복에서 노드가
-# 소실되지 않게 한다.
-#
-# **draft["node"]에는 식별용 필드(type·label·description, 카탈로그가 아는 event 이름 하나 추가)만 담고, 복원은 hydrate_node가 호출부에서
-# 받은 passthrough_originals에서만 한다.** draft는 LLM 프롬프트에 실려 나가고 LLM이 그대로 되돌려
-# 보내는 값이라 신뢰 대상이 아니다 — config를 담으면 저장된 credentialId·토큰이 외부 LLM으로
-# 나가고, 복원에 쓰면 슬롯 검증이 통째로 우회된다. 둘 다 실제로 지적됐던 경로다.
-PASSTHROUGH_TEMPLATE_ID = "__passthrough__"
+_LEGACY_TOP_KEYS = {"slots", "allowed_config_fields"}  # 옛 파생 키 — 파일에 쓰면 거부
 
 # 모듈 캐시 (파일은 기동 중 불변)
 _cache: dict | None = None
@@ -55,11 +33,6 @@ _cache: dict | None = None
 
 class TemplateSchemaError(ValueError):
     """템플릿 스키마/드리프트 검증 실패"""
-    pass
-
-
-class SlotFillError(ValueError):
-    """노드 draft(templateId+slots) 하이드레이션 실패(미존재 템플릿/누락·미허용 슬롯 등)"""
     pass
 
 
@@ -190,9 +163,8 @@ def _tool_fields(tool_key: str, overrides: dict) -> list:
 
 
 def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
-    """원본 항목 → 메모리상 항목. 기존 소비처가 읽는 slots·allowed_config_fields를 파생해 채운다."""
-    from core.node_fields import (AI_COMMON_FIELDS, AI_COMMON_OUTPUTS, derive_allowed_config, derive_slots,
-                                  merge_common)
+    """원본 항목 → 메모리상 항목. 공통 필드를 붙이고 칸 경로·출력·brand를 채운다."""
+    from core.node_fields import AI_COMMON_FIELDS, AI_COMMON_OUTPUTS, merge_common
     from tools.registry import brand_for_entry
 
     t = copy.deepcopy(tpl)
@@ -200,7 +172,7 @@ def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
     t.setdefault("generation", True)
     t["event"] = PRESET_EVENT if t.get("preset") else t["id"]
     t["fixed"]["event"] = t["event"]
-    cfg = t["fixed"].setdefault("config", {})
+    t["fixed"].setdefault("config", {})
     app = apps.get(t["app"]) if t.get("app") else None
     t["provider"] = app["provider"] if app else None
     t["app_title"] = app["title"] if app else None
@@ -209,7 +181,7 @@ def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
               for f in merge_common(common, t.get("inputFields") or [])]
     tool = copy.deepcopy(tool_fields.get(t["tool_key"], [])) if t["tool_key"] else []
     if t["node_type"] == "ACTION":
-        # ACTION 칸은 노드 config 바로 아래다(spec §4) — 직속 칸과 같은 취급(허용 키·_names·필수 슬롯).
+        # ACTION 칸은 노드 config 바로 아래다(spec §4) — 직속 칸과 같은 취급.
         direct += [{**f, "path": f"config.{f['key']}"} for f in tool]
         tool = []
     else:
@@ -217,10 +189,8 @@ def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
     t["inputFields"] = direct + tool
     t["outputFields"] = (copy.deepcopy(AI_COMMON_OUTPUTS) if t["node_type"] == "AI" else []) \
         + copy.deepcopy(t.get("outputFields") or [])
-    t["slots"] = derive_slots(direct, tool)
-    t["allowed_config_fields"] = derive_allowed_config(cfg, direct)
-    # 카탈로그 응답이 fixed.config.brand로 내보낸다. fixed 자체엔 넣지 않는다 — 생성 경로(hydrate_node가
-    # fixed.config를 복사)가 보는 값이 바뀌기 때문이다.
+    # 카탈로그 응답이 fixed.config.brand로 내보낸다. fixed 자체엔 넣지 않는다 — fixed는 다른 소비처
+    # (빌더 add_node)와 공유한다.
     t["brand"] = app["brand"] if app else brand_for_entry(t)
     return t
 
@@ -349,9 +319,7 @@ def validate_registry(tool_keys: set | None = None) -> None:
 
 
 def _generation_templates() -> dict:
-    """생성 경로가 보는 템플릿(generation=true, 기본). ACTION 항목·앱 트리거 등은 LLM 메뉴·
-    슬롯 카탈로그·hydrate·dehydrate·허용 키 검증 어디에도 나오지 않는다 — 실행 경로가 아직 없는
-    노드를 LLM이 만들지 못하게 한다."""
+    """generation=true(기본) 항목. 지금은 select_by_tags(AI 노드 brand 추정)만 쓴다."""
     return {tid: t for tid, t in load_templates().items() if t.get("generation", True)}
 
 
@@ -426,48 +394,8 @@ def match_entry(node: dict) -> dict | None:
     return next((p for p in _preset_matchers() if _matches(p["match"], view)), entry)
 
 
-def all_templates() -> list:
-    """생성 경로 템플릿 목록(_generation_templates)."""
-    return list(_generation_templates().values())
-
-
 def get_template(template_id: str) -> dict | None:
     return load_templates().get(template_id)
-
-
-def menu_index() -> str:
-    """항상층에 주입할 도구 메뉴(1줄들). 노드 존재 인지 → 검색 miss 환각 방지."""
-    lines = [f"- {t['id']}: {t['menu']}" for t in _generation_templates().values()]
-    return "\n".join(lines)
-
-
-def template_ids() -> set:
-    """생성 경로(generation) 템플릿 id 집합. Planner가 고른 templateId 존재 검증에 쓴다."""
-    return set(_generation_templates().keys())
-
-
-def node_type_of_template(template_id: str) -> str | None:
-    """templateId의 node_type(TRIGGER/AI/...)을 반환한다. 없거나 builder 전용 id면 None."""
-    tpl = _generation_templates().get(template_id)
-    return tpl["node_type"] if tpl else None
-
-
-def slot_catalog_text() -> str:
-    """templateId별 slot 스펙 카탈로그 텍스트(Builder의 draft 작성용).
-
-    각 줄: `- <id> [<node_type>] — <menu>` 다음 줄에 slots 명세.
-    provider 슬롯은 시스템이 자동 주입하므로 '자동주입'으로 표기해 Builder가 채우지 않게 한다."""
-    lines = []
-    for t in _generation_templates().values():
-        slot_specs = []
-        for s in t["slots"]:
-            if s["kind"] in _SYSTEM_INJECTED_KINDS:
-                tag = "자동주입(작성금지)"
-            else:
-                tag = "필수" if s["required"] else "선택"
-            slot_specs.append(f"{s['name']}({s['kind']},{tag})")
-        lines.append(f"- {t['id']} [{t['fixed']['type']}] — {t['menu']}\n    slots: {', '.join(slot_specs)}")
-    return "\n".join(lines)
 
 
 def select_by_tags(text: str, limit: int | None = None) -> list:
@@ -482,52 +410,6 @@ def select_by_tags(text: str, limit: int | None = None) -> list:
     scored.sort(key=lambda x: x[0], reverse=True)
     result = [t for _, t in scored]
     return result[:limit] if limit else result
-
-
-def resolve_template_for_node(node: dict) -> dict | None:
-    """노드의 생성 템플릿(dehydrate·허용 키 검증용). event 항목이 AI가 아니면 그 이름의 생성 템플릿이고
-    (generation:false인 앱 트리거·액션은 None = pass-through), AI면 tools로 생성 프리셋을 고른다 — 프리셋 노드의
-    event는 ai.agent(generation:false)라 event만으로는 프리셋을 알 수 없다. 모르는 event면 None."""
-    entry = event_entry(node)
-    if entry is None:
-        return None
-    templates = _generation_templates()
-    if entry["node_type"] != "AI":
-        return templates.get(entry["id"])
-
-    config = node.get("config")
-    if not isinstance(config, dict):
-        config = {}
-    tool_names = [
-        (t.get("name") if isinstance(t, dict) else t)
-        for t in (config.get("tools") or [])
-    ]
-    # tool_key가 일치하는 템플릿 우선
-    for tpl in templates.values():
-        if tpl["node_type"] == "AI" and tpl["tool_key"] and tpl["tool_key"] in tool_names:
-            return tpl
-    # MCP 노드: tool_key가 없는 'mcp' 동적 센티넬을 가지므로 위 매칭에 안 잡힌다.
-    # ai.mcp 의사 템플릿으로 직접 해석해 dehydrate(MODIFY 역변환) 시 누락되지 않게 한다.
-    if "mcp" in tool_names:
-        tpl = templates.get("ai.mcp")
-        if tpl is not None:
-            return tpl
-    # 도구 없는 AI → tool_key null인 AI 템플릿. 후보가 여럿(예: github 서브에이전트 vs 순수 추론)이면
-    # fixed.config.agentType로 판별한다(github=react, ai.reasoning=simple). 일치 없으면 simple(추론) 우선.
-    if not tool_names:
-        candidates = [t for t in templates.values()
-                      if t["node_type"] == "AI" and t["tool_key"] is None]
-        if not candidates:
-            return None
-        node_agent = config.get("agentType")
-        for tpl in candidates:
-            if (tpl["fixed"].get("config") or {}).get("agentType") == node_agent:
-                return tpl
-        for tpl in candidates:
-            if (tpl["fixed"].get("config") or {}).get("agentType") == "simple":
-                return tpl
-        return candidates[0]
-    return None
 
 
 def subagent_service_for_node(node: dict) -> str | None:
@@ -579,137 +461,6 @@ def _set_by_path(obj: dict, path: str, value) -> None:
         cur[last] = value
 
 
-def hydrate_node(
-    draft: dict,
-    provider: str | None = None,
-    passthrough_originals: dict | None = None,
-    *,
-    model_override: str | None = None,
-) -> dict:
-    """draft({id, templateId, slots})를 템플릿으로 완성된 노드로 변환한다.
-
-    구조(type/fixed.config)는 템플릿이 결정론적으로 제공하고, 가변값만 slots에서 채운다.
-    - templateId가 PASSTHROUGH_TEMPLATE_ID면 **passthrough_originals[draft["id"]]에서만** 복원한다.
-      draft["node"]는 LLM 출력이라 신뢰하지 않는다(신뢰하면 슬롯 검증을 통째로 우회당한다).
-      passthrough_originals를 넘기지 않은 호출부에서는 pass-through가 항상 거부된다 — 기본값이
-      거부여야 새 호출부가 생겨도 안전하게 실패한다(생성 경로가 이 기본값에 기대고 있다).
-      단 원본에 description이 없고 draft["node"]에 있으면 description **한 필드만** 가져온다
-      (레거시+템플릿 미매칭 노드의 카드 설명이 비어 보이지 않게 하는 표시용 폴백).
-    - templateId가 레지스트리에 없으면 SlotFillError(노드 날조 차단).
-    - 템플릿에 없는 슬롯 키, 필수 슬롯 누락이면 SlotFillError(필드 날조 차단).
-    - provider/model 슬롯(kind=provider|model)은 인자 provider에서 계산해 자동 주입한다
-      (LLM이 채우지 않음. slots에 값이 있어도 무시하고 덮어쓴다 — 모델명 날조 차단).
-      model_override가 있으면 model 슬롯은 resolve_model(provider, model_override)로 해석한다
-      (호출부가 서버 측 저장분에서 뽑아 넘기는 값 — 채팅 재렌더 시 사용자가 고른 모델 보존).
-      LLM slots의 model은 여전히 무시한다.
-    의미 검증은 호출부가 담당한다."""
-    if not isinstance(draft, dict):
-        raise SlotFillError("노드 draft는 객체여야 합니다.")
-    tid = draft.get("templateId")
-    if tid == PASSTHROUGH_TEMPLATE_ID:
-        node_id = draft.get("id")
-        original = (passthrough_originals or {}).get(node_id) if node_id else None
-        if not isinstance(original, dict):
-            raise SlotFillError(
-                f"pass-through 노드(id={node_id!r})의 서버 측 원본을 찾을 수 없습니다. "
-                "pass-through 노드는 새로 만들 수 없습니다."
-            )
-        node = copy.deepcopy(original)
-        node["id"] = node_id
-        # credentialId는 런타임에 백엔드가 주입한다 — 템플릿 경로가 fixed로 ""를 박는 것과 같은
-        # 규칙을 여기에도 적용한다. 이 노드는 서버 저장분이 아니라 **요청 바디**에서 온 값이라
-        # (agent는 워크플로우를 DB에서 읽지 않는다) 값을 그대로 되살리면 남의 credentialId를
-        # 실어 보내는 경로가 된다. 저장분에 UUID가 남아 있는 노드도 여기서 정리된다.
-        cfg = node.get("config")
-        if isinstance(cfg, dict) and "credentialId" in cfg:
-            cfg["credentialId"] = ""
-        if not str(node.get("description") or "").strip():
-            llm_node = draft.get("node")
-            desc = llm_node.get("description") if isinstance(llm_node, dict) else None
-            if not (isinstance(desc, str) and desc.strip()):
-                # 모델이 안 채우면 label로 떨어진다(슬롯 경로의 backfill_legacy_description과 같은 처리).
-                # label까지 비었으면 고정 문구를 쓴다 — 카드 표시용 폴백이다(빈 채로 내보내면 노드 카드의
-                # 설명이 비어 보인다).
-                desc = node.get("label")
-            if not (isinstance(desc, str) and desc.strip()):
-                desc = "이 노드가 하는 일을 설명해요."
-            node["description"] = desc.strip()
-        return node
-    templates = _generation_templates()
-    tpl = templates.get(tid)
-    if tpl is None:
-        raise SlotFillError(f"존재하지 않는 templateId '{tid}'. 사용 가능: {sorted(templates)}")
-    slots_in = draft.get("slots")
-    if slots_in is None:
-        slots_in = {}
-    if not isinstance(slots_in, dict):
-        raise SlotFillError(f"'{tid}'의 slots는 객체(dict)여야 합니다.")
-
-    node = {
-        "id": draft.get("id"),
-        "type": tpl["fixed"]["type"],
-        "event": tpl["fixed"]["event"],
-        "config": copy.deepcopy(tpl["fixed"].get("config") or {}),
-    }
-
-    slot_by_name = {s["name"]: s for s in tpl["slots"]}
-    unknown = set(slots_in) - set(slot_by_name)
-    if unknown:
-        raise SlotFillError(f"'{tid}'에 없는 슬롯: {sorted(unknown)}. 허용: {sorted(slot_by_name)}")
-
-    for name, slot in slot_by_name.items():
-        if slot["kind"] in _SYSTEM_INJECTED_KINDS:
-            if provider is not None:
-                # 시스템 자동 주입(요청 provider 계승). model은 그 provider의 기본 모델로 해석한다.
-                # core.provider_config는 settings(MONGODB_URL 필수)를 끌어오므로, 이 파일의
-                # lazy-import 관례대로 주입 분기 안에서만 import한다(env 없는 템플릿 로더 보호).
-                from core.provider_config import resolve_model
-                value = provider if slot["kind"] == "provider" else resolve_model(provider, model_override)
-            elif slot["kind"] == "provider" and name in slots_in:
-                value = slots_in[name]
-            else:
-                raise SlotFillError(f"'{tid}'의 {slot['kind']} 슬롯 '{name}' 주입 실패: provider 미지정")
-        elif name in slots_in and not (
-            slot["kind"] == "string"
-            and (slot["required"] or slot["path"].startswith("config.tools."))
-            and (
-                (isinstance(slots_in[name], str) and not slots_in[name].strip())
-                or (slots_in[name] is None and slot["path"].startswith("config.tools."))
-            )
-        ):
-            # 필수 문자열 슬롯에 빈 값/공백을 넣은 것은 '채웠다'가 아니다. 키 존재만 보면
-            # description=""가 통과해 빈 설명이 그대로 나가고, 노드 카드 설명이 조용히 비어 보인다.
-            # 도구 인자 슬롯(config.tools.*)은 None까지 빈 값으로 본다 — 거기선 키 존재가 '코드가 고정'이라,
-            # 빈 값·None을 쓰면 그 값이 고정 바인딩돼 실행이 매번 실패한다. 걸러진 슬롯은 아래로 내려가
-            # 선택 슬롯이면 건너뛰고, 필수 슬롯(예: ai.mcp catalogId)이면 누락 에러가 된다.
-            value = slots_in[name]
-        elif slot["required"]:
-            raise SlotFillError(f"'{tid}'의 필수 슬롯 '{name}'이(가) 누락되었습니다.")
-        else:
-            continue  # optional 미제공 → fixed.config 기본값 유지
-        _set_by_path(node, slot["path"], value)
-
-    return node
-
-
-def hydrate_nodes(
-    drafts: list,
-    provider: str | None = None,
-    passthrough_originals: dict | None = None,
-) -> list:
-    """draft 리스트를 하이드레이션한다. id 누락 시 node-N 순차 부여한다.
-    passthrough_originals 미지정 시 pass-through draft는 거부된다(hydrate_node 참고)."""
-    if not isinstance(drafts, list):
-        raise SlotFillError("nodes는 리스트여야 합니다.")
-    nodes = []
-    for idx, draft in enumerate(drafts):
-        node = hydrate_node(draft, provider=provider, passthrough_originals=passthrough_originals)
-        if not node.get("id"):
-            node["id"] = f"node-{idx + 1}"
-        nodes.append(node)
-    return nodes
-
-
 def _get_by_path(obj, path: str):
     """dotted path(숫자=list 인덱스) 위치의 값을 읽는다. 없으면 None."""
     cur = obj
@@ -726,77 +477,3 @@ def _get_by_path(obj, path: str):
     return cur
 
 
-def dehydrate_node(node: dict) -> dict | None:
-    """완성된 노드(full-node)를 draft({id, templateId, slots})로 역변환한다(MODIFY 편집용).
-
-    resolve_template_for_node로 templateId를 찾고, 각 슬롯의 path에서 현재 값을 읽어 slots를 구성한다.
-    provider/model 슬롯은 시스템이 자동 주입하므로 제외한다. 매칭 템플릿이 없으면 노드를 버리지 않고
-    pass-through draft({"id", "templateId": PASSTHROUGH_TEMPLATE_ID, "node"})를 반환한다.
-    **이때 "node"에는 LLM이 노드를 식별할 만큼(type·label·description, 카탈로그가 아는 event 이름 하나 추가)만 담는다** — 복원은
-    hydrate_node가 서버 측 원본에서 하므로 config는 필요 없고, 실으면 저장된 credentialId·토큰이
-    프롬프트로 외부 LLM에 나간다. node 자체가 dict가 아니면 None(역변환 불가)."""
-    if not isinstance(node, dict):
-        return None
-    tpl = resolve_template_for_node(node)
-    if tpl is None:
-        # 매칭 실패는 노드가 사라지지는 않지만 '편집 불가'로 강등되는 사건이라 흔적을 남긴다.
-        # 템플릿 tool_key나 _TOOL_MAP 키를 바꿔 흔한 노드가 매칭에서 빠지면 수정 요청이 전부
-        # "편집을 지원하지 않는다"로 끝나는데, 로그가 없으면 사용자 신고 전까지 알 수 없다.
-        entry = match_entry(node)
-        # 빌더 전용 항목(ACTION·앱 트리거 등)은 설계상 늘 여기로 와서 로그가 소음이다. 단 ai.agent는
-        # 프리셋 match가 안 맞는 AI 노드의 기본 항목이라 생성 템플릿 매칭이 깨진 AI 노드도 걸리므로 로그를 유지한다.
-        if entry is None or entry.get("generation", True) or entry["id"] == _AGENT_ENTRY_ID:
-            tools = (node.get("config") or {}).get("tools")
-            logger.info("pass-through 강등 — 매칭 템플릿 없음 (node_id=%s, type=%s, tools=%s)",
-                        node.get("id"), node.get("type"),
-                        [t.get("name") if isinstance(t, dict) else t
-                         for t in (tools if isinstance(tools, list) else [])])
-        # 복원은 서버가 쥔 원본으로만 한다(hydrate_node 참고). 그래서 draft에는 LLM이 이 노드를
-        # 식별하는 데 필요한 만큼만 담는다 — config를 통째로 실으면 저장된 credentialId·토큰
-        # 같은 값이 프롬프트로 외부 LLM에 나가는데, 서버는 그 값을 쓰지도 않는다.
-        ident = {
-            "type": node.get("type"),
-            "label": node.get("label"),
-            "description": node.get("description"),
-        }
-        # 노드 종류(카탈로그가 아는 event 이름)까지 실어 LLM이 출력 필드를 고르게 한다. 앱 트리거·액션은
-        # 빌더 전용(generation false)이라 늘 여기로 온다. 요청 바디 값이라 카탈로그에 있는 이름만 싣는다 —
-        # 모르는 문자열을 그대로 실으면 프롬프트 주입 통로가 된다. config(query·repoId 등)는 여전히 싣지 않는다.
-        known = event_entry(node)
-        if known is not None:
-            ident["event"] = known["id"]
-        return {"id": node.get("id"), "templateId": PASSTHROUGH_TEMPLATE_ID, "node": ident}
-    slots = {}
-    for s in tpl["slots"]:
-        if s["kind"] in _SYSTEM_INJECTED_KINDS:
-            continue
-        val = _get_by_path(node, s["path"])
-        if val not in (None, ""):
-            slots[s["name"]] = val
-    return {"id": node.get("id"), "templateId": tpl["id"], "slots": slots}
-
-
-def dehydrate_nodes(nodes: list) -> list:
-    """노드 리스트를 draft 리스트로 역변환한다. 템플릿 매칭 실패 노드도 pass-through draft로 보존하므로
-    아무 노드도 버리지 않는다(node가 dict가 아닌 항목만 건너뛴다)."""
-    if not isinstance(nodes, list):
-        return []
-    return [d for d in (dehydrate_node(n) for n in nodes) if d is not None]
-
-
-def allowed_config_fields_for_node(node: dict) -> set | None:
-    """주어진 노드에 허용되는 config 필드 집합을 반환한다(#5 화이트리스트).
-    템플릿이 정확히 매칭되면 그 allowed_config_fields를, 매칭 실패 시 같은 node_type
-    템플릿들의 합집합을 사용한다. 해당 node_type 템플릿이 전혀 없으면 None(검증 미적용)."""
-    tpl = resolve_template_for_node(node)
-    if tpl is not None:
-        return set(tpl["allowed_config_fields"]) | UNIVERSAL_CONFIG_FIELDS
-
-    ntype = (node.get("type") or "").upper()
-    union: set = set()
-    found = False
-    for t in _generation_templates().values():
-        if t["node_type"] == ntype:
-            union |= set(t["allowed_config_fields"])
-            found = True
-    return (union | UNIVERSAL_CONFIG_FIELDS) if found else None

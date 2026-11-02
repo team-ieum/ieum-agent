@@ -113,38 +113,6 @@ def test_agent_tool_choices_exclude_dynamic_mount_services():
     assert tr.get_template("github.list_issues")["builder"] is True   # 카탈로그엔 따로 있다
 
 
-# ── resolve_template_for_node: 생성 템플릿(dehydrate·허용 키) ──
-
-@pytest.mark.parametrize("node, expected", [
-    ({"type": "TRIGGER", "event": "schedule.every", "config": {"cron": "0 9 * * *"}}, "schedule.every"),
-    # event가 옛 triggerType을 이긴다
-    ({"type": "TRIGGER", "event": "schedule.every", "config": {"triggerType": "MANUAL"}}, "schedule.every"),
-    ({"type": "TRANSFORM", "event": "transform.map", "config": {"mappings": {}}}, "transform.map"),
-    ({"type": "APPROVAL", "event": "approval.request", "config": {}}, "approval.request"),
-    # AI는 tools로 생성 프리셋을 고른다(프리셋 노드의 event는 ai.agent, generation:false)
-    ({"type": "AI", "event": "ai.agent", "config": {"agentType": "react",
-                                                    "tools": [{"name": "builtin:notion_create_page"}]}},
-     "ai.notion_create_page"),
-    ({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "mcp", "config": {}}]}}, "ai.mcp"),
-    ({"type": "AI", "event": "ai.reasoning", "config": {"agentType": "simple", "tools": []}}, "ai.reasoning"),
-    ({"type": "AI", "event": "ai.agent", "config": {"agentType": "react", "tools": []}}, "ai.github_query"),
-])
-def test_resolve_template_for_node(node, expected):
-    assert tr.resolve_template_for_node(node)["id"] == expected
-
-
-@pytest.mark.parametrize("node", [
-    {"type": "TRIGGER", "event": "gmail.new_email", "config": {}},       # 빌더 전용(generation:false) → pass-through
-    {"type": "ACTION", "event": "slack.send_message", "config": {}},
-    {"type": "TRIGGER", "config": {"triggerType": "SCHEDULE", "cron": "0 9 * * *"}},  # event 없음
-    {"type": "TRANSFORM", "config": {"mappings": {}}},
-    {"type": "AI", "config": {"tools": [{"name": "builtin:notion_create_page"}]}},
-    {"type": "TRIGGER", "event": "stripe.new_payment", "config": {}},    # 모르는 event
-])
-def test_resolve_template_for_node_은_생성_템플릿이_없으면_None(node):
-    assert tr.resolve_template_for_node(node) is None
-
-
 def test_preset_node_with_ai_agent_event_keeps_preset_match_and_passes_static_check():
     # event로 ai.agent 항목을 고르면 tools 필수 칸에 걸려 실행이 400이 된다 — 프리셋 match가 ai.github_query를 고른다.
     from core.validators.static_validator import field_errors

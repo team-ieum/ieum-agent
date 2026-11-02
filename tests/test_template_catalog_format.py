@@ -5,7 +5,7 @@ import os
 import pytest
 
 from core import template_registry as tr
-from core.template_registry import SlotFillError, TemplateSchemaError
+from core.template_registry import TemplateSchemaError
 from tests.catalog_paths import apps, copy_catalog, edit_entry, read_raw
 
 APP_PRESETS = [
@@ -178,8 +178,7 @@ def test_github_action_entries(tid, tool_key, keys):
 
 
 def test_github_actions_hidden_from_generation_views():
-    assert not {t["id"] for t in tr.all_templates() if t["node_type"] == "ACTION"}
-    assert "builtin:github_create_issue" not in tr.menu_index()
+    assert not {t["id"] for t in tr._generation_templates().values() if t["node_type"] == "ACTION"}
 
 
 def test_github_tool_key_drift_still_rejected():
@@ -214,72 +213,6 @@ def test_input_fields_have_paths_and_no_injected_params():
                                     "workflow_context_data"}, (t["id"], f["key"])
 
 
-# --- 의도된 차이 ②③ + Review Focus 1·4 --------------------------------------------------
-
-def test_sheets_slots_renamed():
-    for tid in ("ai.google_sheets_read", "ai.google_sheets_write", "ai.google_sheets_append"):
-        names = [s["name"] for s in tr.get_template(tid)["slots"]]
-        assert names[-3:] == ["spreadsheet_id", "spreadsheet_id_name", "sheet_name"], tid
-
-
-def test_old_spreadsheet_name_slot_error_names_new_slot():
-    """옛 채팅 세션의 slot 이름은 거부되고, 에러가 새 이름을 알려줘 재시도 루프가 고친다."""
-    draft = {"id": "n2", "templateId": "ai.google_sheets_write", "slots": {
-        "label": "l", "description": "d", "prompt": "p", "spreadsheet_name": "장부"}}
-    with pytest.raises(SlotFillError) as e:
-        tr.hydrate_node(draft, provider="GEMINI")
-    assert "spreadsheet_name" in str(e.value) and "spreadsheet_id_name" in str(e.value)
-
-
-def test_http_allows_webhook_credential_but_no_slot():
-    tpl = tr.get_template("http.request")
-    assert {"webhookCredentialId", "_names"} <= set(tpl["allowed_config_fields"])
-    assert "webhookCredentialId" not in {s["name"] for s in tpl["slots"]}
-
-
-# --- 의도된 차이 ①④ — Calendar·Drive·Notion 리소스 ID 슬롯 ---------------------------------
-
-RESOURCE_SLOTS = {
-    "ai.google_calendar_create": ["calendar_id", "calendar_id_name"],
-    "ai.google_calendar_find": ["calendar_id", "calendar_id_name"],
-    "ai.google_calendar_update": ["event_id", "event_id_name", "calendar_id", "calendar_id_name"],
-    "ai.google_drive_read": ["file_id", "file_id_name"],
-    "ai.google_drive_upload": ["folder_id", "folder_id_name"],
-    "ai.notion_create_page": ["parent_page_id", "parent_page_id_name"],
-    "ai.notion_read_page": ["page_id", "page_id_name"],
-    "ai.notion_update_page": ["page_id", "page_id_name"],
-    "ai.notion_append_block": ["page_id", "page_id_name"],
-    "ai.notion_query_database": ["database_id", "database_id_name"],
-}
-
-
-@pytest.mark.parametrize("tid, names", RESOURCE_SLOTS.items())
-def test_app_presets_gain_optional_resource_slots(tid, names):
-    slots = {s["name"]: s for s in tr.get_template(tid)["slots"]}
-    assert [n for n in slots if n in names] == names, tid
-    for name in names:
-        assert slots[name]["required"] is False and slots[name]["kind"] == "string", (tid, name)
-    key = names[0]
-    assert slots[key]["path"] == f"config.tools.0.config.{key}"
-    assert slots[f"{key}_name"]["path"] == f"config.tools.0.config._names.{key}"
-
-
-@pytest.mark.parametrize("blank", ["", "  ", None])
-def test_blank_calendar_slot_is_not_bound(blank):
-    node = tr.hydrate_node({"id": "n2", "templateId": "ai.google_calendar_create", "slots": {
-        "label": "l", "description": "d", "prompt": "p", "calendar_id": blank}}, provider="GEMINI")
-    assert node["config"]["tools"] == [{"name": "builtin:google_calendar_create"}]
-
-
-def test_calendar_slot_binds_with_display_name():
-    node = tr.hydrate_node({"id": "n2", "templateId": "ai.google_calendar_update", "slots": {
-        "label": "l", "description": "d", "prompt": "p",
-        "event_id": "evt1", "calendar_id": "team@group", "calendar_id_name": "팀 캘린더"}},
-        provider="GEMINI")
-    assert node["config"]["tools"] == [{"name": "builtin:google_calendar_update", "config": {
-        "event_id": "evt1", "calendar_id": "team@group", "_names": {"calendar_id": "팀 캘린더"}}}]
-
-
 def test_field_meta_removed():
     import tools.registry as reg
     assert not hasattr(reg, "FIELD_META")
@@ -298,7 +231,7 @@ def test_gmail_action_hidden_from_builder():
 
 def test_gmail_generation_preset_unchanged_by_hiding_action():
     """숨기는 건 빌더용 액션뿐이다 — 채팅 생성이 쓰는 ai.gmail_send 프리셋은 그대로다."""
-    assert "ai.gmail_send" in {t["id"] for t in tr.all_templates()}
+    assert "ai.gmail_send" in tr._generation_templates()
     assert tr.get_template("ai.gmail_send")["generation"] is True
 
 
@@ -321,5 +254,5 @@ def test_calendar_delete는_ai_agent_도구_선택지에_없다():
     ids = {c["id"] for c in tools["choices"]}
     assert "builtin:google_calendar_delete" not in ids
     assert "builtin:google_calendar_find" in ids
-    assert not any(t.get("tool_key") == "builtin:google_calendar_delete" for t in tr.all_templates()
+    assert not any(t.get("tool_key") == "builtin:google_calendar_delete" for t in tr._generation_templates().values()
                    if t.get("preset"))
