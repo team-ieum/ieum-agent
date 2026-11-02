@@ -144,6 +144,16 @@ def test_삭제는_엣지도_지우고_마지막_노드는_거절():
     assert len(turn.nodes) == 1
 
 
+def test_이름_변경은_id·연결·config를_그대로_둔다():
+    a = {"id": "a", "event": "transform.map", "type": "TRANSFORM", "label": "a", "config": {"x": 1}}
+    turn = _turn(nodes=[_trigger(), a], edges=[{"source": "t", "target": "a"}])
+    assert tools.rename_node(turn, "a", "  회의 요약 \n") == {"ok": True}
+    assert turn.node("a") == {**a, "label": "회의 요약"} and turn.edges == [{"source": "t", "target": "a"}]
+    assert "error" in tools.rename_node(turn, "a", "   ")
+    assert "error" in tools.rename_node(turn, "nope", "x")
+    assert turn.node("a")["label"] == "회의 요약"
+
+
 @pytest.mark.asyncio
 async def test_add_node는_카탈로그_fixed_config를_오염시키지_않는다():
     from core.template_registry import load_templates
