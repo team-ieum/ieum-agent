@@ -1,64 +1,12 @@
 from enum import Enum
 from typing import Any, Literal, Optional, List
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from api.schemas.generate_workflow import WorkflowNode, WorkflowEdge, McpServerMeta, WebhookMeta
-from api.schemas.request import McpServerConfig
 from api.schemas.response import UsageRecord
 
 
 class ChatResponseType(str, Enum):
-    WORKFLOW_GENERATED   = "WORKFLOW_GENERATED"
     WORKFLOW_MODIFIED    = "WORKFLOW_MODIFIED"
-    INTEGRATION_REQUIRED = "INTEGRATION_REQUIRED"
     CLARIFICATION_NEEDED = "CLARIFICATION_NEEDED"
-
-class IntegrationProvider(str, Enum):
-    GOOGLE  = "GOOGLE"
-    NOTION  = "NOTION"
-    SLACK   = "SLACK"
-    DISCORD = "DISCORD"
-    GITHUB  = "GITHUB"
-    TRENDRADAR = "TRENDRADAR"
-
-class IntegrationType(str, Enum):
-    OAUTH   = "OAUTH"
-    WEBHOOK = "WEBHOOK"
-
-class ActionType(str, Enum):
-    OAUTH = "OAUTH"
-
-class CredentialInfo(BaseModel):
-    id: str
-    displayName: str
-
-class AvailableIntegration(BaseModel):
-    provider: IntegrationProvider
-    credentials: List[CredentialInfo] = []
-
-class UnavailableIntegration(BaseModel):
-    provider: IntegrationProvider
-    type: IntegrationType
-
-class ChatRequest(BaseModel):
-    prompt: str
-    # 수정 대상 워크플로우 ID. backend가 채워 보낸다.
-    # 있으면 워크플로우별 멀티턴 세션을 이어가고, 없으면(신규 생성) 매 요청 격리된 세션을 사용한다.
-    workflowId: Optional[str] = None
-    currentNodes: Optional[List[WorkflowNode]] = None
-    currentEdges: Optional[List[WorkflowEdge]] = None
-    availableIntegrations: List[AvailableIntegration] = []
-    unavailableIntegrations: List[UnavailableIntegration] = []
-    mcpServers: Optional[List[McpServerConfig]] = None
-    # 사용자가 보유한 MCP 서버 카탈로그 메타(catalogId/name/description). backend가 채워 보낸다.
-    # 생성/수정 단계에서 Designer가 적절한 AI 노드에 mcp 도구를 배정하는 데 사용한다(환각 방지).
-    availableMcpServers: Optional[List[McpServerMeta]] = None
-    # 사용자가 보유한 Slack/Discord 웹훅 자격증명 메타. backend가 채워 보낸다.
-    # Designer가 slack/discord 노드에 webhookCredentialId를 배정하는 데 사용한다(환각 방지).
-    availableWebhooks: Optional[List[WebhookMeta]] = None
-
-class ChatAction(BaseModel):
-    type: ActionType
-    provider: IntegrationProvider
 
 class ClarificationOption(BaseModel):
     """사용자가 고를 수 있는 선택지. CLARIFICATION_NEEDED 질문의 선택지와 빌더 모델 카드(응답 type 무관)에 쓰인다.
@@ -67,20 +15,6 @@ class ClarificationOption(BaseModel):
     value: str                          # 선택 시 사용할 값 (예: "ieum/ieum-backend")
     label: str                          # 사용자에게 보일 텍스트 (예: "ieum-backend")
     description: Optional[str] = None   # 부가 설명 (선택)
-
-class ChatResponse(BaseModel):
-    message: str
-    type: ChatResponseType
-    actions: List[ChatAction] = []
-    options: List[ClarificationOption] = []   # CLARIFICATION_NEEDED 질문 선택지 또는 빌더 모델 카드(type 무관), 그 외 빈 배열
-    changeDescription: Optional[str] = None
-    nodes: Optional[List[WorkflowNode]] = None
-    edges: Optional[List[WorkflowEdge]] = None
-    rawPrompt: str
-    workflowName: Optional[str] = None
-    # designer·reviewer의 모든 LLM 호출을 합산한 토큰 사용량. backend의 베타 토큰 쿼터 차감에 쓰인다.
-    # 모델이 토큰을 보고하지 않으면 None (/v1/execute의 AgentExecutionResult.usage와 동일 규약).
-    usage: Optional[UsageRecord] = None
 
 
 # ── 대화형 노드 단위 생성(/v1/chat/stream, spec 2026-10-28 §2.1) ─────────────────────────────
@@ -101,14 +35,25 @@ class LooseNode(BaseModel):
         return v
 
 
-class BuildChatRequest(ChatRequest):
+class BuildChatRequest(BaseModel):
+    """모르는 키(옛 BE가 보내던 연동·MCP·웹훅 목록 등)는 무시한다(pydantic 기본)."""
+    prompt: str
+    workflowId: Optional[str] = None    # backend가 채워 보낸다. 없으면 엔진이 거절한다
     currentNodes: Optional[List[LooseNode]] = None
     # 엣지도 모르는 키(BE 엣지 id 등)를 지우지 않고 돌려준다
     currentEdges: Optional[List[dict[str, Any]]] = None
 
 
-class BuildChatResponse(ChatResponse):
+class BuildChatResponse(BaseModel):
     """노드·엣지는 dict 그대로(요청에서 온 키 보존). buildState는 항상 싣는다 — DONE은 finish 확인 턴에만."""
+    message: str
+    type: ChatResponseType
+    options: List[ClarificationOption] = []   # CLARIFICATION_NEEDED 질문 선택지 또는 빌더 모델 카드(type 무관), 그 외 빈 배열
     nodes: Optional[List[dict[str, Any]]] = None
     edges: Optional[List[dict[str, Any]]] = None
+    rawPrompt: str
+    workflowName: Optional[str] = None
+    # 이 턴의 모든 LLM 호출을 합산한 토큰 사용량. backend의 베타 토큰 쿼터 차감에 쓰인다.
+    # 모델이 토큰을 보고하지 않으면 None (/v1/execute의 AgentExecutionResult.usage와 동일 규약).
+    usage: Optional[UsageRecord] = None
     buildState: Literal["BUILDING", "DONE"] = "BUILDING"
