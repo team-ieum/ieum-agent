@@ -1080,6 +1080,32 @@
           "type": "string"
         },
         {
+          "choices": [
+            {
+              "id": "today",
+              "name": "오늘"
+            },
+            {
+              "id": "tomorrow",
+              "name": "내일"
+            },
+            {
+              "id": "this_week",
+              "name": "이번 주(월~일)"
+            },
+            {
+              "id": "next_7_days",
+              "name": "앞으로 7일"
+            }
+          ],
+          "default": "",
+          "description": "'오늘 일정'처럼 실행한 날 기준이면 골라요(캘린더 시간대). 고르면 시작·종료 시각은 쓰지 않아요",
+          "key": "period",
+          "path": "config.period",
+          "title": "기간",
+          "type": "string"
+        },
+        {
           "default": "",
           "description": "이 시각 이후에 끝나는 일정 (비우면 지금부터 — 시작순으로만 정렬되므로 비우면 가장 오래된 일정부터 나오는 것을 막아요)",
           "key": "time_min",

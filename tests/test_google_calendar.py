@@ -249,6 +249,39 @@ async def test_find_time_min_비우면_지금부터():
     assert_matches_outputs("google_calendar.find", result)
 
 
+_SEOUL = {"/calendars/primary": {"timeZone": "Asia/Seoul"}}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("period, now, start, end", [
+    # 17:00 KST 월요일 — 실행한 날 0시부터
+    ("today", datetime(2026, 11, 2, 8, 0, tzinfo=timezone.utc), "2026-11-02T00:00:00+09:00", "2026-11-03T00:00:00+09:00"),
+    # UTC로는 아직 11-02지만 캘린더 시간대(KST)로는 11-03
+    ("today", datetime(2026, 11, 2, 16, 0, tzinfo=timezone.utc), "2026-11-03T00:00:00+09:00", "2026-11-04T00:00:00+09:00"),
+    ("tomorrow", datetime(2026, 11, 2, 8, 0, tzinfo=timezone.utc), "2026-11-03T00:00:00+09:00", "2026-11-04T00:00:00+09:00"),
+    # 수요일 실행 — 이번 주 월요일 0시 ~ 다음 월요일 0시
+    ("this_week", datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc), "2026-11-02T00:00:00+09:00", "2026-11-09T00:00:00+09:00"),
+    ("next_7_days", datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc), "2026-11-04T00:00:00+09:00", "2026-11-11T00:00:00+09:00"),
+])
+async def test_find_기간은_캘린더_시간대_기준_실행일로_구간을_정한다(period, now, start, end):
+    get = _gets({_EVENTS: {"items": []}, **_SEOUL})
+
+    with patch("tools.google_calendar._now", return_value=now):
+        result = await _run(google_calendar_find, _client(get=get), period=period,
+                            time_min="2026-01-01T00:00:00+09:00", time_max="2026-01-02T00:00:00+09:00")
+
+    params = get.call_args.kwargs["params"]  # 기간을 고르면 시작·종료 시각 칸은 쓰지 않는다
+    assert (params["timeMin"], params["timeMax"]) == (start, end)
+    assert_matches_outputs("google_calendar.find", result)
+
+
+@pytest.mark.asyncio
+async def test_find_모르는_기간은_오류다():
+    result = await _run(google_calendar_find, _client(), period="yesterday")
+
+    assert "error" in result and "yesterday" in result["error"]
+
+
 @pytest.mark.asyncio
 async def test_find_time_max만_과거면_GET_없이_0건이다():
     """비운 time_min은 '지금'이라 timeMin >= timeMax가 되고, Google은 빈 구간을 400으로 거절한다."""

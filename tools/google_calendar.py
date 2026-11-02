@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 from urllib.parse import quote, unquote
 from zoneinfo import ZoneInfo
@@ -81,6 +81,10 @@ def _send_updates(send_updates) -> dict:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# 기간 → (시작 날짜의 오늘 기준 오프셋, 일수). this_week는 이번 주 월요일부터 7일
+_PERIODS = {"today": (0, 1), "tomorrow": (1, 1), "this_week": (None, 7), "next_7_days": (0, 7)}
 
 
 class _Zone:
@@ -366,6 +370,7 @@ async def google_calendar_find(
     access_token: str,
     calendar_id: str = "primary",
     query: str = "",
+    period: str = "",
     time_min: str = "",
     time_max: str = "",
     max_results: int = 50,
@@ -377,6 +382,8 @@ async def google_calendar_find(
         access_token: Google OAuth Access Token
         calendar_id: 캘린더 ID (기본값: "primary")
         query: 검색어(제목·설명·장소·참석자). 비우면 전체
+        period: 실행한 날 기준 기간(캘린더 시간대) — today·tomorrow·this_week(월~일)·next_7_days.
+            고르면 time_min·time_max는 쓰지 않는다. 비우면 time_min·time_max로 찾는다
         time_min: 이 시각 이후에 끝나는 일정 (ISO 8601). 비우면 지금
         time_max: 이 시각 전에 시작하는 일정 (ISO 8601). 비우면 제한 없음
         max_results: 최대 개수 (기본 50, 최대 250)
@@ -388,6 +395,9 @@ async def google_calendar_find(
         limit = min(max(int(max_results), 1), _FIND_MAX)
     except (TypeError, ValueError):
         limit = 50
+    period = "" if _blank(period) else str(period).strip()
+    if period and period not in _PERIODS:
+        return _fail("google_calendar_find", f"모르는 기간: {period}")
     try:
         client = get_http_client()
         headers = _headers(access_token)
@@ -396,9 +406,18 @@ async def google_calendar_find(
         params = {
             "singleEvents": "true",  # 반복 일정은 회차로 펼친다
             "orderBy": "startTime",  # singleEvents=true일 때만 허용, 오름차순만
-            "timeMin": (begin := _now() if _blank(time_min) else await zone.parse(time_min)).isoformat(),
         }
-        if not _blank(time_max):
+        if period:
+            tz = await zone.get()
+            today = _now().astimezone(tz).date()
+            offset, days = _PERIODS[period]
+            first = today - timedelta(days=today.weekday()) if offset is None else today + timedelta(days=offset)
+            # 날짜마다 0시를 다시 잡는다 — 일광절약 시간대에서도 자정이 맞는다
+            params["timeMin"] = datetime.combine(first, time(), tzinfo=tz).isoformat()
+            params["timeMax"] = datetime.combine(first + timedelta(days=days), time(), tzinfo=tz).isoformat()
+        else:
+            params["timeMin"] = (begin := _now() if _blank(time_min) else await zone.parse(time_min)).isoformat()
+        if not period and not _blank(time_max):
             finish = await zone.parse(time_max)
             if finish <= begin:  # Google은 빈 구간을 400으로 거절한다 — 비운 시작이 '지금'이라 과거 종료만 와도 생긴다
                 return json.dumps({"success": True, "found": False, "total": 0, "items": []}, ensure_ascii=False)
