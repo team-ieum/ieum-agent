@@ -201,7 +201,8 @@ def test_event_id는_뒤의_calendar_id를_가리킨다():
 
 EXPECTED_BRANDS = {
     "ai.reasoning": "openai", "ai.agent": "openai",
-    "manual.run": "webhook", "schedule.every": "webhook", "webhook.catch": "webhook",
+    "manual.run": "webhook", "schedule.every": "webhook", "schedule.hourly": "webhook", "schedule.daily": "webhook",
+    "schedule.weekly": "webhook", "schedule.monthly": "webhook", "webhook.catch": "webhook",
     "gmail.new_email": "gmail", "github.new_issue": "github",
     "http.request": "webhook", "approval.request": "webhook", "branch.if": "filter", "transform.map": "filter",
     "slack.send_message": "slack", "discord.send_message": "discord",

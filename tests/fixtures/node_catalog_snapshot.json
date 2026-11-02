@@ -1080,6 +1080,32 @@
           "type": "string"
         },
         {
+          "choices": [
+            {
+              "id": "today",
+              "name": "오늘"
+            },
+            {
+              "id": "tomorrow",
+              "name": "내일"
+            },
+            {
+              "id": "this_week",
+              "name": "이번 주(월~일)"
+            },
+            {
+              "id": "next_7_days",
+              "name": "앞으로 7일"
+            }
+          ],
+          "default": "",
+          "description": "'오늘 일정'처럼 실행한 날 기준이면 골라요(캘린더 시간대). 고르면 시작·종료 시각은 쓰지 않아요",
+          "key": "period",
+          "path": "config.period",
+          "title": "기간",
+          "type": "string"
+        },
+        {
           "default": "",
           "description": "이 시각 이후에 끝나는 일정 (비우면 지금부터 — 시작순으로만 정렬되므로 비우면 가장 오래된 일정부터 나오는 것을 막아요)",
           "key": "time_min",
@@ -2275,6 +2301,147 @@
     {
       "app": "schedule",
       "appTitle": "스케줄",
+      "description": "매일 정한 시각에 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "schedule.daily",
+        "type": "TRIGGER"
+      },
+      "id": "schedule.daily",
+      "inputFields": [
+        {
+          "choices": [
+            {
+              "id": "0",
+              "name": "자정"
+            },
+            {
+              "id": "1",
+              "name": "오전 1시"
+            },
+            {
+              "id": "2",
+              "name": "오전 2시"
+            },
+            {
+              "id": "3",
+              "name": "오전 3시"
+            },
+            {
+              "id": "4",
+              "name": "오전 4시"
+            },
+            {
+              "id": "5",
+              "name": "오전 5시"
+            },
+            {
+              "id": "6",
+              "name": "오전 6시"
+            },
+            {
+              "id": "7",
+              "name": "오전 7시"
+            },
+            {
+              "id": "8",
+              "name": "오전 8시"
+            },
+            {
+              "id": "9",
+              "name": "오전 9시"
+            },
+            {
+              "id": "10",
+              "name": "오전 10시"
+            },
+            {
+              "id": "11",
+              "name": "오전 11시"
+            },
+            {
+              "id": "12",
+              "name": "정오"
+            },
+            {
+              "id": "13",
+              "name": "오후 1시"
+            },
+            {
+              "id": "14",
+              "name": "오후 2시"
+            },
+            {
+              "id": "15",
+              "name": "오후 3시"
+            },
+            {
+              "id": "16",
+              "name": "오후 4시"
+            },
+            {
+              "id": "17",
+              "name": "오후 5시"
+            },
+            {
+              "id": "18",
+              "name": "오후 6시"
+            },
+            {
+              "id": "19",
+              "name": "오후 7시"
+            },
+            {
+              "id": "20",
+              "name": "오후 8시"
+            },
+            {
+              "id": "21",
+              "name": "오후 9시"
+            },
+            {
+              "id": "22",
+              "name": "오후 10시"
+            },
+            {
+              "id": "23",
+              "name": "오후 11시"
+            }
+          ],
+          "key": "hour",
+          "path": "config.hour",
+          "ref": false,
+          "required": true,
+          "title": "시각",
+          "type": "string"
+        },
+        {
+          "default": true,
+          "description": "끄면 토요일·일요일에는 실행하지 않아요.",
+          "key": "weekends",
+          "path": "config.weekends",
+          "ref": false,
+          "title": "주말에도 실행",
+          "type": "boolean"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "triggeredAt",
+          "title": "실행 시각",
+          "type": "datetime"
+        }
+      ],
+      "provider": "ieum",
+      "title": "매일"
+    },
+    {
+      "app": "schedule",
+      "appTitle": "스케줄",
       "description": "정해둔 시각마다 시작해요.",
       "fixed": {
         "config": {
@@ -2311,6 +2478,469 @@
       ],
       "provider": "ieum",
       "title": "스케줄"
+    },
+    {
+      "app": "schedule",
+      "appTitle": "스케줄",
+      "description": "매시간 정각에 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "schedule.hourly",
+        "type": "TRIGGER"
+      },
+      "id": "schedule.hourly",
+      "inputFields": [
+        {
+          "default": true,
+          "description": "끄면 토요일·일요일에는 실행하지 않아요.",
+          "key": "weekends",
+          "path": "config.weekends",
+          "ref": false,
+          "title": "주말에도 실행",
+          "type": "boolean"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "triggeredAt",
+          "title": "실행 시각",
+          "type": "datetime"
+        }
+      ],
+      "provider": "ieum",
+      "title": "매시간"
+    },
+    {
+      "app": "schedule",
+      "appTitle": "스케줄",
+      "description": "매월 정한 날짜·시각에 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "schedule.monthly",
+        "type": "TRIGGER"
+      },
+      "id": "schedule.monthly",
+      "inputFields": [
+        {
+          "choices": [
+            {
+              "id": "1",
+              "name": "1일"
+            },
+            {
+              "id": "2",
+              "name": "2일"
+            },
+            {
+              "id": "3",
+              "name": "3일"
+            },
+            {
+              "id": "4",
+              "name": "4일"
+            },
+            {
+              "id": "5",
+              "name": "5일"
+            },
+            {
+              "id": "6",
+              "name": "6일"
+            },
+            {
+              "id": "7",
+              "name": "7일"
+            },
+            {
+              "id": "8",
+              "name": "8일"
+            },
+            {
+              "id": "9",
+              "name": "9일"
+            },
+            {
+              "id": "10",
+              "name": "10일"
+            },
+            {
+              "id": "11",
+              "name": "11일"
+            },
+            {
+              "id": "12",
+              "name": "12일"
+            },
+            {
+              "id": "13",
+              "name": "13일"
+            },
+            {
+              "id": "14",
+              "name": "14일"
+            },
+            {
+              "id": "15",
+              "name": "15일"
+            },
+            {
+              "id": "16",
+              "name": "16일"
+            },
+            {
+              "id": "17",
+              "name": "17일"
+            },
+            {
+              "id": "18",
+              "name": "18일"
+            },
+            {
+              "id": "19",
+              "name": "19일"
+            },
+            {
+              "id": "20",
+              "name": "20일"
+            },
+            {
+              "id": "21",
+              "name": "21일"
+            },
+            {
+              "id": "22",
+              "name": "22일"
+            },
+            {
+              "id": "23",
+              "name": "23일"
+            },
+            {
+              "id": "24",
+              "name": "24일"
+            },
+            {
+              "id": "25",
+              "name": "25일"
+            },
+            {
+              "id": "26",
+              "name": "26일"
+            },
+            {
+              "id": "27",
+              "name": "27일"
+            },
+            {
+              "id": "28",
+              "name": "28일"
+            },
+            {
+              "id": "L",
+              "name": "마지막 날"
+            }
+          ],
+          "key": "day",
+          "path": "config.day",
+          "ref": false,
+          "required": true,
+          "title": "날짜",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "0",
+              "name": "자정"
+            },
+            {
+              "id": "1",
+              "name": "오전 1시"
+            },
+            {
+              "id": "2",
+              "name": "오전 2시"
+            },
+            {
+              "id": "3",
+              "name": "오전 3시"
+            },
+            {
+              "id": "4",
+              "name": "오전 4시"
+            },
+            {
+              "id": "5",
+              "name": "오전 5시"
+            },
+            {
+              "id": "6",
+              "name": "오전 6시"
+            },
+            {
+              "id": "7",
+              "name": "오전 7시"
+            },
+            {
+              "id": "8",
+              "name": "오전 8시"
+            },
+            {
+              "id": "9",
+              "name": "오전 9시"
+            },
+            {
+              "id": "10",
+              "name": "오전 10시"
+            },
+            {
+              "id": "11",
+              "name": "오전 11시"
+            },
+            {
+              "id": "12",
+              "name": "정오"
+            },
+            {
+              "id": "13",
+              "name": "오후 1시"
+            },
+            {
+              "id": "14",
+              "name": "오후 2시"
+            },
+            {
+              "id": "15",
+              "name": "오후 3시"
+            },
+            {
+              "id": "16",
+              "name": "오후 4시"
+            },
+            {
+              "id": "17",
+              "name": "오후 5시"
+            },
+            {
+              "id": "18",
+              "name": "오후 6시"
+            },
+            {
+              "id": "19",
+              "name": "오후 7시"
+            },
+            {
+              "id": "20",
+              "name": "오후 8시"
+            },
+            {
+              "id": "21",
+              "name": "오후 9시"
+            },
+            {
+              "id": "22",
+              "name": "오후 10시"
+            },
+            {
+              "id": "23",
+              "name": "오후 11시"
+            }
+          ],
+          "key": "hour",
+          "path": "config.hour",
+          "ref": false,
+          "required": true,
+          "title": "시각",
+          "type": "string"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "triggeredAt",
+          "title": "실행 시각",
+          "type": "datetime"
+        }
+      ],
+      "provider": "ieum",
+      "title": "매월"
+    },
+    {
+      "app": "schedule",
+      "appTitle": "스케줄",
+      "description": "매주 정한 요일·시각에 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "schedule.weekly",
+        "type": "TRIGGER"
+      },
+      "id": "schedule.weekly",
+      "inputFields": [
+        {
+          "choices": [
+            {
+              "id": "MON",
+              "name": "월요일"
+            },
+            {
+              "id": "TUE",
+              "name": "화요일"
+            },
+            {
+              "id": "WED",
+              "name": "수요일"
+            },
+            {
+              "id": "THU",
+              "name": "목요일"
+            },
+            {
+              "id": "FRI",
+              "name": "금요일"
+            },
+            {
+              "id": "SAT",
+              "name": "토요일"
+            },
+            {
+              "id": "SUN",
+              "name": "일요일"
+            }
+          ],
+          "key": "weekday",
+          "path": "config.weekday",
+          "ref": false,
+          "required": true,
+          "title": "요일",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "0",
+              "name": "자정"
+            },
+            {
+              "id": "1",
+              "name": "오전 1시"
+            },
+            {
+              "id": "2",
+              "name": "오전 2시"
+            },
+            {
+              "id": "3",
+              "name": "오전 3시"
+            },
+            {
+              "id": "4",
+              "name": "오전 4시"
+            },
+            {
+              "id": "5",
+              "name": "오전 5시"
+            },
+            {
+              "id": "6",
+              "name": "오전 6시"
+            },
+            {
+              "id": "7",
+              "name": "오전 7시"
+            },
+            {
+              "id": "8",
+              "name": "오전 8시"
+            },
+            {
+              "id": "9",
+              "name": "오전 9시"
+            },
+            {
+              "id": "10",
+              "name": "오전 10시"
+            },
+            {
+              "id": "11",
+              "name": "오전 11시"
+            },
+            {
+              "id": "12",
+              "name": "정오"
+            },
+            {
+              "id": "13",
+              "name": "오후 1시"
+            },
+            {
+              "id": "14",
+              "name": "오후 2시"
+            },
+            {
+              "id": "15",
+              "name": "오후 3시"
+            },
+            {
+              "id": "16",
+              "name": "오후 4시"
+            },
+            {
+              "id": "17",
+              "name": "오후 5시"
+            },
+            {
+              "id": "18",
+              "name": "오후 6시"
+            },
+            {
+              "id": "19",
+              "name": "오후 7시"
+            },
+            {
+              "id": "20",
+              "name": "오후 8시"
+            },
+            {
+              "id": "21",
+              "name": "오후 9시"
+            },
+            {
+              "id": "22",
+              "name": "오후 10시"
+            },
+            {
+              "id": "23",
+              "name": "오후 11시"
+            }
+          ],
+          "key": "hour",
+          "path": "config.hour",
+          "ref": false,
+          "required": true,
+          "title": "시각",
+          "type": "string"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "triggeredAt",
+          "title": "실행 시각",
+          "type": "datetime"
+        }
+      ],
+      "provider": "ieum",
+      "title": "매주"
     },
     {
       "app": "slack",

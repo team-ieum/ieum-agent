@@ -26,7 +26,7 @@ def test_에러가_있어도_200_valid_false_4키_목록():
 
 
 def test_저장분_모양_그대로_받는다_필수_필드_없는_노드도_422가_아니다():
-    """WorkflowNode(label 등 필수)를 쓰지 않는다 — currentNodes 422 함정."""
+    """label 등 필수 필드를 강제하는 노드 모델을 쓰지 않는다 — currentNodes 422 함정."""
     resp = client.post("/v1/workflows/validate",
                        json={"nodes": [{"id": "t", "type": "TRIGGER"}, {"id": "x", "position": {"x": 1}}],
                              "edges": None})

@@ -8,7 +8,6 @@ import pytest
 
 from core import template_registry as tr
 from core.template_registry import SlotFillError, hydrate_node, dehydrate_node
-from api.schemas.generate_workflow import WorkflowNode
 
 # description에 새어 나오면 안 되는 개발자 시점 토큰(사용자에게 그대로 보인다).
 _TECHNICAL_TOKENS = ["{{", "templateId", "builtin:", "config.", "node_type",
@@ -62,7 +61,6 @@ def test_hydrate_sets_top_level_description():
     })
     assert node["description"] == "버튼을 누르면 시작돼요."
     assert "description" not in node["config"]
-    assert WorkflowNode(**node).description == "버튼을 누르면 시작돼요."
 
 
 @pytest.mark.parametrize("template_id,slots", [
@@ -90,22 +88,6 @@ def test_dehydrate_preserves_description_for_modify():
     assert draft["slots"]["description"] == "AI가 앞의 결과를 읽고 짧게 정리해요."
     # 왕복: 다시 하이드레이션해도 동일한 description이 유지된다.
     assert hydrate_node(draft, provider="CLAUDE")["description"] == node["description"]
-
-
-def test_workflow_node_description_defaults_for_legacy_payload():
-    """description 도입 이전에 저장된 노드가 수정/채팅 요청으로 되돌아와도 422가 아니다."""
-    node = WorkflowNode(id="node-1", event="manual.run", label="시작", config={})
-    assert node.description == ""
-
-
-def test_workflow_node_accepts_explicit_null_description():
-    """BE 조회 응답은 레거시 노드에 "description": null을 실어 보낸다.
-
-    NodeView에 @JsonInclude(NON_NULL)이 없어 키가 빠지지 않으므로, 기본값만으로는
-    이 PR 이전 저장분의 수정 요청(currentNodes)이 전부 422가 된다."""
-    node = WorkflowNode(id="node-1", event="manual.run", label="시작",
-                        description=None, config={})
-    assert node.description == ""
 
 
 def test_blank_required_string_slot_is_rejected():

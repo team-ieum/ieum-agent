@@ -417,8 +417,8 @@ def trigger_type_of(node: dict) -> str | None:
 def match_entry(node: dict) -> dict | None:
     """칸·출력 규칙을 고를 카탈로그 항목. event 항목이고, AI 항목이면 match가 성립하는 첫 프리셋이 대신한다
     (ai.mcp catalogId 필수·ai.github_query 도구 없음 허용 등 — spec §4 AI 노드). 모르는 event면 None.
-    프리셋 match의 type 조건은 노드 표기가 아니라 event가 정한 AI로 본다 — 정적 검증 경로는 WorkflowNode가 type을
-    덮기 전 노드를 받는다(소문자·누락 type이 ai.agent로 떨어져 tools REQUIRED가 나거나 catalogId 검사가 빠지면 안 된다)."""
+    프리셋 match의 type 조건은 노드 표기가 아니라 event가 정한 AI로 본다 — 정적 검증 경로는 type을
+    정규화하지 않은 저장 노드를 받는다(소문자·누락 type이 ai.agent로 떨어져 tools REQUIRED가 나거나 catalogId 검사가 빠지면 안 된다)."""
     entry = event_entry(node)
     if entry is None or entry["node_type"] != "AI":
         return entry

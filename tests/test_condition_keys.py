@@ -1,27 +1,15 @@
 """CONDITION config 키 표기 통일(IEUM-AI-55 Task 3).
 
 FE 명세·BE executor가 보는 이름은 left/right인데 agent는 leftValue/rightValue를 만들어
-FE 기술정보 칸이 비었다. agent는 이제 left/right만 만들고, 구표기로 저장된 워크플로우가
-수정 요청으로 되돌아오면 스키마 관문에서 표준 표기로 옮긴다.
+FE 기술정보 칸이 비었다. agent는 이제 left/right만 만든다.
 """
-import json
-
 import pytest
 
 import core.template_registry as tr
-from api.schemas.chat import ChatRequest
-from api.schemas.generate_workflow import WorkflowNode
-from core.template_registry import SlotFillError, dehydrate_node, hydrate_node
+from core.template_registry import SlotFillError, hydrate_node
 
 _LEFT_EXPR = "{{nodes.node-1.output.output}}"
 CANONICAL_CFG = {"operator": "equals", "left": _LEFT_EXPR, "right": "urgent"}
-LEGACY_CFG = {"operator": "equals", "leftValue": _LEFT_EXPR, "rightValue": "urgent"}
-
-
-def _condition_node(config: dict) -> dict:
-    """저장된 full-node 포맷의 CONDITION 노드."""
-    return {"id": "node-2", "type": "CONDITION", "event": "branch.if", "label": "분기",
-            "description": "앞의 결과에 따라 갈 길을 나눠요.", "config": dict(config)}
 
 
 def _condition_draft(**slots) -> dict:
@@ -61,52 +49,3 @@ def test_hydrate_requires_each_condition_slot(missing):
     slots.pop(missing)
     with pytest.raises(SlotFillError, match=missing):
         hydrate_node(_condition_draft(**slots))
-
-
-# ── 스키마 검증 + 레거시 정규화 ────────────────────────────────────────────
-
-@pytest.mark.parametrize("missing", ["operator", "left", "right"])
-def test_workflow_node_requires_canonical_fields(missing):
-    cfg = dict(CANONICAL_CFG)
-    cfg.pop(missing)
-    with pytest.raises(ValueError, match=missing):
-        WorkflowNode(**_condition_node(cfg))
-
-
-def test_workflow_node_migrates_legacy_keys():
-    """구표기로 저장된 노드는 거부되지 않고 표준 표기로 옮겨진다(구표기는 남지 않는다)."""
-    node = WorkflowNode(**_condition_node(LEGACY_CFG))
-    assert node.config == CANONICAL_CFG
-
-
-def test_workflow_node_keeps_canonical_when_both_present():
-    cfg = {**CANONICAL_CFG, "leftValue": "구값", "rightValue": "구값"}
-    node = WorkflowNode(**_condition_node(cfg))
-    assert node.config["left"] == _LEFT_EXPR and node.config["right"] == "urgent"
-    assert "leftValue" not in node.config and "rightValue" not in node.config
-
-
-def test_legacy_workflow_is_accepted_at_api_boundary():
-    """/v1/chat의 currentNodes로 들어온 레거시 CONDITION이 422로 튕기지 않고,
-    라우터가 넘기는 model_dump()에는 표준 표기만 담긴다."""
-    node = ChatRequest(prompt="수정", currentNodes=[_condition_node(LEGACY_CFG)],
-                       currentEdges=[]).currentNodes[0]
-    assert node.model_dump()["config"] == CANONICAL_CFG
-
-
-def test_legacy_condition_survives_chat_round_trip():
-    """레거시 워크플로우 수정 시나리오: API 관문 → dehydrate(draft) → Designer 복사 → hydrate.
-    구표기 노드가 draft에서 left/right 슬롯으로 실려야 Designer가 그대로 복사해도 첫 시도에 성공한다."""
-    boundary_node = WorkflowNode(**_condition_node(LEGACY_CFG)).model_dump()
-    draft = dehydrate_node(boundary_node)
-    assert draft["templateId"] == "branch.if"
-    assert draft["slots"]["left"] == _LEFT_EXPR and draft["slots"]["right"] == "urgent"
-
-    rehydrated = hydrate_node(draft)  # Designer가 draft를 그대로 복사해 돌려준 경우
-    assert rehydrated["config"] == CANONICAL_CFG
-
-
-def test_response_nodes_use_canonical_keys():
-    """LLM이 현재 워크플로우의 구표기를 그대로 베껴도 응답 노드는 표준 표기다."""
-    node = WorkflowNode(**_condition_node(LEGACY_CFG))
-    assert json.loads(node.model_dump_json())["config"] == CANONICAL_CFG
