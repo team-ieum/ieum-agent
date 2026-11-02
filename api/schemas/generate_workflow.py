@@ -2,22 +2,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Dict, Any
 
 
-class McpServerMeta(BaseModel):
-    """core/builder가 /v1/chat/stream 생성 중 LLM에 노출하는 사용자 보유 MCP 서버 메타데이터.
-    serverUrl/헤더 등 민감 정보는 제외하고, 매칭·식별에 필요한 정보만 담는다."""
-    catalogId: str
-    name: str
-    description: Optional[str] = None
-
-
-class WebhookMeta(BaseModel):
-    """core/builder가 /v1/chat/stream 생성 중 LLM에 노출하는 사용자 보유 Slack/Discord 웹훅 자격증명 메타데이터.
-    webhook URL 등 민감 정보는 제외하고, 매칭·식별에 필요한 정보만 담는다."""
-    webhookCredentialId: str
-    provider: str
-    displayName: Optional[str] = None
-
-
 # CONDITION config 키의 구표기 → 표준 표기(IEUM-AI-55). FE 명세와 BE executor가 보는 이름은
 # left/right이고 agent는 이제 그 이름만 만든다. 다만 구표기로 저장된 워크플로우가 수정 요청
 # (/v1/chat/stream의 currentNodes)으로 되돌아오므로, 노드 입출력의 단일 관문인

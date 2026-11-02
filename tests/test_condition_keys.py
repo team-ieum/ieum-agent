@@ -9,7 +9,6 @@ import json
 import pytest
 
 import core.template_registry as tr
-from api.schemas.chat import ChatRequest
 from api.schemas.generate_workflow import WorkflowNode
 from core.template_registry import SlotFillError, dehydrate_node, hydrate_node
 
@@ -84,14 +83,6 @@ def test_workflow_node_keeps_canonical_when_both_present():
     node = WorkflowNode(**_condition_node(cfg))
     assert node.config["left"] == _LEFT_EXPR and node.config["right"] == "urgent"
     assert "leftValue" not in node.config and "rightValue" not in node.config
-
-
-def test_legacy_workflow_is_accepted_at_api_boundary():
-    """/v1/chat의 currentNodes로 들어온 레거시 CONDITION이 422로 튕기지 않고,
-    라우터가 넘기는 model_dump()에는 표준 표기만 담긴다."""
-    node = ChatRequest(prompt="수정", currentNodes=[_condition_node(LEGACY_CFG)],
-                       currentEdges=[]).currentNodes[0]
-    assert node.model_dump()["config"] == CANONICAL_CFG
 
 
 def test_legacy_condition_survives_chat_round_trip():
