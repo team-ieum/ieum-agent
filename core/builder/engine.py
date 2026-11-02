@@ -185,7 +185,7 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
     if not workflow_id:
         raise ValueError(NO_WORKFLOW_MESSAGE)
     nodes, edges = copy.deepcopy(current_nodes or []), copy.deepcopy(current_edges or [])
-    before, was_empty = _canon(nodes, edges), not nodes
+    before, before_hash, was_empty = _canon(nodes, edges), workflow_hash(nodes, edges), not nodes
     svc = _session_service()
     session_id = f"build-{user_id}-{workflow_id}"
     session = await _load_session(svc, user_id, session_id)
@@ -243,7 +243,10 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
         else:
             turn.pending["hash"] = node_hash(target)
     end_delta = {"confirmed": None, "pending": turn.pending}  # 대기는 질문이 실린 응답을 만든 여기서만 저장한다
-    if changed and (state.get("baseline") or {}) and not state.get("paused_notice"):
+    live = bool(state.get("baseline") or {}) and not state.get("paused_notice")  # 트리거가 켜진 채 저장된 모양
+    # 켜진 워크플로우에서 이름(label)만 바뀌면 DONE으로 저장해 트리거를 끄지 않는다(workflow_hash는 label을 안 본다)
+    label_only = changed and live and workflow_hash(nodes, edges) == before_hash
+    if changed and live and not label_only:
         tail.append(PAUSED_NOTICE)
         end_delta["paused_notice"] = True
     if turn.ask:
@@ -258,7 +261,7 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
         # 첫 노드가 생기는 턴에만(BE는 저장 전 버전 ≤1일 때만 이름을 반영한다)
         workflowName=(state.get("outline") or {}).get("workflowName") if changed and was_empty else None,
         options=options_of(turn.pending["choices"]) if (turn.pending or {}).get("kind") == "model_pick" else [],
-        usage=_usage(usage))
+        usage=_usage(usage), **({"buildState": "DONE"} if label_only else {}))
     logger.info("[build] wf=%s type=%s nodes=%d calls_cut=%s", workflow_id, response.type.value, len(nodes), cut_short)
     return response
 

@@ -265,10 +265,11 @@ def rename_node(turn: Turn, node_id: str, label: str) -> dict:
     node = turn.node(node_id)
     if node is None:
         return _err("없는 노드예요.")
-    if not clean(label):
+    label = clean(label)
+    if not label:
         return _err("새 이름이 비었어요.")
-    node["label"] = clean(label)
-    return {"ok": True}
+    node["label"] = label
+    return {"ok": True, "label": label}  # 60자에서 잘린 실제 이름
 
 
 # ── 칸 ────────────────────────────────────────────────────────────────────
