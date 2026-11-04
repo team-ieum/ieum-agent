@@ -24,8 +24,8 @@ _SUBMODULE_HINT = "`git submodule update --init`으로 catalog/를 받아라"
 _VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL", "ACTION"}
 
 _REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "fixed"}
-_GENERATION_TOP_KEYS = {"tags", "menu"}  # generation 항목만 필수(옛 생성 경로 잔재, 3단계에서 정리)
-_LEGACY_TOP_KEYS = {"slots", "allowed_config_fields"}  # 옛 파생 키 — 파일에 쓰면 거부
+# 옛 생성 경로 칸 — 읽는 곳이 없다. 파일에 쓰면 거부
+_LEGACY_TOP_KEYS = {"slots", "allowed_config_fields", "tags", "menu", "golden_snippet", "generation"}
 
 # 모듈 캐시 (파일은 기동 중 불변)
 _cache: dict | None = None
@@ -56,16 +56,9 @@ def _validate_template(tpl: dict, where: str, tool_keys: set, apps: dict) -> Non
     legacy = _LEGACY_TOP_KEYS & tpl.keys()
     if legacy:
         raise TemplateSchemaError(
-            f"{tid}: {sorted(legacy)}는 더 이상 쓰지 않는다 — inputFields·fields에서 파생된다(SCHEMA.md).")
-    for flag in ("builder", "generation"):
-        if flag in tpl and not isinstance(tpl[flag], bool):
-            raise TemplateSchemaError(f"{tid}: {flag}는 true/false여야 합니다.")
-    if tpl.get("generation", True):
-        gm = _GENERATION_TOP_KEYS - tpl.keys()
-        if gm:
-            raise TemplateSchemaError(f"{tid}: generation 항목은 {sorted(gm)}가 필요합니다.")
-        if not isinstance(tpl["tags"], list) or not tpl["tags"]:
-            raise TemplateSchemaError(f"{tid}: tags는 비어있지 않은 리스트여야 함")
+            f"{tid}: {sorted(legacy)}는 옛 생성 경로 칸이다 — 쓰지 않는다(SCHEMA.md).")
+    if "builder" in tpl and not isinstance(tpl["builder"], bool):
+        raise TemplateSchemaError(f"{tid}: builder는 true/false여야 합니다.")
 
     if tpl["node_type"] not in _VALID_NODE_TYPES:
         raise TemplateSchemaError(f"{tid}: node_type '{tpl['node_type']}' 유효하지 않음 {sorted(_VALID_NODE_TYPES)}")
@@ -169,7 +162,6 @@ def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
 
     t = copy.deepcopy(tpl)
     t.setdefault("builder", True)
-    t.setdefault("generation", True)
     t["event"] = PRESET_EVENT if t.get("preset") else t["id"]
     t["fixed"]["event"] = t["event"]
     t["fixed"].setdefault("config", {})

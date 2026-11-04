@@ -1,21 +1,18 @@
 from core import template_registry as tr
-from tests.catalog_paths import generation_entries
 
 
 def test_all_templates_load_and_validate():
     """모든 시드 템플릿이 스키마/드리프트 검증을 통과한다."""
     tr.validate_registry()
-    templates = list(generation_entries().values())
-    assert len(templates) >= 4
-    ids = {t["id"] for t in templates}
-    assert {"schedule.every", "ai.notion_create_page", "ai.github_query", "transform.map"} <= ids
+    ids = set(tr.load_templates())
+    assert {"schedule.every", "ai.web_search", "ai.github_query", "transform.map"} <= ids
 
 
 def test_tool_key_matches_tool_map():
     """tool_key가 null이 아닌 템플릿은 모두 _TOOL_MAP에 존재한다(드리프트 없음)."""
     keys = tr._tool_map_keys()
-    for tpl in generation_entries().values():
-        if tpl["tool_key"] is not None:
+    for tpl in tr.load_templates().values():
+        if tpl["tool_key"] is not None and tpl["node_type"] != "ACTION":  # ACTION은 builtin:github_* 등 전용 키도 쓴다
             assert tpl["tool_key"] in keys, f"{tpl['id']}: 드리프트"
 
 
@@ -34,12 +31,12 @@ _NO_PRESET_TOOLS = {"builtin:slack_send_channel_message", "builtin:discord_send_
 def test_every_user_facing_tool_has_template():
     """가공/내부 도구를 제외한 모든 _TOOL_MAP 키는 템플릿으로 노출되어야 한다(드리프트 게이트)."""
     keys = tr._tool_map_keys()
-    covered = {t["tool_key"] for t in generation_entries().values() if t["tool_key"]}
+    covered = {t["tool_key"] for t in tr.load_templates().values() if t["tool_key"]}
     expected = keys - _INTERNAL_TOOLS - _NO_PRESET_TOOLS
     missing = expected - covered
     assert not missing, f"템플릿 미커버 tool_key: {sorted(missing)}"
 
 
 def test_all_node_types_have_at_least_one_template():
-    types = {t["node_type"] for t in generation_entries().values()}
+    types = {t["node_type"] for t in tr.load_templates().values()}
     assert {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL"} <= types

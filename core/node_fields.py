@@ -16,31 +16,26 @@ class FieldError(ValueError):
 
 VALID_FIELD_TYPES = {"string", "text", "integer", "number", "boolean", "datetime",
                      "cron", "json", "dict", "object"}
-VALID_SLOT_KINDS = {"string", "enum", "provider", "model", "cron", "expr", "mapping", "http_method"}
 # optionsParams는 /fields 응답 Field 전용이라 넣지 않는다 — 카탈로그 칸이 처음 쓸 때 그 PR에서 허용한다(spec 2026-10-26 §3-1)
 _FIELD_ATTRS = {"key", "title", "type", "description", "required", "default", "choices",
                 "optionsSource", "optionsInputs", "fieldsSource", "fieldsInputs",
-                "list", "children", "dynamic", "ref", "llm", "path"}
+                "list", "children", "dynamic", "ref", "path"}
 # fieldsSource 형식 = optionsSource와 같은 <공급원>.<목록>(카탈로그 scripts/validate.py OPTIONS_SOURCE_RE)
 _SOURCE_RE = re.compile(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*")
-_LLM_ATTRS = {"hint", "slot", "name", "kind", "inject"}
-_INJECT = {"provider", "model"}
 _PY_TYPES = {str: "string", int: "integer", float: "number", bool: "boolean", dict: "object"}
 
 # node_type AI 항목의 inputFields 앞에 로더가 붙인다. 순서 = 기존 슬롯 순서(llmProvider·model·prompt).
 AI_COMMON_FIELDS = [
     {"key": "llmProvider", "title": "AI 제공자", "type": "string", "required": True, "ref": False,
      "choices": [{"id": "CLAUDE", "name": "Claude"}, {"id": "OPENAI", "name": "OpenAI"},
-                 {"id": "GEMINI", "name": "Gemini"}],
-     "llm": {"inject": "provider", "hint": "요청자 provider 계승"}},
+                 {"id": "GEMINI", "name": "Gemini"}]},
     {"key": "model", "title": "모델", "type": "string", "required": True, "ref": False,
-     "optionsSource": "ai.models", "optionsInputs": ["llmProvider"],
-     "llm": {"inject": "model", "hint": "요청 provider의 기본 모델. 시스템이 자동 주입한다(작성 금지)."}},
+     "optionsSource": "ai.models", "optionsInputs": ["llmProvider"]},
     {"key": "prompt", "title": "지시문", "type": "text", "required": True},
     # 비우면 서버가 정한다(BE AgentNodeExecutor: 역할·베타 자격에 따라). 생성 경로는 fixed ""로 고정.
     {"key": "credentialId", "title": "API 키", "type": "string", "ref": False,
-     "optionsSource": "ieum.credentials", "optionsInputs": ["llmProvider"], "llm": {"slot": False}},
-    {"key": "systemMessage", "title": "시스템 메시지", "type": "text", "llm": {"slot": False}},
+     "optionsSource": "ieum.credentials", "optionsInputs": ["llmProvider"]},
+    {"key": "systemMessage", "title": "시스템 메시지", "type": "text"},
 ]
 AI_COMMON_KEYS = {f["key"] for f in AI_COMMON_FIELDS}
 
@@ -90,16 +85,6 @@ def validate_field(field: dict, *, partial: bool = False) -> None:
         inputs = field["fieldsInputs"]
         if not (isinstance(inputs, list) and all(isinstance(i, str) and i for i in inputs)):
             raise FieldError(f"'{key}': fieldsInputs는 칸 key 목록이어야 합니다.")
-    if "llm" in field:  # null도 거부 — merge_common이 dict로 펼친다
-        llm = field["llm"]
-        if not isinstance(llm, dict) or set(llm) - _LLM_ATTRS:
-            raise FieldError(f"'{key}': llm은 {sorted(_LLM_ATTRS)} 키만 갖는 객체여야 합니다.")
-        if "slot" in llm and not isinstance(llm["slot"], bool):
-            raise FieldError(f"'{key}': llm.slot은 true/false여야 합니다.")
-        if "kind" in llm and llm["kind"] not in VALID_SLOT_KINDS:
-            raise FieldError(f"'{key}': llm.kind '{llm['kind']}'가 유효하지 않습니다.")
-        if "inject" in llm and llm["inject"] not in _INJECT:
-            raise FieldError(f"'{key}': llm.inject는 provider|model이어야 합니다.")
     for child in field.get("children") or []:
         validate_field(child)
 
@@ -137,7 +122,7 @@ def signature_fields(fn, exclude: set[str]) -> list[dict]:
 
 
 def apply_overrides(fields: list[dict], overrides: dict, where: str) -> list[dict]:
-    """시그니처 필드에 항목 `fields` 덮어쓰기를 적용한다(얕은 병합, llm은 통째로 교체).
+    """시그니처 필드에 항목 `fields` 덮어쓰기를 적용한다(얕은 병합).
     시그니처 밖 키는 title·type을 포함한 전체 정의여야 하고 뒤에 붙는다 — 파라미터 이름이 바뀌어
     덮어쓰기가 떠돌면 여기서 기동이 실패한다."""
     sig_keys = {f["key"] for f in fields}
@@ -157,17 +142,13 @@ def apply_overrides(fields: list[dict], overrides: dict, where: str) -> list[dic
 
 
 def merge_common(common: list[dict], own: list[dict]) -> list[dict]:
-    """공통 필드에 항목 inputFields를 병합한다. 같은 key는 공통 위치에서 덮어쓰고 새 key는 뒤에 붙인다.
-    llm은 한 단계 더 병합한다 — hint만 줘도 공통 llm(inject 등)이 남는다."""
+    """공통 필드에 항목 inputFields를 병합한다. 같은 key는 공통 위치에서 덮어쓰고 새 key는 뒤에 붙인다."""
     own_by_key = {f["key"]: f for f in own}
     common_keys = {c["key"] for c in common}
     merged = []
     for c in common:
         o = own_by_key.get(c["key"], {})
-        m = {**c, **o}
-        if "llm" in o:
-            m["llm"] = {**c.get("llm", {}), **o["llm"]}
-        merged.append(m)
+        merged.append({**c, **o})
     merged += [f for f in own if f["key"] not in common_keys]
     return copy.deepcopy(merged)
 
