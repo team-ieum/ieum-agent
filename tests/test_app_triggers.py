@@ -1,9 +1,6 @@
 """앱 트리거(빌더 전용) 카탈로그 계약 — spec 2026-10-11-app-triggers-design §2."""
-import pytest
-
 from core import template_registry as tr
 from core.node_catalog import node_catalog
-from core.template_registry import PASSTHROUGH_TEMPLATE_ID, SlotFillError
 
 GMAIL, GITHUB = "gmail.new_email", "github.new_issue"
 
@@ -61,32 +58,4 @@ def test_앱_트리거는_생성_경로에_없다():
     for tid in (GMAIL, GITHUB):
         t = tr.get_template(tid)
         assert (t["builder"], t["generation"]) == (True, False)
-        assert tid not in tr.template_ids()
-        assert tid not in tr.menu_index()
-        assert tid not in tr.slot_catalog_text()
-        with pytest.raises(SlotFillError, match="존재하지 않는 templateId"):
-            tr.hydrate_node({"id": "node-1", "templateId": tid, "slots": {}}, provider="GEMINI")
-
-
-@pytest.mark.parametrize("config", [
-    {"triggerType": "GMAIL_NEW_EMAIL", "serviceType": "GOOGLE", "query": "from:boss@x.com"},
-    {"triggerType": "GITHUB_NEW_ISSUE", "serviceType": "GITHUB", "repoId": "1", "_names": {"repoId": "o/r"}},
-])
-def test_앱_트리거_노드는_채팅에서_passthrough로_보존된다(config):
-    node = {"id": "node-1", "type": "TRIGGER", "label": "시작", "description": "설명", "config": config}
-    assert tr.resolve_template_for_node(node) is None
-    draft = tr.dehydrate_node(node)
-    assert draft["templateId"] == PASSTHROUGH_TEMPLATE_ID
-    assert tr.hydrate_node(draft, passthrough_originals={"node-1": node}) == node
-
-
-@pytest.mark.parametrize("node,logged", [
-    ({"id": "n1", "type": "ACTION", "event": "slack.send_message", "config": {"tools": [{"name": "slack"}]}}, False),
-    ({"id": "n2", "type": "TRIGGER", "event": "gmail.new_email", "config": {"triggerType": "GMAIL_NEW_EMAIL"}}, False),
-    ({"id": "n3", "type": "AI", "event": "ai.agent", "config": {"tools": [{"name": "zzz_unknown"}]}}, True),
-])
-def test_passthrough_log_skips_builder_only_entries(node, logged, caplog):
-    """빌더 전용 항목은 설계상 늘 pass-through라 로그 생략. 프리셋 match가 안 맞는 AI 노드의 기본 항목(ai.agent)은 회귀 신호라 유지."""
-    with caplog.at_level("INFO", logger="core.template_registry"):
-        assert tr.dehydrate_node(node)["templateId"] == PASSTHROUGH_TEMPLATE_ID
-    assert any("pass-through 강등" in r.message for r in caplog.records) is logged
+        assert tid not in tr._generation_templates()

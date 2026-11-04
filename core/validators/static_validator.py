@@ -176,7 +176,7 @@ def field_errors(node: dict) -> list[dict]:
         if entry["node_type"] == "AI" and path in _SKIPPED_AI_FIELDS:
             continue
         value = _get_by_path(node, path)
-        # AI 노드의 도구 칸은 비우면 "AI가 결정" — 생성 슬롯도 항상 선택이다(node_fields.derive_slots).
+        # AI 노드의 도구 칸은 비우면 "AI가 결정"이라 선택이다.
         # 채운 값은 형식 검사를 받는다.
         if (value in _EMPTY and entry["node_type"] == "AI" and entry["tool_key"]
                 and path.startswith(_TOOL_FIELD_PREFIX)):

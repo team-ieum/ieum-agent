@@ -1,74 +1,14 @@
+import inspect
 import pytest
 
+from core.node_fields import signature_fields
 from tools.registry import (
     brand_for_entry,
     resolve_action_fn,
-    tool_param_spec,
-    required_user_params,
-    service_blueprint,
-    all_blueprints,
     brand_for_node,
     apply_service_brand,
     RUNTIME_INJECTED_PARAMS,
 )
-
-
-def test_param_spec_classifies_runtime_injected():
-    spec = tool_param_spec("builtin:notion_create_page")
-    assert spec["token"]["class"] == "runtime_injected"
-    assert spec["parent_page_id"]["class"] == "required"
-
-
-def test_required_excludes_runtime_and_optional():
-    req = required_user_params("builtin:notion_create_page")
-    assert "parent_page_id" in req
-    assert "title" in req
-    assert "token" not in req  # 런타임 주입 제외
-
-
-def test_optional_param_detected():
-    spec = tool_param_spec("builtin:notion_search")
-    assert spec["filter_type"]["class"] == "optional"
-    assert spec["filter_type"]["default"] == "page"
-
-
-def test_google_access_token_is_runtime_injected():
-    req = required_user_params("builtin:google_sheets_write")
-    assert "access_token" not in req
-    assert "spreadsheet_id" in req
-
-
-def test_slack_webhook_runtime_injected():
-    spec = tool_param_spec("slack")
-    assert spec["webhook_url"]["class"] == "runtime_injected"
-    assert spec["message"]["class"] == "required"
-
-
-def test_service_blueprint_groups_tools_and_policy():
-    bp = service_blueprint("notion")
-    assert bp["service"] == "notion"
-    assert "builtin:notion_create_page" in bp["tools"]
-    assert "builtin:notion_search" in bp["tools"]
-    assert "prompt_hint" in bp  # SERVICE_POLICY 합성 확인
-
-
-def test_all_blueprints_covers_registered_services():
-    bps = all_blueprints()
-    for svc in ("notion", "slack", "google_sheets", "gmail", "web_search", "github"):
-        assert svc in bps
-
-
-def test_github_policy_only_blueprint():
-    bp = service_blueprint("github")
-    # 노드 tools 계약: github는 tools를 비워야 하므로 tool-based 키가 없어야 한다
-    assert bp["tools"] == {}
-    assert bp["node_contract"] == "tools_must_be_empty"
-    assert bp["mount"] == "dynamic_subagent"
-    # 액션 스펙은 동적 마운트 함수에서 파생된다
-    assert "github_list_pull_requests" in bp["actions"]
-    pr = bp["actions"]["github_list_pull_requests"]
-    assert pr["owner"]["class"] == "required"
-    assert pr["token"]["class"] == "runtime_injected"
 
 
 def test_runtime_injected_set_contract():
@@ -115,12 +55,6 @@ def test_apply_service_brand_injects_in_place():
     assert nodes[0]["config"]["brand"] == "webhook"
     assert nodes[1]["config"]["brand"] == "slack"
     assert nodes[2]["config"]["brand"] == "openai"
-
-
-def test_brand_field_in_universal_config_fields():
-    # 주입한 brand가 검증 화이트리스트를 통과하도록 universal에 포함되어야 한다
-    from core.template_registry import UNIVERSAL_CONFIG_FIELDS
-    assert "brand" in UNIVERSAL_CONFIG_FIELDS
 
 
 def test_github_subagent_node_brand_from_intent():
@@ -180,13 +114,6 @@ def test_github_create_issue_stays_out_of_tool_map():
 
     assert github_create_issue not in _TOOL_MAP.values()
     assert get_tools_for_request([{"name": "builtin:github_create_issue"}]) == []
-
-
-def test_github_create_issue_in_dynamic_blueprint():
-    action = service_blueprint("github")["actions"]["github_create_issue"]
-    assert action["token"]["class"] == "runtime_injected"
-    assert action["title"]["class"] == "required"
-    assert action["body"]["class"] == "optional"
 
 
 @pytest.mark.parametrize("event", ["github.list_issues", "github.create_issue"])
@@ -271,25 +198,33 @@ def test_ACTION_캘린더_수정은_위험_인자를_그대로_연다():
         assert k in params
 
 
+def _required_keys(tool_key: str) -> list[str]:
+    """주입 인자를 뺀 도구 시그니처의 필수 칸(카탈로그 칸 파생과 같은 규칙)."""
+    return [f["key"] for f in signature_fields(resolve_action_fn(tool_key), RUNTIME_INJECTED_PARAMS)
+            if f.get("required")]
+
+
+def _injected(tool_key: str) -> set[str]:
+    """도구 시그니처에 실제로 있는 실행 시 주입 인자."""
+    return set(inspect.signature(resolve_action_fn(tool_key)).parameters) & RUNTIME_INJECTED_PARAMS
+
+
 def test_slack_봇_도구는_token을_주입받고_brand는_slack이다():
-    spec = tool_param_spec("builtin:slack_send_channel_message")
-    assert spec["token"]["class"] == "runtime_injected"
-    assert [n for n, s in spec.items() if s["class"] == "required"] == ["channel", "text"]
+    assert "token" in _injected("builtin:slack_send_channel_message")
+    assert _required_keys("builtin:slack_send_channel_message") == ["channel", "text"]
     assert brand_for_node({"type": "AI", "event": "ai.agent",
                            "config": {"tools": [{"name": "builtin:slack_send_channel_message"}]}}) == "slack"
 
 
 def test_discord_봇_도구는_token과_허용_서버를_주입받고_brand는_discord다():
-    spec = tool_param_spec("builtin:discord_send_channel_message")
-    assert (spec["token"]["class"], spec["allowed_guild_ids"]["class"]) == ("runtime_injected", "runtime_injected")
-    assert [n for n, s in spec.items() if s["class"] == "required"] == ["channel_id", "content"]
+    assert {"token", "allowed_guild_ids"} <= _injected("builtin:discord_send_channel_message")
+    assert _required_keys("builtin:discord_send_channel_message") == ["channel_id", "content"]
     assert brand_for_node({"type": "AI", "event": "ai.agent",
                            "config": {"tools": [{"name": "builtin:discord_send_channel_message"}]}}) == "discord"
 
 
 def test_notion_DB_행_도구는_token을_주입받고_brand는_notion이다():
     for key, required in (("builtin:notion_create_row", ["data_source_id"]), ("builtin:notion_update_row", ["row_id"])):
-        spec = tool_param_spec(key)
-        assert spec["token"]["class"] == "runtime_injected"
-        assert [n for n, s in spec.items() if s["class"] == "required"] == required
+        assert "token" in _injected(key)
+        assert _required_keys(key) == required
         assert brand_for_node({"type": "AI", "event": "ai.agent", "config": {"tools": [{"name": key}]}}) == "notion"

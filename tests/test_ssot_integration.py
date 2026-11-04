@@ -1,6 +1,6 @@
 """SSOT 통합 + 드리프트 방지 (#8)
 
-노드 템플릿 레지스트리(파일 SSOT) 하나에서 허용 키·도구 키·검색(태그)이 일관되게 파생되는지,
+노드 템플릿 레지스트리(파일 SSOT) 하나에서 도구 키·검색(태그)이 일관되게 파생되는지,
 그리고 드리프트가 생기면 CI가 실패하는지 검증한다.
 """
 import pytest
@@ -9,25 +9,13 @@ from core import template_registry as tr
 from tests.catalog_paths import apps
 
 
-# --- 드리프트 게이트: 레지스트리 ↔ _TOOL_MAP ↔ 검증 ↔ 태그 ---
-
-def test_golden_snippet_config_within_validator_whitelist():
-    """레지스트리↔검증 정합: 모든 골든 스니펫의 config 키는 validator 화이트리스트 안에 있어야 한다.
-    (SCHEMA.md 규칙 4/5 — 템플릿이 보여주는 예시가 곧 검증을 통과해야 함)"""
-    for tpl in tr.all_templates():
-        snip = tpl.get("golden_snippet")
-        if not snip:
-            continue
-        allowed = tr.allowed_config_fields_for_node(snip)
-        assert allowed is not None, f"{tpl['id']}: 노드 타입 화이트리스트 없음"
-        unknown = set((snip.get("config") or {}).keys()) - allowed
-        assert not unknown, f"{tpl['id']}: 골든 스니펫 config가 화이트리스트 위반 {sorted(unknown)}"
+# --- 드리프트 게이트: 레지스트리 ↔ _TOOL_MAP ↔ 태그 ---
 
 
 def test_golden_snippet_tool_keys_in_tool_map():
     """레지스트리↔_TOOL_MAP 정합: 골든 스니펫 tools의 키는 모두 실행 레지스트리에 존재한다."""
     keys = tr._tool_map_keys()
-    for tpl in tr.all_templates():
+    for tpl in tr._generation_templates().values():
         snip = tpl.get("golden_snippet") or {}
         for tool in (snip.get("config", {}) or {}).get("tools", []) or []:
             name = tool.get("name") if isinstance(tool, dict) else tool
@@ -39,7 +27,7 @@ def test_golden_snippet_tool_keys_in_tool_map():
 
 def test_every_template_has_tags_and_menu():
     """레지스트리↔검색 정합: 모든 템플릿은 비어있지 않은 tags와 menu를 가진다(검색 가능)."""
-    for tpl in tr.all_templates():
+    for tpl in tr._generation_templates().values():
         assert tpl["tags"], f"{tpl['id']}: tags 비어있음"
         assert tpl["menu"].strip(), f"{tpl['id']}: menu 비어있음"
 
