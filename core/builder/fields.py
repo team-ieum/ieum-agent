@@ -10,7 +10,8 @@ from tools.registry import RUNTIME_INJECTED_PARAMS
 
 # 자유 입력 목적지 칸 — 사용자가 대화에 직접 적은 호스트·주소로만 정한다. 받는 사람 칸이 새로 열리면 여기에 더한다.
 DESTINATION_URL_FIELDS = {("http.request", "config.url"), ("ai.agent", "config.tools.0.config.url")}
-DESTINATION_EMAIL_FIELDS = {("google_calendar.update", "config.attendees")}  # 쉼표 구분 이메일 — 초대 메일이 나간다
+DESTINATION_EMAIL_FIELDS = {("google_calendar.update", "config.attendees"), ("gmail.send_email", "config.to"),
+                            ("gmail.send_email", "config.cc"), ("gmail.send_email", "config.bcc")}  # 쉼표 구분 이메일 — 초대·메일이 나간다
 # 실행 때 주입되는 값·저장 때 BE가 채우는 값은 LLM이 쓰지 않는다(모델 칸 llmProvider·model은 writable_fields가 뺀다)
 _FORBIDDEN_KEYS = {"credentialId"} | RUNTIME_INJECTED_PARAMS
 # AI 노드 모델 칸 — 빌더 모델 카드가 credentialId와 함께 쓴다(빌더 LLM은 쓰지 못한다)

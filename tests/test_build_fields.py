@@ -105,6 +105,17 @@ def test_참석자_메일은_사용자가_적은_주소만():
     assert node["config"]["attendees"] == "kim@ieum.io, lee@ieum.io"
 
 
+
+@pytest.mark.parametrize("path", ["config.to", "config.cc", "config.bcc"])
+def test_메일_받는_사람은_사용자가_적은_주소만(path):
+    node = _node("gmail.send_email", nid="g")
+    state = _state(text="kim@ieum.io 로 보내줘")
+    applied, _ = apply_fields(node, {path: "kim@ieum.io"}, state)
+    assert applied == [path]
+    for bad in ("evil@x.com", "{{nodes.t.output.from}}", ["kim@ieum.io"]):
+        _, rejected = apply_fields(node, {path: bad}, state)
+        assert path in rejected
+
 def test_드롭다운_칸은_후보_id나_사용자가_말한_값만():
     node = _node("github.create_issue")
     seen = {"n1|config.owner": {"ieum": "ieum"}}
