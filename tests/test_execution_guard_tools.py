@@ -84,10 +84,9 @@ def test_validate_execution은_simple_노드의_Discord_봇_도구를_거부한�
 @pytest.mark.parametrize("tool_key, tokens", [
     ("builtin:notion_create_row", {"notion_token": "n-token"}),
     ("builtin:google_sheets_read", {"google_access_token": "g-token"}),
-    ("gmail", {}),
 ])
 def test_validate_execution은_simple_노드의_주입_인자_도구를_거부한다(tool_key, tokens):
-    """simple 경로는 token·access_token·SMTP를 바인딩하지 않는다 — 남은 주입 인자는 LLM이 채운다."""
+    """simple 경로는 token·access_token을 바인딩하지 않는다 — 남은 주입 인자는 LLM이 채운다."""
     request = AgentNodeRequest(nodeId="n1", renderedPrompt="p", agentType="simple", tools=[{"name": tool_key}])
     with pytest.raises(ExecutionGuardError, match=rf"{tool_key}.*react AI 노드\(ai\.agent\)에서만"):
         ExecutionGuard.validate_execution(request, **tokens)

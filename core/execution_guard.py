@@ -44,7 +44,7 @@ class ExecutionGuard:
 
     @staticmethod
     def _tools_with_unbound_injected_params(tools: Optional[list]) -> list[str]:
-        """simple 경로(run_simple_agent)는 workflow_context_data 말고 주입 인자(토큰·웹훅·SMTP)를 바인딩하지 않는다 —
+        """simple 경로(run_simple_agent)는 workflow_context_data 말고 주입 인자(토큰·웹훅)를 바인딩하지 않는다 —
         남으면 LLM 스키마에 드러나 모델(또는 프롬프트 인젝션)이 값을 채운다. simple과 같게 도구를 만들어
         (tools[].config·_AI_DEFAULTS가 묶은 인자는 시그니처에서 빠진다) 남은 주입 인자가 있는 도구 이름을 돌려준다."""
         import inspect

@@ -8,7 +8,6 @@ from tools.slack import send_slack_message
 from tools.slack_bot import slack_send_channel_message
 from tools.discord import send_discord_webhook
 from tools.discord_bot import discord_send_channel_message
-from tools.gmail import send_gmail
 from tools.http_fetch import http_fetch
 from tools.web_search import web_search
 from tools.utils import json_parse, text_extract, date_format
@@ -74,7 +73,6 @@ _TOOL_MAP: dict = {
     "builtin:slack_send_channel_message": slack_send_channel_message,
     "discord": send_discord_webhook,
     "builtin:discord_send_channel_message": discord_send_channel_message,
-    "gmail": send_gmail,
     "builtin:http_fetch": http_fetch,
     "builtin:web_search": web_search,
     "builtin:notion_create_page": notion_create_page,
