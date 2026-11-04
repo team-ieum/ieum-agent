@@ -7,7 +7,7 @@ serviceType은 폐지됐고 실행에 관여하지 않는다.
 import pytest
 
 from core import template_registry as tr
-from tests.catalog_paths import apps
+from tests.catalog_paths import apps, generation_entries
 
 
 # --- model: 기본 모델 계약 -------------------------------------------------------
@@ -60,7 +60,7 @@ def test_execute_request_ignores_service_type():
 def test_ai_template_event_rule():
     """AI 노드 event 규칙(spec §4): 도구 없는 simple AI = ai.reasoning, 도구가 있거나 프리셋 모양 = ai.agent."""
     seen = set()
-    for tpl in tr._generation_templates().values():
+    for tpl in generation_entries().values():
         if tpl["node_type"] != "AI":
             continue
         cfg = tpl["fixed"]["config"]

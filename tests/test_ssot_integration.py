@@ -6,7 +6,7 @@
 import pytest
 
 from core import template_registry as tr
-from tests.catalog_paths import apps
+from tests.catalog_paths import apps, generation_entries
 
 
 # --- 드리프트 게이트: 레지스트리 ↔ _TOOL_MAP ↔ 태그 ---
@@ -15,7 +15,7 @@ from tests.catalog_paths import apps
 def test_golden_snippet_tool_keys_in_tool_map():
     """레지스트리↔_TOOL_MAP 정합: 골든 스니펫 tools의 키는 모두 실행 레지스트리에 존재한다."""
     keys = tr._tool_map_keys()
-    for tpl in tr._generation_templates().values():
+    for tpl in generation_entries().values():
         snip = tpl.get("golden_snippet") or {}
         for tool in (snip.get("config", {}) or {}).get("tools", []) or []:
             name = tool.get("name") if isinstance(tool, dict) else tool
@@ -27,7 +27,7 @@ def test_golden_snippet_tool_keys_in_tool_map():
 
 def test_every_template_has_tags_and_menu():
     """레지스트리↔검색 정합: 모든 템플릿은 비어있지 않은 tags와 menu를 가진다(검색 가능)."""
-    for tpl in tr._generation_templates().values():
+    for tpl in generation_entries().values():
         assert tpl["tags"], f"{tpl['id']}: tags 비어있음"
         assert tpl["menu"].strip(), f"{tpl['id']}: menu 비어있음"
 

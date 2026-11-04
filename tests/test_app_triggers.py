@@ -1,6 +1,7 @@
 """앱 트리거(빌더 전용) 카탈로그 계약 — spec 2026-10-11-app-triggers-design §2."""
 from core import template_registry as tr
 from core.node_catalog import node_catalog
+from tests.catalog_paths import generation_entries
 
 GMAIL, GITHUB = "gmail.new_email", "github.new_issue"
 
@@ -58,4 +59,4 @@ def test_앱_트리거는_생성_경로에_없다():
     for tid in (GMAIL, GITHUB):
         t = tr.get_template(tid)
         assert (t["builder"], t["generation"]) == (True, False)
-        assert tid not in tr._generation_templates()
+        assert tid not in generation_entries()
