@@ -134,12 +134,11 @@ async def gmail_send_email(
                 sender = next((a for a in aliases if a.get("isDefault")), None)
 
         signature = sender.get("signature") if signed and sender else None
-        signature_text = _signature_text(signature) if signature else ""
-        if signature_text:
-            if body_format == "text/html":
+        if body_format == "text/html":
+            if (signature or "").strip():  # 이미지만 있는 서명도 HTML엔 붙인다
                 body = f"{body}<br>-- <br>{signature}"
-            else:
-                body = f"{body}\n-- \n{signature_text}"
+        elif signature_text := (_signature_text(signature) if signature else ""):
+            body = f"{body}\n-- \n{signature_text}"
 
         msg = EmailMessage()
         if to_list:

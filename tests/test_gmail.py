@@ -165,9 +165,12 @@ async def test_서명이_비어_있으면_아무것도_붙이지_않는다():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("body_format", ["text/plain", "text/html"])
-@pytest.mark.parametrize("signature", ["  ", "<div><br></div>", "<p> </p>"])
-async def test_서명이_공백이나_빈_마크업이면_구분자도_붙이지_않는다(signature, body_format):
+@pytest.mark.parametrize("signature, body_format", [
+    ("  ", "text/plain"), ("<div><br></div>", "text/plain"), ("<p> </p>", "text/plain"),
+    ('<div><img src="https://x/logo.png"></div>', "text/plain"),  # 글자 없는 서명은 일반 텍스트에 못 싣는다
+    ("  ", "text/html"),
+])
+async def test_서명이_공백이나_글자_없는_마크업이면_구분자도_붙이지_않는다(signature, body_format):
     body = {"sendAs": [{"sendAsEmail": "me@gmail.com", "isDefault": True, "signature": signature}]}
     post = _posts()
     await _run(_client(get=_sendas(body), post=post), to="a@x.com", include_signature=True, body_format=body_format)
@@ -175,8 +178,19 @@ async def test_서명이_공백이나_빈_마크업이면_구분자도_붙이지
 
 
 @pytest.mark.asyncio
-async def test_서명_일반_텍스트는_p_닫는_태그를_줄바꿈으로():
-    body = {"sendAs": [{"sendAsEmail": "me@gmail.com", "isDefault": True, "signature": "<p>윤도훈</p><p>이음</p>"}]}
+@pytest.mark.parametrize("signature", ['<div><img src="https://x/logo.png"></div>', "<div><br></div>", "<p> </p>"])
+async def test_HTML_본문은_글자_없는_서명_마크업도_붙인다(signature):
+    body = {"sendAs": [{"sendAsEmail": "me@gmail.com", "isDefault": True, "signature": signature}]}
+    post = _posts()
+    await _run(_client(get=_sendas(body), post=post), to="a@x.com", include_signature=True,
+               body_format="text/html", body="<p>안녕</p>")
+    assert _sent(post).get_content().rstrip("\n") == "<p>안녕</p><br>-- <br>" + signature
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("signature", ["<p>윤도훈</p><p>이음</p>", "<div>윤도훈</div><div>이음</div>"])
+async def test_서명_일반_텍스트는_블록_닫는_태그를_줄바꿈으로(signature):
+    body = {"sendAs": [{"sendAsEmail": "me@gmail.com", "isDefault": True, "signature": signature}]}
     post = _posts()
     await _run(_client(get=_sendas(body), post=post), to="a@x.com", include_signature=True)
     assert _sent(post).get_content().rstrip("\n") == "안녕\n-- \n윤도훈\n이음"
