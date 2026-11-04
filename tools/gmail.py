@@ -19,7 +19,7 @@ _ALIAS_MISSING = "보낸 사람 주소를 Gmail 별칭에서 찾을 수 없어�
 
 def _header(value) -> str:
     """헤더 값의 줄바꿈을 공백으로 — 새 헤더(Bcc 등) 주입을 막는다."""
-    return str(value).replace("\r", " ").replace("\n", " ")
+    return " ".join(str(value).splitlines())
 
 
 class _SignatureText(HTMLParser):
@@ -161,13 +161,18 @@ async def gmail_send_email(
                                      json={"raw": raw}, timeout=_TIMEOUT)
         if not response.is_success:
             return _api_error(response)
-        sent = response.json()
-        message_id, thread_id = sent.get("id"), sent.get("threadId")
     except Exception as e:
         return _fail(tool, str(e))
 
-    # 라벨 실패를 실패로 돌리면 재시도가 메일을 두 번 보낸다 — 경고만 남기고 성공으로 둔다
-    if labels:
+    # 2xx면 메일은 이미 나갔다 — 이 뒤의 실패를 실패로 돌리면 재시도가 메일을 두 번 보낸다. 경고만 남기고 성공으로 둔다
+    try:
+        sent = response.json()
+        message_id, thread_id = sent.get("id"), sent.get("threadId")
+    except Exception as e:
+        logger.warning("Gmail 발송 응답 파싱 실패 error=%s", e)
+        message_id = thread_id = ""
+
+    if labels and message_id:
         try:
             response = await client.post(f"{_GMAIL_API}/messages/{message_id}/modify", headers=headers,
                                          json={"addLabelIds": labels}, timeout=_TIMEOUT)

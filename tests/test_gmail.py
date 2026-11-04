@@ -245,9 +245,20 @@ async def test_발송_예외도_error_JSON이다():
 
 
 @pytest.mark.asyncio
-async def test_헤더_값의_줄바꿈은_공백으로_바뀌어_새_헤더를_만들지_못한다():   # Review Focus 1
+@pytest.mark.parametrize("sep", ["\r\n", "\u2028", "\x0c"])
+async def test_헤더_값의_줄바꿈은_공백으로_바뀌어_새_헤더를_만들지_못한다(sep):   # Review Focus 1
     post = _posts()
-    result = await _run(_client(post=post), to="a@x.com", subject="주간\r\nBcc: evil@x.com")
+    result = await _run(_client(post=post), to="a@x.com", subject=f"주간{sep}Bcc: evil@x.com")
     msg = _sent(post)
     assert result["messageId"] == "m-1"
     assert msg["Bcc"] is None and msg["Subject"].startswith("주간")
+
+
+@pytest.mark.asyncio
+async def test_발송_2xx_뒤_본문_파싱이_실패해도_성공이다():   # 이미 나간 메일 — 실패로 돌리면 재처리가 두 번 보낸다
+    send = _make_mock_response(200, {})
+    send.json = lambda: (_ for _ in ()).throw(ValueError("not json"))
+    post = _posts(send=send)
+    result = await _run(_client(post=post), to="a@x.com", label_ids=["Label_1"])
+    assert result == {"success": True, "messageId": "", "threadId": ""}
+    assert not any(c.args[0].endswith("/modify") for c in post.await_args_list)
