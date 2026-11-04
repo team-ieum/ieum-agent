@@ -6,7 +6,7 @@ import pytest
 
 from core import template_registry as tr
 from core.template_registry import TemplateSchemaError
-from tests.catalog_paths import apps, copy_catalog, edit_entry, read_raw
+from tests.catalog_paths import apps, copy_catalog, edit_entry, generation_entries, read_raw
 
 APP_PRESETS = [
     "ai.slack_send", "ai.discord_send", "ai.gmail_send",
@@ -178,7 +178,7 @@ def test_github_action_entries(tid, tool_key, keys):
 
 
 def test_github_actions_hidden_from_generation_views():
-    assert not {t["id"] for t in tr._generation_templates().values() if t["node_type"] == "ACTION"}
+    assert not {t["id"] for t in generation_entries().values() if t["node_type"] == "ACTION"}
 
 
 def test_github_tool_key_drift_still_rejected():
@@ -231,16 +231,16 @@ def test_gmail_action_hidden_from_builder():
 
 def test_gmail_generation_preset_unchanged_by_hiding_action():
     """숨기는 건 빌더용 액션뿐이다 — 채팅 생성이 쓰는 ai.gmail_send 프리셋은 그대로다."""
-    assert "ai.gmail_send" in tr._generation_templates()
+    assert "ai.gmail_send" in generation_entries()
     assert tr.get_template("ai.gmail_send")["generation"] is True
 
 
-def test_cold_load_never_enters_intent_brand_path(monkeypatch):
-    """로더가 brand를 계산하는 중에 select_by_tags(→ load_templates 재진입 → 무한 재귀)를 부르면 기동이 실패한다."""
+def test_cold_load_never_enters_match_entry_brand_path(monkeypatch):
+    """로더가 brand를 계산하는 중에 match_entry(→ load_templates 재진입 → 무한 재귀)를 부르면 기동이 실패한다."""
     def boom(*args, **kwargs):
-        raise AssertionError("로더 안에서 intent 경로(select_by_tags)를 탔다")
+        raise AssertionError("로더 안에서 brand_for_node의 match_entry 경로를 탔다")
 
-    monkeypatch.setattr(tr, "select_by_tags", boom)
+    monkeypatch.setattr(tr, "match_entry", boom)
     monkeypatch.setattr(tr, "_cache", None)
     templates = tr.load_templates(force=True)
     assert templates["ai.github_query"]["brand"] == "github"
@@ -254,5 +254,5 @@ def test_calendar_delete는_ai_agent_도구_선택지에_없다():
     ids = {c["id"] for c in tools["choices"]}
     assert "builtin:google_calendar_delete" not in ids
     assert "builtin:google_calendar_find" in ids
-    assert not any(t.get("tool_key") == "builtin:google_calendar_delete" for t in tr._generation_templates().values()
+    assert not any(t.get("tool_key") == "builtin:google_calendar_delete" for t in generation_entries().values()
                    if t.get("preset"))
