@@ -26,7 +26,6 @@ def _keys(tid):
     ("approval.request", ["approved", "approvedBy", "approvedAt"]),
     ("ai.reasoning", ["output"]),
     ("ai.mcp", ["output"]),
-    ("ai.google_sheets_write", ["output"]),
 ])
 def test_declared_outputs(tid, keys):
     assert _keys(tid) == keys

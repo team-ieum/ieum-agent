@@ -11,4 +11,3 @@ def test_condition_template_uses_canonical_keys():
     by_path = {f["path"]: f for f in tpl["inputFields"]}
     assert set(by_path) == {"config.operator", "config.left", "config.right"}
     assert all(f.get("required") for f in by_path.values())
-    assert set(tpl["golden_snippet"]["config"]) == {"operator", "left", "right"}

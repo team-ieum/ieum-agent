@@ -10,7 +10,7 @@ from core.node_fields import (
 
 def test_validate_field_accepts_full_definition():
     validate_field({"key": "cron", "title": "실행 주기", "type": "cron", "required": True, "ref": False,
-                    "choices": [{"id": "a", "name": "A"}], "llm": {"hint": "h", "kind": "cron"}})
+                    "choices": [{"id": "a", "name": "A"}]})
 
 
 @pytest.mark.parametrize("bad, msg", [
@@ -21,9 +21,7 @@ def test_validate_field_accepts_full_definition():
     ({"key": "k", "title": "t", "type": "string", "placeholder": "x"}, "placeholder"),
     ({"key": "k", "title": "t", "type": "string", "choices": [{"id": "a", "name": "A"}, {"id": "a", "name": "B"}]}, "중복"),
     ({"key": "k", "title": "t", "type": "string", "choices": [{"id": "a"}]}, "choices"),
-    ({"key": "k", "title": "t", "type": "string", "llm": {"desc": "x"}}, "llm"),
-    ({"key": "k", "title": "t", "type": "string", "llm": {"kind": "bogus"}}, "kind"),
-    ({"key": "k", "title": "t", "type": "string", "llm": {"inject": "token"}}, "inject"),
+    ({"key": "k", "title": "t", "type": "string", "llm": {"hint": "x"}}, "llm"),  # 옛 생성 경로 메타 — 지웠다
     ({"key": "k", "title": "t", "type": "object", "children": [{"key": "c"}]}, "title"),
 ])
 def test_validate_field_rejects(bad, msg):
@@ -33,26 +31,17 @@ def test_validate_field_rejects(bad, msg):
 
 @pytest.mark.parametrize("attrs", [
     {"required": "true"}, {"ref": 0}, {"list": "yes"}, {"dynamic": 1},
-    {"llm": {"slot": "false"}}, {"llm": {"slot": 0}},
 ])
 def test_validate_field_rejects_non_bool_flags(attrs):
-    """소비처가 `is False`로 비교한다 — "false"·0이 통과하면 llm.slot=false가 무시돼 슬롯이 생긴다."""
+    """소비처가 `is False`로 비교한다 — "false"·0이 통과하면 안 된다."""
     with pytest.raises(FieldError, match="true/false"):
         validate_field({"key": "k", "title": "t", "type": "string", **attrs})
     with pytest.raises(FieldError, match="true/false"):
         validate_field({"key": "k", **attrs}, partial=True)
 
 
-def test_validate_field_rejects_null_llm():
-    """"llm": null이 통과하면 merge_common의 {**c["llm"], **None}이 TypeError로 로더를 죽인다."""
-    with pytest.raises(FieldError, match="llm"):
-        validate_field({"key": "k", "title": "t", "type": "string", "llm": None})
-    with pytest.raises(FieldError, match="llm"):
-        validate_field({"key": "model", "llm": None}, partial=True)
-
-
 def test_validate_field_partial_allows_missing_title_and_type():
-    validate_field({"key": "prompt", "llm": {"hint": "h"}}, partial=True)
+    validate_field({"key": "prompt", "description": "h"}, partial=True)
 
 
 # --- 동적 칸 fieldsSource·fieldsInputs (spec 2026-10-26 §3-1·§7-4) ----------------------
@@ -131,19 +120,11 @@ def test_apply_overrides_extra_key_needs_full_definition():
 
 def test_merge_common_overrides_in_place_and_appends_new():
     common = [{"key": "p", "title": "P", "type": "text"}, {"key": "q", "title": "Q", "type": "text"}]
-    out = merge_common(common, [{"key": "q", "llm": {"hint": "h"}},
+    out = merge_common(common, [{"key": "q", "description": "h"},
                                 {"key": "z", "title": "Z", "type": "string"}])
     assert [f["key"] for f in out] == ["p", "q", "z"]
-    assert out[1] == {"key": "q", "title": "Q", "type": "text", "llm": {"hint": "h"}}
-    assert "llm" not in common[1]  # 공통 상수 불변
-
-
-def test_merge_common_merges_llm_one_level():
-    """공통 키에 llm 일부(hint)만 줘도 공통 llm(inject)이 남아야 한다 — 빠지면 model 슬롯이 LLM 작성 대상이 된다."""
-    out = merge_common(AI_COMMON_FIELDS, [{"key": "model", "llm": {"hint": "x"}}])
-    model = next(f for f in out if f["key"] == "model")
-    assert model["llm"] == {"inject": "model", "hint": "x"}
-    assert AI_COMMON_FIELDS[1]["llm"]["hint"] != "x"  # 공통 상수 불변
+    assert out[1] == {"key": "q", "title": "Q", "type": "text", "description": "h"}
+    assert "description" not in common[1]  # 공통 상수 불변
 
 
 def test_ai_common_order_matches_legacy_slot_order():

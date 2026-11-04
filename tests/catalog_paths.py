@@ -50,7 +50,3 @@ def apps() -> dict:
     with open(os.path.join(tr.CATALOG_DIR, "apps.json"), encoding="utf-8") as f:
         return json.load(f)
 
-
-def generation_entries() -> dict:
-    """generation=true(기본) 항목. 프로덕션 소비처가 없어 테스트(카탈로그 generation 검사)만 쓴다."""
-    return {tid: t for tid, t in tr.load_templates().items() if t.get("generation", True)}

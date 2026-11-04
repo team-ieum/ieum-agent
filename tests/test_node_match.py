@@ -103,7 +103,6 @@ def test_agent_tool_choices_cover_actions():
                if t["node_type"] == "ACTION" and t["builder"] and t["tool_key"] in _TOOL_MAP}
     assert {c["id"]: c["name"] for c in tools["choices"]} == actions
     assert tools["required"] is True and tools["list"] is True
-    assert agent["generation"] is False
 
 
 def test_agent_tool_choices_exclude_dynamic_mount_services():
