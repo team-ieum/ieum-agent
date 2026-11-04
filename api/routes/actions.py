@@ -21,7 +21,7 @@ async def execute_action(
     credentials: dict = Depends(get_action_credentials),
     x_idempotency_key: str | None = Header(None, alias="X-Idempotency-Key"),
 ):
-    # 카탈로그 ACTION 항목의 도구만 실행한다 — _TOOL_MAP 전체를 열면 gmail(smtp_host)·builtin:web_search(플랫폼 키)도 열린다.
+    # 카탈로그 ACTION 항목의 도구만 실행한다 — _TOOL_MAP 전체를 열면 builtin:web_search(플랫폼 키)도 열린다.
     allowed = {t["tool_key"] for t in builder_entries() if t["node_type"] == "ACTION"}
     fn = resolve_action_fn(request.toolKey) if request.toolKey in allowed else None
     if fn is None:

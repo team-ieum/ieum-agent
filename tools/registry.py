@@ -18,6 +18,7 @@ from tools.github import (
     github_list_issues,
     github_list_pull_requests,
 )
+from tools.gmail import gmail_send_email
 from tools.google_calendar import google_calendar_delete
 
 # 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
@@ -27,10 +28,6 @@ RUNTIME_INJECTED_PARAMS: set[str] = {
     "allowed_guild_ids",  # Discord 봇: 이 사용자가 연결한 서버 ID 목록(권한 목록 — 사용자 config로 받지 않는다)
     "access_token",     # Google OAuth Access Token
     "webhook_url",      # Slack / Discord Webhook URL
-    "sender_email",     # Gmail SMTP
-    "sender_password",  # Gmail SMTP
-    "smtp_host",        # Gmail SMTP
-    "smtp_port",        # Gmail SMTP
     "workflow_context_data",  # agent가 바인딩(agents/base.py _bind_workflow_context)
 }
 
@@ -55,6 +52,7 @@ _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
 # _DYNAMIC_SERVICE_ACTIONS에 넣지 않는 이유: 그 dict는 "동적 서브에이전트 서비스" 뜻이다.
 _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_calendar_delete": google_calendar_delete,
+    "builtin:google_gmail_send_email": gmail_send_email,
 }
 
 
@@ -78,7 +76,7 @@ def _service_of(name: str) -> str:
     """도구 키에서 서비스명을 추론한다. builtin: 프리픽스와 세부 동작 접미사를 제거한다."""
     base = name.split(":", 1)[-1]  # builtin:notion_create_page -> notion_create_page
     for service in ("notion", "github", "google_sheets", "google_calendar", "google_drive",
-                    "slack", "discord", "gmail", "web_search", "http_fetch",
+                    "slack", "discord", "web_search", "http_fetch",
                     "workflow_context", "json_parse", "text_extract", "date_format"):
         if base == service or base.startswith(service):
             return service
@@ -92,7 +90,6 @@ SERVICE_BRAND: dict[str, str] = {
     "notion": "notion",
     "slack": "slack",
     "discord": "discord",
-    "gmail": "gmail",
     "github": "github",
     "google_sheets": "sheets",
     "google_calendar": "google",

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+from tests.action_outputs import assert_matches_outputs
 from tests.test_google_tools import _make_async_client, _make_mock_response
 from tools.gmail import gmail_send_email
 
@@ -60,6 +61,7 @@ async def test_보내면_messageId와_threadId를_돌려준다():
     result = await _run(_client(post=post), to="a@x.com")
     assert result == {"success": True, "messageId": "m-1", "threadId": "t-1"}
     assert post.await_args_list[0].kwargs["headers"]["Authorization"] == "Bearer token"
+    assert_matches_outputs("gmail.send_email", json.dumps(result))
 
 
 @pytest.mark.asyncio
@@ -160,6 +162,24 @@ async def test_서명이_비어_있으면_아무것도_붙이지_않는다():
     post = _posts()
     await _run(_client(get=_sendas(), post=post), to="a@x.com", from_email="alias@ieum.io", include_signature=True)
     assert _sent(post).get_content().rstrip("\n") == "안녕"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body_format", ["text/plain", "text/html"])
+@pytest.mark.parametrize("signature", ["  ", "<div><br></div>", "<p> </p>"])
+async def test_서명이_공백이나_빈_마크업이면_구분자도_붙이지_않는다(signature, body_format):
+    body = {"sendAs": [{"sendAsEmail": "me@gmail.com", "isDefault": True, "signature": signature}]}
+    post = _posts()
+    await _run(_client(get=_sendas(body), post=post), to="a@x.com", include_signature=True, body_format=body_format)
+    assert _sent(post).get_content().rstrip("\n") == "안녕"
+
+
+@pytest.mark.asyncio
+async def test_서명_일반_텍스트는_p_닫는_태그를_줄바꿈으로():
+    body = {"sendAs": [{"sendAsEmail": "me@gmail.com", "isDefault": True, "signature": "<p>윤도훈</p><p>이음</p>"}]}
+    post = _posts()
+    await _run(_client(get=_sendas(body), post=post), to="a@x.com", include_signature=True)
+    assert _sent(post).get_content().rstrip("\n") == "안녕\n-- \n윤도훈\n이음"
 
 
 @pytest.mark.asyncio

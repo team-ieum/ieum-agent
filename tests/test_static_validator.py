@@ -436,6 +436,7 @@ FIXED_NODE_REQUIRED = {
     "ai.web_search": ["config.llmProvider", "config.prompt"],
     "discord.send_message": ["config.content", "config.webhookCredentialId"],
     "github.create_issue": ["config.owner", "config.repo", "config.title"],
+    "gmail.send_email": ["config.body", "config.subject"],
     "github.list_issues": ["config.owner", "config.repo"],
     "google_calendar.create": ["config.end_datetime", "config.start_datetime", "config.summary"],
     "google_calendar.delete": ["config.event_id"],

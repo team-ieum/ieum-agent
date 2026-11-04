@@ -146,11 +146,11 @@ async def test_comm_agent_has_slack_and_discord():
 
 @pytest.mark.asyncio
 async def test_comm_agent_does_not_have_gmail():
-    """CommAgent는 gmail 도구를 보유하지 않는다 (Gmail 발송은 빌트인 gmail 도구)."""
+    """CommAgent는 gmail 도구를 보유하지 않는다 (Gmail 발송은 ACTION 전용 gmail_send_email)."""
     from agents.execute.sub.communication_agent import build_communication_agent
     agent, _ = await build_communication_agent("gemini-2.5-flash")
     tool_names = [getattr(t, "_func", getattr(t, "func", None)).__name__ for t in agent.tools]
-    assert "send_gmail" not in tool_names
+    assert "gmail_send_email" not in tool_names and "send_gmail" not in tool_names
 
 
 # ---------- McpAgent ----------

@@ -885,6 +885,131 @@
       "title": "새 Gmail 메일"
     },
     {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "연결한 Gmail 계정으로 메일을 보내요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.send_email",
+        "type": "ACTION"
+      },
+      "id": "gmail.send_email",
+      "inputFields": [
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로. 받는 사람·참조·숨은참조 중 하나는 채워요",
+          "key": "to",
+          "path": "config.to",
+          "title": "받는 사람",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "cc",
+          "path": "config.cc",
+          "title": "참조",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "bcc",
+          "path": "config.bcc",
+          "title": "숨은참조",
+          "type": "string"
+        },
+        {
+          "description": "Gmail에 등록한 주소. 비우면 기본 주소",
+          "key": "from_email",
+          "optionsSource": "google.gmail_send_as",
+          "path": "config.from_email",
+          "ref": false,
+          "title": "보낸 사람",
+          "type": "string"
+        },
+        {
+          "key": "from_name",
+          "path": "config.from_name",
+          "title": "보낸 사람 이름",
+          "type": "string"
+        },
+        {
+          "key": "reply_to",
+          "path": "config.reply_to",
+          "title": "답장 받을 주소",
+          "type": "string"
+        },
+        {
+          "key": "subject",
+          "path": "config.subject",
+          "required": true,
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "text/plain",
+              "name": "일반 텍스트"
+            },
+            {
+              "id": "text/html",
+              "name": "HTML"
+            }
+          ],
+          "default": "text/plain",
+          "key": "body_format",
+          "path": "config.body_format",
+          "ref": false,
+          "title": "본문 형식",
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "path": "config.body",
+          "required": true,
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "default": false,
+          "description": "보낸 사람의 Gmail 서명을 본문 끝에 붙여요",
+          "key": "include_signature",
+          "path": "config.include_signature",
+          "ref": false,
+          "title": "서명 포함",
+          "type": "boolean"
+        },
+        {
+          "description": "보낸 메일에 붙일 라벨(여러 개)",
+          "key": "label_ids",
+          "list": true,
+          "optionsSource": "google.gmail_labels",
+          "path": "config.label_ids",
+          "ref": false,
+          "title": "보낸 뒤 붙일 라벨",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 메일 보내기",
+      "toolKey": "builtin:google_gmail_send_email"
+    },
+    {
       "app": "google_calendar",
       "appTitle": "Google Calendar",
       "description": "구글 캘린더에 새 일정을 추가해요.",

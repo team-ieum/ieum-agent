@@ -159,8 +159,7 @@ def test_input_fields_have_paths_and_no_injected_params():
     for t in tr.all_entries():
         for f in t["inputFields"]:
             assert f["path"].startswith("config."), (t["id"], f)
-            assert f["key"] not in {"token", "access_token", "webhook_url", "sender_email",
-                                    "sender_password", "smtp_host", "smtp_port",
+            assert f["key"] not in {"token", "access_token", "webhook_url",
                                     "workflow_context_data"}, (t["id"], f["key"])
 
 
@@ -169,15 +168,14 @@ def test_field_meta_removed():
     assert not hasattr(reg, "FIELD_META")
 
 
-def test_gmail_action_hidden_from_builder():
+def test_gmail_send_email은_빌더에_있고_AI_도구_선택지에_없다():
     from core.node_catalog import node_catalog
 
-    assert tr.get_template("gmail.send_email")["builder"] is False
-    assert "gmail.send_email" not in {e["id"] for e in node_catalog()["entries"]}
+    assert tr.get_template("gmail.send_email")["builder"] is True
+    assert tr.get_template("gmail.send_email")["tool_key"] == "builtin:google_gmail_send_email"
+    assert "gmail.send_email" in {e["id"] for e in node_catalog()["entries"]}
     tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
-    assert "gmail" not in {c["id"] for c in tools["choices"]}
-    # 저장된 gmail ACTION 노드는 어떤 빌더 항목에도 안 걸린다(FE가 폼을 못 연다 — 의도)
-    assert tr.match_entry({"type": "ACTION", "config": {"tools": [{"name": "gmail"}]}}) is None
+    assert not {"gmail", "builtin:google_gmail_send_email"} & {c["id"] for c in tools["choices"]}
 
 
 def test_cold_load_never_enters_match_entry_brand_path(monkeypatch):

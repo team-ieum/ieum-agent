@@ -94,6 +94,16 @@ def test_calendar_delete는_ACTION_전용이다():
     assert get_tools_for_request([{"name": "builtin:google_calendar_delete"}]) == []
 
 
+def test_gmail_send_email은_ACTION_전용이다():
+    """메일은 되돌릴 수 없다(spec 하지 않는 것) — _TOOL_MAP 밖, resolve_action_fn만 푼다."""
+    from tools import _TOOL_MAP, get_tools_for_request
+    from tools.gmail import gmail_send_email
+
+    assert resolve_action_fn("builtin:google_gmail_send_email") is gmail_send_email
+    assert "builtin:google_gmail_send_email" not in _TOOL_MAP and "gmail" not in _TOOL_MAP
+    assert get_tools_for_request([{"name": "builtin:google_gmail_send_email"}]) == []
+
+
 @pytest.mark.parametrize("key", [
     "mcp", "github_list_issues", "builtin:github_nope", "builtin:github_", "builtin:github_list_issues ",
     "builtin:does_not_exist", "", None, 5, ["builtin:github_list_issues"],
