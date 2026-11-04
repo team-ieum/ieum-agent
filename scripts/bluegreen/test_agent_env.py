@@ -56,6 +56,45 @@ def records(content):
     return dict(line.split('=', 1) for line in content.decode('utf-8').splitlines())
 
 
+def isolated_subprocess_environment(values):
+    # setup-python's shared interpreter needs its loader path, but no other parent state.
+    environment = {}
+    if 'LD_LIBRARY_PATH' in os.environ:
+        environment['LD_LIBRARY_PATH'] = os.environ['LD_LIBRARY_PATH']
+    environment.update(values)
+    return environment
+
+
+class SubprocessEnvironmentTest(unittest.TestCase):
+    def test_python_child_receives_loader_path_and_only_explicit_test_values(self):
+        original_loader_path = os.environ.get('LD_LIBRARY_PATH')
+        with tempfile.TemporaryDirectory() as directory:
+            loader_path = directory
+            if original_loader_path is not None:
+                loader_path += os.pathsep + original_loader_path
+            excluded = ('LD_PRELOAD', 'PYTHONPATH', 'PYTHONHOME', TRANSPORT,
+                        'GITHUB_TOKEN', 'UNRELATED_PARENT_VALUE')
+            parent = {key: SECRET for key in excluded}
+            parent.update({'LD_LIBRARY_PATH': loader_path, 'PATH': '/parent-path',
+                           'SYNTHETIC_TEST_VALUE': 'parent-value'})
+            keys = ('LD_LIBRARY_PATH', 'PATH', 'SYNTHETIC_TEST_VALUE') + excluded
+            script = ('import json, os; print(json.dumps('
+                      '{key: os.environ.get(key) for key in ' + repr(keys) + '}))')
+            values = {'PATH': os.defpath, 'SYNTHETIC_TEST_VALUE': 'explicit-value'}
+            with patch.dict(os.environ, parent, clear=True):
+                result = subprocess.run([sys.executable, '-c', script],
+                    env=isolated_subprocess_environment(values), text=True,
+                    capture_output=True, timeout=3)
+            self.assertEqual((result.returncode, result.stderr), (0, ''))
+            self.assertEqual(json.loads(result.stdout), {
+                'LD_LIBRARY_PATH': loader_path, **values, **{key: None for key in excluded}})
+
+    def test_loader_path_is_not_added_when_parent_does_not_define_it(self):
+        with patch.dict(os.environ, {'GITHUB_TOKEN': SECRET}, clear=True):
+            self.assertEqual(isolated_subprocess_environment({'PATH': os.defpath}),
+                             {'PATH': os.defpath})
+
+
 class BuildEnvironmentTest(unittest.TestCase):
     def assert_rejected(self, payload, code=None):
         with self.assertRaises(agent_env.AgentEnvironmentError) as caught:
@@ -231,7 +270,7 @@ class WriteCandidateTest(unittest.TestCase):
         self.assertNotIn(SECRET, str(caught.exception))
 
     def invoke_cli(self, payload=DEFAULT_PAYLOAD, destination=None):
-        environment = {'PATH': os.defpath}
+        environment = isolated_subprocess_environment({'PATH': os.defpath})
         if payload is DEFAULT_PAYLOAD:
             payload = secret_payload()
         if payload is not None:
@@ -403,9 +442,9 @@ class AgentWorkflowTest(unittest.TestCase):
                 'sys.exit(' + str(controller_exit) + ')\n')
             script = self.shell.replace('/home/kwung/deploy/bluegreen/bluegreen.py', shlex.quote(str(controller)))
             script = script.replace('scripts/bluegreen/agent_env.py', shlex.quote(str(SCRIPT)))
-            environment = {'PATH': str(Path(sys.executable).parent) + os.pathsep + os.defpath,
+            environment = isolated_subprocess_environment({'PATH': str(Path(sys.executable).parent) + os.pathsep + os.defpath,
                 'RUNNER_TEMP': str(runner), 'IMAGE_NAME': 'ieum-agent-dev', 'IMAGE_TAG': 'synthetic-sha',
-                'IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH': str(int(time.time()) + 21600)}
+                'IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH': str(int(time.time()) + 21600)})
             if values is None:
                 values = valid_env()
             elif callable(values):
@@ -590,7 +629,7 @@ class AgentWorkflowTest(unittest.TestCase):
                     'pathlib.Path('+repr(str(log))+').write_text(json.dumps({'
                     '"url":os.environ["MONGODB_URL"],"database":os.environ["MONGODB_DB_NAME"]}))\n')
                 fake.chmod(0o755)
-                environment={'PATH':str(root)+os.pathsep+os.defpath,**inputs}
+                environment=isolated_subprocess_environment({'PATH':str(root)+os.pathsep+os.defpath,**inputs})
                 result=subprocess.run(['bash','-x','-c',script],env=environment,cwd=root,
                     text=True,capture_output=True,timeout=5)
                 self.assertEqual(result.returncode,0)
