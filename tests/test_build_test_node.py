@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.builder import tools
-from core.builder.hitl import FINISH
+from core.builder.hitl import FINISH, sample_summary
 from core.builder.state import baseline_of, node_hash, workflow_hash
 from core.builder.tools import Turn
 
@@ -238,3 +238,16 @@ async def test_턴_남은_시간이_200초_미만이면_테스트를_시작하�
     assert out["status"] == "later" and "다음 턴" in out["message"]
     assert turn.confirm_used is False and state["confirmed"] is not None and turn.test_runs == 0
     turn.backend.test_node.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_출력의_예약_키는_LLM에_주지_않는다():
+    branch = {"id": "c", "event": "branch.if", "type": "CONDITION", "label": "분기", "config": {"branches": [
+        {"key": "b_11111111", "name": "긴급", "rules": [{"left": "{{nodes.t.output.triggeredAt}}", "operator": "isNotEmpty"}]}]}}
+    output = {"branch": "긴급", "branches": ["긴급"], "matched": True, "result": True, "_branchKeys": ["b_11111111"]}
+    turn = _turn([TRIGGER, branch], result={"data": {"status": "SUCCESS", "output": output}})
+    state = {}
+    out = await tools.test_node(turn, state, "c")
+    assert [f["key"] for f in out["fields"]] == ["branch", "branches", "matched", "result"]
+    assert state["tests"]["c"]["fields"] == ["branch", "branches", "matched", "result"]
+    assert "_branchKeys" not in sample_summary({"_branchKeys": ["b_11111111"], **output})  # 사용자 샘플 요약에도 안 보인다

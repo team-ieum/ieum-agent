@@ -340,6 +340,25 @@ def _shown(value):
     return value[:500] if isinstance(value, str) else value
 
 
+def _children(fields: list[dict]) -> list[dict]:
+    """목록 칸의 안쪽 칸 모양(키·제목·타입·필수·선택지 id) — LLM이 갈래·조건 모양을 짐작하지 않게."""
+    out = []
+    for f in fields:
+        item = {"key": f["key"], "title": clean(f.get("title") or f["key"]), "type": f["type"]}
+        if f.get("list"):
+            item["list"] = True
+        if f.get("required"):
+            item["required"] = True
+        if f.get("description"):
+            item["description"] = clean(f["description"], 120)
+        if f.get("choices"):
+            item["choices"] = [c["id"] for c in f["choices"]]
+        if f.get("children"):
+            item["children"] = _children(f["children"])
+        out.append(item)
+    return out
+
+
 def get_fields(turn: Turn, state, node_id: str) -> dict:
     node = turn.node(node_id)
     if node is None:
@@ -357,7 +376,10 @@ def get_fields(turn: Turn, state, node_id: str) -> dict:
             item["dropdown"] = True
         if f.get("fieldsSource"):
             item["dynamic"] = True
-        value = _get_by_path(node, path)
+        if f.get("list") and f.get("children"):
+            item["list"] = True
+            item["children"] = _children(f["children"])
+        value =_get_by_path(node, path)
         if value not in (None, "", [], {}):
             item["value"] = _shown(value)
         out.append(item)
@@ -472,7 +494,8 @@ async def load_dynamic_fields(turn: Turn, state, node_id: str, field_path: str) 
 _PY_TYPE = {str: "string", bool: "boolean", int: "integer", float: "number", dict: "object", list: "list",
             type(None): "null"}
 # 참조식에 쓸 수 있는 이름만 LLM에 준다(REF_BODY_RE와 같은 글자) — 외부 데이터가 키 이름으로 들어오는 것도 막는다
-_OUTPUT_KEY = re.compile(r"[A-Za-z0-9_]{1,64}")
+# `_`로 시작하는 키는 엔진 예약 키(`_branchKeys`) — 참조할 수 없어 LLM에 주지 않는다
+_OUTPUT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]{0,63}")
 
 
 def _record(state, node_id: str, status: str, h: str, fields: list | None = None) -> None:
@@ -590,7 +613,9 @@ def make_tools(turn: Turn) -> list:
         return await check_connection(turn, app)
 
     async def add_node_(event: str, label: str, after: str = "", branch: str = "") -> dict:
-        """노드를 하나 만든다. after = 앞 노드 id(그 뒤에 연결), 앞 노드가 분기(branch.if)면 branch='true'|'false' 필수.
+        """노드를 하나 만든다. after = 앞 노드 id(그 뒤에 연결), 앞 노드가 분기(branch.if)면 branch 필수 = set_fields가 돌려준 갈래 key 또는 'else'(아무 갈래도 안 맞을 때).
+        분기는 만든 뒤 set_fields로 config.branches(갈래 이름·조건, key는 비워 두면 시스템이 채운다)를 먼저 채우고 뒤 노드를 잇는다. 옛 칸 operator·left·right는 쓰지 않는다.
+        '조건이 맞을 때만 계속'은 branch.if에 갈래 1개 + config.otherwise='stop', 연결은 그 갈래 key 하나.
         연결이 필요한 앱이 미연결이면 거절한다. 돌려준 node_id를 이후 도구에 쓴다.
         AI 노드(ai.reasoning)는 모델 카드를 시스템이 붙인다(needs_model이면 짧게 마친다). 키가 없으면 만들지 않고 message를 그대로 안내한다."""
         return await add_node(turn, event, label, after, branch)
@@ -609,11 +634,12 @@ def make_tools(turn: Turn) -> list:
 
     def set_fields_(tool_context: ToolContext, node_id: str, values: dict) -> dict:
         """칸 값을 쓴다. values = {get_fields의 path: 값}. 표시 이름은 'config._names.<칸>'. 앞 노드 값은
-        '{{nodes.<id>.output.<이름>}}'. 거절된 칸(rejected)과 노드 검증 에러(errors)를 돌려준다."""
+        '{{nodes.<id>.output.<이름>}}'. 거절된 칸(rejected)과 노드 검증 에러(errors)를 돌려준다.
+        분기(branch.if)는 branches(갈래 key·이름)와 removedEdges(갈래가 사라져 지운 연결)도 돌려준다."""
         return set_fields(turn, tool_context.state, node_id, values)
 
     def connect_(source: str, target: str, branch: str = "") -> dict:
-        """두 노드를 잇는다. source가 분기(branch.if)면 branch='true'|'false' 필수."""
+        """두 노드를 잇는다. source가 분기(branch.if)면 branch 필수 = 갈래 key(set_fields·get_fields가 준 값) 또는 'else'. 갈래가 없는 옛 분기는 'true'|'false'."""
         return connect(turn, source, target, branch)
 
     def remove_node_(node_id: str) -> dict:

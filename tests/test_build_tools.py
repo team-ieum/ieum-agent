@@ -194,3 +194,11 @@ def test_메뉴는_옛_schedule_every와_ai_agent를_뺀다():
     ids = {t["id"] for t in tools.menu()}
     assert "schedule.every" not in ids and "ai.agent" not in ids
     assert "schedule.daily" in ids
+
+
+def test_분기_도구_설명은_갈래_key_else와_Filter를_안내한다():
+    fns = {f.__name__: f for f in tools.make_tools(_turn())}
+    add, connect, set_ = fns["add_node"].__doc__, fns["connect"].__doc__, fns["set_fields"].__doc__
+    assert "config.branches" in add and "'else'" in add and "'stop'" in add
+    assert "'else'" in connect and "'true'" in connect
+    assert "removedEdges" in set_

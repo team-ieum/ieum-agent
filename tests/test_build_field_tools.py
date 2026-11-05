@@ -227,3 +227,19 @@ def test_레거시_분기_칸_쓰기는_true_false_연결을_지우지_않는다
 def test_분기_아닌_노드의_칸_쓰기_응답_키는_그대로():
     turn = _turn([TRIGGER, _slack()], [{"source": "t", "target": "s"}])
     assert set(tools.set_fields(turn, {}, "s", {"config.text": "x"})) == {"applied", "rejected", "errors"}
+
+
+OPS = ["equals", "notEquals", "contains", "notContains", "startsWith", "endsWith", "in", "notIn",
+       "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual", "numberEquals",
+       "before", "after", "sameDay", "isTrue", "isFalse", "isEmpty", "isNotEmpty"]
+
+
+def test_분기_칸_목록은_갈래_안쪽_칸과_연산자_id를_펼친다():
+    turn = _branch_turn({}, [])
+    f = {x["path"]: x for x in tools.get_fields(turn, {}, "c")["fields"]}["config.branches"]
+    assert f["list"] is True and [c["key"] for c in f["children"]] == ["key", "name", "match", "rules"]
+    assert f["children"][0]["required"] is True and "description" in f["children"][0]
+    assert f["children"][2]["choices"] == ["all", "any"]
+    rules = f["children"][3]
+    assert rules["list"] is True and [c["key"] for c in rules["children"]] == ["left", "operator", "right"]
+    assert rules["children"][1]["choices"] == OPS and "required" not in rules["children"][2]
