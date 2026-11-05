@@ -182,7 +182,7 @@ def test_머리글_범위는_마지막_비지_않은_머리글까지():
 def test_빈_머리글_판정은_Java_isBlank와_같다():
     assert _header_range(["이름", "　"], 26) == ["이름"]                      # 전각 공백 = 빈 머리글
     assert _header_range(["이름", "\xa0"], 26) == ["이름", "\xa0"]               # NBSP는 글자
-    assert _header_range(["이름", " ", " "], 26) == ["이름", " ", " "]
+    assert _header_range(["이름", "\u2007", "\u202f"], 26) == ["이름", "\u2007", "\u202f"]
 
 
 def test_열_문자는_bijective_base26():
@@ -312,17 +312,32 @@ async def test_시트_제목의_작은따옴표를_이스케이프한다():
     assert _range(fake.of("PUT")[0][1]) == "'Bob''s'!A2"
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("call", [
+_OPTION_CALLS = [
+    lambda o: google_sheets_append(access_token="t", spreadsheet_id="s1", sheet_id="0", columns={"A": "x"}, value_input_option=o),
     lambda o: google_sheets_append_top(access_token="t", spreadsheet_id="s1", sheet_id="0", columns={"A": "x"}, value_input_option=o),
     lambda o: google_sheets_update_row(access_token="t", spreadsheet_id="s1", sheet_id="0", row_number=2, columns={"A": "x"}, value_input_option=o),
-    lambda o: google_sheets_find_or_create_row(access_token="t", spreadsheet_id="s1", sheet_id="0", lookup_column="A", lookup_value="a", columns={"A": "x"}, value_input_option=o)])
-@pytest.mark.parametrize("option", ["FORMULA", "", None])
-async def test_입력값_해석은_두_값만(call, option):
+    lambda o: google_sheets_find_or_create_row(access_token="t", spreadsheet_id="s1", sheet_id="0", lookup_column="A", lookup_value="없음", columns={"A": "x"}, value_input_option=o)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("call", _OPTION_CALLS)
+async def test_입력값_해석은_두_값만(call):
     with patch("tools.google_sheets.get_http_client") as factory:
-        result = json.loads(await call(option))
+        result = json.loads(await call("FORMULA"))
     factory.assert_not_called()
     assert ToolErrorCode.EXECUTION_FAILED.message in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("call", _OPTION_CALLS)
+@pytest.mark.parametrize("option", ["", None])
+async def test_빈_입력값_해석은_USER_ENTERED(call, option):
+    fake = _Sheets(GRID)
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        result = json.loads(await call(option))
+    assert "error" not in result
+    options = [kw["params"]["valueInputOption"] for _, _, kw in fake.calls if "valueInputOption" in kw.get("params", {})]
+    assert options == ["USER_ENTERED"]
 
 
 # --- C4 행 수정 ---

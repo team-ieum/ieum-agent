@@ -149,7 +149,7 @@ async def _find_sheet(client, access_token: str, spreadsheet_id, sheet_id) -> tu
 
 def _blank_header(h: str) -> bool:
     # BE Java isBlank()와 같은 집합: NBSP·U+2007·U+202F는 글자, NEL(U+0085)도 Java는 공백으로 보지 않는다.
-    return all(c.isspace() and c not in "\x85\xa0  " for c in h)
+    return all(c.isspace() and c not in "\x85\xa0\u2007\u202f" for c in h)
 
 
 def _header_range(first_row: list, column_count: int) -> list[str]:
@@ -340,6 +340,7 @@ async def google_sheets_append(access_token: str, spreadsheet_id: str, sheet_id:
         updatedRange, row_number를 포함한 JSON 문자열
     """
     tool = "google_sheets_append"
+    value_input_option = value_input_option or "USER_ENTERED"  # 빈 칸 = 카탈로그 기본값
     try:
         spreadsheet_id = _check(spreadsheet_id, sheet_id, columns=columns, value_input_option=value_input_option)
         client = get_http_client()
@@ -364,6 +365,7 @@ async def google_sheets_append_top(access_token: str, spreadsheet_id: str, sheet
         value_input_option: USER_ENTERED(수식·숫자 해석) 또는 RAW(그대로)
     """
     tool = "google_sheets_append_top"
+    value_input_option = value_input_option or "USER_ENTERED"  # 빈 칸 = 카탈로그 기본값
     try:
         spreadsheet_id = _check(spreadsheet_id, sheet_id, columns=columns, value_input_option=value_input_option)
         client = get_http_client()
@@ -404,6 +406,7 @@ async def google_sheets_update_row(access_token: str, spreadsheet_id: str, sheet
         value_input_option: USER_ENTERED(수식·숫자 해석) 또는 RAW(그대로)
     """
     tool = "google_sheets_update_row"
+    value_input_option = value_input_option or "USER_ENTERED"  # 빈 칸 = 카탈로그 기본값
     try:
         spreadsheet_id = _check(spreadsheet_id, sheet_id, columns=columns, value_input_option=value_input_option)
         n = _row_index(row_number)
@@ -476,6 +479,7 @@ async def google_sheets_find_or_create_row(access_token: str, spreadsheet_id: st
         value_input_option: USER_ENTERED(수식·숫자 해석) 또는 RAW(그대로)
     """
     tool = "google_sheets_find_or_create_row"
+    value_input_option = value_input_option or "USER_ENTERED"  # 빈 칸 = 카탈로그 기본값
     try:
         columns = {} if columns is None else columns
         spreadsheet_id = _check(spreadsheet_id, sheet_id, columns=columns, value_input_option=value_input_option,
