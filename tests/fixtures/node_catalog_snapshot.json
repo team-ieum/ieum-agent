@@ -109,12 +109,12 @@
               "name": "시트에 행 추가"
             },
             {
-              "id": "builtin:google_sheets_read",
-              "name": "시트 읽기"
+              "id": "builtin:google_sheets_lookup_row",
+              "name": "시트에서 행 찾기"
             },
             {
-              "id": "builtin:google_sheets_write",
-              "name": "시트에 쓰기"
+              "id": "builtin:google_sheets_read",
+              "name": "시트 읽기"
             },
             {
               "id": "builtin:notion_append_block",
@@ -354,7 +354,7 @@
     {
       "app": "branch",
       "appTitle": "분기",
-      "description": "앞의 결과가 조건에 맞는지 보고 갈 길을 나눠요.",
+      "description": "조건에 맞는 갈래로 길을 나눠요. 맞을 때만 계속하게도 할 수 있어요.",
       "fixed": {
         "config": {
           "brand": "filter"
@@ -383,6 +383,22 @@
               "name": "포함하지 않음"
             },
             {
+              "id": "startsWith",
+              "name": "시작함"
+            },
+            {
+              "id": "endsWith",
+              "name": "끝남"
+            },
+            {
+              "id": "in",
+              "name": "목록 중 하나"
+            },
+            {
+              "id": "notIn",
+              "name": "목록에 없음"
+            },
+            {
               "id": "greaterThan",
               "name": "보다 큼"
             },
@@ -399,6 +415,30 @@
               "name": "이하"
             },
             {
+              "id": "numberEquals",
+              "name": "숫자로 같음"
+            },
+            {
+              "id": "before",
+              "name": "이전"
+            },
+            {
+              "id": "after",
+              "name": "이후"
+            },
+            {
+              "id": "sameDay",
+              "name": "같은 날"
+            },
+            {
+              "id": "isTrue",
+              "name": "참"
+            },
+            {
+              "id": "isFalse",
+              "name": "거짓"
+            },
+            {
               "id": "isEmpty",
               "name": "비어 있음"
             },
@@ -407,32 +447,249 @@
               "name": "비어 있지 않음"
             }
           ],
+          "description": "옛 방식이에요. '갈래'를 채우면 이 칸은 쓰지 않아요.",
           "key": "operator",
           "path": "config.operator",
           "ref": false,
-          "required": true,
           "title": "비교 방식",
           "type": "string"
         },
         {
+          "description": "옛 방식이에요. '갈래'를 채우면 이 칸은 쓰지 않아요.",
           "key": "left",
           "path": "config.left",
-          "required": true,
           "title": "비교할 값",
           "type": "string"
         },
         {
+          "description": "옛 방식이에요. '갈래'를 채우면 이 칸은 쓰지 않아요.",
           "key": "right",
           "path": "config.right",
-          "required": true,
           "title": "기준값",
           "type": "string"
+        },
+        {
+          "children": [
+            {
+              "description": "시스템이 만드는 갈래 id예요. 비워 두면 채워져요.",
+              "key": "key",
+              "ref": false,
+              "required": true,
+              "title": "갈래 id",
+              "type": "string"
+            },
+            {
+              "key": "name",
+              "ref": false,
+              "required": true,
+              "title": "갈래 이름",
+              "type": "string"
+            },
+            {
+              "choices": [
+                {
+                  "id": "all",
+                  "name": "모두 맞아야"
+                },
+                {
+                  "id": "any",
+                  "name": "하나라도 맞으면"
+                }
+              ],
+              "default": "all",
+              "key": "match",
+              "ref": false,
+              "title": "조건 묶기",
+              "type": "string"
+            },
+            {
+              "children": [
+                {
+                  "key": "left",
+                  "required": true,
+                  "title": "비교할 값",
+                  "type": "string"
+                },
+                {
+                  "choices": [
+                    {
+                      "id": "equals",
+                      "name": "같음"
+                    },
+                    {
+                      "id": "notEquals",
+                      "name": "같지 않음"
+                    },
+                    {
+                      "id": "contains",
+                      "name": "포함"
+                    },
+                    {
+                      "id": "notContains",
+                      "name": "포함하지 않음"
+                    },
+                    {
+                      "id": "startsWith",
+                      "name": "시작함"
+                    },
+                    {
+                      "id": "endsWith",
+                      "name": "끝남"
+                    },
+                    {
+                      "id": "in",
+                      "name": "목록 중 하나"
+                    },
+                    {
+                      "id": "notIn",
+                      "name": "목록에 없음"
+                    },
+                    {
+                      "id": "greaterThan",
+                      "name": "보다 큼"
+                    },
+                    {
+                      "id": "lessThan",
+                      "name": "보다 작음"
+                    },
+                    {
+                      "id": "greaterThanOrEqual",
+                      "name": "이상"
+                    },
+                    {
+                      "id": "lessThanOrEqual",
+                      "name": "이하"
+                    },
+                    {
+                      "id": "numberEquals",
+                      "name": "숫자로 같음"
+                    },
+                    {
+                      "id": "before",
+                      "name": "이전"
+                    },
+                    {
+                      "id": "after",
+                      "name": "이후"
+                    },
+                    {
+                      "id": "sameDay",
+                      "name": "같은 날"
+                    },
+                    {
+                      "id": "isTrue",
+                      "name": "참"
+                    },
+                    {
+                      "id": "isFalse",
+                      "name": "거짓"
+                    },
+                    {
+                      "id": "isEmpty",
+                      "name": "비어 있음"
+                    },
+                    {
+                      "id": "isNotEmpty",
+                      "name": "비어 있지 않음"
+                    }
+                  ],
+                  "key": "operator",
+                  "ref": false,
+                  "required": true,
+                  "title": "비교 방식",
+                  "type": "string"
+                },
+                {
+                  "description": "비어 있음·참/거짓 비교는 비워 둬요. 목록 비교는 쉼표로 나눠요.",
+                  "key": "right",
+                  "title": "기준값",
+                  "type": "string"
+                }
+              ],
+              "description": "갈래마다 조건은 최대 10개예요.",
+              "key": "rules",
+              "list": true,
+              "required": true,
+              "title": "조건",
+              "type": "object"
+            }
+          ],
+          "description": "갈래(최대 10개)마다 이름과 조건을 정해요. 위에서부터 보고, 아무 갈래도 안 맞으면 '그 외' 갈래로 가거나 멈춰요(아래 칸). 갈래 id는 비워 두면 시스템이 채워요.",
+          "key": "branches",
+          "list": true,
+          "path": "config.branches",
+          "title": "갈래",
+          "type": "object"
+        },
+        {
+          "choices": [
+            {
+              "id": "first",
+              "name": "첫 번째만"
+            },
+            {
+              "id": "all",
+              "name": "맞는 갈래 전부"
+            }
+          ],
+          "default": "first",
+          "key": "pick",
+          "path": "config.pick",
+          "ref": false,
+          "title": "여러 갈래가 맞으면",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "branch",
+              "name": "그 외 갈래로"
+            },
+            {
+              "id": "stop",
+              "name": "여기서 멈추기"
+            }
+          ],
+          "default": "branch",
+          "description": "'여기서 멈추기'면 뒤 단계를 실행하지 않아요(맞을 때만 계속).",
+          "key": "otherwise",
+          "path": "config.otherwise",
+          "ref": false,
+          "title": "아무 갈래도 안 맞으면",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "description": "켜면 텍스트 비교에서 대소문자를 구분해요.",
+          "key": "caseSensitive",
+          "path": "config.caseSensitive",
+          "ref": false,
+          "title": "대소문자 구분",
+          "type": "boolean"
         }
       ],
       "kind": "action",
       "nodeType": "CONDITION",
       "outputFields": [
         {
+          "description": "고른 첫 갈래 이름. 멈추면 빈 값",
+          "key": "branch",
+          "title": "갈래",
+          "type": "string"
+        },
+        {
+          "key": "branches",
+          "list": true,
+          "title": "고른 갈래들",
+          "type": "string"
+        },
+        {
+          "key": "matched",
+          "title": "맞은 갈래 있음",
+          "type": "boolean"
+        },
+        {
+          "description": "'맞은 갈래 있음'과 같아요",
           "key": "result",
           "title": "조건 결과",
           "type": "boolean"
@@ -1615,7 +1872,7 @@
     {
       "app": "google_sheets",
       "appTitle": "Google Sheets",
-      "description": "표 끝에 새 행을 덧붙여요.",
+      "description": "표 끝에 한 행을 추가해요.",
       "fixed": {
         "config": {
           "brand": "sheets"
@@ -1630,35 +1887,55 @@
           "key": "spreadsheet_id",
           "optionsSource": "google.spreadsheets",
           "path": "config.spreadsheet_id",
+          "ref": false,
           "required": true,
           "title": "스프레드시트",
           "type": "string"
         },
         {
-          "description": "예: A:C",
-          "key": "cell_range",
-          "path": "config.cell_range",
-          "required": true,
-          "title": "범위",
-          "type": "string"
-        },
-        {
-          "description": "2차원 배열 JSON (예: [[\"홍길동\", 100]])",
-          "key": "values",
-          "path": "config.values",
-          "required": true,
-          "title": "값",
-          "type": "json"
-        },
-        {
           "description": "대상 워크시트(탭)",
-          "key": "sheet_name",
+          "key": "sheet_id",
           "optionsInputs": [
             "spreadsheet_id"
           ],
           "optionsSource": "google.worksheets",
-          "path": "config.sheet_name",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
           "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "1행 머리글이 열마다 칸으로 펼쳐져요",
+          "fieldsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "fieldsSource": "google.sheet_columns",
+          "key": "columns",
+          "path": "config.columns",
+          "ref": false,
+          "required": true,
+          "title": "열",
+          "type": "dict"
+        },
+        {
+          "choices": [
+            {
+              "id": "USER_ENTERED",
+              "name": "자동 변환"
+            },
+            {
+              "id": "RAW",
+              "name": "그대로 저장"
+            }
+          ],
+          "default": "USER_ENTERED",
+          "description": "전화번호·우편번호처럼 앞자리 0을 지켜야 하면 '그대로 저장'",
+          "key": "value_input_option",
+          "path": "config.value_input_option",
+          "ref": false,
+          "title": "입력값 해석",
           "type": "string"
         }
       ],
@@ -1671,14 +1948,388 @@
           "type": "string"
         },
         {
-          "key": "updatedRows",
-          "title": "추가된 행 수",
+          "key": "row_number",
+          "title": "행 번호",
           "type": "integer"
         }
       ],
       "provider": "google",
       "title": "시트에 행 추가",
       "toolKey": "builtin:google_sheets_append"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "머리글 바로 아래(2행)에 한 행을 넣어요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.append_top",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.append_top",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "1행 머리글이 열마다 칸으로 펼쳐져요",
+          "fieldsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "fieldsSource": "google.sheet_columns",
+          "key": "columns",
+          "path": "config.columns",
+          "ref": false,
+          "required": true,
+          "title": "열",
+          "type": "dict"
+        },
+        {
+          "choices": [
+            {
+              "id": "USER_ENTERED",
+              "name": "자동 변환"
+            },
+            {
+              "id": "RAW",
+              "name": "그대로 저장"
+            }
+          ],
+          "default": "USER_ENTERED",
+          "description": "전화번호·우편번호처럼 앞자리 0을 지켜야 하면 '그대로 저장'",
+          "key": "value_input_option",
+          "path": "config.value_input_option",
+          "ref": false,
+          "title": "입력값 해석",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "updatedRange",
+          "title": "기록된 범위",
+          "type": "string"
+        },
+        {
+          "key": "row_number",
+          "title": "행 번호",
+          "type": "integer"
+        }
+      ],
+      "provider": "google",
+      "title": "시트 맨 위에 행 추가",
+      "toolKey": "builtin:google_sheets_append_top"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "열 값으로 행을 찾고 없으면 표 끝에 추가해요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.find_or_create_row",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.find_or_create_row",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "값을 찾을 열",
+          "key": "lookup_column",
+          "optionsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "optionsSource": "google.sheet_columns",
+          "path": "config.lookup_column",
+          "ref": false,
+          "required": true,
+          "title": "찾을 열",
+          "type": "string"
+        },
+        {
+          "description": "화면에 보이는 값과 정확히 같아야 해요(대소문자 구분)",
+          "key": "lookup_value",
+          "path": "config.lookup_value",
+          "required": true,
+          "title": "찾을 값",
+          "type": "string"
+        },
+        {
+          "description": "고르면 두 조건을 모두 만족하는 행을 찾아요",
+          "key": "lookup_column_2",
+          "optionsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "optionsSource": "google.sheet_columns",
+          "path": "config.lookup_column_2",
+          "ref": false,
+          "title": "보조 열",
+          "type": "string"
+        },
+        {
+          "description": "보조 열에서 찾을 값",
+          "key": "lookup_value_2",
+          "path": "config.lookup_value_2",
+          "title": "보조 값",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "description": "켜면 가장 아래 행부터 찾아요",
+          "key": "from_bottom",
+          "path": "config.from_bottom",
+          "ref": false,
+          "title": "마지막 행부터 찾기",
+          "type": "boolean"
+        },
+        {
+          "description": "찾지 못했을 때 새 행에 넣을 값",
+          "fieldsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "fieldsSource": "google.sheet_columns",
+          "key": "columns",
+          "path": "config.columns",
+          "ref": false,
+          "required": true,
+          "title": "열",
+          "type": "dict"
+        },
+        {
+          "choices": [
+            {
+              "id": "USER_ENTERED",
+              "name": "자동 변환"
+            },
+            {
+              "id": "RAW",
+              "name": "그대로 저장"
+            }
+          ],
+          "default": "USER_ENTERED",
+          "description": "전화번호·우편번호처럼 앞자리 0을 지켜야 하면 '그대로 저장'",
+          "key": "value_input_option",
+          "path": "config.value_input_option",
+          "ref": false,
+          "title": "입력값 해석",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "찾지 못해 새 행을 만들었는지",
+          "key": "created",
+          "title": "새로 만듦",
+          "type": "boolean"
+        },
+        {
+          "key": "row_number",
+          "title": "행 번호",
+          "type": "integer"
+        },
+        {
+          "description": "열 문자로 꺼내요. 예: values.B",
+          "dynamic": true,
+          "key": "values",
+          "title": "값",
+          "type": "object"
+        }
+      ],
+      "provider": "google",
+      "title": "시트에서 행 찾기, 없으면 추가",
+      "toolKey": "builtin:google_sheets_find_or_create_row"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "열 값으로 처음 맞는 행을 찾아요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.lookup_row",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.lookup_row",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "값을 찾을 열",
+          "key": "lookup_column",
+          "optionsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "optionsSource": "google.sheet_columns",
+          "path": "config.lookup_column",
+          "ref": false,
+          "required": true,
+          "title": "찾을 열",
+          "type": "string"
+        },
+        {
+          "description": "화면에 보이는 값과 정확히 같아야 해요(대소문자 구분)",
+          "key": "lookup_value",
+          "path": "config.lookup_value",
+          "required": true,
+          "title": "찾을 값",
+          "type": "string"
+        },
+        {
+          "description": "고르면 두 조건을 모두 만족하는 행을 찾아요",
+          "key": "lookup_column_2",
+          "optionsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "optionsSource": "google.sheet_columns",
+          "path": "config.lookup_column_2",
+          "ref": false,
+          "title": "보조 열",
+          "type": "string"
+        },
+        {
+          "description": "보조 열에서 찾을 값",
+          "key": "lookup_value_2",
+          "path": "config.lookup_value_2",
+          "title": "보조 값",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "description": "켜면 가장 아래 행부터 찾아요",
+          "key": "from_bottom",
+          "path": "config.from_bottom",
+          "ref": false,
+          "title": "마지막 행부터 찾기",
+          "type": "boolean"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "맞는 행이 있는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "row_number",
+              "title": "행 번호",
+              "type": "integer"
+            },
+            {
+              "dynamic": true,
+              "key": "values",
+              "title": "값",
+              "type": "object"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "행",
+          "type": "object"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "row_number",
+          "title": "행 번호",
+          "type": "integer"
+        },
+        {
+          "description": "열 문자로 꺼내요. 예: values.B",
+          "dynamic": true,
+          "key": "values",
+          "title": "값",
+          "type": "object"
+        }
+      ],
+      "provider": "google",
+      "title": "시트에서 행 찾기",
+      "toolKey": "builtin:google_sheets_lookup_row"
     },
     {
       "app": "google_sheets",
@@ -1698,8 +2349,22 @@
           "key": "spreadsheet_id",
           "optionsSource": "google.spreadsheets",
           "path": "config.spreadsheet_id",
+          "ref": false,
           "required": true,
           "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
           "type": "string"
         },
         {
@@ -1708,17 +2373,6 @@
           "path": "config.cell_range",
           "required": true,
           "title": "범위",
-          "type": "string"
-        },
-        {
-          "description": "대상 워크시트(탭)",
-          "key": "sheet_name",
-          "optionsInputs": [
-            "spreadsheet_id"
-          ],
-          "optionsSource": "google.worksheets",
-          "path": "config.sheet_name",
-          "title": "워크시트",
           "type": "string"
         }
       ],
@@ -1743,50 +2397,87 @@
     {
       "app": "google_sheets",
       "appTitle": "Google Sheets",
-      "description": "지정한 범위에 값을 써요.",
+      "description": "행 번호로 한 행의 값을 바꿔요.",
       "fixed": {
         "config": {
           "brand": "sheets"
         },
-        "event": "google_sheets.write",
+        "event": "google_sheets.update_row",
         "type": "ACTION"
       },
-      "id": "google_sheets.write",
+      "id": "google_sheets.update_row",
       "inputFields": [
         {
           "description": "대상 스프레드시트",
           "key": "spreadsheet_id",
           "optionsSource": "google.spreadsheets",
           "path": "config.spreadsheet_id",
+          "ref": false,
           "required": true,
           "title": "스프레드시트",
           "type": "string"
         },
         {
-          "description": "예: A:C",
-          "key": "cell_range",
-          "path": "config.cell_range",
-          "required": true,
-          "title": "범위",
-          "type": "string"
-        },
-        {
-          "description": "2차원 배열 JSON (예: [[\"홍길동\", 100]])",
-          "key": "values",
-          "path": "config.values",
-          "required": true,
-          "title": "값",
-          "type": "json"
-        },
-        {
           "description": "대상 워크시트(탭)",
-          "key": "sheet_name",
+          "key": "sheet_id",
           "optionsInputs": [
             "spreadsheet_id"
           ],
           "optionsSource": "google.worksheets",
-          "path": "config.sheet_name",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
           "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "보통 '시트에서 행 찾기'의 행 번호를 넣어요",
+          "key": "row_number",
+          "path": "config.row_number",
+          "required": true,
+          "title": "행 번호",
+          "type": "integer"
+        },
+        {
+          "description": "비운 열은 그대로 둬요",
+          "fieldsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "fieldsSource": "google.sheet_columns",
+          "key": "columns",
+          "path": "config.columns",
+          "ref": false,
+          "required": true,
+          "title": "열",
+          "type": "dict"
+        },
+        {
+          "default": false,
+          "description": "켜면 비운 열의 기존 값을 지워요",
+          "key": "overwrite_all",
+          "path": "config.overwrite_all",
+          "ref": false,
+          "title": "모든 열 덮어쓰기",
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            {
+              "id": "USER_ENTERED",
+              "name": "자동 변환"
+            },
+            {
+              "id": "RAW",
+              "name": "그대로 저장"
+            }
+          ],
+          "default": "USER_ENTERED",
+          "description": "전화번호·우편번호처럼 앞자리 0을 지켜야 하면 '그대로 저장'",
+          "key": "value_input_option",
+          "path": "config.value_input_option",
+          "ref": false,
+          "title": "입력값 해석",
           "type": "string"
         }
       ],
@@ -1799,14 +2490,14 @@
           "type": "string"
         },
         {
-          "key": "updatedCells",
-          "title": "기록된 셀 수",
+          "key": "row_number",
+          "title": "행 번호",
           "type": "integer"
         }
       ],
       "provider": "google",
-      "title": "시트에 쓰기",
-      "toolKey": "builtin:google_sheets_write"
+      "title": "시트 행 수정",
+      "toolKey": "builtin:google_sheets_update_row"
     },
     {
       "app": "http",

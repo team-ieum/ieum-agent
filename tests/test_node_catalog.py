@@ -84,7 +84,7 @@ def test_dynamic_markers_and_app_in_entries():
     by_id = {e["id"]: e for e in node_catalog()["entries"]}
     assert by_id["webhook.catch"]["outputDynamic"] is True
     assert by_id["transform.map"]["outputsFrom"] == "config.mappings"
-    assert by_id["google_sheets.write"]["app"] == "google_sheets"
+    assert by_id["google_sheets.update_row"]["app"] == "google_sheets"
     assert by_id["gmail.new_email"]["app"] == "gmail"
     assert by_id["manual.run"]["app"] == "manual"      # 내장 항목도 앱 키가 있다
 
@@ -128,8 +128,11 @@ def test_option_source_fields_fixed_set():
         ("slack.send_message", "webhookCredentialId"), ("discord.send_message", "webhookCredentialId"),
         ("slack_bot.send_channel_message", "channel"),
         ("discord_bot.send_channel_message", "guild_id"), ("discord_bot.send_channel_message", "channel_id"),
-        *[(f"google_sheets.{x}", k) for x in ("read", "write", "append")
-          for k in ("spreadsheet_id", "sheet_name")],
+        *[(f"google_sheets.{x}", k)
+          for x in ("read", "append", "append_top", "update_row", "lookup_row", "find_or_create_row")
+          for k in ("spreadsheet_id", "sheet_id")],
+        *[(f"google_sheets.{x}", k) for x in ("lookup_row", "find_or_create_row")
+          for k in ("lookup_column", "lookup_column_2")],
         ("google_calendar.create", "calendar_id"), ("google_calendar.find", "calendar_id"),
         ("google_calendar.update", "calendar_id"), ("google_calendar.update", "event_id"),
         ("google_calendar.delete", "calendar_id"), ("google_calendar.delete", "event_id"),
@@ -170,6 +173,10 @@ def _field(entry_id: str, key: str) -> dict:
     ("template", "템플릿", {"notion.templates"}, ["data_source_id"]),
     ("owner", "소유자", {"github.owners"}, None),
     ("repo", "저장소", {"github.repos"}, ["owner"]),
+    ("spreadsheet_id", "스프레드시트", {"google.spreadsheets"}, None),
+    ("sheet_id", "워크시트", {"google.worksheets"}, ["spreadsheet_id"]),
+    ("lookup_column", "찾을 열", {"google.sheet_columns"}, ["spreadsheet_id", "sheet_id"]),
+    ("lookup_column_2", "보조 열", {"google.sheet_columns"}, ["spreadsheet_id", "sheet_id"]),
 ])
 def test_app_option_sources(field, title, sources, inputs):
     """공급원 키는 BE OptionSource.key()와 1:1 계약(IEUM-BE-72·73·76). 그 필드를 가진 액션 항목 전부에서
@@ -183,13 +190,51 @@ def test_app_option_sources(field, title, sources, inputs):
         assert f["description"]
 
 
-def test_sheets_append_option_source_contract():
-    sid = _field("google_sheets.append", "spreadsheet_id")
-    assert (sid["title"], sid["optionsSource"], sid.get("optionsInputs"), sid.get("required")) == \
-        ("스프레드시트", "google.spreadsheets", None, True)
-    sheet = _field("google_sheets.append", "sheet_name")
-    assert (sheet["title"], sheet["optionsSource"], sheet["optionsInputs"]) == \
-        ("워크시트", "google.worksheets", ["spreadsheet_id"])
+_SHEETS_FIELDS = {
+    "google_sheets.append": ["spreadsheet_id", "sheet_id", "columns", "value_input_option"],
+    "google_sheets.append_top": ["spreadsheet_id", "sheet_id", "columns", "value_input_option"],
+    "google_sheets.update_row": ["spreadsheet_id", "sheet_id", "row_number", "columns", "overwrite_all",
+                                 "value_input_option"],
+    "google_sheets.lookup_row": ["spreadsheet_id", "sheet_id", "lookup_column", "lookup_value",
+                                 "lookup_column_2", "lookup_value_2", "from_bottom"],
+    "google_sheets.find_or_create_row": ["spreadsheet_id", "sheet_id", "lookup_column", "lookup_value",
+                                         "lookup_column_2", "lookup_value_2", "from_bottom", "columns",
+                                         "value_input_option"],
+    "google_sheets.read": ["spreadsheet_id", "sheet_id", "cell_range"],
+}
+
+
+@pytest.mark.parametrize("event, keys", _SHEETS_FIELDS.items())
+def test_sheets_열별_칸_노드_계약(event, keys):
+    f = {x["key"]: x for x in _action(event)["inputFields"]}
+    assert list(f) == keys
+    assert (f["spreadsheet_id"]["required"], f["spreadsheet_id"]["ref"]) == (True, False)
+    assert (f["sheet_id"]["required"], f["sheet_id"]["ref"], f["sheet_id"]["optionsSource"]) == \
+        (True, False, "google.worksheets")
+    if "columns" in f:
+        c = f["columns"]
+        assert (c["type"], c["ref"], c["required"], c["fieldsSource"], c["fieldsInputs"]) == \
+            ("dict", False, True, "google.sheet_columns", ["spreadsheet_id", "sheet_id"])
+    if "value_input_option" in f:
+        v = f["value_input_option"]
+        assert ([x["id"] for x in v["choices"]], v["default"], v["ref"]) == \
+            (["USER_ENTERED", "RAW"], "USER_ENTERED", False)
+    if "lookup_value" in f:
+        assert f["lookup_value"]["required"] is True and "default" not in f["lookup_value"]
+        assert (f["from_bottom"]["default"], f["from_bottom"]["ref"]) == (False, False)
+    if "overwrite_all" in f:
+        assert (f["overwrite_all"]["default"], f["overwrite_all"]["ref"]) == (False, False)
+        assert (f["row_number"]["type"], f["row_number"]["required"]) == ("integer", True)
+
+
+def test_sheets_출력_칸():
+    outs = {e: [x["key"] for x in _action(e)["outputFields"]] for e in _SHEETS_FIELDS}
+    for e in ("google_sheets.append", "google_sheets.append_top", "google_sheets.update_row"):
+        assert outs[e] == ["updatedRange", "row_number"]
+    assert outs["google_sheets.lookup_row"] == ["found", "total", "items", "row_number", "values"]
+    assert outs["google_sheets.find_or_create_row"] == ["created", "row_number", "values"]
+    assert _action("google_sheets.lookup_row")["kind"] == "search"
+    assert "google_sheets.write" not in {e["id"] for e in node_catalog()["entries"]}
 
 
 def test_event_id는_뒤의_calendar_id를_가리킨다():
@@ -214,8 +259,9 @@ EXPECTED_BRANDS = {
     "notion.search": "notion", "notion.update_page": "notion",
     "notion.append_block": "notion", "notion.query_database": "notion",
     "notion.create_row": "notion", "notion.update_row": "notion",
-    "google_sheets.read": "sheets", "google_sheets.write": "sheets",
-    "google_sheets.append": "sheets",
+    "google_sheets.read": "sheets", "google_sheets.append": "sheets", "google_sheets.append_top": "sheets",
+    "google_sheets.update_row": "sheets", "google_sheets.lookup_row": "sheets",
+    "google_sheets.find_or_create_row": "sheets",
     "google_calendar.create": "google", "google_calendar.find": "google",
     "google_calendar.update": "google", "google_calendar.delete": "google", "google_drive.read": "google",
     "google_drive.upload": "google",

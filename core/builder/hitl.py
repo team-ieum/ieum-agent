@@ -147,7 +147,8 @@ def sample_summary(output) -> str:
     if not isinstance(output, dict) or not output:
         return "테스트 성공(출력 없음)"
     items = []
-    for key, value in list(output.items())[:4]:
+    shown = [(k, v) for k, v in output.items() if not (isinstance(k, str) and k.startswith("_"))]  # 엔진 예약 키
+    for key, value in shown[:4]:
         text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
         items.append(f"{clean(key, 30)}: {clean(text, 30)}")
     return "테스트 성공 — " + " · ".join(items)

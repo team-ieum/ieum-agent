@@ -78,7 +78,7 @@ def test_duplicate_tool_field_owner_rejected(tmp_path, monkeypatch):
 def test_options_inputs_must_point_to_same_entry(tmp_path, monkeypatch):
     def mutate(d):
         edit_entry(d, "google_sheets.read",
-                   lambda raw: raw["fields"]["sheet_name"].__setitem__("optionsInputs", ["nope"]))
+                   lambda raw: raw["fields"]["sheet_id"].__setitem__("optionsInputs", ["nope"]))
     with pytest.raises(TemplateSchemaError, match="optionsInputs"):
         _load_from(tmp_path, monkeypatch, mutate)
 

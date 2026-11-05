@@ -4,7 +4,7 @@ import copy
 import pytest
 
 from core.template_registry import load_templates, match_entry
-from core.validators.static_validator import _check, field_errors, validate_workflow
+from core.validators.static_validator import _check, condition_branches, field_errors, validate_workflow
 
 TRIGGER = {"id": "t", "type": "TRIGGER", "event": "manual.run", "config": {}}
 
@@ -143,8 +143,8 @@ def test_default_있는_필수_칸은_비어도_통과():
 
 
 def test_빈_목록은_필수_칸을_비운_것으로_본다():
-    node = _act("g", "google_sheets.append", spreadsheet_id="s", cell_range="A:B", values=[])
-    assert [(e["code"], e["field"]) for e in field_errors(node)] == [("REQUIRED", "config.values")]
+    f = {"key": "values", "title": "값", "type": "json", "required": True}
+    assert [(e["code"], e["field"]) for e in _check(f, [], "config.values", "g")] == [("REQUIRED", "config.values")]
 
 
 def test_webhookCredentialId_있는_HTTP는_url_없어도_통과():
@@ -191,6 +191,166 @@ def test_condition_옛_표기_leftValue_rightValue도_채운_것으로_본다():
     assert field_errors(node) == []
 
 
+def _cond(nid="c", **config):
+    return {"id": nid, "type": "CONDITION", "event": "branch.if", "config": config}
+
+
+def _br(key="b_00000001", name="긴급", rules=None, **extra):
+    return {"key": key, "name": name, "rules": rules if rules is not None
+            else [{"left": "{{nodes.t.output.x}}", "operator": "contains", "right": "긴급"}], **extra}
+
+
+def test_새_모양_분기는_레거시_칸_없이_통과하고_레거시_칸을_보지_않는다():
+    assert field_errors(_cond(branches=[_br()])) == []
+    assert field_errors(_cond(branches=[_br()], operator="같음", left="", right="")) == []
+
+
+@pytest.mark.parametrize("config", [{}, {"branches": []}, {"branches": None}])
+def test_레거시_분기는_operator_left_right_필수(config):
+    assert _codes(field_errors(_cond(**config))) == [
+        ("REQUIRED", "c", "config.left"), ("REQUIRED", "c", "config.operator"), ("REQUIRED", "c", "config.right")]
+
+
+@pytest.mark.parametrize("op", ["isTrue", "isFalse"])
+def test_참거짓_연산자는_right가_비어도_통과(op):
+    assert field_errors(_cond(operator=op, left="x")) == []
+
+
+def test_갈래_안_조건_right는_연산자가_쓰면_필수():
+    rules = [{"left": "a", "operator": "equals"}, {"left": "a", "operator": "isEmpty"}, {"left": "a", "operator": "isTrue"}]
+    assert _codes(field_errors(_cond(branches=[_br(rules=rules)]))) == [
+        ("REQUIRED", "c", "config.branches.0.rules.0.right")]
+
+
+def test_갈래_key_이름_조건이_비면_REQUIRED():
+    assert _codes(field_errors(_cond(branches=[{"key": "", "name": "", "rules": []}]))) == [
+        ("REQUIRED", "c", "config.branches.0.key"), ("REQUIRED", "c", "config.branches.0.name"),
+        ("REQUIRED", "c", "config.branches.0.rules")]
+
+
+def test_갈래_key_중복_예약어와_이름_중복은_CHOICE():
+    branches = [_br("b_1", "A"), _br("b_1", "B"), _br("else", "C"), _br("true", "A")]
+    assert _codes(field_errors(_cond(branches=branches))) == [
+        ("CHOICE", "c", "config.branches.1.key"), ("CHOICE", "c", "config.branches.2.key"),
+        ("CHOICE", "c", "config.branches.3.key"), ("CHOICE", "c", "config.branches.3.name")]
+
+
+def test_갈래_key_공백은_빈_값이_아니고_예약어는_정확히_같을_때만():
+    """컨트롤러 판정 F3 — 빈 값은 None·""만, 예약어는 정확 일치."""
+    branches = [_br(" ", "A"), _br("Else", "B"), _br(" else", "C"), _br("false", "D")]
+    assert _codes(field_errors(_cond(branches=branches))) == [("CHOICE", "c", "config.branches.3.key")]
+
+
+def test_갈래_조건_10개_초과는_TOO_LARGE():
+    many = [_br(f"b_{i:08x}", f"갈래{i}") for i in range(11)]
+    assert _codes(field_errors(_cond(branches=many))) == [("TOO_LARGE", "c", "config.branches")]
+    assert field_errors(_cond(branches=many[:10])) == []
+    rules = [{"left": "a", "operator": "equals", "right": "b"}] * 11
+    assert _codes(field_errors(_cond(branches=[_br(rules=rules)]))) == [("TOO_LARGE", "c", "config.branches.0.rules")]
+
+
+def test_갈래_조건이_상한을_크게_넘어도_앞_10개만_검사한다():
+    """원소 1만 개여도 에러는 TOO_LARGE + 앞 10개 몫 — 원소마다 에러를 만들지 않는다(메모리 증폭 방지)."""
+    errors = field_errors(_cond(branches=[{}] * 10000))
+    assert ("TOO_LARGE", "c", "config.branches") in _codes(errors)
+    assert all(int(e["field"].split(".")[2]) < 10 for e in errors if e["field"].startswith("config.branches."))
+    assert len(errors) <= 1 + 10 * 5
+    errors = field_errors(_cond(branches=[_br(rules=[{}] * 10000)]))
+    assert ("TOO_LARGE", "c", "config.branches.0.rules") in _codes(errors)
+    assert all(int(e["field"].split(".")[4]) < 10 for e in errors if e["field"].startswith("config.branches.0.rules."))
+    assert len(errors) <= 1 + 10 * 5
+
+
+def test_없는_연산자_match_pick_otherwise는_CHOICE():
+    node = _cond(branches=[_br(rules=[{"left": "a", "operator": "regex", "right": "x"}], match="some")],
+                 pick="many", otherwise="skip")
+    assert _codes(field_errors(node)) == [
+        ("CHOICE", "c", "config.branches.0.match"), ("CHOICE", "c", "config.branches.0.rules.0.operator"),
+        ("CHOICE", "c", "config.otherwise"), ("CHOICE", "c", "config.pick")]
+
+
+def test_갈래_key와_이름에는_참조식을_넣을_수_없다():
+    assert _codes(field_errors(_cond(branches=[_br(key="{{nodes.t.output.k}}")]))) == [
+        ("REF_NOT_ALLOWED", "c", "config.branches.0.key")]
+
+
+@pytest.mark.parametrize("branches, expected", [
+    (["x"], [("TYPE", "c", "config.branches.0")]),
+    ([_br(), 3], [("TYPE", "c", "config.branches.1")]),
+    ([_br(key=["b_1"]), _br(key=["b_1"], name={"a": 1})],
+     [("TYPE", "c", "config.branches.0.key"), ("TYPE", "c", "config.branches.1.key"),
+      ("TYPE", "c", "config.branches.1.name")]),
+    ([_br(key=5, rules=["x"])], [("TYPE", "c", "config.branches.0.key"), ("TYPE", "c", "config.branches.0.rules.0")]),
+])
+def test_갈래_조건_원소가_객체가_아니거나_key_이름이_문자열이_아니면_TYPE(branches, expected):
+    assert _codes(field_errors(_cond(branches=branches))) == expected  # 예외 없이, 해시 안 되는 값도
+
+
+def _refs(errors):
+    return [(e["code"], e["nodeId"], e["field"]) for e in errors if e["code"].startswith("REF_")]
+
+
+def test_새_모양_분기의_참조_오류는_config_branches까지_짚고_레거시_칸은_보지_않는다():
+    node = _cond(branches=[_br(rules=[{"left": "{{nodes.zz.output.a}}", "operator": "equals", "right": "x"}])],
+                 operator="{{nodes.zz.output.b}}")
+    nodes, edges = _chain(node)
+    assert _refs(validate_workflow(nodes, edges)) == [("REF_UNKNOWN_NODE", "c", "config.branches")]
+
+
+def test_분기_출력_예약_키_참조는_REF_UNKNOWN_FIELD():
+    slack = _act("x", "slack_bot.send_channel_message", channel="C1",
+                 text="{{nodes.c.output._branchKeys}} {{nodes.c.output.branch}} {{nodes.c.output.matched}}")
+    nodes = [TRIGGER, _cond(branches=[_br()]), slack]
+    edges = [{"source": "t", "target": "c"}, {"source": "c", "target": "x", "conditionType": "b_00000001"}]
+    assert _refs(validate_workflow(nodes, edges)) == [("REF_UNKNOWN_FIELD", "x", "config.text")]
+
+
+_X = {"id": "x", "type": "TRANSFORM", "event": "transform.map", "config": {}}
+_Y = {"id": "y", "type": "TRANSFORM", "event": "transform.map", "config": {}}
+
+
+def _edge_errors(cond, *out_edges):
+    """t → c → (x, y). out_edges = (target, conditionType) — conditionType None이면 키를 뺀다."""
+    edges = [{"source": "t", "target": "c"}] + [
+        {"source": "c", "target": tgt, **({} if ct is None else {"conditionType": ct})} for tgt, ct in out_edges]
+    return [(e["nodeId"], e["field"]) for e in validate_workflow([TRIGGER, cond, _X, _Y], edges)
+            if e["code"] == "EDGE_INVALID"]
+
+
+def test_갈래_목록은_key_이름과_그_외():
+    assert condition_branches(_cond(branches=[_br("b_1", "긴급")])) == [("b_1", "긴급"), ("else", "그 외")]
+    assert condition_branches(_cond(branches=[_br("b_1", "긴급")], otherwise="stop")) == [("b_1", "긴급")]
+    assert condition_branches(_cond(operator="equals")) == [("true", "참"), ("false", "그 외")]
+    assert condition_branches(_cond(branches=["x", _br("", "빈")])) == [("else", "그 외")]
+
+
+def test_새_모양_분기_엣지는_갈래_key나_else만():
+    cond = _cond(branches=[_br("b_aaaaaaaa", "긴급")])
+    assert _edge_errors(cond, ("x", "b_aaaaaaaa"), ("y", "else")) == []
+    assert _edge_errors(cond, ("x", "true"), ("y", None)) == [("c", None), ("c", None)]
+
+
+def test_멈춤_분기의_else_엣지는_EDGE_INVALID():
+    cond = _cond(branches=[_br("b_aaaaaaaa", "긴급")], otherwise="stop")
+    assert _edge_errors(cond, ("x", "b_aaaaaaaa"), ("y", "else")) == [("c", None)]
+
+
+def test_레거시_분기_엣지는_true_false만():
+    cond = _cond(operator="equals", left="a", right="b")
+    assert _edge_errors(cond, ("x", "true"), ("y", "false")) == []
+    assert _edge_errors(cond, ("x", "else")) == [("c", None)]
+
+
+@pytest.mark.parametrize("ct", [["b_aaaaaaaa"], {"k": 1}, 1])
+def test_분기_엣지_conditionType이_문자열이_아니어도_예외_없음(ct):
+    assert _edge_errors(_cond(branches=[_br("b_aaaaaaaa")]), ("x", ct)) == [("c", None)]
+
+
+def test_분기_아닌_노드의_엣지_conditionType은_보지_않는다():
+    edges = [{"source": "t", "target": "x", "conditionType": "zzz"}]
+    assert [e for e in validate_workflow([TRIGGER, _X], edges) if e["code"] == "EDGE_INVALID"] == []
+
+
 @pytest.mark.parametrize("bad", [[{"key": "title", "type": "text"}, {"key": "score"}], {"key": "a"},
                                  [{"key": "t", "type": "날짜"}]])
 def test_AI_outputFields는_칸_검사하지_않는다(bad):
@@ -219,8 +379,8 @@ def test_integer_TYPE(value, ok):
 
 @pytest.mark.parametrize("value,ok", [('[["a", 1]]', True), ([["a", 1]], True), ("[[a", False), (5, False), ("[" * 100000, False)])
 def test_json_TYPE은_JSON_문자열도_허용(value, ok):
-    """도구 인자 values는 JSON 문자열로 저장된다(tools/google_sheets.py values: str)."""
-    node = _act("g", "google_sheets.append", spreadsheet_id="s", cell_range="A:B", values=value)
+    """json 칸은 JSON 문자열로도 저장된다(notion.query_database filter_json: str)."""
+    node = _act("q", "notion.query_database", database_id="d", filter_json=value)
     assert (field_errors(node) == []) is ok
 
 
@@ -444,9 +604,14 @@ FIXED_NODE_REQUIRED = {
     "google_calendar.update": ["config.event_id"],
     "google_drive.read": ["config.file_id"],
     "google_drive.upload": ["config.content", "config.name"],
-    "google_sheets.append": ["config.cell_range", "config.spreadsheet_id", "config.values"],
-    "google_sheets.read": ["config.cell_range", "config.spreadsheet_id"],
-    "google_sheets.write": ["config.cell_range", "config.spreadsheet_id", "config.values"],
+    "google_sheets.append": ["config.columns", "config.sheet_id", "config.spreadsheet_id"],
+    "google_sheets.append_top": ["config.columns", "config.sheet_id", "config.spreadsheet_id"],
+    "google_sheets.update_row": ["config.columns", "config.row_number", "config.sheet_id", "config.spreadsheet_id"],
+    "google_sheets.lookup_row": ["config.lookup_column", "config.lookup_value", "config.sheet_id",
+                                 "config.spreadsheet_id"],
+    "google_sheets.find_or_create_row": ["config.columns", "config.lookup_column", "config.lookup_value",
+                                         "config.sheet_id", "config.spreadsheet_id"],
+    "google_sheets.read": ["config.cell_range", "config.sheet_id", "config.spreadsheet_id"],
     "notion.append_block": ["config.content", "config.page_id"],
     "notion.create_page": ["config.content", "config.parent_page_id", "config.title"],
     "notion.query_database": ["config.database_id"],

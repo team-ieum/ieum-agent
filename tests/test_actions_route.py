@@ -326,3 +326,17 @@ def test_Notion_행_수정_ACTION은_헤더_토큰으로_끝까지_실행되고_
     assert {c.kwargs["headers"]["Authorization"] for c in http.get.await_args_list + http.patch.await_args_list} \
         == {"Bearer n-token"}
     assert http.patch.await_args.kwargs["json"] == {"properties": {"num": {"number": 7}}}
+
+
+def test_Sheets_행_수정_ACTION은_헤더_Google_토큰으로_끝까지_실행된다():
+    """ACTION 전용 도구도 builtin:google_ 접두사로 토큰을 받는다. config의 _names는 무시된다."""
+    from tests.test_google_sheets import GRID, _Sheets
+    fake = _Sheets(GRID)
+    body = {"nodeId": "node-1", "toolKey": "builtin:google_sheets_update_row",
+            "config": {"spreadsheet_id": "s1", "sheet_id": "0", "row_number": "3", "columns": {"B": "n@n"},
+                       "_names": {"sheet_id": "Sales", "columns": {"B": "이메일"}}}}
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        res = client.post(URL, json=body, headers={"X-User-Id": "user-1", "X-Google-Access-Token": "g-token"})
+    assert res.status_code == 200 and res.json()["success"] is True
+    assert res.json()["output"] == {"updatedRange": "'Sales'!A3", "row_number": 3}
+    assert all(kw["headers"]["Authorization"] == "Bearer g-token" for _, _, kw in fake.calls)

@@ -21,7 +21,7 @@ def _keys(tid):
     ("github.new_issue", ["issueNumber", "title", "body", "url", "author", "labels",
                                   "repo", "createdAt"]),
     ("http.request", ["statusCode", "body"]),
-    ("branch.if", ["result"]),
+    ("branch.if", ["branch", "branches", "matched", "result"]),
     ("transform.map", []),
     ("approval.request", ["approved", "approvedBy", "approvedAt"]),
     ("ai.reasoning", ["output"]),
