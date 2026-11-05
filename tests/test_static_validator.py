@@ -4,7 +4,7 @@ import copy
 import pytest
 
 from core.template_registry import load_templates, match_entry
-from core.validators.static_validator import _check, field_errors, validate_workflow
+from core.validators.static_validator import _check, condition_branches, field_errors, validate_workflow
 
 TRIGGER = {"id": "t", "type": "TRIGGER", "event": "manual.run", "config": {}}
 
@@ -291,6 +291,52 @@ def test_분기_출력_예약_키_참조는_REF_UNKNOWN_FIELD():
     nodes = [TRIGGER, _cond(branches=[_br()]), slack]
     edges = [{"source": "t", "target": "c"}, {"source": "c", "target": "x", "conditionType": "b_00000001"}]
     assert _refs(validate_workflow(nodes, edges)) == [("REF_UNKNOWN_FIELD", "x", "config.text")]
+
+
+_X = {"id": "x", "type": "TRANSFORM", "event": "transform.map", "config": {}}
+_Y = {"id": "y", "type": "TRANSFORM", "event": "transform.map", "config": {}}
+
+
+def _edge_errors(cond, *out_edges):
+    """t → c → (x, y). out_edges = (target, conditionType) — conditionType None이면 키를 뺀다."""
+    edges = [{"source": "t", "target": "c"}] + [
+        {"source": "c", "target": tgt, **({} if ct is None else {"conditionType": ct})} for tgt, ct in out_edges]
+    return [(e["nodeId"], e["field"]) for e in validate_workflow([TRIGGER, cond, _X, _Y], edges)
+            if e["code"] == "EDGE_INVALID"]
+
+
+def test_갈래_목록은_key_이름과_그_외():
+    assert condition_branches(_cond(branches=[_br("b_1", "긴급")])) == [("b_1", "긴급"), ("else", "그 외")]
+    assert condition_branches(_cond(branches=[_br("b_1", "긴급")], otherwise="stop")) == [("b_1", "긴급")]
+    assert condition_branches(_cond(operator="equals")) == [("true", "참"), ("false", "그 외")]
+    assert condition_branches(_cond(branches=["x", _br("", "빈")])) == [("else", "그 외")]
+
+
+def test_새_모양_분기_엣지는_갈래_key나_else만():
+    cond = _cond(branches=[_br("b_aaaaaaaa", "긴급")])
+    assert _edge_errors(cond, ("x", "b_aaaaaaaa"), ("y", "else")) == []
+    assert _edge_errors(cond, ("x", "true"), ("y", None)) == [("c", None), ("c", None)]
+
+
+def test_멈춤_분기의_else_엣지는_EDGE_INVALID():
+    cond = _cond(branches=[_br("b_aaaaaaaa", "긴급")], otherwise="stop")
+    assert _edge_errors(cond, ("x", "b_aaaaaaaa"), ("y", "else")) == [("c", None)]
+
+
+def test_레거시_분기_엣지는_true_false만():
+    cond = _cond(operator="equals", left="a", right="b")
+    assert _edge_errors(cond, ("x", "true"), ("y", "false")) == []
+    assert _edge_errors(cond, ("x", "else")) == [("c", None)]
+
+
+@pytest.mark.parametrize("ct", [["b_aaaaaaaa"], {"k": 1}, 1])
+def test_분기_엣지_conditionType이_문자열이_아니어도_예외_없음(ct):
+    assert _edge_errors(_cond(branches=[_br("b_aaaaaaaa")]), ("x", ct)) == [("c", None)]
+
+
+def test_분기_아닌_노드의_엣지_conditionType은_보지_않는다():
+    edges = [{"source": "t", "target": "x", "conditionType": "zzz"}]
+    assert [e for e in validate_workflow([TRIGGER, _X], edges) if e["code"] == "EDGE_INVALID"] == []
 
 
 @pytest.mark.parametrize("bad", [[{"key": "title", "type": "text"}, {"key": "score"}], {"key": "a"},

@@ -99,7 +99,7 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
     if not nodes:
         return [_err("TRIGGER_COUNT", "워크플로우에 노드가 없습니다.")]
     errors = []
-    seen, triggers = set(), []
+    seen, triggers, first = set(), [], {}
     for idx, node in enumerate(nodes):
         nid, ntype = _sid(node.get("id")), node.get("type")
         if nid is None:
@@ -108,6 +108,7 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
         if nid in seen:
             errors.append(_err("EDGE_INVALID", f"노드 id '{_clip(nid)}'가 중복됩니다.", nid))
         seen.add(nid)
+        first.setdefault(nid, node)
         if not isinstance(ntype, str) or not ntype:
             errors.append(_err("EDGE_INVALID", f"노드 '{_clip(nid)}'에 type이 없습니다.", nid))
             continue
@@ -117,6 +118,7 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
     if len(triggers) != 1:
         errors.append(_err("TRIGGER_COUNT", f"트리거는 1개여야 합니다(현재 {len(triggers)}개)."))
     trigger_id = triggers[0].get("id") if len(triggers) == 1 else None
+    allowed: dict = {}  # 출발 노드 id → _branch_allowed, id당 한 번만 계산
     for idx, edge in enumerate(edges):
         source, target = _sid(edge.get("source")), _sid(edge.get("target"))
         if source is None or target is None:
@@ -126,6 +128,11 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
             errors.append(_err("EDGE_INVALID", f"연결({_clip(source)} → {_clip(target)})이 없는 노드 '{_clip(missing)}'를 가리킵니다."))
         elif target == trigger_id:
             errors.append(_err("EDGE_INVALID", "트리거로 들어오는 연결은 둘 수 없습니다.", trigger_id))
+        if source in seen and target in seen:
+            if source not in allowed:
+                allowed[source] = _branch_allowed(first[source])
+            if allowed[source] is not None:
+                errors += _branch_edge_errors(source, target, edge.get("conditionType"), *allowed[source])
     if trigger_id is not None:
         adj: dict = {}
         for edge in edges:
@@ -143,6 +150,49 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
             if nid is not None and nid not in reached:
                 errors.append(_err("ORPHAN_NODE", "트리거에서 이어지지 않은 노드입니다.", nid))
     return errors
+
+
+def condition_branches(node: dict) -> list[tuple[str, str]]:
+    """분기 노드에서 나가는 엣지가 쓸 수 있는 (conditionType 값, 이름). 새 모양 = 갈래 key(비어 있지 않은 문자열)들
+    + otherwise가 stop이 아니면 else. 레거시(branches 빈 값)는 otherwise를 무시하고 true·false."""
+    branches = _get_by_path(node, "config.branches")
+    if branches in _EMPTY:
+        return [("true", "참"), ("false", "그 외")]
+    out = [(br["key"], str(br.get("name") or "")) for br in (branches if isinstance(branches, list) else [])
+           if isinstance(br, dict) and isinstance(br.get("key"), str) and br["key"]]
+    if _get_by_path(node, "config.otherwise") != "stop":
+        out.append(("else", "그 외"))
+    return out
+
+
+_MAX_LISTED_BRANCHES = 10  # 메시지에 싣는 허용값 개수 — 갈래 상한을 넘긴 노드도 메시지가 커지지 않게
+
+
+def _branch_allowed(node: dict):
+    """CONDITION 노드면 (허용값 set, 메시지용 허용값 표기, otherwise == stop), 아니면 None."""
+    entry = match_entry(node)
+    if entry is None or entry["node_type"] != "CONDITION":
+        return None
+    branches = condition_branches(node)
+    listed = ", ".join(f"'{_clip(v)}'({_clip(n)})" for v, n in branches[:_MAX_LISTED_BRANCHES])
+    if len(branches) > _MAX_LISTED_BRANCHES:
+        listed += f" 외 {len(branches) - _MAX_LISTED_BRANCHES}개"
+    stop = _is_branched(node) and _get_by_path(node, "config.otherwise") == "stop"
+    return {v for v, _ in branches}, listed or "없음", stop
+
+
+def _branch_edge_errors(source: str, target: str, ct, values: set, listed: str, stop: bool) -> list[dict]:
+    """분기 엣지의 conditionType — 허용값 밖이면 실행기가 절대 따라가지 않는 연결이다.
+    출발·도착·받은 값을 메시지에 넣는다: 같은 메시지는 하나로 합쳐지고, finish는 nodeId를 버린다."""
+    if isinstance(ct, str) and ct in values:  # 문자열만 set에 넣어 본다 — 목록·dict는 해시 예외
+        return []
+    where = f"분기 '{_clip(source)}' → '{_clip(target)}' 연결"
+    if stop and ct == "else":
+        msg = f"{where}: 그 외는 '여기서 멈추기'라 'else' 연결은 실행되지 않아요. 쓸 수 있는 값: {listed}."
+    else:
+        got = "없음" if ct is None else f"'{_clip(ct)}'"
+        msg = f"{where}의 갈래 값({got})이 맞지 않아요. 쓸 수 있는 값: {listed}."
+    return [_err("EDGE_INVALID", msg, source)]
 
 
 _CRON_PART_RE = re.compile(r"^[0-9A-Za-z*/,\-?LW#]+$")
