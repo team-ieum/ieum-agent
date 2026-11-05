@@ -16,9 +16,14 @@ REF_BODY_RE = re.compile(r"nodes\.([a-zA-Z0-9-]+)\.output\.([a-zA-Z0-9_.]+)")
 _REF_RE = re.compile(r"\{\{([^{}]*)\}\}")
 
 _EMPTY = (None, "", [])
-# BE ConditionNodeExecutor: isEmpty·isNotEmpty는 right를 보지 않는다. 튜플 — 저장된 operator가 list·dict여도
+# BE ConditionNodeExecutor: isEmpty·isNotEmpty·isTrue·isFalse는 right를 보지 않는다. 튜플 — 저장된 operator가 list·dict여도
 # `in`이 해시하지 않아 예외가 나지 않는다.
-_RIGHT_UNUSED_OPERATORS = ("isEmpty", "isNotEmpty")
+_RIGHT_UNUSED_OPERATORS = ("isEmpty", "isNotEmpty", "isTrue", "isFalse")
+# 레거시 분기 3칸 — 카탈로그는 선택(갈래만 쓴 노드)이고, 갈래가 없을 때만 검증이 필수로 건다
+_LEGACY_CONDITION_PATHS = ("config.operator", "config.left", "config.right")
+# 분기 엣지 conditionType 예약어 — 갈래 key가 될 수 없다
+_RESERVED_BRANCH_KEYS = ("else", "true", "false")
+MAX_BRANCHES = MAX_RULES = 10
 # BE ConditionNodeExecutor는 left/right가 없으면 옛 표기 leftValue/rightValue를 읽는다
 _CONDITION_ALIASES = {"config.left": "config.leftValue", "config.right": "config.rightValue"}
 # AI 프리셋 도구 칸 경로. ACTION 입력 칸은 config.<칸>이라 이 접두사 밖이다(spec §4).
@@ -94,7 +99,7 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
     if not nodes:
         return [_err("TRIGGER_COUNT", "워크플로우에 노드가 없습니다.")]
     errors = []
-    seen, triggers = set(), []
+    seen, triggers, first = set(), [], {}
     for idx, node in enumerate(nodes):
         nid, ntype = _sid(node.get("id")), node.get("type")
         if nid is None:
@@ -103,6 +108,7 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
         if nid in seen:
             errors.append(_err("EDGE_INVALID", f"노드 id '{_clip(nid)}'가 중복됩니다.", nid))
         seen.add(nid)
+        first.setdefault(nid, node)
         if not isinstance(ntype, str) or not ntype:
             errors.append(_err("EDGE_INVALID", f"노드 '{_clip(nid)}'에 type이 없습니다.", nid))
             continue
@@ -112,6 +118,7 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
     if len(triggers) != 1:
         errors.append(_err("TRIGGER_COUNT", f"트리거는 1개여야 합니다(현재 {len(triggers)}개)."))
     trigger_id = triggers[0].get("id") if len(triggers) == 1 else None
+    allowed: dict = {}  # 출발 노드 id → _branch_allowed, id당 한 번만 계산
     for idx, edge in enumerate(edges):
         source, target = _sid(edge.get("source")), _sid(edge.get("target"))
         if source is None or target is None:
@@ -121,6 +128,11 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
             errors.append(_err("EDGE_INVALID", f"연결({_clip(source)} → {_clip(target)})이 없는 노드 '{_clip(missing)}'를 가리킵니다."))
         elif target == trigger_id:
             errors.append(_err("EDGE_INVALID", "트리거로 들어오는 연결은 둘 수 없습니다.", trigger_id))
+        if source in seen and target in seen:
+            if source not in allowed:
+                allowed[source] = _branch_allowed(first[source])
+            if allowed[source] is not None:
+                errors += _branch_edge_errors(source, target, edge.get("conditionType"), *allowed[source])
     if trigger_id is not None:
         adj: dict = {}
         for edge in edges:
@@ -138,6 +150,49 @@ def _graph_errors(nodes: list, edges: list) -> list[dict]:
             if nid is not None and nid not in reached:
                 errors.append(_err("ORPHAN_NODE", "트리거에서 이어지지 않은 노드입니다.", nid))
     return errors
+
+
+def condition_branches(node: dict) -> list[tuple[str, str]]:
+    """분기 노드에서 나가는 엣지가 쓸 수 있는 (conditionType 값, 이름). 새 모양 = 갈래 key(비어 있지 않은 문자열)들
+    + otherwise가 stop이 아니면 else. 레거시(branches 빈 값)는 otherwise를 무시하고 true·false."""
+    branches = _get_by_path(node, "config.branches")
+    if branches in _EMPTY:
+        return [("true", "참"), ("false", "그 외")]
+    out = [(br["key"], str(br.get("name") or "")) for br in (branches if isinstance(branches, list) else [])
+           if isinstance(br, dict) and isinstance(br.get("key"), str) and br["key"]]
+    if _get_by_path(node, "config.otherwise") != "stop":
+        out.append(("else", "그 외"))
+    return out
+
+
+_MAX_LISTED_BRANCHES = 10  # 메시지에 싣는 허용값 개수 — 갈래 상한을 넘긴 노드도 메시지가 커지지 않게
+
+
+def _branch_allowed(node: dict):
+    """CONDITION 노드면 (허용값 set, 메시지용 허용값 표기, otherwise == stop), 아니면 None."""
+    entry = match_entry(node)
+    if entry is None or entry["node_type"] != "CONDITION":
+        return None
+    branches = condition_branches(node)
+    listed = ", ".join(f"'{_clip(v)}'({_clip(n)})" for v, n in branches[:_MAX_LISTED_BRANCHES])
+    if len(branches) > _MAX_LISTED_BRANCHES:
+        listed += f" 외 {len(branches) - _MAX_LISTED_BRANCHES}개"
+    stop = _is_branched(node) and _get_by_path(node, "config.otherwise") == "stop"
+    return {v for v, _ in branches}, listed or "없음", stop
+
+
+def _branch_edge_errors(source: str, target: str, ct, values: set, listed: str, stop: bool) -> list[dict]:
+    """분기 엣지의 conditionType — 허용값 밖이면 실행기가 절대 따라가지 않는 연결이다.
+    출발·도착·받은 값을 메시지에 넣는다: 같은 메시지는 하나로 합쳐지고, finish는 nodeId를 버린다."""
+    if isinstance(ct, str) and ct in values:  # 문자열만 set에 넣어 본다 — 목록·dict는 해시 예외
+        return []
+    where = f"분기 '{_clip(source)}' → '{_clip(target)}' 연결"
+    if stop and ct == "else":
+        msg = f"{where}: 그 외는 '여기서 멈추기'라 'else' 연결은 실행되지 않아요. 쓸 수 있는 값: {listed}."
+    else:
+        got = "없음" if ct is None else f"'{_clip(ct)}'"
+        msg = f"{where}의 갈래 값({got})이 맞지 않아요. 쓸 수 있는 값: {listed}."
+    return [_err("EDGE_INVALID", msg, source)]
 
 
 _CRON_PART_RE = re.compile(r"^[0-9A-Za-z*/,\-?LW#]+$")
@@ -189,12 +244,68 @@ def field_errors(node: dict) -> list[dict]:
             value = _get_by_path(node, _CONDITION_ALIASES[path])
         if _unused_field(entry, node, path):
             continue
+        if entry["node_type"] == "CONDITION" and path in _LEGACY_CONDITION_PATHS:
+            f = {**f, "required": True}
+        if entry["node_type"] == "CONDITION" and path == "config.branches" and isinstance(value, list):
+            # 상한 밖 원소는 TOO_LARGE(_condition_errors)라 내용을 보지 않는다 — 원소마다 에러를 만들지 않게.
+            value = [{**b, "rules": b["rules"][:MAX_RULES]} if isinstance(b, dict) and isinstance(b.get("rules"), list)
+                     else b for b in value[:MAX_BRANCHES]]
         errors += _check(f, value, path, nid)
+    if entry["node_type"] == "CONDITION":
+        errors += _condition_errors(node, nid)
+    return errors
+
+
+def _is_branched(node: dict) -> bool:
+    """새 모양 분기 — config.branches가 비어 있지 않다(목록이 아니어도 새 모양, TYPE은 _check 몫)."""
+    return _get_by_path(node, "config.branches") not in _EMPTY
+
+
+def _condition_errors(node: dict, nid) -> list[dict]:
+    """갈래 규칙 중 칸 정의(_check)로 못 거는 것: 개수 상한·원소 형식·key 중복·예약어·이름 중복·조건 기준값.
+    key·name은 None·""만 빈 값(REQUIRED는 _check 몫) — 그 밖의 문자열 아닌 값은 TYPE."""
+    branches = _get_by_path(node, "config.branches")
+    if not isinstance(branches, list):
+        return []
+    errors = []
+    if len(branches) > MAX_BRANCHES:
+        errors.append(_err("TOO_LARGE", f"갈래는 {MAX_BRANCHES}개까지 만들 수 있어요.", nid, "config.branches"))
+    keys, names = set(), set()
+    for i, br in enumerate(branches[:MAX_BRANCHES]):
+        loc = f"config.branches.{i}"
+        if not isinstance(br, dict):
+            errors.append(_err("TYPE", "갈래는 객체여야 합니다.", nid, loc))
+            continue
+        key, name, rules = br.get("key"), br.get("name"), br.get("rules")
+        for k, v in (("key", key), ("name", name)):
+            if v not in (None, "") and not isinstance(v, str):
+                errors.append(_err("TYPE", f"갈래 {k}는 문자열이어야 합니다.", nid, f"{loc}.{k}"))
+        if isinstance(rules, list):
+            if len(rules) > MAX_RULES:
+                errors.append(_err("TOO_LARGE", f"갈래 하나에 조건은 {MAX_RULES}개까지 넣을 수 있어요.",
+                                   nid, f"{loc}.rules"))
+            for j, rule in enumerate(rules[:MAX_RULES]):
+                if not isinstance(rule, dict):
+                    errors.append(_err("TYPE", "조건은 객체여야 합니다.", nid, f"{loc}.rules.{j}"))
+                elif rule.get("operator") not in _RIGHT_UNUSED_OPERATORS and rule.get("right") in _EMPTY:
+                    errors.append(_err("REQUIRED", "조건의 '기준값' 칸을 입력하세요.", nid, f"{loc}.rules.{j}.right"))
+        if isinstance(key, str) and key:
+            if key in _RESERVED_BRANCH_KEYS or key in keys:
+                errors.append(_err("CHOICE", f"갈래 key '{_clip(key)}'은(는) 쓸 수 없어요(예약어 또는 중복).",
+                                   nid, f"{loc}.key"))
+            keys.add(key)
+        if isinstance(name, str) and name:
+            if name in names:
+                errors.append(_err("CHOICE", f"갈래 이름 '{_clip(name)}'이(가) 겹쳐요.", nid, f"{loc}.name"))
+            names.add(name)
     return errors
 
 
 def _unused_field(entry: dict, node: dict, path: str) -> bool:
     """실행기가 읽지 않는 칸 — 칸 검사와 참조 검사가 함께 건너뛴다(spec §7-16)."""
+    # 새 모양 분기는 레거시 3칸을 읽지 않는다
+    if entry["node_type"] == "CONDITION" and path in _LEGACY_CONDITION_PATHS and _is_branched(node):
+        return True
     if path == "config.right" and entry["node_type"] == "CONDITION":
         return _get_by_path(node, "config.operator") in _RIGHT_UNUSED_OPERATORS
     # BE HttpNodeExecutor는 webhookCredentialId가 채워져 있으면 url을 읽지 않는다(BE-62: url에 웹훅 주소 금지)

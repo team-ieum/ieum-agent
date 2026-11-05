@@ -123,6 +123,28 @@ async def test_분기_노드_뒤는_branch_필수_그_밖은_금지():
     assert tools.connect(turn, "b", ok["node_id"], branch="false") == {"ok": True}
 
 
+@pytest.mark.asyncio
+async def test_새_모양_분기_뒤는_갈래_key나_else만():
+    branch = {"id": "b", "event": "branch.if", "type": "CONDITION", "label": "분기",
+              "config": {"branches": [{"key": "b_11111111", "name": "긴급", "rules": []}]}}
+    turn = _turn(nodes=[_trigger(), branch])
+    r = await tools.add_node(turn, "transform.map", "x", after="b", branch="true")
+    assert "'b_11111111'(긴급)" in r["error"] and "'else'" in r["error"]
+    ok = await tools.add_node(turn, "transform.map", "긴급", after="b", branch="b_11111111")
+    assert turn.edges[-1] == {"source": "b", "target": ok["node_id"], "conditionType": "b_11111111"}
+    assert tools.connect(turn, "b", ok["node_id"], branch="else") == {"ok": True}
+    branch["config"]["otherwise"] = "stop"
+    assert "error" in tools.connect(turn, "b", ok["node_id"], branch="else")
+
+
+@pytest.mark.asyncio
+async def test_갈래_없는_분기의_거절_문구는_config_branches부터_채우라고_한다():
+    branch = {"id": "b", "event": "branch.if", "type": "CONDITION", "label": "분기", "config": {}}
+    turn = _turn(nodes=[_trigger(), branch])
+    r = await tools.add_node(turn, "transform.map", "x", after="b", branch="else")
+    assert "config.branches" in r["error"] and "'true'" in r["error"]
+
+
 def test_연결_규칙():
     a = {"id": "a", "event": "transform.map", "type": "TRANSFORM", "label": "a", "config": {}}
     turn = _turn(nodes=[_trigger(), a])
@@ -172,3 +194,11 @@ def test_메뉴는_옛_schedule_every와_ai_agent를_뺀다():
     ids = {t["id"] for t in tools.menu()}
     assert "schedule.every" not in ids and "ai.agent" not in ids
     assert "schedule.daily" in ids
+
+
+def test_분기_도구_설명은_갈래_key_else와_Filter를_안내한다():
+    fns = {f.__name__: f for f in tools.make_tools(_turn())}
+    add, connect, set_ = fns["add_node"].__doc__, fns["connect"].__doc__, fns["set_fields"].__doc__
+    assert "config.branches" in add and "'else'" in add and "'stop'" in add
+    assert "'else'" in connect and "'true'" in connect
+    assert "removedEdges" in set_

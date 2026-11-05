@@ -175,3 +175,71 @@ def test_칸_목록은_카탈로그_고정_choices를_자르지_않는다():
     days = {c["id"] for c in fields["config.day"]["choices"]}
     hours = {c["id"] for c in fields["config.hour"]["choices"]}
     assert {"L", "28"} <= days and "23" in hours
+
+
+RULE = {"left": "a", "operator": "equals", "right": "b"}
+
+
+def _plain(nid):
+    return {"id": nid, "event": "transform.map", "type": "TRANSFORM", "label": nid, "config": {}}
+
+
+def _branch_turn(config, out_edges):
+    branch = {"id": "c", "event": "branch.if", "type": "CONDITION", "label": "분기", "config": config}
+    edges = [{"source": "t", "target": "c"}] + [{"source": "c", "target": t, "conditionType": ct} for t, ct in out_edges]
+    return _turn([TRIGGER, branch, _plain("x"), _plain("y"), _plain("z")], edges)
+
+
+def _out(turn):
+    return [(e["target"], e.get("conditionType")) for e in turn.edges if e["source"] == "c"]
+
+
+def test_분기_칸_쓰기는_갈래_key_이름을_돌려주고_사라진_갈래_연결을_지운다():
+    turn = _branch_turn({"branches": [{"key": "b_11111111", "name": "긴급", "rules": [RULE]},
+                                      {"key": "b_22222222", "name": "일반", "rules": [RULE]}]},
+                        [("x", "b_11111111"), ("y", "b_22222222"), ("z", "else")])
+    r = tools.set_fields(turn, {}, "c", {"config.branches": [{"key": "b_11111111", "name": "긴급", "rules": [RULE]}]})
+    assert r["branches"] == [{"key": "b_11111111", "name": "긴급"}]
+    assert r["removedEdges"] == ["c→y(b_22222222)"]
+    assert _out(turn) == [("x", "b_11111111"), ("z", "else")]
+
+
+def test_멈춤으로_바꾸면_else_연결을_지운다():
+    turn = _branch_turn({"branches": [{"key": "b_11111111", "name": "긴급", "rules": [RULE]}]},
+                        [("x", "b_11111111"), ("z", "else")])
+    r = tools.set_fields(turn, {}, "c", {"config.otherwise": "stop"})
+    assert r["removedEdges"] == ["c→z(else)"] and _out(turn) == [("x", "b_11111111")]
+
+
+def test_분기_칸_쓰기는_목록_conditionType_엣지도_지운다():
+    turn = _branch_turn({"branches": [{"key": "b_11111111", "name": "긴급", "rules": [RULE]}]},
+                        [("x", ["b_11111111"]), ("y", None)])
+    r = tools.set_fields(turn, {}, "c", {"config.pick": "all"})
+    assert len(r["removedEdges"]) == 2 and _out(turn) == []
+
+
+def test_레거시_분기_칸_쓰기는_true_false_연결을_지우지_않는다():
+    turn = _branch_turn({"operator": "equals", "left": "a", "right": "b"}, [("x", "true"), ("y", "false")])
+    r = tools.set_fields(turn, {}, "c", {"config.caseSensitive": True})
+    assert r["branches"] == [] and r["removedEdges"] == [] and _out(turn) == [("x", "true"), ("y", "false")]
+
+
+def test_분기_아닌_노드의_칸_쓰기_응답_키는_그대로():
+    turn = _turn([TRIGGER, _slack()], [{"source": "t", "target": "s"}])
+    assert set(tools.set_fields(turn, {}, "s", {"config.text": "x"})) == {"applied", "rejected", "errors"}
+
+
+OPS = ["equals", "notEquals", "contains", "notContains", "startsWith", "endsWith", "in", "notIn",
+       "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual", "numberEquals",
+       "before", "after", "sameDay", "isTrue", "isFalse", "isEmpty", "isNotEmpty"]
+
+
+def test_분기_칸_목록은_갈래_안쪽_칸과_연산자_id를_펼친다():
+    turn = _branch_turn({}, [])
+    f = {x["path"]: x for x in tools.get_fields(turn, {}, "c")["fields"]}["config.branches"]
+    assert f["list"] is True and [c["key"] for c in f["children"]] == ["key", "name", "match", "rules"]
+    assert f["children"][0]["required"] is True and "description" in f["children"][0]
+    assert f["children"][2]["choices"] == ["all", "any"]
+    rules = f["children"][3]
+    assert rules["list"] is True and [c["key"] for c in rules["children"]] == ["left", "operator", "right"]
+    assert rules["children"][1]["choices"] == OPS and "required" not in rules["children"][2]

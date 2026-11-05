@@ -1,4 +1,6 @@
 """대화형 생성 칸 쓰기 규칙 (spec 2026-10-28 §3.3·§5.4, IEUM-AI-84)."""
+import re
+
 import pytest
 
 from core.builder.fields import apply_fields, check_url, node_errors, writable_fields
@@ -182,3 +184,87 @@ def test_참석자_참조식은_사용자가_문자_그대로_적어도_거절()
     _, rejected = apply_fields(node, {"config.attendees": "{{nodes.a.output.repo}}"},
                                _state(text="참석자는 {{nodes.a.output.repo}} 로"))
     assert "config.attendees" in rejected
+
+
+RULE = {"left": "a", "operator": "equals", "right": "b"}
+_KEY = re.compile(r"b_[0-9a-f]{8}")
+
+
+def _branch(**config):
+    return {"id": "c", "event": "branch.if", "type": "CONDITION", "label": "분기", "config": config}
+
+
+def test_갈래_key는_시스템이_채우고_지어낸_key는_바꾼다():
+    node, sent = _branch(), [{"name": "긴급", "rules": [RULE]}, {"key": "urgent", "name": "일반", "rules": [RULE]}]
+    assert apply_fields(node, {"config.branches": sent}, {}) == (["config.branches"], {})
+    keys = [b["key"] for b in node["config"]["branches"]]
+    assert all(_KEY.fullmatch(k) for k in keys) and len(set(keys)) == 2
+    assert "key" not in sent[0] and sent[1]["key"] == "urgent"  # 보낸 값은 바꾸지 않는다
+
+
+def test_있던_key는_유지하고_key_없는_갈래는_같은_이름의_key를_이어받는다():
+    node = _branch(branches=[{"key": "b_11111111", "name": "긴급", "rules": [RULE]},
+                             {"key": "b_22222222", "name": "일반", "rules": [RULE]}])
+    apply_fields(node, {"config.branches": [{"key": "b_22222222", "name": "일반(수정)", "rules": [RULE]},
+                                            {"name": " 긴급 ", "rules": [RULE]}, {"name": "새 갈래", "rules": [RULE]}]}, {})
+    keys = [b["key"] for b in node["config"]["branches"]]
+    assert keys[:2] == ["b_22222222", "b_11111111"]
+    assert _KEY.fullmatch(keys[2]) and keys[2] not in ("b_11111111", "b_22222222")
+
+
+def test_이름_이어받기는_뒤_원소의_명시_key를_가로채지_않는다():
+    node = _branch(branches=[{"key": "b_11111111", "name": "긴급", "rules": [RULE]}])
+    apply_fields(node, {"config.branches": [{"name": "긴급", "rules": [RULE]},
+                                            {"key": "b_11111111", "name": "매우 긴급", "rules": [RULE]}]}, {})
+    keys = [b["key"] for b in node["config"]["branches"]]
+    assert keys[1] == "b_11111111" and _KEY.fullmatch(keys[0]) and keys[0] != "b_11111111"
+
+
+def test_공백_key는_빈_key로_보고_이름을_이어받는다():
+    node = _branch(branches=[{"key": "b_11111111", "name": "긴급", "rules": [RULE]}])
+    apply_fields(node, {"config.branches": [{"key": " ", "name": "긴급", "rules": [RULE]}]}, {})
+    assert node["config"]["branches"][0]["key"] == "b_11111111"
+
+
+@pytest.mark.parametrize("bad", [["b_11111111"], {"k": 1}, 5])
+def test_문자열_아닌_key는_새_key(bad):
+    node = _branch(branches=[{"key": "b_11111111", "name": "긴급", "rules": [RULE]}])
+    applied, _ = apply_fields(node, {"config.branches": [{"key": bad, "name": "긴급", "rules": [RULE]}]}, {})
+    k = node["config"]["branches"][0]["key"]
+    assert applied == ["config.branches"] and _KEY.fullmatch(k) and k != "b_11111111"
+
+
+@pytest.mark.parametrize("bad", [["x"], {"k": 1}])
+def test_저장된_key가_문자열이_아니어도_예외_없이_새_key(bad):
+    node = _branch(branches=[{"key": bad, "name": "a", "rules": [RULE]}])
+    applied, _ = apply_fields(node, {"config.branches": [{"name": "a", "rules": [RULE]}]}, {})
+    assert applied == ["config.branches"] and _KEY.fullmatch(node["config"]["branches"][0]["key"])
+
+
+def test_같은_key가_두_번_오면_두_번째는_새_key():
+    node = _branch(branches=[{"key": "b_11111111", "name": "긴급", "rules": [RULE]}])
+    apply_fields(node, {"config.branches": [{"key": "b_11111111", "name": "A", "rules": [RULE]},
+                                            {"key": "b_11111111", "name": "B", "rules": [RULE]}]}, {})
+    keys = [b["key"] for b in node["config"]["branches"]]
+    assert keys[0] == "b_11111111" and _KEY.fullmatch(keys[1]) and keys[1] != keys[0]
+
+
+@pytest.mark.parametrize("value", ["x", [1], {"name": "긴급"}, [{"name": "a"}, "b"]])
+def test_갈래는_객체_목록만(value):
+    node = _branch(branches=[{"key": "b_11111111", "name": "긴급", "rules": [RULE]}])
+    applied, rejected = apply_fields(node, {"config.branches": value}, {})
+    assert applied == [] and list(rejected) == ["config.branches"]
+    assert node["config"]["branches"][0]["key"] == "b_11111111"
+
+
+@pytest.mark.parametrize("value", [None, []])
+def test_갈래를_비우면_레거시로_돌아간다(value):
+    node = _branch(branches=[{"key": "b_11111111", "name": "긴급", "rules": [RULE]}])
+    assert apply_fields(node, {"config.branches": value}, {}) == (["config.branches"], {})
+    assert node["config"]["branches"] == value
+
+
+def test_예약어_key는_있던_값이어도_유지하지_않는다():
+    node = _branch(branches=[{"key": "else", "name": "긴급", "rules": [RULE]}])
+    apply_fields(node, {"config.branches": [{"key": "else", "name": "긴급", "rules": [RULE]}]}, {})
+    assert _KEY.fullmatch(node["config"]["branches"][0]["key"])
