@@ -1,3 +1,4 @@
+import inspect
 import json
 from unittest.mock import MagicMock, patch
 from urllib.parse import unquote
@@ -6,11 +7,15 @@ import httpx
 import pytest
 
 from common.error_code import ToolErrorCode
+from core import template_registry as tr
+from tests.action_outputs import assert_matches_outputs
+from tools import _TOOL_MAP, get_tools_for_request
 from tools.google_sheets import (
     _Invalid, _col, _header_range, _resolve, _row, _row_number,
-    google_sheets_append_top, google_sheets_find_or_create_row,
-    google_sheets_lookup_row, google_sheets_update_row,
+    google_sheets_append, google_sheets_append_top, google_sheets_find_or_create_row,
+    google_sheets_lookup_row, google_sheets_read, google_sheets_update_row,
 )
+from tools.registry import _ACTION_ONLY_TOOLS, resolve_action_fn
 
 
 def _resp(status_code: int, json_data: dict) -> MagicMock:
@@ -33,12 +38,14 @@ class _Sheets:
     sheets: [(title, sheetId, columnCount)], grid: 시트 전체 값(1행 = 머리글).
     fail: {"append"|"update"|"insert"|"delete"|"get_values": MagicMock 응답 또는 던질 예외}."""
 
-    def __init__(self, grid, sheets=(("Sales", 0, 26),), fail=None, updated_range=None, omit_sheet_id=False):
+    def __init__(self, grid, sheets=(("Sales", 0, 26),), fail=None, updated_range=None, omit_sheet_id=False,
+                 omit_column_count=False):
         self.grid = grid
         self.sheets = sheets
         self.fail = fail or {}
         self.updated_range = updated_range
         self.omit_sheet_id = omit_sheet_id
+        self.omit_column_count = omit_column_count
         self.calls = []
 
     def _answer(self, kind, ok):
@@ -65,6 +72,8 @@ class _Sheets:
                 p = {"sheetId": sid, "title": title, "gridProperties": {"columnCount": count}}
                 if self.omit_sheet_id and sid == 0:
                     del p["sheetId"]
+                if self.omit_column_count:
+                    del p["gridProperties"]["columnCount"]
                 props.append({"properties": p})
             return _resp(200, {"sheets": props})
         values = self.grid[:1] if _range(url).endswith("!1:1") else self.grid
@@ -143,6 +152,8 @@ async def test_없는_시트는_시트_목록을_알려_준다():
 
 
 _TOOL_ARGS = {
+    "append": (google_sheets_append, {"columns": {"A": "x"}}),
+    "read": (google_sheets_read, {"cell_range": "A1"}),
     "append_top": (google_sheets_append_top, {"columns": {"A": "x"}}),
     "update_row": (google_sheets_update_row, {"row_number": 2, "columns": {"A": "x"}}),
     "lookup_row": (google_sheets_lookup_row, {"lookup_column": "A", "lookup_value": "a"}),
@@ -152,7 +163,7 @@ _TOOL_ARGS = {
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("tool", ["append_top", "update_row", "lookup_row", "find_or_create_row"])
+@pytest.mark.parametrize("tool", ["append", "read", "append_top", "update_row", "lookup_row", "find_or_create_row"])
 @pytest.mark.parametrize("spreadsheet_id, sheet_id", [
     ("", "0"), ("  ", "0"), ("..", "0"), ("a/b", "0"), ("s1", ""), ("s1", "  "), ("s1", None)])
 async def test_빈_대상은_Google을_부르지_않는다(tool, spreadsheet_id, sheet_id):
@@ -262,6 +273,7 @@ async def test_맨_위_추가는_2행에_빈_행을_넣고_값을_쓴다():
     assert _range(put_url) == "'Sales'!A2" and put_kwargs["params"] == {"valueInputOption": "RAW"}
     assert put_kwargs["json"]["values"] == [["", "n@n"]]
     assert result == {"success": True, "updatedRange": "'Sales'!A2", "row_number": 2}
+    assert_matches_outputs("google_sheets.append_top", result)
 
 
 @pytest.mark.asyncio
@@ -322,6 +334,7 @@ async def test_행_수정은_안_채운_열을_None으로_둔다():
     assert _range(put_url) == "'Sales'!A5"
     assert put_kwargs["json"]["values"] == [[None, "x"]]
     assert result == {"success": True, "updatedRange": "'Sales'!A5", "row_number": 5}
+    assert_matches_outputs("google_sheets.update_row", result)
 
 
 @pytest.mark.asyncio
@@ -372,6 +385,7 @@ async def test_값으로_행_찾기는_첫_일치_행을_돌려준다():
     gets = [c for c in fake.calls if "/values/" in c[1]]
     assert len(gets) == 1 and _range(gets[0][1]) == "'Sales'"
     assert gets[0][2]["params"] == {"valueRenderOption": "FORMATTED_VALUE"}
+    assert_matches_outputs("google_sheets.lookup_row", result)
 
 
 @pytest.mark.asyncio
@@ -416,6 +430,7 @@ async def test_비교는_대소문자를_구분한다():
 async def test_못_찾으면_빈_결과로_성공한다():
     _, result = await _lookup(lookup_column="A", lookup_value="zzz")
     assert result == {"success": True, "found": False, "total": 0, "items": [], "row_number": None, "values": {}}
+    assert_matches_outputs("google_sheets.lookup_row", result)
 
 
 @pytest.mark.asyncio
@@ -441,6 +456,7 @@ async def test_찾으면_만들지_않는다():
     assert result == {"success": True, "created": False, "row_number": 2,
                       "values": {"A": "a", "B": "x@x", "C": "", "D": "1"}}
     assert not fake.of("POST")
+    assert_matches_outputs("google_sheets.find_or_create_row", result)
 
 
 @pytest.mark.asyncio
@@ -454,6 +470,7 @@ async def test_없으면_표_끝에_추가한다():
     assert url.endswith(":append") and _range(url) == "'Sales'!A1"
     assert kwargs["params"] == {"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"}
     assert kwargs["json"] == {"range": "'Sales'!A1", "majorDimension": "ROWS", "values": [["c", "c@c"]]}
+    assert_matches_outputs("google_sheets.find_or_create_row", result)
 
 
 @pytest.mark.asyncio
@@ -465,3 +482,98 @@ async def test_없는데_넣을_값이_없으면_실패한다(columns):
     assert "넣을 값이 없어요" in result["error"]
     assert not fake.of("POST")
     assert [c for c in fake.calls if "/values/" in c[1]]  # 찾기는 했다
+
+
+# --- C1 행 추가·읽기 ---
+@pytest.mark.asyncio
+async def test_행_추가는_A1에_INSERT_ROWS로_붙인다():
+    fake = _Sheets(GRID, updated_range="'Sales'!A5:D5")
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        result = await google_sheets_append(access_token="t", spreadsheet_id="s1", sheet_id="0",
+                                            columns={"이름": "홍길동", "D": 3})
+    [(_, post_url, post_kwargs)] = fake.of("POST")
+    assert post_url.endswith(":append") and _range(post_url) == "'Sales'!A1"
+    assert post_kwargs["params"] == {"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"}
+    assert post_kwargs["json"] == {"range": "'Sales'!A1", "majorDimension": "ROWS", "values": [["홍길동", "", "", 3]]}
+    assert json.loads(result) == {"success": True, "updatedRange": "'Sales'!A5:D5", "row_number": 5}
+    assert_matches_outputs("google_sheets.append", result)
+
+
+@pytest.mark.asyncio
+async def test_columnCount가_없으면_26열로_본다():
+    for key, ok in (("Z", True), ("AA", False)):
+        fake = _Sheets([["", "  "]], sheets=(("Sales", 0, 40),), omit_column_count=True)
+        result = await _call(fake, google_sheets_append, sheet_id="0", columns={key: "x"})
+        if ok:
+            assert fake.of("POST")[0][2]["json"]["values"] == [[""] * 25 + ["x"]]
+        else:
+            assert "Z((제목 없음))" in result["error"] and not fake.of("POST")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cell_range, expected", [
+    ("Sheet1!A1:B2", "'Sales'!A1:B2"), ("A:B", "'Sales'!A:B"), ("", "'Sales'"), (5, "'Sales'!5")])
+async def test_읽기는_sheet_id로_시트를_찾고_범위를_붙인다(cell_range, expected):
+    fake = _Sheets(GRID)
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        result = await google_sheets_read(access_token="t", spreadsheet_id="s1", sheet_id="0", cell_range=cell_range)
+    [(_, url, _)] = [c for c in fake.calls if "/values/" in c[1]]
+    assert _range(url) == expected
+    assert json.loads(result) == {"success": True, "range": expected, "values": GRID}
+    assert_matches_outputs("google_sheets.read", result)
+
+
+@pytest.mark.asyncio
+async def test_읽기_API_오류는_실패로_돌려준다():
+    fake = _Sheets(GRID, fail={"get_values": _resp(403, {"error": {"message": "denied"}})})
+    result = await _call(fake, google_sheets_read, sheet_id="0", cell_range="A1")
+    assert ToolErrorCode.EXECUTION_FAILED.message in result["error"]
+    assert "Google Sheets API 오류 (403): denied" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_숫자_spreadsheet_id는_문자열로_쓴다():
+    fake = _Sheets(GRID)
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        result = json.loads(await google_sheets_read(access_token="t", spreadsheet_id=12345, sheet_id="0",
+                                                     cell_range="A1:B2"))
+    assert result["success"] is True
+    assert all("/spreadsheets/12345" in url for _, url, _ in fake.calls)
+
+
+@pytest.mark.asyncio
+async def test_시트_제목의_예약_문자는_경로로_새지_않는다():
+    fake = _Sheets(GRID, sheets=(("a/b#c?d", 0, 26),))
+    await _call(fake, google_sheets_read, sheet_id="0", cell_range="A1")
+    [(_, url, _)] = [c for c in fake.calls if "/values/" in c[1]]
+    tail = url.rsplit("/values/", 1)[1]
+    assert not any(ch in tail for ch in "/#?")
+    assert _range(url) == "'a/b#c?d'!A1"
+
+
+# --- AI 노드 노출 ---
+@pytest.mark.asyncio
+async def test_AI_노드는_시트를_고정하고_열을_이름으로_넘긴다():
+    [bound] = get_tools_for_request([{"name": "builtin:google_sheets_append",
+        "config": {"spreadsheet_id": "abc", "sheet_id": "0", "_names": {"sheet_id": "Sales"}}}])
+    assert set(inspect.signature(bound.func).parameters) == {"access_token", "columns", "value_input_option"}
+    assert "sheet_id:" not in (bound.func.__doc__ or "")
+    fake = _Sheets(GRID)
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        result = json.loads(await bound.func(access_token="t", columns={"이메일": "a@x"}))
+    assert result["success"] is True
+    [(_, url, kwargs)] = fake.of("POST")
+    assert "/spreadsheets/abc/" in url and kwargs["json"]["values"] == [["", "a@x"]]
+
+
+def test_AI_노드_도구_선택지의_Sheets는_행_추가·행_찾기·읽기뿐():
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    sheets = {c["id"] for c in tools["choices"] if c["id"].startswith("builtin:google_sheets_")}
+    assert sheets == {"builtin:google_sheets_append", "builtin:google_sheets_lookup_row", "builtin:google_sheets_read"}
+
+
+def test_ACTION_전용_Sheets_도구는_AI_목록_밖에서만_풀린다():
+    for name in ("append_top", "update_row", "find_or_create_row"):
+        key = f"builtin:google_sheets_{name}"
+        assert key not in _TOOL_MAP and key in _ACTION_ONLY_TOOLS and resolve_action_fn(key) is not None
+    assert resolve_action_fn("builtin:google_sheets_write") is None

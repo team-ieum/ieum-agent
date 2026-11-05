@@ -23,7 +23,7 @@ def test_brand_from_tool_key():
 
 
 def test_brand_key_normalized_for_google_services():
-    sheets = {"type": "AI", "config": {"tools": [{"name": "builtin:google_sheets_write"}]}}
+    sheets = {"type": "AI", "config": {"tools": [{"name": "builtin:google_sheets_append"}]}}
     drive = {"type": "AI", "config": {"tools": [{"name": "builtin:google_drive_read"}]}}
     cal = {"type": "AI", "config": {"tools": [{"name": "builtin:google_calendar_create"}]}}
     assert brand_for_node(sheets) == "sheets"
