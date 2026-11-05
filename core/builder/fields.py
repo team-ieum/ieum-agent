@@ -1,11 +1,12 @@
 """대화형 생성의 칸 쓰기 규칙(spec 2026-10-28 §3.3) — LLM이 쓰는 값은 전부 여기를 지난다."""
 import re
+import uuid
 from urllib.parse import urlsplit
 
 from core.builder.state import said_literally
 from core.node_fields import names_path
 from core.template_registry import _get_by_path, _set_by_path, match_entry
-from core.validators.static_validator import validate_workflow
+from core.validators.static_validator import _RESERVED_BRANCH_KEYS, validate_workflow
 from tools.registry import RUNTIME_INJECTED_PARAMS
 
 # 자유 입력 목적지 칸 — 사용자가 대화에 직접 적은 호스트·주소로만 정한다. 받는 사람 칸이 새로 열리면 여기에 더한다.
@@ -119,8 +120,45 @@ def _write(node: dict, path: str, value, fields: dict, names: dict, state) -> st
         reason = check_emails(value, state.get("user_text") or "")
         if reason:
             return reason
+    if (node.get("event"), path) == ("branch.if", "config.branches") and value not in (None, []):
+        value, reason = _keyed_branches(_get_by_path(node, path), value)
+        if reason:
+            return reason
     _set_by_path(node, path, value)
     return None
+
+
+def _keyed_branches(current, value) -> tuple[list | None, str | None]:
+    """갈래 key는 엣지가 가리키는 고정 id라 시스템이 채운다. 있던 key는 유지, key가 빈 갈래는 같은 이름의 있던 key를
+    이어받고, 그 밖(지어낸 key·문자열 아닌 key·짝 없음)은 새 key. (쓸 값, 거절 이유) — 보낸 값은 바꾸지 않는다."""
+    if not isinstance(value, list) or not all(isinstance(b, dict) for b in value):
+        return None, "갈래(config.branches)는 {name, match, rules} 객체 목록이에요."
+    old = [b for b in current if isinstance(b, dict)] if isinstance(current, list) else []
+    existing = {b["key"] for b in old
+                if isinstance(b.get("key"), str) and b["key"] and b["key"] not in _RESERVED_BRANCH_KEYS}
+    by_name = {}
+    for b in old:
+        name = str(b.get("name") or "").strip()
+        if name and b.get("key") in existing:
+            by_name.setdefault(name, b["key"])
+    sent = [k.strip() if isinstance(k, str) else k for k in (b.get("key") for b in value)]
+    keys, used = [None] * len(value), set()
+    for i, k in enumerate(sent):  # 1단계: 명시한 있던 key를 먼저 예약 — 앞 원소의 이름 이어받기가 가로채지 않게
+        if isinstance(k, str) and k in existing and k not in used:
+            keys[i] = k
+            used.add(k)
+    for i, (b, k) in enumerate(zip(value, sent)):
+        if keys[i] is not None:
+            continue
+        inherited = by_name.get(str(b.get("name") or "").strip()) if k in (None, "") else None
+        if inherited and inherited not in used:
+            keys[i] = inherited
+        else:
+            keys[i] = "b_" + uuid.uuid4().hex[:8]
+            while keys[i] in existing or keys[i] in used:
+                keys[i] = "b_" + uuid.uuid4().hex[:8]
+        used.add(keys[i])
+    return [{**b, "key": k} for b, k in zip(value, keys)], None
 
 
 def node_errors(nodes: list, edges: list, node_id: str) -> list[dict]:

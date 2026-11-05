@@ -19,7 +19,7 @@ from core.builder.model_pick import NO_KEY_MESSAGE, ask_text, load_choices
 from core.builder.state import DONE_STATUSES, node_hash, node_status, workflow_hash
 from core.provider_config import resolve_model
 from core.template_registry import CATALOG_DIR, _get_by_path, _read_json, builder_entries, event_entry
-from core.validators.static_validator import _declared_outputs, validate_workflow
+from core.validators.static_validator import _declared_outputs, condition_branches, validate_workflow
 from tools.registry import apply_service_brand
 
 # OAuth 연결 판정: apps.json auth → BE /oauth/connections의 provider (spec §3.4)
@@ -178,10 +178,32 @@ async def pick_model(turn: Turn, node_id: str) -> dict:
 # ── 노드·엣지 ──────────────────────────────────────────────────────────────
 
 def _branch_error(source: dict, branch: str) -> str | None:
-    """branch.if에서 나가는 엣지는 true|false 필수, 그 밖에서는 금지. BE는 conditionType이 결과와 같은 엣지만 따라간다."""
+    """branch.if에서 나가는 엣지는 갈래 key|else(옛 분기 true|false) 필수, 그 밖에서는 금지.
+    BE는 conditionType이 결과와 같은 엣지만 따라간다."""
     if source.get("event") == "branch.if":
-        return None if branch in ("true", "false") else "분기 노드에서 나가는 연결은 branch를 'true' 또는 'false'로 정해요."
+        allowed = condition_branches(source)
+        if isinstance(branch, str) and branch in {v for v, _ in allowed}:
+            return None
+        listed = ", ".join(f"'{v}'" if v in ("else", "true", "false") else f"'{clean(v)}'({clean(n)})" for v, n in allowed)
+        reason = f"분기 노드에서 나가는 연결은 branch를 {listed} 중 하나로 정해요."
+        if [v for v, _ in allowed] in (["true", "false"], ["else"]):
+            reason += " 새 분기는 set_fields로 config.branches를 먼저 채운 뒤 갈래 key·'else'로 잇는다."
+        return reason
     return "branch는 분기 노드에서 나가는 연결에만 써요." if branch else None
+
+
+def _prune_branch_edges(turn: Turn, node: dict) -> list[str]:
+    """분기 노드에서 나가는 엣지 중 지금 config로 허용되지 않는 것(사라진 갈래·멈춤인 else)을 지운다. 지운 연결 표기."""
+    allowed = {v for v, _ in condition_branches(node)}
+    removed, kept = [], []
+    for e in turn.edges:
+        ct = e.get("conditionType")
+        if e.get("source") == node["id"] and not (isinstance(ct, str) and ct in allowed):
+            removed.append(f"{e['source']}→{e.get('target')}" + (f"({ct})" if ct else ""))
+        else:
+            kept.append(e)
+    turn.edges[:] = kept
+    return removed
 
 
 def _is_trigger(node: dict) -> bool:
@@ -352,7 +374,14 @@ def set_fields(turn: Turn, state, node_id: str, values: dict) -> dict:
     if not isinstance(values, dict):
         return _err("values는 {path: 값} 객체예요.")
     applied, rejected = apply_fields(node, values, state)
-    return {"applied": applied, "rejected": rejected, "errors": _brief(node_errors(turn.nodes, turn.edges, node_id))}
+    if node.get("event") != "branch.if":
+        return {"applied": applied, "rejected": rejected, "errors": _brief(node_errors(turn.nodes, turn.edges, node_id))}
+    removed = _prune_branch_edges(turn, node)
+    branches = _get_by_path(node, "config.branches")
+    return {"applied": applied, "rejected": rejected, "errors": _brief(node_errors(turn.nodes, turn.edges, node_id)),
+            "branches": [{"key": b.get("key"), "name": b.get("name")}
+                         for b in (branches if isinstance(branches, list) else []) if isinstance(b, dict)],
+            "removedEdges": removed}
 
 
 def _inputs(node: dict, field_path: str, keys) -> tuple[dict, str | None]:
