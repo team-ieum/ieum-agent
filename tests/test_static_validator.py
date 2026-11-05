@@ -191,6 +191,108 @@ def test_condition_옛_표기_leftValue_rightValue도_채운_것으로_본다():
     assert field_errors(node) == []
 
 
+def _cond(nid="c", **config):
+    return {"id": nid, "type": "CONDITION", "event": "branch.if", "config": config}
+
+
+def _br(key="b_00000001", name="긴급", rules=None, **extra):
+    return {"key": key, "name": name, "rules": rules if rules is not None
+            else [{"left": "{{nodes.t.output.x}}", "operator": "contains", "right": "긴급"}], **extra}
+
+
+def test_새_모양_분기는_레거시_칸_없이_통과하고_레거시_칸을_보지_않는다():
+    assert field_errors(_cond(branches=[_br()])) == []
+    assert field_errors(_cond(branches=[_br()], operator="같음", left="", right="")) == []
+
+
+@pytest.mark.parametrize("config", [{}, {"branches": []}, {"branches": None}])
+def test_레거시_분기는_operator_left_right_필수(config):
+    assert _codes(field_errors(_cond(**config))) == [
+        ("REQUIRED", "c", "config.left"), ("REQUIRED", "c", "config.operator"), ("REQUIRED", "c", "config.right")]
+
+
+@pytest.mark.parametrize("op", ["isTrue", "isFalse"])
+def test_참거짓_연산자는_right가_비어도_통과(op):
+    assert field_errors(_cond(operator=op, left="x")) == []
+
+
+def test_갈래_안_조건_right는_연산자가_쓰면_필수():
+    rules = [{"left": "a", "operator": "equals"}, {"left": "a", "operator": "isEmpty"}, {"left": "a", "operator": "isTrue"}]
+    assert _codes(field_errors(_cond(branches=[_br(rules=rules)]))) == [
+        ("REQUIRED", "c", "config.branches.0.rules.0.right")]
+
+
+def test_갈래_key_이름_조건이_비면_REQUIRED():
+    assert _codes(field_errors(_cond(branches=[{"key": "", "name": "", "rules": []}]))) == [
+        ("REQUIRED", "c", "config.branches.0.key"), ("REQUIRED", "c", "config.branches.0.name"),
+        ("REQUIRED", "c", "config.branches.0.rules")]
+
+
+def test_갈래_key_중복_예약어와_이름_중복은_CHOICE():
+    branches = [_br("b_1", "A"), _br("b_1", "B"), _br("else", "C"), _br("true", "A")]
+    assert _codes(field_errors(_cond(branches=branches))) == [
+        ("CHOICE", "c", "config.branches.1.key"), ("CHOICE", "c", "config.branches.2.key"),
+        ("CHOICE", "c", "config.branches.3.key"), ("CHOICE", "c", "config.branches.3.name")]
+
+
+def test_갈래_key_공백은_빈_값이_아니고_예약어는_정확히_같을_때만():
+    """컨트롤러 판정 F3 — 빈 값은 None·""만, 예약어는 정확 일치."""
+    branches = [_br(" ", "A"), _br("Else", "B"), _br(" else", "C"), _br("false", "D")]
+    assert _codes(field_errors(_cond(branches=branches))) == [("CHOICE", "c", "config.branches.3.key")]
+
+
+def test_갈래_조건_10개_초과는_TOO_LARGE():
+    many = [_br(f"b_{i:08x}", f"갈래{i}") for i in range(11)]
+    assert _codes(field_errors(_cond(branches=many))) == [("TOO_LARGE", "c", "config.branches")]
+    assert field_errors(_cond(branches=many[:10])) == []
+    rules = [{"left": "a", "operator": "equals", "right": "b"}] * 11
+    assert _codes(field_errors(_cond(branches=[_br(rules=rules)]))) == [("TOO_LARGE", "c", "config.branches.0.rules")]
+
+
+def test_없는_연산자_match_pick_otherwise는_CHOICE():
+    node = _cond(branches=[_br(rules=[{"left": "a", "operator": "regex", "right": "x"}], match="some")],
+                 pick="many", otherwise="skip")
+    assert _codes(field_errors(node)) == [
+        ("CHOICE", "c", "config.branches.0.match"), ("CHOICE", "c", "config.branches.0.rules.0.operator"),
+        ("CHOICE", "c", "config.otherwise"), ("CHOICE", "c", "config.pick")]
+
+
+def test_갈래_key와_이름에는_참조식을_넣을_수_없다():
+    assert _codes(field_errors(_cond(branches=[_br(key="{{nodes.t.output.k}}")]))) == [
+        ("REF_NOT_ALLOWED", "c", "config.branches.0.key")]
+
+
+@pytest.mark.parametrize("branches, expected", [
+    (["x"], [("TYPE", "c", "config.branches.0")]),
+    ([_br(), 3], [("TYPE", "c", "config.branches.1")]),
+    ([_br(key=["b_1"]), _br(key=["b_1"], name={"a": 1})],
+     [("TYPE", "c", "config.branches.0.key"), ("TYPE", "c", "config.branches.1.key"),
+      ("TYPE", "c", "config.branches.1.name")]),
+    ([_br(key=5, rules=["x"])], [("TYPE", "c", "config.branches.0.key"), ("TYPE", "c", "config.branches.0.rules.0")]),
+])
+def test_갈래_조건_원소가_객체가_아니거나_key_이름이_문자열이_아니면_TYPE(branches, expected):
+    assert _codes(field_errors(_cond(branches=branches))) == expected  # 예외 없이, 해시 안 되는 값도
+
+
+def _refs(errors):
+    return [(e["code"], e["nodeId"], e["field"]) for e in errors if e["code"].startswith("REF_")]
+
+
+def test_새_모양_분기의_참조_오류는_config_branches까지_짚고_레거시_칸은_보지_않는다():
+    node = _cond(branches=[_br(rules=[{"left": "{{nodes.zz.output.a}}", "operator": "equals", "right": "x"}])],
+                 operator="{{nodes.zz.output.b}}")
+    nodes, edges = _chain(node)
+    assert _refs(validate_workflow(nodes, edges)) == [("REF_UNKNOWN_NODE", "c", "config.branches")]
+
+
+def test_분기_출력_예약_키_참조는_REF_UNKNOWN_FIELD():
+    slack = _act("x", "slack_bot.send_channel_message", channel="C1",
+                 text="{{nodes.c.output._branchKeys}} {{nodes.c.output.branch}} {{nodes.c.output.matched}}")
+    nodes = [TRIGGER, _cond(branches=[_br()]), slack]
+    edges = [{"source": "t", "target": "c"}, {"source": "c", "target": "x", "conditionType": "b_00000001"}]
+    assert _refs(validate_workflow(nodes, edges)) == [("REF_UNKNOWN_FIELD", "x", "config.text")]
+
+
 @pytest.mark.parametrize("bad", [[{"key": "title", "type": "text"}, {"key": "score"}], {"key": "a"},
                                  [{"key": "t", "type": "날짜"}]])
 def test_AI_outputFields는_칸_검사하지_않는다(bad):
