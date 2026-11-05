@@ -20,6 +20,11 @@ from tools.github import (
 )
 from tools.gmail import gmail_send_email
 from tools.google_calendar import google_calendar_delete
+from tools.google_sheets import (
+    google_sheets_append_top,
+    google_sheets_find_or_create_row,
+    google_sheets_update_row,
+)
 
 # 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
 # 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증과 설정 폼에서 제외한다.
@@ -46,13 +51,16 @@ _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
     },
 }
 
-# ACTION 노드만 실행하는 도구. 되돌릴 수 없는 일(삭제)이라 AI 노드에 싣지 않는다(spec §4.3).
+# ACTION 노드만 실행하는 도구. 되돌릴 수 없거나 사람이 고른 행을 고치는 일이라 AI 노드에 싣지 않는다(spec 2026-11-05 사용자 결정).
 # _TOOL_MAP 밖이라 get_tools_for_request·ai.agent tools 선택지(template_registry)에
 # 잡히지 않고, resolve_action_fn만 푼다(카탈로그 로더 tool_key 검사·POST /v1/actions/execute).
 # _DYNAMIC_SERVICE_ACTIONS에 넣지 않는 이유: 그 dict는 "동적 서브에이전트 서비스" 뜻이다.
 _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_calendar_delete": google_calendar_delete,
     "builtin:google_gmail_send_email": gmail_send_email,
+    "builtin:google_sheets_append_top": google_sheets_append_top,
+    "builtin:google_sheets_update_row": google_sheets_update_row,
+    "builtin:google_sheets_find_or_create_row": google_sheets_find_or_create_row,
 }
 
 

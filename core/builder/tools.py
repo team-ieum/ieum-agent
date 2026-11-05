@@ -277,7 +277,7 @@ def rename_node(turn: Turn, node_id: str, label: str) -> dict:
 # GOOGLE_SCOPE_REQUIRED(403)의 공급원 → 추가할 권한(BE IntegrationOptionControllerDocs의 scope_groups 표)
 _GOOGLE_SCOPE = {"spreadsheets": "Sheets", "worksheets": "Sheets", "files": "Drive", "folders": "Drive",
                  "calendars": "Calendar", "writable_calendars": "Calendar", "events": "Calendar",
-                 "gmail_send_as": "Gmail", "gmail_labels": "Gmail"}
+                 "gmail_send_as": "Gmail", "gmail_labels": "Gmail", "sheet_columns": "Sheets"}
 # test_node는 노드 event(google_calendar.update)를 넘긴다 — 앱으로 정한다
 _GOOGLE_APP = {"gmail": "Gmail", "google_sheets": "Sheets", "google_drive": "Drive", "google_calendar": "Calendar"}
 

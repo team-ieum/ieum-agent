@@ -143,8 +143,8 @@ def test_default_있는_필수_칸은_비어도_통과():
 
 
 def test_빈_목록은_필수_칸을_비운_것으로_본다():
-    node = _act("g", "google_sheets.append", spreadsheet_id="s", cell_range="A:B", values=[])
-    assert [(e["code"], e["field"]) for e in field_errors(node)] == [("REQUIRED", "config.values")]
+    f = {"key": "values", "title": "값", "type": "json", "required": True}
+    assert [(e["code"], e["field"]) for e in _check(f, [], "config.values", "g")] == [("REQUIRED", "config.values")]
 
 
 def test_webhookCredentialId_있는_HTTP는_url_없어도_통과():
@@ -219,8 +219,8 @@ def test_integer_TYPE(value, ok):
 
 @pytest.mark.parametrize("value,ok", [('[["a", 1]]', True), ([["a", 1]], True), ("[[a", False), (5, False), ("[" * 100000, False)])
 def test_json_TYPE은_JSON_문자열도_허용(value, ok):
-    """도구 인자 values는 JSON 문자열로 저장된다(tools/google_sheets.py values: str)."""
-    node = _act("g", "google_sheets.append", spreadsheet_id="s", cell_range="A:B", values=value)
+    """json 칸은 JSON 문자열로도 저장된다(notion.query_database filter_json: str)."""
+    node = _act("q", "notion.query_database", database_id="d", filter_json=value)
     assert (field_errors(node) == []) is ok
 
 
@@ -444,9 +444,14 @@ FIXED_NODE_REQUIRED = {
     "google_calendar.update": ["config.event_id"],
     "google_drive.read": ["config.file_id"],
     "google_drive.upload": ["config.content", "config.name"],
-    "google_sheets.append": ["config.cell_range", "config.spreadsheet_id", "config.values"],
-    "google_sheets.read": ["config.cell_range", "config.spreadsheet_id"],
-    "google_sheets.write": ["config.cell_range", "config.spreadsheet_id", "config.values"],
+    "google_sheets.append": ["config.columns", "config.sheet_id", "config.spreadsheet_id"],
+    "google_sheets.append_top": ["config.columns", "config.sheet_id", "config.spreadsheet_id"],
+    "google_sheets.update_row": ["config.columns", "config.row_number", "config.sheet_id", "config.spreadsheet_id"],
+    "google_sheets.lookup_row": ["config.lookup_column", "config.lookup_value", "config.sheet_id",
+                                 "config.spreadsheet_id"],
+    "google_sheets.find_or_create_row": ["config.columns", "config.lookup_column", "config.lookup_value",
+                                         "config.sheet_id", "config.spreadsheet_id"],
+    "google_sheets.read": ["config.cell_range", "config.sheet_id", "config.spreadsheet_id"],
     "notion.append_block": ["config.content", "config.page_id"],
     "notion.create_page": ["config.content", "config.parent_page_id", "config.title"],
     "notion.query_database": ["config.database_id"],

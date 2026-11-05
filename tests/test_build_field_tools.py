@@ -112,6 +112,15 @@ async def test_Gmail_공급원_권한_부족은_Gmail_권한으로_안내(path):
     assert await tools.list_options(turn, {}, "g", path) == {"error": {
         "code": "GOOGLE_SCOPE_REQUIRED", "message": "설정 > 연동의 Google 연결에서 Gmail 권한을 추가해 주세요."}}
 
+
+@pytest.mark.asyncio
+async def test_Sheets_열_공급원_권한_부족은_Sheets_권한으로_안내():
+    node = {"id": "s", "event": "google_sheets.lookup_row", "type": "ACTION", "label": "행 찾기",
+            "config": {"spreadsheet_id": "s1", "sheet_id": "0"}}
+    turn = _turn([node], options={"error": {"code": "GOOGLE_SCOPE_REQUIRED", "message": "Google 권한이 부족합니다."}})
+    assert await tools.list_options(turn, {}, "s", "config.lookup_column") == {"error": {
+        "code": "GOOGLE_SCOPE_REQUIRED", "message": "설정 > 연동의 Google 연결에서 Sheets 권한을 추가해 주세요."}}
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [{"data": None}, {"data": {"items": None}}, {"data": {"items": {"a": 1}}},
                                      {"data": {"items": [{"name": "id 없음"}, "문자열", {"id": "", "name": "빈 id"}]}}])
