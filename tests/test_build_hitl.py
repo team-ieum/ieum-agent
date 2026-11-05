@@ -26,6 +26,7 @@ def test_그_밖은_other(text):
     ("ai.agent", "write"),
     ("unknown.thing", "write"),
     ("google_calendar.find", "read"),
+    ("gmail.send_email", "write"),
     ("notion.search", "read"),
     ("gmail.new_email", "app_trigger"),
     ("github.new_issue", "app_trigger"),
@@ -40,6 +41,13 @@ def test_그_밖은_other(text):
 def test_테스트_판정(event, kind):
     assert how_to_test({"id": "n", "event": event, "config": {}}) == kind
 
+
+
+def test_요약에_메일_받는_사람을_보인다():
+    node = {"id": "g", "event": "gmail.send_email", "label": "보고",
+            "config": {"to": "kim@ieum.io", "cc": "lee@ieum.io", "bcc": "park@ieum.io"}}
+    assert target_summary(node, {}) == \
+        'Gmail 메일 보내기 · 받는 사람: kim@ieum.io · 참조: lee@ieum.io · 숨은참조: park@ieum.io · 이름 "보고"'
 
 def test_http는_GET도_쓰기이고_요약에_method와_호스트():
     node = {"id": "h", "event": "http.request", "label": "조회", "config": {"method": "GET", "url": "https://api.x.com/a?k=1"}}

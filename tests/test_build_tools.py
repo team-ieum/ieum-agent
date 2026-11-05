@@ -25,7 +25,7 @@ def _trigger():
 
 def test_메뉴는_빌더_목록에서_ai_agent_빼고_프리셋_없음():
     events = {e["event"] for e in tools.find_events("")["events"]}
-    assert "ai.agent" not in events and "gmail.send_email" not in events
+    assert "ai.agent" not in events and "gmail.send_email" in events
     assert {"ai.reasoning", "slack_bot.send_channel_message", "gmail.new_email", "http.request"} <= events
     assert not any(e.startswith("ai.") and e != "ai.reasoning" for e in events)
 
@@ -104,7 +104,7 @@ async def test_AI_노드_초기값():
 @pytest.mark.asyncio
 async def test_메뉴_밖_event는_거절():
     turn = _turn()
-    for event in ("ai.agent", "gmail.send_email", "ai.slack_send", "nope.x"):
+    for event in ("ai.agent", "ai.slack_send", "nope.x"):
         assert "error" in await tools.add_node(turn, event, "x")
     assert turn.nodes == []
 

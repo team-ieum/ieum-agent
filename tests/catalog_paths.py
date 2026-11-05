@@ -49,3 +49,4 @@ def edit_entry(root, name: str, change) -> None:
 def apps() -> dict:
     with open(os.path.join(tr.CATALOG_DIR, "apps.json"), encoding="utf-8") as f:
         return json.load(f)
+

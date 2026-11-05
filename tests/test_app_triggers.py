@@ -57,5 +57,4 @@ def test_github_entry_shape():
 def test_앱_트리거는_생성_경로에_없다():
     for tid in (GMAIL, GITHUB):
         t = tr.get_template(tid)
-        assert (t["builder"], t["generation"]) == (True, False)
-        assert tid not in tr._generation_templates()
+        assert t["builder"] is True

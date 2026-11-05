@@ -12,31 +12,10 @@ from tests.catalog_paths import apps
 # --- 드리프트 게이트: 레지스트리 ↔ _TOOL_MAP ↔ 태그 ---
 
 
-def test_golden_snippet_tool_keys_in_tool_map():
-    """레지스트리↔_TOOL_MAP 정합: 골든 스니펫 tools의 키는 모두 실행 레지스트리에 존재한다."""
-    keys = tr._tool_map_keys()
-    for tpl in tr._generation_templates().values():
-        snip = tpl.get("golden_snippet") or {}
-        for tool in (snip.get("config", {}) or {}).get("tools", []) or []:
-            name = tool.get("name") if isinstance(tool, dict) else tool
-            # "mcp"는 동적 도구 센티넬(런타임 catalog 주입)로 _TOOL_MAP에 없어도 허용한다.
-            if name == "mcp":
-                continue
-            assert name in keys, f"{tpl['id']}: 스니펫 도구 '{name}' 드리프트"
-
-
-def test_every_template_has_tags_and_menu():
-    """레지스트리↔검색 정합: 모든 템플릿은 비어있지 않은 tags와 menu를 가진다(검색 가능)."""
-    for tpl in tr._generation_templates().values():
-        assert tpl["tags"], f"{tpl['id']}: tags 비어있음"
-        assert tpl["menu"].strip(), f"{tpl['id']}: menu 비어있음"
-
-
 def test_drift_detection_fails_on_unknown_tool_key():
     """레지스트리에 _TOOL_MAP 밖 tool_key가 들어오면 검증이 실패한다(CI 드리프트 게이트)."""
     bad = {
         "id": "ai.bogus", "node_type": "AI", "tool_key": "builtin:bogus_tool",
-        "tags": ["x"], "menu": "m",
         "fixed": {"type": "AI", "config": {"tools": [{"name": "builtin:bogus_tool"}]}},
     }
     with pytest.raises(tr.TemplateSchemaError, match="드리프트"):

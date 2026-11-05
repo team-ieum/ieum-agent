@@ -24,8 +24,8 @@ _SUBMODULE_HINT = "`git submodule update --init`으로 catalog/를 받아라"
 _VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL", "ACTION"}
 
 _REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "fixed"}
-_GENERATION_TOP_KEYS = {"tags", "menu"}  # generation 항목만 필수(LLM 메뉴·태그 검색용)
-_LEGACY_TOP_KEYS = {"slots", "allowed_config_fields"}  # 옛 파생 키 — 파일에 쓰면 거부
+# 옛 생성 경로 칸 — 읽는 곳이 없다. 파일에 쓰면 거부
+_LEGACY_TOP_KEYS = {"slots", "allowed_config_fields", "tags", "menu", "golden_snippet", "generation"}
 
 # 모듈 캐시 (파일은 기동 중 불변)
 _cache: dict | None = None
@@ -56,16 +56,9 @@ def _validate_template(tpl: dict, where: str, tool_keys: set, apps: dict) -> Non
     legacy = _LEGACY_TOP_KEYS & tpl.keys()
     if legacy:
         raise TemplateSchemaError(
-            f"{tid}: {sorted(legacy)}는 더 이상 쓰지 않는다 — inputFields·fields에서 파생된다(SCHEMA.md).")
-    for flag in ("builder", "generation"):
-        if flag in tpl and not isinstance(tpl[flag], bool):
-            raise TemplateSchemaError(f"{tid}: {flag}는 true/false여야 합니다.")
-    if tpl.get("generation", True):
-        gm = _GENERATION_TOP_KEYS - tpl.keys()
-        if gm:
-            raise TemplateSchemaError(f"{tid}: generation 항목은 {sorted(gm)}가 필요합니다.")
-        if not isinstance(tpl["tags"], list) or not tpl["tags"]:
-            raise TemplateSchemaError(f"{tid}: tags는 비어있지 않은 리스트여야 함")
+            f"{tid}: {sorted(legacy)}는 옛 생성 경로 칸이다 — 쓰지 않는다(SCHEMA.md).")
+    if "builder" in tpl and not isinstance(tpl["builder"], bool):
+        raise TemplateSchemaError(f"{tid}: builder는 true/false여야 합니다.")
 
     if tpl["node_type"] not in _VALID_NODE_TYPES:
         raise TemplateSchemaError(f"{tid}: node_type '{tpl['node_type']}' 유효하지 않음 {sorted(_VALID_NODE_TYPES)}")
@@ -169,7 +162,6 @@ def _normalize(tpl: dict, tool_fields: dict, apps: dict) -> dict:
 
     t = copy.deepcopy(tpl)
     t.setdefault("builder", True)
-    t.setdefault("generation", True)
     t["event"] = PRESET_EVENT if t.get("preset") else t["id"]
     t["fixed"]["event"] = t["event"]
     t["fixed"].setdefault("config", {})
@@ -236,7 +228,7 @@ def _read_catalog() -> tuple[dict, list]:
             raise TemplateSchemaError(f"프리셋 {p.get('id') if isinstance(p, dict) else p!r}: "
                                       "node_type·builder·event·kind는 로더가 정한다.")
         entries.append({**p, "node_type": "AI", "builder": False, "preset": True})
-    # id 정렬 — select_by_tags 동점·subagent_service_for_node의 "첫 AI 항목"이 이 순서를 따른다("spec과 다른 점" 3).
+    # id 정렬 — builder_entries(카탈로그 API·빌더 목록)가 이 순서를 따른다.
     entries.sort(key=lambda e: e.get("id", ""))
     return apps, entries
 
@@ -318,11 +310,6 @@ def validate_registry(tool_keys: set | None = None) -> None:
     load_templates(force=True, tool_keys=tool_keys)
 
 
-def _generation_templates() -> dict:
-    """generation=true(기본) 항목. 지금은 select_by_tags(AI 노드 brand 추정)만 쓴다."""
-    return {tid: t for tid, t in load_templates().items() if t.get("generation", True)}
-
-
 def all_entries() -> list:
     """카탈로그 항목 전체(builder 전용 포함). 카탈로그 API는 builder_entries()."""
     return list(load_templates().values())
@@ -396,39 +383,6 @@ def match_entry(node: dict) -> dict | None:
 
 def get_template(template_id: str) -> dict | None:
     return load_templates().get(template_id)
-
-
-def select_by_tags(text: str, limit: int | None = None) -> list:
-    """요청 텍스트에 태그가 매칭되는 템플릿을 점수 내림차순으로 반환한다(#4 검색층).
-    매칭 0건이면 빈 리스트(호출측에서 상위집합/폴백 처리)."""
-    low = (text or "").lower()
-    scored = []
-    for tpl in _generation_templates().values():
-        score = sum(1 for tag in tpl["tags"] if tag.lower() in low)
-        if score > 0:
-            scored.append((score, tpl))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    result = [t for _, t in scored]
-    return result[:limit] if limit else result
-
-
-def subagent_service_for_node(node: dict) -> str | None:
-    """tool 없는 AI 노드의 동적 서브에이전트 서비스명을 intent(라벨+프롬프트) 태그 매칭으로 도출한다.
-
-    select_by_tags 최상위 AI 템플릿이 서브에이전트형(tool_key=None)이고 service 필드가 있으면
-    그 service를, 그렇지 않으면 None을 반환한다. select_by_tags 태그 매칭 신호를 써서
-    '생성 시 github로 분류된 노드'와 'github brand를 받는 노드'가 정확히 일치하도록 한다.
-    brand 도출(tools.registry.brand_for_node)이 tool_key 없는 github 노드를 식별하는 데 쓴다."""
-    if not isinstance(node, dict) or (node.get("type") or "").upper() != "AI":
-        return None
-    cfg = node.get("config")
-    if not isinstance(cfg, dict) or cfg.get("tools"):
-        return None  # 도구가 있으면 tool_key 기반으로 brand가 도출된다
-    text = f"{node.get('label', '')} {cfg.get('prompt', '')}"
-    for tpl in select_by_tags(text):  # score 내림차순
-        if tpl["node_type"] == "AI":
-            return tpl.get("service") if tpl["tool_key"] is None else None
-    return None
 
 
 def _set_by_path(obj: dict, path: str, value) -> None:

@@ -18,6 +18,7 @@ from tools.github import (
     github_list_issues,
     github_list_pull_requests,
 )
+from tools.gmail import gmail_send_email
 from tools.google_calendar import google_calendar_delete
 
 # 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
@@ -27,10 +28,6 @@ RUNTIME_INJECTED_PARAMS: set[str] = {
     "allowed_guild_ids",  # Discord 봇: 이 사용자가 연결한 서버 ID 목록(권한 목록 — 사용자 config로 받지 않는다)
     "access_token",     # Google OAuth Access Token
     "webhook_url",      # Slack / Discord Webhook URL
-    "sender_email",     # Gmail SMTP
-    "sender_password",  # Gmail SMTP
-    "smtp_host",        # Gmail SMTP
-    "smtp_port",        # Gmail SMTP
     "workflow_context_data",  # agent가 바인딩(agents/base.py _bind_workflow_context)
 }
 
@@ -55,6 +52,7 @@ _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
 # _DYNAMIC_SERVICE_ACTIONS에 넣지 않는 이유: 그 dict는 "동적 서브에이전트 서비스" 뜻이다.
 _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_calendar_delete": google_calendar_delete,
+    "builtin:google_gmail_send_email": gmail_send_email,
 }
 
 
@@ -78,7 +76,7 @@ def _service_of(name: str) -> str:
     """도구 키에서 서비스명을 추론한다. builtin: 프리픽스와 세부 동작 접미사를 제거한다."""
     base = name.split(":", 1)[-1]  # builtin:notion_create_page -> notion_create_page
     for service in ("notion", "github", "google_sheets", "google_calendar", "google_drive",
-                    "slack", "discord", "gmail", "web_search", "http_fetch",
+                    "slack", "discord", "web_search", "http_fetch",
                     "workflow_context", "json_parse", "text_extract", "date_format"):
         if base == service or base.startswith(service):
             return service
@@ -92,7 +90,6 @@ SERVICE_BRAND: dict[str, str] = {
     "notion": "notion",
     "slack": "slack",
     "discord": "discord",
-    "gmail": "gmail",
     "github": "github",
     "google_sheets": "sheets",
     "google_calendar": "google",
@@ -111,15 +108,27 @@ _NODE_TYPE_BRAND: dict[str, str] = {
 _DEFAULT_BRAND = "webhook"
 
 
+def _tool_brand(node: dict) -> str | None:
+    """도구 tool_key가 서비스(SERVICE_BRAND)에 닿는 첫 도구의 brand. mcp·매핑 없는 도구는 건너뛴다."""
+    config = node.get("config")
+    tools = config.get("tools") if isinstance(config, dict) else None
+    for t in tools if isinstance(tools, list) else []:
+        name = t.get("name") if isinstance(t, dict) else t
+        if name and name != "mcp" and SERVICE_BRAND.get(_service_of(name)):
+            return SERVICE_BRAND[_service_of(name)]
+    return None
+
+
 def brand_for_node(node: dict) -> str:
     """노드의 UI brand 키를 도출한다.
 
     AI가 아닌 노드는 event 앱의 brand(apps.json, spec §4). agent가 모르는 event면 node_type 기본값 —
     옛 필드(트리거 종류·ACTION 도구 목록)로 추정하지 않는다.
     AI 노드의 event는 늘 ai.agent·ai.reasoning이라 앱을 말해 주지 않으므로 도구 tool_key의 서비스
-    (SERVICE_BRAND) → 도구 없는 노드는 intent(라벨+프롬프트) 태그로 동적 서브에이전트 서비스 → AI 기본값.
-    재진입 주의: 로더(_normalize)는 앱 없는 항목(모두 AI 프리셋)에만 brand_for_entry→brand_for_node를 부른다.
-    AI 분기는 event_entry(→load_templates)를 부르지 않으므로 기동 중 재귀가 없다."""
+    (SERVICE_BRAND) → 노드가 맞는 프리셋(match_entry, 예: 도구 없는 react → ai.github_query)의 service → AI 기본값.
+    라벨·프롬프트는 보지 않는다(IEUM-AI-92).
+    재진입 주의: match_entry는 load_templates를 부른다. 로더(_normalize)는 AI 항목에 brand_for_entry만 쓰고
+    brand_for_entry는 AI 항목을 이 함수로 보내지 않으므로 기동 중 재귀가 없다."""
     if not isinstance(node, dict):
         return _DEFAULT_BRAND
     ntype = str(node.get("type") or "").upper()
@@ -127,35 +136,24 @@ def brand_for_node(node: dict) -> str:
         from core.template_registry import event_entry
         entry = event_entry(node)
         return entry["brand"] if entry is not None else _NODE_TYPE_BRAND.get(ntype, _DEFAULT_BRAND)
-    config = node.get("config")
-    tools = config.get("tools") if isinstance(config, dict) else None
-    if isinstance(tools, list):
-        for t in tools:
-            name = t.get("name") if isinstance(t, dict) else t
-            if not name or name == "mcp":
-                continue
-            brand = SERVICE_BRAND.get(_service_of(name))
-            if brand:
-                return brand
-    # tool_key 없는 AI 노드: intent 기반으로 동적 서브에이전트 서비스(github 등) 식별.
+    brand = _tool_brand(node)
+    if brand:
+        return brand
     # template_registry는 tools 패키지를 lazy import하므로 함수 내부에서 import한다.
-    from core.template_registry import subagent_service_for_node
-    service = subagent_service_for_node(node)
-    if service and SERVICE_BRAND.get(service):
-        return SERVICE_BRAND[service]
-    return _NODE_TYPE_BRAND["AI"]
+    from core.template_registry import match_entry
+    entry = match_entry(node)
+    return SERVICE_BRAND.get(entry.get("service") if entry else None, _NODE_TYPE_BRAND["AI"])
 
 
 def brand_for_entry(entry: dict) -> str:
-    """카탈로그 항목(로더 메모리 항목)의 brand. 로더 기동 중(_normalize)에 부르므로 intent 경로를 타지 않는다.
+    """카탈로그 항목(로더 메모리 항목)의 brand. 로더 기동 중(_normalize)에 부르므로 load_templates를 다시 부르면 안 된다.
 
-    brand_for_node의 AI 분기가 쓰는 subagent_service_for_node는 select_by_tags → load_templates를 다시 불러
-    기동 중엔 무한 재귀가 난다(fixed엔 label·prompt도 없어 매칭도 못 한다). 그래서 tool_key 없는 AI 항목은
-    템플릿의 service 필드(ai.github_query → github)로 SERVICE_BRAND를 읽고, 없으면 AI 기본값을 쓴다.
-    tool_key가 있거나 AI가 아닌 항목(앱 트리거 포함)은 fixed로 brand_for_node가 답한다."""
-    if entry["tool_key"] or entry["node_type"] != "AI":
+    AI 항목은 brand_for_node(→ match_entry → load_templates, 무한 재귀)로 보내지 않고 같은 규칙을 직접 쓴다:
+    fixed 도구의 서비스 → 항목 service 필드(ai.github_query → github) → AI 기본값.
+    AI가 아닌 항목은 fixed로 brand_for_node가 답한다(로더는 앱 없는 항목만 부르므로 실제로는 AI 항목뿐이다)."""
+    if entry["node_type"] != "AI":
         return brand_for_node(entry["fixed"])
-    return SERVICE_BRAND.get(entry.get("service"), _NODE_TYPE_BRAND["AI"])
+    return _tool_brand(entry["fixed"]) or SERVICE_BRAND.get(entry.get("service"), _NODE_TYPE_BRAND["AI"])
 
 
 def apply_service_brand(nodes: list) -> None:

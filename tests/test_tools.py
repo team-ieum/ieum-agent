@@ -1,6 +1,5 @@
 import inspect
 import json
-import smtplib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -8,7 +7,6 @@ import pytest
 
 from common.error_code import ToolErrorCode
 from tools.discord import send_discord_webhook
-from tools.gmail import send_gmail
 from tools.http_fetch import http_fetch
 from tools.slack import send_slack_message
 from tools.web_search import web_search
@@ -322,53 +320,6 @@ def test_bind_config_strips_webhook_url_from_signature_and_docstring():
     # docstring(Args)에서도 제거 — 이번 버그의 핵심
     assert "webhook_url" not in (bound.__doc__ or "")
     assert "content" in (bound.__doc__ or "")
-
-
-# ---------------------------------------------------------------------------
-# Gmail
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_send_gmail_success():
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_smtp_cls.return_value.__enter__ = MagicMock(return_value=mock_server)
-        mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
-
-        result = await send_gmail(
-            to="recipient@example.com",
-            subject="Test",
-            body="Hello",
-            sender_email="sender@gmail.com",
-            sender_password="app-password",
-        )
-
-    assert_matches_outputs("gmail.send_email", result)
-    parsed = json.loads(result)
-    assert parsed["success"] is True
-    assert "recipient@example.com" in parsed["message"]
-    assert "성공" in parsed["message"]
-
-
-@pytest.mark.asyncio
-async def test_send_gmail_auth_failure():
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_server.login.side_effect = smtplib.SMTPAuthenticationError(535, b"auth failed")
-        mock_smtp_cls.return_value.__enter__ = MagicMock(return_value=mock_server)
-        mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
-
-        result = await send_gmail(
-            to="recipient@example.com",
-            subject="Test",
-            body="Hello",
-            sender_email="sender@gmail.com",
-            sender_password="wrong-password",
-        )
-
-    parsed = json.loads(result)
-    assert "error" in parsed
-    assert ToolErrorCode.EXECUTION_FAILED.message in parsed["error"]
 
 
 # ---------------------------------------------------------------------------

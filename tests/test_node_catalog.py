@@ -141,6 +141,7 @@ def test_option_source_fields_fixed_set():
         ("notion.update_row", "data_source_id"), ("notion.update_row", "row_id"),
         *[(f"github.{x}", k) for x in ("list_issues", "create_issue") for k in ("owner", "repo")],
         ("github.new_issue", "repoId"),
+        ("gmail.send_email", "from_email"), ("gmail.send_email", "label_ids"),
     }
     assert got == expected
 
@@ -204,6 +205,7 @@ EXPECTED_BRANDS = {
     "manual.run": "webhook", "schedule.every": "webhook", "schedule.hourly": "webhook", "schedule.daily": "webhook",
     "schedule.weekly": "webhook", "schedule.monthly": "webhook", "webhook.catch": "webhook",
     "gmail.new_email": "gmail", "github.new_issue": "github",
+    "gmail.send_email": "gmail",
     "http.request": "webhook", "approval.request": "webhook", "branch.if": "filter", "transform.map": "filter",
     "slack.send_message": "slack", "discord.send_message": "discord",
     "slack_bot.send_channel_message": "slack",
@@ -407,3 +409,15 @@ def test_catalog_entries_snapshot():
     path = os.path.join(os.path.dirname(__file__), "fixtures", "node_catalog_snapshot.json")
     with open(path, encoding="utf-8") as f:
         assert node_catalog() == json.load(f)
+
+
+def test_gmail_send_email_칸():
+    f = {x["key"]: x for x in _action("gmail.send_email")["inputFields"]}
+    assert list(f) == ["to", "cc", "bcc", "from_email", "from_name", "reply_to", "subject",
+                       "body_format", "body", "include_signature", "label_ids"]
+    assert {k for k, x in f.items() if x.get("required")} == {"subject", "body"}
+    assert (f["label_ids"]["list"], f["label_ids"]["optionsSource"], f["label_ids"]["ref"]) == \
+        (True, "google.gmail_labels", False)
+    assert (f["include_signature"]["type"], f["include_signature"]["default"]) == ("boolean", False)
+    assert f["body_format"]["default"] == "text/plain" and f["body"]["type"] == "text"
+    assert f["to"]["type"] == "string" and "list" not in f["to"]

@@ -13,7 +13,7 @@ def test_event_name_comes_from_path_and_presets_are_ai_agent():
     assert gmail["event"] == "gmail.new_email" == gmail["fixed"]["event"]
     assert (gmail["app"], gmail["provider"], gmail["kind"], gmail["trigger_type"]) == \
            ("gmail", "google", "trigger", "GMAIL_NEW_EMAIL")
-    preset = t["ai.notion_create_page"]
+    preset = t["ai.web_search"]
     assert preset["preset"] is True and preset["event"] == "ai.agent" == preset["fixed"]["event"]
     assert preset["builder"] is False and preset["node_type"] == "AI"
 
@@ -52,9 +52,9 @@ def test_only_presets_carry_match():
 def test_counts_and_builder_has_no_presets():
     t = tr.load_templates(force=True)
     assert sum(1 for x in t.values() if not x.get("preset")) == 39
-    assert sum(1 for x in t.values() if x.get("preset")) == 21
+    assert sum(1 for x in t.values() if x.get("preset")) == 4
     assert not [x["id"] for x in tr.builder_entries() if x.get("preset")]
-    assert list(t) == sorted(t)        # 생성 경로의 동점 처리(select_by_tags)가 순서에 기댄다
+    assert list(t) == sorted(t)        # 빌더 목록(builder_entries)이 id 순서에 기댄다
 
 
 def test_presets_with_match_stay_matchable():
