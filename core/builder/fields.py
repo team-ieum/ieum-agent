@@ -139,7 +139,7 @@ def _keyed_branches(current, value) -> tuple[list | None, str | None]:
     by_name = {}
     for b in old:
         name = str(b.get("name") or "").strip()
-        if name and b.get("key") in existing:
+        if name and isinstance(b.get("key"), str) and b["key"] in existing:
             by_name.setdefault(name, b["key"])
     sent = [k.strip() if isinstance(k, str) else k for k in (b.get("key") for b in value)]
     keys, used = [None] * len(value), set()

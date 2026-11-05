@@ -246,6 +246,10 @@ def field_errors(node: dict) -> list[dict]:
             continue
         if entry["node_type"] == "CONDITION" and path in _LEGACY_CONDITION_PATHS:
             f = {**f, "required": True}
+        if entry["node_type"] == "CONDITION" and path == "config.branches" and isinstance(value, list):
+            # 상한 밖 원소는 TOO_LARGE(_condition_errors)라 내용을 보지 않는다 — 원소마다 에러를 만들지 않게.
+            value = [{**b, "rules": b["rules"][:MAX_RULES]} if isinstance(b, dict) and isinstance(b.get("rules"), list)
+                     else b for b in value[:MAX_BRANCHES]]
         errors += _check(f, value, path, nid)
     if entry["node_type"] == "CONDITION":
         errors += _condition_errors(node, nid)
@@ -267,7 +271,7 @@ def _condition_errors(node: dict, nid) -> list[dict]:
     if len(branches) > MAX_BRANCHES:
         errors.append(_err("TOO_LARGE", f"갈래는 {MAX_BRANCHES}개까지 만들 수 있어요.", nid, "config.branches"))
     keys, names = set(), set()
-    for i, br in enumerate(branches):
+    for i, br in enumerate(branches[:MAX_BRANCHES]):
         loc = f"config.branches.{i}"
         if not isinstance(br, dict):
             errors.append(_err("TYPE", "갈래는 객체여야 합니다.", nid, loc))
@@ -280,7 +284,7 @@ def _condition_errors(node: dict, nid) -> list[dict]:
             if len(rules) > MAX_RULES:
                 errors.append(_err("TOO_LARGE", f"갈래 하나에 조건은 {MAX_RULES}개까지 넣을 수 있어요.",
                                    nid, f"{loc}.rules"))
-            for j, rule in enumerate(rules):
+            for j, rule in enumerate(rules[:MAX_RULES]):
                 if not isinstance(rule, dict):
                     errors.append(_err("TYPE", "조건은 객체여야 합니다.", nid, f"{loc}.rules.{j}"))
                 elif rule.get("operator") not in _RIGHT_UNUSED_OPERATORS and rule.get("right") in _EMPTY:

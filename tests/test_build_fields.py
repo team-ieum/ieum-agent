@@ -234,6 +234,13 @@ def test_문자열_아닌_key는_새_key(bad):
     assert applied == ["config.branches"] and _KEY.fullmatch(k) and k != "b_11111111"
 
 
+@pytest.mark.parametrize("bad", [["x"], {"k": 1}])
+def test_저장된_key가_문자열이_아니어도_예외_없이_새_key(bad):
+    node = _branch(branches=[{"key": bad, "name": "a", "rules": [RULE]}])
+    applied, _ = apply_fields(node, {"config.branches": [{"name": "a", "rules": [RULE]}]}, {})
+    assert applied == ["config.branches"] and _KEY.fullmatch(node["config"]["branches"][0]["key"])
+
+
 def test_같은_key가_두_번_오면_두_번째는_새_key():
     node = _branch(branches=[{"key": "b_11111111", "name": "긴급", "rules": [RULE]}])
     apply_fields(node, {"config.branches": [{"key": "b_11111111", "name": "A", "rules": [RULE]},

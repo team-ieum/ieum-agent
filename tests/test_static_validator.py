@@ -249,6 +249,18 @@ def test_갈래_조건_10개_초과는_TOO_LARGE():
     assert _codes(field_errors(_cond(branches=[_br(rules=rules)]))) == [("TOO_LARGE", "c", "config.branches.0.rules")]
 
 
+def test_갈래_조건이_상한을_크게_넘어도_앞_10개만_검사한다():
+    """원소 1만 개여도 에러는 TOO_LARGE + 앞 10개 몫 — 원소마다 에러를 만들지 않는다(메모리 증폭 방지)."""
+    errors = field_errors(_cond(branches=[{}] * 10000))
+    assert ("TOO_LARGE", "c", "config.branches") in _codes(errors)
+    assert all(int(e["field"].split(".")[2]) < 10 for e in errors if e["field"].startswith("config.branches."))
+    assert len(errors) <= 1 + 10 * 5
+    errors = field_errors(_cond(branches=[_br(rules=[{}] * 10000)]))
+    assert ("TOO_LARGE", "c", "config.branches.0.rules") in _codes(errors)
+    assert all(int(e["field"].split(".")[4]) < 10 for e in errors if e["field"].startswith("config.branches.0.rules."))
+    assert len(errors) <= 1 + 10 * 5
+
+
 def test_없는_연산자_match_pick_otherwise는_CHOICE():
     node = _cond(branches=[_br(rules=[{"left": "a", "operator": "regex", "right": "x"}], match="some")],
                  pick="many", otherwise="skip")

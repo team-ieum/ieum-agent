@@ -379,7 +379,7 @@ def get_fields(turn: Turn, state, node_id: str) -> dict:
         if f.get("list") and f.get("children"):
             item["list"] = True
             item["children"] = _children(f["children"])
-        value =_get_by_path(node, path)
+        value = _get_by_path(node, path)
         if value not in (None, "", [], {}):
             item["value"] = _shown(value)
         out.append(item)
