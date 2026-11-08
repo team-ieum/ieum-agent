@@ -921,7 +921,7 @@
     {
       "app": "formatter",
       "appTitle": "포맷터",
-      "description": "날짜·시각을 2026년 11월 7일 (토)·2026-11-07·ISO 같은 모양으로 바꾸고 시간대를 옮겨요.",
+      "description": "날짜·시각을 한국식(2026년 11월 7일 (토))·2026-11-07·ISO 같은 모양으로 바꾸고 시간대를 옮겨요.",
       "fixed": {
         "config": {
           "brand": "filter"
@@ -982,7 +982,7 @@
         },
         {
           "default": "Asia/Seoul",
-          "description": "시간대가 없는 입력을 이 시간대로 봐요.",
+          "description": "시간대가 없는 입력을 이 시간대로 봐요. 비우면 Asia/Seoul.",
           "key": "fromTimezone",
           "path": "config.fromTimezone",
           "title": "입력 시간대",
@@ -990,6 +990,7 @@
         },
         {
           "default": "Asia/Seoul",
+          "description": "결과를 이 시간대로 바꿔요. 비우면 Asia/Seoul.",
           "key": "toTimezone",
           "path": "config.toTimezone",
           "title": "결과 시간대",
@@ -1095,6 +1096,7 @@
         },
         {
           "default": ", ",
+          "description": "비우면 쉼표와 공백(, ).",
           "key": "separator",
           "path": "config.separator",
           "title": "구분 기호",
@@ -1250,7 +1252,7 @@
     {
       "app": "formatter",
       "appTitle": "포맷터",
-      "description": "숫자에 천 단위 구분 기호(1,000)를 넣고 소수점 기호를 정해요.",
+      "description": "숫자에 천 단위 쉼표(1,000) 같은 구분 기호를 넣고 소수점 기호를 정해요.",
       "fixed": {
         "config": {
           "brand": "filter"
@@ -1673,7 +1675,7 @@
     {
       "app": "formatter",
       "appTitle": "포맷터",
-      "description": "글의 글자 수 또는 단어 수를 세서 숫자로 내요.",
+      "description": "텍스트 길이(글자 수) 또는 단어 수를 세서 숫자로 내요.",
       "fixed": {
         "config": {
           "brand": "filter"
@@ -1724,7 +1726,7 @@
     {
       "app": "formatter",
       "appTitle": "포맷터",
-      "description": "Markdown으로 쓴 글(예: AI 답변)을 메일에 넣을 수 있는 안전한 HTML로 바꿔요.",
+      "description": "마크다운(Markdown) 글(예: AI 답변)을 메일에 넣을 수 있는 안전한 HTML로 변환해요.",
       "fixed": {
         "config": {
           "brand": "filter"
@@ -1757,7 +1759,7 @@
     {
       "app": "formatter",
       "appTitle": "포맷터",
-      "description": "글 속의 특정 글자를 찾아 전부 다른 글자로 바꾸거나 지워요(정규식 아님).",
+      "description": "글 속의 특정 글자를 찾아 전부 다른 글자로 치환하거나 지워요(정규식 아님).",
       "fixed": {
         "config": {
           "brand": "filter"
@@ -1824,6 +1826,7 @@
         },
         {
           "default": ",",
+          "description": "비우면 쉼표(,).",
           "key": "separator",
           "path": "config.separator",
           "title": "구분 기호",
