@@ -131,6 +131,17 @@ def test_github_이슈_도구는_ACTION_전용():
         assert fn not in _TOOL_MAP.values()
 
 
+def test_github_PR_도구는_ACTION_전용():
+    from tools import _TOOL_MAP
+    from tools import github
+
+    for name in ("create_pull_request", "update_pull_request", "request_reviewers", "find_pull_request",
+                 "find_or_create_pull_request", "get_pr_reviews"):
+        fn = getattr(github, f"github_{name}")
+        assert resolve_action_fn(f"builtin:github_{name}") is fn
+        assert fn not in _TOOL_MAP.values()
+
+
 @pytest.mark.parametrize("event", ["github.list_issues", "github.create_issue"])
 def test_brand_for_github_action(event):
     """ACTION은 event 앱의 brand다 — 기본값 webhook으로 떨어지면 BE 연동 목록(config.brand)에서 빠진다."""

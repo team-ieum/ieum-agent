@@ -359,12 +359,12 @@ def _right_side_lines(patch: str) -> set[int]:
     return lines
 
 
-async def _fetch_pr_files(client, token: str, pr_url: str):
-    """PR 파일 목록(최대 10페이지). (files, truncated, error JSON 또는 None)."""
+async def _fetch_pages(client, token: str, url: str):
+    """목록 API를 100개씩 최대 10페이지. (items, truncated, error JSON 또는 None)."""
     files: list[dict] = []
     for page in range(1, _MAX_FILE_PAGES + 1):
         response = await client.get(
-            f"{pr_url}/files",
+            url,
             headers=_headers(token),
             params={"per_page": 100, "page": page},
             timeout=_TIMEOUT,
@@ -427,7 +427,7 @@ async def github_get_pr_files(
             )
         head_sha = response.json()["head"]["sha"]
 
-        files, truncated, error = await _fetch_pr_files(client, token, pr_url)
+        files, truncated, error = await _fetch_pages(client, token, f"{pr_url}/files")
         if error:
             return error
 
@@ -588,7 +588,7 @@ async def github_submit_pr_review(
         # 2. patch 오른쪽 줄 밖 코멘트는 본문으로 — 하나라도 범위 밖이면 리뷰 전체가 422다.
         inline, moved = [], []
         if valid:
-            files, _, error = await _fetch_pr_files(client, token, pr_url)
+            files, _, error = await _fetch_pages(client, token, f"{pr_url}/files")
             if error:
                 return error
             paths = {c["path"] for c in valid}
@@ -791,17 +791,22 @@ async def _find_issues(client, token, owner, repo, search_by, value, state, limi
     if len(value) > _MAX_SEARCH_VALUE:
         return [], _error(f"검색어는 {_MAX_SEARCH_VALUE}자 이하여야 합니다.")
     state_q = "" if state == "all" else f" state:{state}"
+    hits, error = await _search(
+        client, token, owner, repo, f"{value} in:{search_by} repo:{owner}/{repo} is:issue{state_q}", limit, pulls=False)
+    return [_issue_item(i) for i in hits][:limit], error
+
+
+async def _search(client, token, owner, repo, q: str, limit: int, pulls: bool) -> tuple[list[dict], str | None]:
+    """`GET search/issues` 1페이지 → 대상 레포·종류만 남긴 원본 항목. 404는 0건."""
     response = await client.get(
-        f"{_GITHUB_API_BASE}/search/issues",
-        headers=_headers(token),
-        params={"q": f"{value} in:{search_by} repo:{owner}/{repo} is:issue{state_q}", "per_page": limit},
+        f"{_GITHUB_API_BASE}/search/issues", headers=_headers(token), params={"q": q, "per_page": limit},
         timeout=_TIMEOUT,
     )
     if response.status_code == 404:
         return [], None
     if response.status_code != 200:
         return [], _api_error(response)
-    return [_issue_item(i) for i in _search_hits(response.json(), owner, repo, pulls=False)][:limit], None
+    return _search_hits(response.json(), owner, repo, pulls=pulls), None
 
 
 async def github_find_issue(
@@ -1035,6 +1040,416 @@ async def github_find_or_create_issue(
             {"success": True, "created": True, "number": issue["number"], "url": issue["html_url"],
              "title": issue["title"], "state": issue.get("state", "open"), "warnings": _dropped(fields, issue)},
             ensure_ascii=False,
+        )
+    except Exception as e:
+        return _error(str(e))
+
+
+# ---------------------------------------------------------------------------
+# PR 묶음 — create·update·request_reviewers·find·find_or_create·get_pr_reviews
+# ---------------------------------------------------------------------------
+
+_PR_SEARCH_BY = ("number", "branch", "title", "body", "author")
+_PR_NUMBER_ERROR = "pull_number는 양의 정수여야 합니다."
+_REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED")
+_AUTHOR_TYPES = ("human", "bot", "all")
+_MAX_REVIEW_COMMENTS_OUT = 300
+
+
+def _pr_item(pr: dict) -> dict:
+    """검색 응답에도 있는 키만(head·base는 검색 응답에 없다)."""
+    return {
+        "number": pr["number"],
+        "title": pr.get("title"),
+        "state": pr.get("state"),
+        "url": pr.get("html_url"),
+        "draft": bool(pr.get("draft")),
+        "author": (pr.get("user") or {}).get("login"),
+        "created_at": pr.get("created_at"),
+    }
+
+
+def _pr_out(pr: dict) -> dict:
+    return {"number": pr["number"], "url": pr["html_url"], "title": pr["title"], "state": pr["state"],
+            "draft": bool(pr.get("draft"))}
+
+
+def _head_query(owner: str, head: str) -> str:
+    """PR 목록 API의 head 필터는 `owner:branch` 형식이어야 한다."""
+    return head if ":" in head else f"{owner}:{head}"
+
+
+def _base_ref(value) -> str | None:
+    base = _head_ref(value)
+    return base if base is not None and ":" not in base else None
+
+
+def _pr_refs(head, base) -> tuple[str | None, str | None, str | None]:
+    """(head, base, error JSON)."""
+    head = _head_ref(head)
+    if head is None:
+        return None, None, _error("head 브랜치 형식이 올바르지 않습니다.")
+    base = _base_ref(base)
+    if base is None:
+        return None, None, _error("base 브랜치 형식이 올바르지 않습니다.")
+    return head, base, None
+
+
+async def _create_pr(client, token: str, owner: str, repo: str, payload: dict) -> tuple[dict | None, str | None]:
+    response = await client.post(
+        f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls", headers=_headers(token), json=payload, timeout=_TIMEOUT)
+    if response.status_code != 201:
+        return None, _api_error(response)
+    return response.json(), None
+
+
+async def github_create_pull_request(
+    token: str,
+    owner: str,
+    repo: str,
+    title: str,
+    head: str,
+    base: str,
+    body: str = "",
+    draft: bool = False,
+    maintainer_can_modify: bool = True,
+) -> str:
+    """
+    GitHub PR을 만듭니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        title: PR 제목
+        head: 변경을 담은 브랜치 (포크면 user:branch)
+        base: 합칠 대상 브랜치
+        body: PR 본문 (선택)
+        draft: 초안 PR로 만들지 여부
+        maintainer_can_modify: 메인테이너가 head 브랜치를 수정할 수 있게 할지 여부
+
+    Returns:
+        number, url, title, state, draft를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    head, base, error = _pr_refs(head, base)
+    if error:
+        return error
+    if not _text(title):
+        return _error("title을 입력해 주세요.")
+    payload = {"title": title, "head": head, "base": base, "body": body or "", "draft": bool(draft),
+               "maintainer_can_modify": bool(maintainer_can_modify)}
+    try:
+        pr, error = await _create_pr(get_http_client(), token, owner, repo, payload)
+        return error or json.dumps({"success": True, **_pr_out(pr)}, ensure_ascii=False)
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_update_pull_request(
+    token: str,
+    owner: str,
+    repo: str,
+    pull_number: str,
+    title: str = "",
+    body: str = "",
+    state: str = "",
+    base: str = "",
+) -> str:
+    """
+    GitHub PR을 수정합니다. 비어 있는 칸은 바꾸지 않습니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        pull_number: PR 번호
+        title: 새 제목 (선택)
+        body: 새 본문 (선택)
+        state: 상태 (open | closed, 선택)
+        base: 새 대상 브랜치 (선택)
+
+    Returns:
+        number, url, title, state를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    number = _issue_no(pull_number)
+    if number is None:
+        return _error(_PR_NUMBER_ERROR)
+    payload = {key: value for key, value in (("title", title), ("body", body)) if _text(value)}
+    state = _text(state)
+    if state:
+        if state not in ("open", "closed"):
+            return _error("state는 open, closed 중 하나여야 합니다.")
+        payload["state"] = state
+    if _text(base):
+        payload["base"] = _base_ref(base)
+        if payload["base"] is None:
+            return _error("base 브랜치 형식이 올바르지 않습니다.")
+    if not payload:
+        return _error("바꿀 칸이 없습니다.")
+    try:
+        response = await get_http_client().patch(
+            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{number}",
+            headers=_headers(token), json=payload, timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return _api_error(response)
+        pr = response.json()
+        return json.dumps(
+            {"success": True, "number": pr["number"], "url": pr["html_url"], "title": pr["title"], "state": pr["state"]},
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_request_reviewers(token: str, owner: str, repo: str, pull_number: str, reviewers: str) -> str:
+    """
+    GitHub PR에 리뷰어를 지정합니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        pull_number: PR 번호
+        reviewers: 리뷰어 login, 쉼표 구분
+
+    Returns:
+        number, requested_reviewers(요청된 리뷰어 login 목록)를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    number = _issue_no(pull_number)
+    if number is None:
+        return _error(_PR_NUMBER_ERROR)
+    names = _csv(reviewers)
+    if not names or not all(_is_login(n) for n in names):
+        return _error("reviewers는 쉼표로 구분한 GitHub 사용자 이름이어야 합니다.")
+    try:
+        response = await get_http_client().post(
+            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
+            headers=_headers(token), json={"reviewers": names}, timeout=_TIMEOUT,
+        )
+        if response.status_code != 201:
+            return _api_error(response)
+        requested = [u.get("login") for u in response.json().get("requested_reviewers") or []]
+        return json.dumps({"success": True, "number": number, "requested_reviewers": requested}, ensure_ascii=False)
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_find_pull_request(
+    token: str, owner: str, repo: str, search_by: str, value: str, state: str = "open", max_results: int = 20,
+) -> str:
+    """
+    GitHub 레포지토리에서 PR을 찾습니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        search_by: 찾는 기준 (number | branch | title | body | author)
+        value: 찾을 값
+        state: PR 상태 (open | closed | all, 기본값: open)
+        max_results: 최대 결과 수 (1~100)
+
+    Returns:
+        found, total, items, message를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    if search_by not in _PR_SEARCH_BY:
+        return _error(f"search_by는 {', '.join(_PR_SEARCH_BY)} 중 하나여야 합니다.")
+    if state not in _ISSUE_STATES:
+        return _error("state는 open, closed, all 중 하나여야 합니다.")
+    # 번호는 참조식 결과로 int가 올 수 있다.
+    value = str(value) if isinstance(value, int) and not isinstance(value, bool) else _text(value)
+    if not value:
+        return _error("value를 입력해 주세요.")
+    limit = _clamp(max_results, 20, 1, _MAX_ITEMS)
+    number = head = None
+    if search_by == "number" and (number := _issue_no(value)) is None:
+        return _error("PR 번호는 양의 정수여야 합니다.")
+    if search_by == "branch" and (head := _head_ref(value)) is None:
+        return _error("브랜치 형식이 올바르지 않습니다.")
+    if search_by == "author" and not _is_login(value):
+        return _error("GitHub 사용자 이름 형식이 올바르지 않습니다.")
+    if search_by in ("title", "body") and len(value) > _MAX_SEARCH_VALUE:
+        return _error(f"검색어는 {_MAX_SEARCH_VALUE}자 이하여야 합니다.")
+
+    repo_api = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}"
+    try:
+        client = get_http_client()
+        if search_by in ("number", "branch"):
+            if number is not None:
+                response = await client.get(f"{repo_api}/pulls/{number}", headers=_headers(token), timeout=_TIMEOUT)
+            else:
+                response = await client.get(
+                    f"{repo_api}/pulls", headers=_headers(token),
+                    params={"head": _head_query(owner, head), "state": state, "per_page": limit}, timeout=_TIMEOUT,
+                )
+            if response.status_code == 404:
+                return _found([])
+            if response.status_code != 200:
+                return _api_error(response)
+            data = response.json()
+            return _found([_pr_item(p) for p in (data if isinstance(data, list) else [data])][:limit])
+
+        state_q = "" if state == "all" else f" state:{state}"
+        if search_by == "author":
+            q = f"author:{value} is:pr repo:{owner}/{repo}{state_q}"
+        else:
+            q = f"{value} in:{search_by} repo:{owner}/{repo} is:pr{state_q}"
+        hits, error = await _search(client, token, owner, repo, q, limit, pulls=True)
+        return error or _found([_pr_item(h) for h in hits][:limit])
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_find_or_create_pull_request(
+    token: str,
+    owner: str,
+    repo: str,
+    head: str,
+    base: str,
+    title: str,
+    body: str = "",
+    draft: bool = False,
+    maintainer_can_modify: bool = True,
+) -> str:
+    """
+    head·base가 같은 열린 PR을 찾고, 없으면 새로 만듭니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        head: 변경을 담은 브랜치 (포크면 user:branch)
+        base: 합칠 대상 브랜치
+        title: 없을 때 만들 PR 제목
+        body: 없을 때 만들 PR 본문 (선택)
+        draft: 없을 때 초안 PR로 만들지 여부
+        maintainer_can_modify: 메인테이너가 head 브랜치를 수정할 수 있게 할지 여부
+
+    Returns:
+        created, number, url, title, state, draft를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    head, base, error = _pr_refs(head, base)
+    if error:
+        return error
+    if not _text(title):
+        return _error("title을 입력해 주세요.")
+    try:
+        client = get_http_client()
+        response = await client.get(
+            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls", headers=_headers(token),
+            params={"head": _head_query(owner, head), "base": base, "state": "open", "per_page": 1}, timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return _api_error(response)
+        pulls = response.json()
+        if pulls:
+            return json.dumps({"success": True, "created": False, **_pr_out(pulls[0])}, ensure_ascii=False)
+        payload = {"title": title, "head": head, "base": base, "body": body or "", "draft": bool(draft),
+                   "maintainer_can_modify": bool(maintainer_can_modify)}
+        pr, error = await _create_pr(client, token, owner, repo, payload)
+        return error or json.dumps({"success": True, "created": True, **_pr_out(pr)}, ensure_ascii=False)
+    except Exception as e:
+        return _error(str(e))
+
+
+def _author_type(user) -> str:
+    return "bot" if (user or {}).get("type") == "Bot" else "human"
+
+
+async def github_get_pr_reviews(
+    token: str,
+    owner: str,
+    repo: str,
+    pull_number: str,
+    include_comments: bool = True,
+    states: str = "",
+    author_type: str = "all",
+) -> str:
+    """
+    GitHub PR에 달린 리뷰와 줄 코멘트를 가져옵니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        pull_number: PR 번호
+        include_comments: 줄 코멘트도 가져올지 여부
+        states: 리뷰 상태 필터, 쉼표 구분 (APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED, 비우면 전부)
+        author_type: 작성자 종류 (human | bot | all, 기본값: all)
+
+    Returns:
+        found, total, items, comments, approved_count, changes_requested_count, message를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    number = _issue_no(pull_number)
+    if number is None:
+        return _error(_PR_NUMBER_ERROR)
+    wanted = [s.upper() for s in _csv(states)]
+    if any(s not in _REVIEW_STATES for s in wanted):
+        return _error(f"states는 {', '.join(_REVIEW_STATES)} 중에서 골라야 합니다.")
+    author_type = _text(author_type) or "all"
+    if author_type not in _AUTHOR_TYPES:
+        return _error("author_type은 human, bot, all 중 하나여야 합니다.")
+
+    def kept(user) -> bool:
+        return author_type == "all" or _author_type(user) == author_type
+
+    try:
+        client = get_http_client()
+        pr_url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{number}"
+        reviews, _, error = await _fetch_pages(client, token, f"{pr_url}/reviews")
+        if error:
+            return error
+        comments: list[dict] = []
+        if include_comments:
+            comments, _, error = await _fetch_pages(client, token, f"{pr_url}/comments")
+            if error:
+                return error
+
+        # 수치는 필터 뒤·자르기 전 기준. PENDING은 아직 제출 전인 리뷰라 뺀다.
+        picked = [
+            r for r in reviews
+            if r.get("state") != "PENDING" and (not wanted or r.get("state") in wanted) and kept(r.get("user"))
+        ]
+        items = [
+            {
+                "id": r.get("id"),
+                "author": (r.get("user") or {}).get("login"),
+                "author_type": _author_type(r.get("user")),
+                "state": r.get("state"),
+                "body": (r.get("body") or "")[:_MAX_TEXT],
+                "submitted_at": r.get("submitted_at"),
+                "commit_id": r.get("commit_id"),
+            }
+            for r in picked[:_MAX_ITEMS]
+        ]
+        out_comments = [
+            {
+                "path": c.get("path"),
+                "line": c.get("line") if c.get("line") is not None else c.get("original_line"),
+                "body": (c.get("body") or "")[:_MAX_TEXT],
+                "author": (c.get("user") or {}).get("login"),
+                "created_at": c.get("created_at"),
+            }
+            for c in comments if kept(c.get("user"))
+        ][:_MAX_REVIEW_COMMENTS_OUT]
+        return _found(
+            items,
+            comments=out_comments,
+            approved_count=sum(r.get("state") == "APPROVED" for r in picked),
+            changes_requested_count=sum(r.get("state") == "CHANGES_REQUESTED" for r in picked),
         )
     except Exception as e:
         return _error(str(e))

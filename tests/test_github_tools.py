@@ -16,11 +16,17 @@ from tools.github import (
     github_create_comment,
     github_create_issue,
     github_find_issue,
+    github_create_pull_request,
     github_find_or_create_issue,
+    github_find_or_create_pull_request,
+    github_find_pull_request,
     github_get_pr_files,
+    github_get_pr_reviews,
     github_list_issues,
+    github_request_reviewers,
     github_submit_pr_review,
     github_update_issue,
+    github_update_pull_request,
 )
 
 
@@ -47,6 +53,13 @@ _OUTPUT_KEYS: dict[str, set[str]] = {
     "github.add_labels": {"number", "labels"},
     "github.create_comment": {"id", "url"},
     "github.find_or_create_issue": {"created", "number", "url", "title", "state", "warnings"},
+    "github.create_pull_request": {"number", "url", "title", "state", "draft"},
+    "github.update_pull_request": {"number", "url", "title", "state"},
+    "github.request_reviewers": {"number", "requested_reviewers"},
+    "github.find_pull_request": {"found", "total", "items", "message"},
+    "github.find_or_create_pull_request": {"created", "number", "url", "title", "state", "draft"},
+    "github.get_pr_reviews": {"found", "total", "items", "comments", "approved_count", "changes_requested_count",
+                              "message"},
     "github.get_pr_files": {"diff", "found", "head_sha", "items", "skipped", "total", "truncated"},
     "github.submit_pr_review": {"moved_comments", "posted_comments", "review_id", "state", "url", "warnings"},
 }
@@ -359,6 +372,199 @@ async def test_find_or_create_issue_없으면_만든다(client):
     assert client.post.call_count == 1
     assert result["created"] is True
     assert result["number"] == 9
+
+
+# ---------------------------------------------------------------------------
+# PR 묶음 — create·update·request_reviewers·find·find_or_create·get_pr_reviews
+# ---------------------------------------------------------------------------
+
+def _pr(number: int, *, repo_url: str = "https://api.github.com/repos/o/r", issue: bool = False) -> dict:
+    pr = {
+        "number": number, "title": f"PR {number}", "state": "open", "html_url": f"https://github.com/o/r/pull/{number}",
+        "draft": False, "user": {"login": "alice"}, "created_at": "2026-11-01T00:00:00Z", "repository_url": repo_url,
+    }
+    if not issue:
+        pr["pull_request"] = {}
+    return pr
+
+
+@pytest.mark.asyncio
+async def test_create_pull_request(client):
+    client.post = AsyncMock(return_value=_response(201, _pr(3)))
+    result = json.loads(await github_create_pull_request(
+        token="t", owner="o", repo="r", title="t", head="user:feat/x", base="main"))
+    _assert_outputs("github.create_pull_request", result)
+    assert client.post.call_args.args[0] == "https://api.github.com/repos/o/r/pulls"
+    assert client.post.call_args.kwargs["json"] == {
+        "title": "t", "head": "user:feat/x", "base": "main", "body": "", "draft": False, "maintainer_can_modify": True}
+
+    client.post = AsyncMock()
+    result = json.loads(await github_create_pull_request(
+        token="t", owner="o", repo="r", title="t", head="../x", base="main"))
+    assert "error" in result
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_pull_request_빈칸은_보내지_않는다(client):
+    client.patch = AsyncMock(return_value=_response(200, {**_pr(3), "state": "closed"}))
+    result = json.loads(await github_update_pull_request(token="t", owner="o", repo="r", pull_number="3", state="closed"))
+    _assert_outputs("github.update_pull_request", result)
+    assert client.patch.call_args.args[0] == "https://api.github.com/repos/o/r/pulls/3"
+    assert client.patch.call_args.kwargs["json"] == {"state": "closed"}
+
+    client.patch = AsyncMock()
+    result = json.loads(await github_update_pull_request(token="t", owner="o", repo="r", pull_number="3"))
+    assert result == {"error": "바꿀 칸이 없습니다."}
+    client.patch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_request_reviewers(client):
+    client.post = AsyncMock(return_value=_response(201, {
+        "number": 3, "requested_reviewers": [{"login": "alice"}, {"login": "bob"}]}))
+    result = json.loads(await github_request_reviewers(
+        token="t", owner="o", repo="r", pull_number="3", reviewers="alice, bob"))
+    _assert_outputs("github.request_reviewers", result)
+    assert client.post.call_args.args[0] == "https://api.github.com/repos/o/r/pulls/3/requested_reviewers"
+    assert client.post.call_args.kwargs["json"] == {"reviewers": ["alice", "bob"]}
+    assert result["requested_reviewers"] == ["alice", "bob"]
+
+    client.post = AsyncMock()
+    result = json.loads(await github_request_reviewers(
+        token="t", owner="o", repo="r", pull_number="3", reviewers="a b"))
+    assert "error" in result
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_find_pull_request_번호_404는_0건(client):
+    client.get = AsyncMock(return_value=_response(404, text="Not Found"))
+    result = json.loads(await github_find_pull_request(token="t", owner="o", repo="r", search_by="number", value="3"))
+    assert result == {"success": True, "found": False, "total": 0, "items": [], "message": "결과가 없습니다"}
+    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/pulls/3"
+
+
+@pytest.mark.asyncio
+async def test_find_pull_request_브랜치(client):
+    client.get = AsyncMock(return_value=_response(200, [_pr(3)]))
+    result = json.loads(await github_find_pull_request(
+        token="t", owner="o", repo="r", search_by="branch", value="feature/x"))
+    _assert_outputs("github.find_pull_request", result)
+    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/pulls"
+    assert client.get.call_args.kwargs["params"]["head"] == "o:feature/x"
+    assert [i["number"] for i in result["items"]] == [3]
+
+
+@pytest.mark.asyncio
+async def test_find_pull_request_작성자_검색(client):
+    client.get = AsyncMock(return_value=_response(200, {"items": [
+        _pr(1, repo_url="https://api.github.com/repos/a/secret"),
+        _pr(2),
+        _pr(3, issue=True),
+    ]}))
+    result = json.loads(await github_find_pull_request(
+        token="t", owner="o", repo="r", search_by="author", value="alice"))
+    _assert_outputs("github.find_pull_request", result)
+    assert set(client.get.call_args.kwargs["params"]["q"].split()) == {"author:alice", "is:pr", "repo:o/r", "state:open"}
+    assert [i["number"] for i in result["items"]] == [2]
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_pull_request_있으면_만들지_않는다(client):
+    client.get = AsyncMock(return_value=_response(200, [_pr(5)]))
+    client.post = AsyncMock()
+    result = json.loads(await github_find_or_create_pull_request(
+        token="t", owner="o", repo="r", head="feat/x", base="main", title="t"))
+    _assert_outputs("github.find_or_create_pull_request", result)
+    assert result["created"] is False
+    assert result["number"] == 5
+    params = client.get.call_args.kwargs["params"]
+    assert (params["head"], params["base"], params["state"], params["per_page"]) == ("o:feat/x", "main", "open", 1)
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_pull_request_없으면_만든다(client):
+    client.get = AsyncMock(return_value=_response(200, []))
+    client.post = AsyncMock(return_value=_response(201, _pr(6)))
+    result = json.loads(await github_find_or_create_pull_request(
+        token="t", owner="o", repo="r", head="feat/x", base="main", title="t"))
+    _assert_outputs("github.find_or_create_pull_request", result)
+    assert client.post.call_count == 1
+    assert result["created"] is True
+    assert result["number"] == 6
+
+
+def _review(review_id: int, state: str, user_type: str = "User", body: str = "b") -> dict:
+    return {"id": review_id, "state": state, "body": body, "user": {"login": f"u{review_id}", "type": user_type},
+            "submitted_at": "2026-11-02T00:00:00Z", "commit_id": "abc"}
+
+
+def _reviews_client(client, reviews: list, comments: list = ()) -> None:
+    def get(url, **kwargs):
+        page = kwargs["params"]["page"]
+        data = reviews if url.endswith("/reviews") else list(comments)
+        return _response(200, data[(page - 1) * 100: page * 100])
+    client.get = AsyncMock(side_effect=get)
+
+
+@pytest.mark.asyncio
+async def test_get_pr_reviews_필터와_수치(client):
+    _reviews_client(client, [
+        _review(1, "APPROVED"), _review(2, "APPROVED", "Bot"), _review(3, "CHANGES_REQUESTED"), _review(4, "PENDING"),
+    ], [
+        {"path": "a.py", "line": None, "original_line": 4, "body": "c", "user": {"login": "u1", "type": "User"},
+         "created_at": "2026-11-02T00:00:00Z"},
+        {"path": "b.py", "line": 2, "body": "봇", "user": {"login": "bot", "type": "Bot"},
+         "created_at": "2026-11-02T00:00:00Z"},
+    ])
+    result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3", author_type="human"))
+    _assert_outputs("github.get_pr_reviews", result)
+    assert [i["id"] for i in result["items"]] == [1, 3]
+    assert set(result["items"][0]) == {"id", "author", "author_type", "state", "body", "submitted_at", "commit_id"}
+    assert (result["approved_count"], result["changes_requested_count"]) == (1, 1)
+    assert result["comments"] == [
+        {"path": "a.py", "line": 4, "body": "c", "author": "u1", "created_at": "2026-11-02T00:00:00Z"}]
+
+
+@pytest.mark.asyncio
+async def test_get_pr_reviews_상태_필터(client):
+    _reviews_client(client, [_review(1, "APPROVED"), _review(2, "COMMENTED"), _review(3, "APPROVED", "Bot")])
+    result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3", states="approved"))
+    _assert_outputs("github.get_pr_reviews", result)
+    assert {i["state"] for i in result["items"]} == {"APPROVED"}
+    assert len(result["items"]) == 2
+
+    client.get = AsyncMock()
+    result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3", states="LGTM"))
+    assert "error" in result
+    client.get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_pr_reviews_상한(client):
+    reviews = [_review(i, "APPROVED", body="x" * 20_000 if i == 0 else "b") for i in range(150)]
+    _reviews_client(client, reviews)
+    result = json.loads(await github_get_pr_reviews(
+        token="t", owner="o", repo="r", pull_number="3", include_comments=False))
+    _assert_outputs("github.get_pr_reviews", result)
+    assert len(result["items"]) == 100
+    assert result["approved_count"] == 150
+    assert len(result["items"][0]["body"]) == 10_000
+    assert result["comments"] == []
+    assert all(c.args[0].endswith("/reviews") for c in client.get.call_args_list)
+    assert client.get.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_get_pr_reviews_0건(client):
+    _reviews_client(client, [])
+    result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3"))
+    _assert_outputs("github.get_pr_reviews", result)
+    assert result["found"] is False
+    assert result["message"] == "결과가 없습니다"
+    assert (result["total"], result["approved_count"], result["changes_requested_count"]) == (0, 0, 0)
 
 
 # ---------------------------------------------------------------------------
