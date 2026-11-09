@@ -131,7 +131,7 @@ def test_agent_entry_requires_tools_field(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("tid, tool_key, keys", [
     ("github.list_issues", "builtin:github_list_issues", ["owner", "repo", "state"]),
-    ("github.create_issue", "builtin:github_create_issue", ["owner", "repo", "title", "body"]),
+    ("github.create_issue", "builtin:github_create_issue", ["owner", "repo", "title", "body", "labels", "assignees", "milestone"]),
 ])
 def test_github_action_entries(tid, tool_key, keys):
     t = tr.get_template(tid)

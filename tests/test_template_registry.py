@@ -39,7 +39,7 @@ def test_every_user_facing_tool_has_template():
 
 def test_all_node_types_have_at_least_one_template():
     types = {t["node_type"] for t in tr.load_templates().values()}
-    assert {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL"} <= types
+    assert {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL", "DELAY"} <= types
 
 
 def _delay_tpl(node_type="DELAY"):

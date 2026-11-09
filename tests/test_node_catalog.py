@@ -142,8 +142,17 @@ def test_option_source_fields_fixed_set():
         ("notion.query_database", "database_id"),
         ("notion.create_row", "data_source_id"), ("notion.create_row", "template"),
         ("notion.update_row", "data_source_id"), ("notion.update_row", "row_id"),
-        *[(f"github.{x}", k) for x in ("list_issues", "create_issue", "get_pr_files", "submit_pr_review")
+        *[(f"github.{x}", k) for x in ("list_issues", "create_issue", "get_pr_files", "submit_pr_review",
+                                       "find_issue", "update_issue", "add_labels", "create_comment",
+                                       "find_or_create_issue", "create_pull_request", "update_pull_request",
+                                       "request_reviewers", "find_pull_request", "find_or_create_pull_request",
+                                       "get_pr_reviews", "find_branch", "get_file")
           for k in ("owner", "repo")],
+        ("github.find_repo", "owner"), ("github.check_org_membership", "org"),
+        *[(f"github.{x}", "milestone") for x in ("create_issue", "update_issue", "find_or_create_issue")],
+        *[(f"github.{x}", k) for x in ("create_pull_request", "find_or_create_pull_request")
+          for k in ("head", "base")],
+        ("github.update_pull_request", "base"), ("github.find_branch", "branch"),
         ("github.new_issue", "repoId"), ("github.new_pull_request", "repoId"),
         ("gmail.send_email", "from_email"), ("gmail.send_email", "label_ids"),
     }
@@ -182,7 +191,9 @@ def _field(entry_id: str, key: str) -> dict:
 def test_app_option_sources(field, title, sources, inputs):
     """공급원 키는 BE OptionSource.key()와 1:1 계약(IEUM-BE-72·73·76). 그 필드를 가진 액션 항목 전부에서
     제목·optionsInputs가 같고 공급원은 칸별 집합 안이어야 한다."""
+    # github.find_repo의 repo는 남의 레포·참조식 조회용 입력 칸(드롭다운 없음, 2026-11-09 결정)
     found = [f for e in node_catalog()["entries"] if e["nodeType"] == "ACTION"
+             and (e["id"], field) != ("github.find_repo", "repo")
              for f in e["inputFields"] if f["key"] == field]
     assert found, field
     for f in found:
@@ -268,6 +279,12 @@ EXPECTED_BRANDS = {
     "google_drive.upload": "google",
     "github.list_issues": "github", "github.create_issue": "github",
     "github.get_pr_files": "github", "github.submit_pr_review": "github",
+    **{f"github.{x}": "github" for x in (
+        "find_issue", "update_issue", "add_labels", "create_comment", "find_or_create_issue",
+        "create_pull_request", "update_pull_request", "request_reviewers", "find_pull_request",
+        "find_or_create_pull_request", "get_pr_reviews", "find_branch", "get_file", "find_repo", "find_org",
+        "check_org_membership", "find_user")},
+    "delay.for": "webhook", "delay.until": "webhook", "delay.queue": "webhook",
     "formatter.text_case": "filter",
     "formatter.text_trim": "filter",
     "formatter.text_replace": "filter",
