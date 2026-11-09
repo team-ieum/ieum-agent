@@ -12,10 +12,15 @@ from tools.github import (
     _issue_no,
     _ref_path,
     _right_side_lines,
+    github_add_labels,
+    github_create_comment,
     github_create_issue,
+    github_find_issue,
+    github_find_or_create_issue,
     github_get_pr_files,
     github_list_issues,
     github_submit_pr_review,
+    github_update_issue,
 )
 
 
@@ -37,6 +42,11 @@ def client():
 # 이 PR의 카탈로그에는 새 이벤트가 없어 assert_matches_outputs 대신 반환 키를 직접 단언한다.
 _OUTPUT_KEYS: dict[str, set[str]] = {
     "github.create_issue": {"number", "title", "url"},
+    "github.find_issue": {"found", "total", "items", "message"},
+    "github.update_issue": {"number", "url", "title", "state", "warnings"},
+    "github.add_labels": {"number", "labels"},
+    "github.create_comment": {"id", "url"},
+    "github.find_or_create_issue": {"created", "number", "url", "title", "state", "warnings"},
     "github.get_pr_files": {"diff", "found", "head_sha", "items", "skipped", "total", "truncated"},
     "github.submit_pr_review": {"moved_comments", "posted_comments", "review_id", "state", "url", "warnings"},
 }
@@ -154,6 +164,201 @@ async def test_create_issue_owner_repo에_경로_문자가_있으면_요청하�
     result = json.loads(await github_create_issue(token="gh-token", owner=owner, repo=repo, title="t"))
     assert "error" in result
     client.post.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 이슈 묶음 — find_issue·update_issue·add_labels·create_comment·find_or_create_issue
+# ---------------------------------------------------------------------------
+
+_ISSUE_ITEM_KEYS = {"number", "title", "state", "url", "labels", "assignees", "author", "created_at"}
+
+
+def _issue(number: int, *, repo_url: str = "https://api.github.com/repos/o/r", pr: bool = False) -> dict:
+    issue = {
+        "number": number, "title": f"이슈 {number}", "state": "open", "html_url": f"https://github.com/o/r/issues/{number}",
+        "labels": [{"name": "bug"}], "assignees": [{"login": "alice"}], "user": {"login": "bob"},
+        "created_at": "2026-11-01T00:00:00Z", "repository_url": repo_url,
+    }
+    if pr:
+        issue["pull_request"] = {}
+    return issue
+
+
+@pytest.mark.asyncio
+async def test_find_issue_번호(client):
+    client.get = AsyncMock(return_value=_response(200, _issue(5)))
+    result = json.loads(await github_find_issue(token="t", owner="o", repo="r", search_by="number", value="5"))
+    _assert_outputs("github.find_issue", result)
+    assert result["found"] is True
+    assert set(result["items"][0]) == _ISSUE_ITEM_KEYS
+    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/issues/5"
+
+    client.get = AsyncMock(return_value=_response(404, text="Not Found"))
+    result = json.loads(await github_find_issue(token="t", owner="o", repo="r", search_by="number", value="5"))
+    assert result == {"success": True, "found": False, "total": 0, "items": [], "message": "결과가 없습니다"}
+
+    client.get = AsyncMock(return_value=_response(200, _issue(5, pr=True)))
+    result = json.loads(await github_find_issue(token="t", owner="o", repo="r", search_by="number", value="5"))
+    assert result["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_find_issue_라벨_목록_페이지(client):
+    page1 = [_issue(i, pr=i < 10) for i in range(100)]
+    page2 = [_issue(100 + i) for i in range(20)]
+    client.get = AsyncMock(side_effect=[_response(200, page1), _response(200, page2)])
+    result = json.loads(await github_find_issue(
+        token="t", owner="o", repo="r", search_by="label", value="bug", max_results=150))
+
+    _assert_outputs("github.find_issue", result)
+    assert len(result["items"]) == 100
+    assert client.get.call_count == 2
+    params = client.get.call_args_list[0].kwargs["params"]
+    assert params["labels"] == "bug"
+    assert params["per_page"] == 100
+
+
+@pytest.mark.asyncio
+async def test_find_issue_제목_검색(client):
+    client.get = AsyncMock(return_value=_response(200, {"items": [_issue(1)]}))
+    result = json.loads(await github_find_issue(token="t", owner="o", repo="r", search_by="title", value="로그인"))
+    _assert_outputs("github.find_issue", result)
+    assert client.get.call_args.args[0] == "https://api.github.com/search/issues"
+    assert client.get.call_args.kwargs["params"]["q"] == "로그인 in:title repo:o/r is:issue state:open"
+
+    await github_find_issue(token="t", owner="o", repo="r", search_by="title", value="로그인", state="all")
+    assert "state:" not in client.get.call_args.kwargs["params"]["q"]
+
+
+@pytest.mark.asyncio
+async def test_find_issue_다른_레포_결과는_버린다(client):
+    client.get = AsyncMock(return_value=_response(200, {"items": [
+        _issue(1, repo_url="https://api.github.com/repos/a/secret"),
+        _issue(2, repo_url="https://api.github.com/repos/O/r"),
+        _issue(3, pr=True),
+    ]}))
+    result = json.loads(await github_find_issue(
+        token="t", owner="o", repo="r", search_by="title", value="x repo:a/secret"))
+    _assert_outputs("github.find_issue", result)
+    assert [i["number"] for i in result["items"]] == [2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("search_by, value", [("nope", "x"), ("title", "  "), ("author", "a b")])
+async def test_find_issue_입력_오류(client, search_by, value):
+    client.get = AsyncMock()
+    result = json.loads(await github_find_issue(token="t", owner="o", repo="r", search_by=search_by, value=value))
+    assert "error" in result
+    client.get.assert_not_called()
+
+
+def _updated(**extra) -> MagicMock:
+    return _response(200, {"number": 7, "title": "새 제목", "state": "open", "html_url": "u",
+                           "labels": [], "assignees": [], "milestone": None, **extra})
+
+
+@pytest.mark.asyncio
+async def test_update_issue_빈칸은_보내지_않는다(client):
+    client.patch = AsyncMock(return_value=_updated())
+    result = json.loads(await github_update_issue(token="t", owner="o", repo="r", issue_number="#7", title="새 제목"))
+    _assert_outputs("github.update_issue", result)
+    assert client.patch.call_args.args[0] == "https://api.github.com/repos/o/r/issues/7"
+    assert client.patch.call_args.kwargs["json"] == {"title": "새 제목"}
+
+
+@pytest.mark.asyncio
+async def test_update_issue_닫는_이유(client):
+    client.patch = AsyncMock(return_value=_updated(state="closed"))
+    result = json.loads(await github_update_issue(
+        token="t", owner="o", repo="r", issue_number="7", state="closed", state_reason="not_planned"))
+    _assert_outputs("github.update_issue", result)
+    assert client.patch.call_args.kwargs["json"] == {"state": "closed", "state_reason": "not_planned"}
+
+    client.patch = AsyncMock(return_value=_updated())
+    result = json.loads(await github_update_issue(
+        token="t", owner="o", repo="r", issue_number="7", title="새 제목", state_reason="completed"))
+    assert client.patch.call_args.kwargs["json"] == {"title": "새 제목"}
+    assert result["warnings"] == ["닫는 이유는 상태를 바꿀 때만 적용돼요."]
+
+    client.patch = AsyncMock()
+    result = json.loads(await github_update_issue(
+        token="t", owner="o", repo="r", issue_number="7", state_reason="completed"))
+    assert result == {"error": "바꿀 칸이 없습니다."}
+    client.patch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_issue_라벨_통째_교체_경고(client):
+    client.patch = AsyncMock(return_value=_updated())
+    result = json.loads(await github_update_issue(token="t", owner="o", repo="r", issue_number="7", labels="a"))
+    assert client.patch.call_args.kwargs["json"] == {"labels": ["a"]}
+    assert result["warnings"] == ["반영되지 않은 라벨: a"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("issue_number", ["0", "abc"])
+async def test_update_issue_번호_오류(client, issue_number):
+    client.patch = AsyncMock()
+    result = json.loads(await github_update_issue(
+        token="t", owner="o", repo="r", issue_number=issue_number, title="x"))
+    assert "error" in result
+    client.patch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_add_labels(client):
+    client.post = AsyncMock(return_value=_response(200, [{"name": "old"}, {"name": "bug"}, {"name": "p1"}]))
+    result = json.loads(await github_add_labels(token="t", owner="o", repo="r", issue_number="7", labels="bug,p1"))
+    _assert_outputs("github.add_labels", result)
+    assert client.post.call_args.args[0] == "https://api.github.com/repos/o/r/issues/7/labels"
+    assert client.post.call_args.kwargs["json"] == {"labels": ["bug", "p1"]}
+    assert result["labels"] == ["old", "bug", "p1"]
+
+    client.post = AsyncMock()
+    result = json.loads(await github_add_labels(token="t", owner="o", repo="r", issue_number="7", labels=" , "))
+    assert "error" in result
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_comment(client):
+    client.post = AsyncMock(return_value=_response(201, {"id": 1, "html_url": "u"}))
+    result = json.loads(await github_create_comment(token="t", owner="o", repo="r", issue_number="7", body="좋아요"))
+    _assert_outputs("github.create_comment", result)
+    assert result == {"success": True, "id": 1, "url": "u"}
+    assert client.post.call_args.args[0] == "https://api.github.com/repos/o/r/issues/7/comments"
+
+    client.post = AsyncMock()
+    result = json.loads(await github_create_comment(
+        token="t", owner="o", repo="r", issue_number="7", body="a" * 65537))
+    assert "error" in result
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_issue_있으면_만들지_않는다(client):
+    client.get = AsyncMock(return_value=_response(200, {"items": [_issue(4)]}))
+    client.post = AsyncMock()
+    result = json.loads(await github_find_or_create_issue(
+        token="t", owner="o", repo="r", search_by="title", value="이슈", title="이슈"))
+    _assert_outputs("github.find_or_create_issue", result)
+    assert result["created"] is False
+    assert result["number"] == 4
+    assert result["warnings"] == []
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_issue_없으면_만든다(client):
+    client.get = AsyncMock(return_value=_response(200, {"items": []}))
+    client.post = AsyncMock(return_value=_response(201, {
+        "number": 9, "title": "새 이슈", "state": "open", "html_url": "u"}))
+    result = json.loads(await github_find_or_create_issue(
+        token="t", owner="o", repo="r", search_by="title", value="새 이슈", title="새 이슈"))
+    _assert_outputs("github.find_or_create_issue", result)
+    assert client.post.call_count == 1
+    assert result["created"] is True
+    assert result["number"] == 9
 
 
 # ---------------------------------------------------------------------------

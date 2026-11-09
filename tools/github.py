@@ -665,3 +665,377 @@ async def github_submit_pr_review(
     except Exception as e:
         return _error(str(e))
 
+
+# ---------------------------------------------------------------------------
+# 이슈 묶음 — create_issue 보강·find_issue·update_issue·add_labels·create_comment·find_or_create_issue
+# ---------------------------------------------------------------------------
+
+_ISSUE_SEARCH_BY = ("number", "label", "assignee", "author", "title", "body")
+_ISSUE_STATES = ("open", "closed", "all")
+# 목록 API(`GET repos/{o}/{r}/issues`)로 찾는 search_by → 쿼리 이름.
+_ISSUE_LIST_PARAM = {"label": "labels", "assignee": "assignee", "author": "creator"}
+_MAX_SEARCH_VALUE = 200
+_STATE_REASONS = ("completed", "not_planned", "duplicate", "reopened")
+_MAX_COMMENT_BODY = 65536
+_ISSUE_NUMBER_ERROR = "issue_number는 양의 정수여야 합니다."
+
+
+def _text(value) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _issue_fields(labels, assignees, milestone) -> tuple[dict, str | None]:
+    """비어 있지 않은 라벨·담당자·마일스톤만. 라벨·담당자는 보내면 통째 교체라 빈 값은 넣지 않는다."""
+    fields: dict = {}
+    if names := _csv(labels):
+        fields["labels"] = names
+    if logins := _csv(assignees):
+        fields["assignees"] = logins
+    if milestone is not None and str(milestone).strip():
+        number = _issue_no(milestone)
+        if number is None:
+            return {}, _error("milestone은 양의 정수여야 합니다.")
+        fields["milestone"] = number
+    return fields, None
+
+
+def _dropped(sent: dict, issue: dict) -> list[str]:
+    """보냈는데 응답에 없는 라벨·담당자·마일스톤(권한 없음·없는 이름은 GitHub가 조용히 버린다)."""
+    warnings = []
+    got_labels = {str(label.get("name", "")).lower() for label in issue.get("labels") or []}
+    if missing := [n for n in sent.get("labels", []) if n.lower() not in got_labels]:
+        warnings.append("반영되지 않은 라벨: " + ", ".join(missing))
+    got_logins = {str(a.get("login", "")).lower() for a in issue.get("assignees") or []}
+    if missing := [n for n in sent.get("assignees", []) if n.lower() not in got_logins]:
+        warnings.append("반영되지 않은 담당자: " + ", ".join(missing))
+    if "milestone" in sent and (issue.get("milestone") or {}).get("number") != sent["milestone"]:
+        warnings.append(f"반영되지 않은 마일스톤: {sent['milestone']}")
+    return warnings
+
+
+def _issue_item(issue: dict) -> dict:
+    return {
+        "number": issue["number"],
+        "title": issue.get("title"),
+        "state": issue.get("state"),
+        "url": issue.get("html_url"),
+        "labels": [label.get("name") for label in issue.get("labels") or []],
+        "assignees": [a.get("login") for a in issue.get("assignees") or []],
+        "author": (issue.get("user") or {}).get("login"),
+        "created_at": issue.get("created_at"),
+    }
+
+
+def _search_hits(body: dict, owner: str, repo: str, pulls: bool) -> list[dict]:
+    """검색 결과 중 대상 레포·종류만. 검색어에 끼운 `repo:`·`is:pr` 한정자로 다른 결과가 섞일 수 있다."""
+    repo_url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}".lower()
+    return [
+        item for item in body.get("items") or []
+        if str(item.get("repository_url", "")).lower() == repo_url and ("pull_request" in item) == pulls
+    ]
+
+
+async def _create_issue(client, token: str, owner: str, repo: str, payload: dict) -> tuple[dict | None, str | None]:
+    response = await client.post(
+        f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/issues", headers=_headers(token), json=payload, timeout=_TIMEOUT)
+    if response.status_code != 201:
+        return None, _api_error(response)
+    return response.json(), None
+
+
+async def _find_issues(client, token, owner, repo, search_by, value, state, limit) -> tuple[list[dict], str | None]:
+    """(items, error JSON). 입력 검사는 HTTP 호출 전에 끝낸다. 404는 0건."""
+    if search_by not in _ISSUE_SEARCH_BY:
+        return [], _error(f"search_by는 {', '.join(_ISSUE_SEARCH_BY)} 중 하나여야 합니다.")
+    if state not in _ISSUE_STATES:
+        return [], _error("state는 open, closed, all 중 하나여야 합니다.")
+    # 번호는 참조식 결과로 int가 올 수 있다.
+    value = str(value) if isinstance(value, int) and not isinstance(value, bool) else _text(value)
+    if not value:
+        return [], _error("value를 입력해 주세요.")
+    repo_api = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}"
+
+    if search_by == "number":
+        number = _issue_no(value)
+        if number is None:
+            return [], _error("이슈 번호는 양의 정수여야 합니다.")
+        response = await client.get(f"{repo_api}/issues/{number}", headers=_headers(token), timeout=_TIMEOUT)
+        if response.status_code == 404:
+            return [], None
+        if response.status_code != 200:
+            return [], _api_error(response)
+        issue = response.json()
+        return ([] if "pull_request" in issue else [_issue_item(issue)]), None
+
+    if search_by in _ISSUE_LIST_PARAM:
+        if search_by != "label" and not _is_login(value):
+            return [], _error("GitHub 사용자 이름 형식이 올바르지 않습니다.")
+        items: list[dict] = []
+        for page in range(1, _MAX_FILE_PAGES + 1):
+            response = await client.get(
+                f"{repo_api}/issues",
+                headers=_headers(token),
+                params={_ISSUE_LIST_PARAM[search_by]: value, "state": state, "per_page": 100, "page": page},
+                timeout=_TIMEOUT,
+            )
+            if response.status_code == 404:
+                return [], None
+            if response.status_code != 200:
+                return [], _api_error(response)
+            batch = response.json()
+            items.extend(_issue_item(i) for i in batch if "pull_request" not in i)
+            if len(items) >= limit or len(batch) < 100:
+                break
+        return items[:limit], None
+
+    if len(value) > _MAX_SEARCH_VALUE:
+        return [], _error(f"검색어는 {_MAX_SEARCH_VALUE}자 이하여야 합니다.")
+    state_q = "" if state == "all" else f" state:{state}"
+    response = await client.get(
+        f"{_GITHUB_API_BASE}/search/issues",
+        headers=_headers(token),
+        params={"q": f"{value} in:{search_by} repo:{owner}/{repo} is:issue{state_q}", "per_page": limit},
+        timeout=_TIMEOUT,
+    )
+    if response.status_code == 404:
+        return [], None
+    if response.status_code != 200:
+        return [], _api_error(response)
+    return [_issue_item(i) for i in _search_hits(response.json(), owner, repo, pulls=False)][:limit], None
+
+
+async def github_find_issue(
+    token: str, owner: str, repo: str, search_by: str, value: str, state: str = "open", max_results: int = 20,
+) -> str:
+    """
+    GitHub 레포지토리에서 이슈를 찾습니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        search_by: 찾는 기준 (number | label | assignee | author | title | body)
+        value: 찾을 값
+        state: 이슈 상태 (open | closed | all, 기본값: open)
+        max_results: 최대 결과 수 (1~100)
+
+    Returns:
+        found, total, items, message를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    try:
+        items, error = await _find_issues(
+            get_http_client(), token, owner, repo, search_by, value, state, _clamp(max_results, 20, 1, _MAX_ITEMS))
+        return error or _found(items)
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_update_issue(
+    token: str,
+    owner: str,
+    repo: str,
+    issue_number: str,
+    title: str = "",
+    body: str = "",
+    state: str = "",
+    state_reason: str = "",
+    labels: str = "",
+    assignees: str = "",
+    milestone: str = "",
+) -> str:
+    """
+    GitHub 이슈를 수정합니다. 비어 있는 칸은 바꾸지 않습니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        issue_number: 이슈 번호
+        title: 새 제목 (선택)
+        body: 새 본문 (선택)
+        state: 상태 (open | closed, 선택)
+        state_reason: 닫는 이유 (completed | not_planned | duplicate | reopened, 선택)
+        labels: 라벨, 쉼표 구분 — 기존 라벨을 통째로 바꿉니다 (선택)
+        assignees: 담당자 login, 쉼표 구분 — 기존 담당자를 통째로 바꿉니다 (선택)
+        milestone: 마일스톤 번호 (선택)
+
+    Returns:
+        number, url, title, state, warnings를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    number = _issue_no(issue_number)
+    if number is None:
+        return _error(_ISSUE_NUMBER_ERROR)
+    fields, error = _issue_fields(labels, assignees, milestone)
+    if error:
+        return error
+    state, state_reason = _text(state), _text(state_reason)
+    if state and state not in ("open", "closed"):
+        return _error("state는 open, closed 중 하나여야 합니다.")
+    if state_reason and state_reason not in _STATE_REASONS:
+        return _error(f"state_reason은 {', '.join(_STATE_REASONS)} 중 하나여야 합니다.")
+
+    payload = {key: value for key, value in (("title", title), ("body", body)) if _text(value)}
+    warnings = []
+    if state:
+        payload["state"] = state
+        if state_reason:
+            payload["state_reason"] = state_reason
+    elif state_reason:
+        warnings.append("닫는 이유는 상태를 바꿀 때만 적용돼요.")
+    payload.update(fields)
+    if not payload:
+        return _error("바꿀 칸이 없습니다.")
+    try:
+        response = await get_http_client().patch(
+            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{number}",
+            headers=_headers(token), json=payload, timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return _api_error(response)
+        issue = response.json()
+        return json.dumps(
+            {"success": True, "number": issue["number"], "url": issue["html_url"], "title": issue["title"],
+             "state": issue["state"], "warnings": warnings + _dropped(fields, issue)},
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_add_labels(token: str, owner: str, repo: str, issue_number: str, labels: str) -> str:
+    """
+    GitHub 이슈·PR에 라벨을 더합니다(기존 라벨은 그대로).
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        issue_number: 이슈 또는 PR 번호
+        labels: 더할 라벨, 쉼표 구분
+
+    Returns:
+        number, labels(더한 뒤 전체 라벨 이름)를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    number = _issue_no(issue_number)
+    if number is None:
+        return _error(_ISSUE_NUMBER_ERROR)
+    names = _csv(labels)
+    if not names:
+        return _error("labels를 입력해 주세요.")
+    try:
+        response = await get_http_client().post(
+            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{number}/labels",
+            headers=_headers(token), json={"labels": names}, timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return _api_error(response)
+        return json.dumps(
+            {"success": True, "number": number, "labels": [label.get("name") for label in response.json()]},
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_create_comment(token: str, owner: str, repo: str, issue_number: str, body: str) -> str:
+    """
+    GitHub 이슈·PR에 코멘트를 답니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        issue_number: 이슈 또는 PR 번호
+        body: 코멘트 내용
+
+    Returns:
+        id, url을 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    number = _issue_no(issue_number)
+    if number is None:
+        return _error(_ISSUE_NUMBER_ERROR)
+    if not _text(body):
+        return _error("body를 입력해 주세요.")
+    if len(body) > _MAX_COMMENT_BODY:
+        return _error(f"코멘트는 {_MAX_COMMENT_BODY}자 이하여야 합니다.")
+    try:
+        response = await get_http_client().post(
+            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{number}/comments",
+            headers=_headers(token), json={"body": body}, timeout=_TIMEOUT,
+        )
+        if response.status_code != 201:
+            return _api_error(response)
+        comment = response.json()
+        return json.dumps({"success": True, "id": comment["id"], "url": comment["html_url"]}, ensure_ascii=False)
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_find_or_create_issue(
+    token: str,
+    owner: str,
+    repo: str,
+    search_by: str,
+    value: str,
+    title: str,
+    body: str = "",
+    labels: str = "",
+    assignees: str = "",
+    milestone: str = "",
+    state: str = "open",
+) -> str:
+    """
+    GitHub 이슈를 찾고, 없으면 새로 만듭니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        search_by: 찾는 기준 (number | label | assignee | author | title | body)
+        value: 찾을 값
+        title: 없을 때 만들 이슈 제목
+        body: 없을 때 만들 이슈 본문 (선택)
+        labels: 없을 때 붙일 라벨, 쉼표 구분 (선택)
+        assignees: 없을 때 지정할 담당자 login, 쉼표 구분 (선택)
+        milestone: 없을 때 지정할 마일스톤 번호 (선택)
+        state: 찾을 이슈 상태 (open | closed | all, 기본값: open)
+
+    Returns:
+        created, number, url, title, state, warnings를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    fields, error = _issue_fields(labels, assignees, milestone)
+    if error:
+        return error
+    try:
+        client = get_http_client()
+        items, error = await _find_issues(client, token, owner, repo, search_by, value, state, 1)
+        if error:
+            return error
+        if items:
+            found = items[0]
+            return json.dumps(
+                {"success": True, "created": False, "number": found["number"], "url": found["url"],
+                 "title": found["title"], "state": found["state"], "warnings": []},
+                ensure_ascii=False,
+            )
+        issue, error = await _create_issue(client, token, owner, repo, {"title": title, "body": body, **fields})
+        if error:
+            return error
+        return json.dumps(
+            {"success": True, "created": True, "number": issue["number"], "url": issue["html_url"],
+             "title": issue["title"], "state": issue.get("state", "open"), "warnings": _dropped(fields, issue)},
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        return _error(str(e))
+

@@ -12,13 +12,18 @@ ACTION 도구 함수 해석(resolve_action_fn).
 
 from tools import _TOOL_MAP
 from tools.github import (
+    github_add_labels,
+    github_create_comment,
     github_create_issue,
+    github_find_issue,
+    github_find_or_create_issue,
     github_get_pr_files,
     github_list_orgs,
     github_list_repos,
     github_list_issues,
     github_list_pull_requests,
     github_submit_pr_review,
+    github_update_issue,
 )
 from tools.gmail import gmail_send_email
 from tools.google_calendar import google_calendar_delete
@@ -52,6 +57,11 @@ _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
         # 하드코딩돼 있어 여기 등록해도 AI 쪽엔 노출되지 않는다.
         "github_create_issue": github_create_issue,
         "github_submit_pr_review": github_submit_pr_review,
+        "github_find_issue": github_find_issue,
+        "github_update_issue": github_update_issue,
+        "github_add_labels": github_add_labels,
+        "github_create_comment": github_create_comment,
+        "github_find_or_create_issue": github_find_or_create_issue,
     },
 }
 
