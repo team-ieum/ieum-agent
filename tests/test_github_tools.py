@@ -644,6 +644,18 @@ async def test_get_pr_reviews_리뷰어별_마지막_결정(client):
 
 
 @pytest.mark.asyncio
+async def test_get_pr_reviews_해제된_승인은_세지_않는다(client):
+    """승인이 dismiss되면 그 리뷰 자체가 DISMISSED가 된다 — GitHub 화면처럼 그 리뷰어는 어디에도 세지 않는다."""
+    _reviews_client(client, [
+        _review(1, "APPROVED", login="alice"),
+        _review(2, "APPROVED", login="alice"),
+        _review(3, "DISMISSED", login="alice"),
+    ])
+    result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3"))
+    assert (result["approved_count"], result["changes_requested_count"]) == (0, 0)
+
+
+@pytest.mark.asyncio
 async def test_get_pr_reviews_본문_합계_상한(client):
     reviews = [_review(i, "COMMENTED", body="r" * 5_000) for i in range(50)]
     comments = [_comment(i, body="c" * 5_000) for i in range(100)]

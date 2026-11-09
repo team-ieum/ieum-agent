@@ -1072,7 +1072,8 @@ _PR_NUMBER_ERROR = "pull_number는 양의 정수여야 합니다."
 _REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED")
 _AUTHOR_TYPES = ("human", "bot", "all")
 # get_pr_reviews 출력 상한(2026-11-09 최종 리뷰 결정) — BE 응답 상한(4MB) 안에 들고 뒤 AI 노드 컨텍스트로 들어간다.
-_REVIEW_DECISIONS = ("APPROVED", "CHANGES_REQUESTED")
+# 리뷰어의 마지막 결정을 덮어쓰는 상태. 해제된 승인은 그 리뷰가 DISMISSED가 되므로 세지 않게 덮어쓴다.
+_REVIEW_DECISIONS = ("APPROVED", "CHANGES_REQUESTED", "DISMISSED")
 _MAX_REVIEWS_OUT = 50
 _MAX_REVIEW_TEXT = 2_000
 _MAX_REVIEW_COMMENTS_OUT = 100
