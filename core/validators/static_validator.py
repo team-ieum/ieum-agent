@@ -6,7 +6,7 @@ POST /v1/workflows/validate와 대화형 생성(core/builder — 노드 검증·
 import json
 import re
 
-from core.output_fields import _KEY_RE
+from core.output_fields import _KEY_RE, _SENSITIVE_PARTS
 from core.template_registry import _get_by_path, match_entry, trigger_type_of
 
 # 참조식 본문 {{ 여기 }}. BE 실행기(ExecutionCursor.VARIABLE_PATTERN)와 같은 규칙 — 실제로 치환하는 쪽이 진실이다.
@@ -284,6 +284,9 @@ def _approval_errors(node: dict, nid) -> list[dict]:
         if key not in (None, "") and not (isinstance(key, str) and "{{" in key):
             if not isinstance(key, str) or not _KEY_RE.fullmatch(key):
                 errors.append(_err("TYPE", "이름은 영문·숫자·밑줄(_)만 쓸 수 있고 숫자로 시작할 수 없어요(64자 이내).",
+                                   nid, f"{loc}.key"))
+            elif any(part in key.lower() for part in _SENSITIVE_PARTS):
+                errors.append(_err("TYPE", f"이름 '{_clip(key)}'은(는) 민감정보 이름이라 값이 가려져요. 다른 이름을 쓰세요.",
                                    nid, f"{loc}.key"))
             elif key in keys:
                 errors.append(_err("CHOICE", f"이름 '{_clip(key)}'이(가) 겹쳐요.", nid, f"{loc}.key"))

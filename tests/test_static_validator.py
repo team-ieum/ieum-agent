@@ -913,6 +913,14 @@ def test_approval_key_한글_TYPE():
         ("TYPE", "p", "config.items.0.key")]
 
 
+def test_approval_민감_키_TYPE():
+    assert _codes(_approval_errors(_appr(items=[{"key": "apiKey", "value": "v"}]), "p")) == [
+        ("TYPE", "p", "config.items.0.key")]
+    fields = [{"key": "maxTokens", "label": "토큰", "type": "number"}]
+    assert _codes(_approval_errors(_appr("approval.collect", fields=fields), "p")) == [
+        ("TYPE", "p", "config.fields.0.key")]
+
+
 def test_approval_key_중복_CHOICE():
     fields = [{"key": "a", "label": "A", "type": "short"}, {"key": "a", "label": "B", "type": "short"}]
     assert _codes(_approval_errors(_appr("approval.collect", fields=fields), "p")) == [
