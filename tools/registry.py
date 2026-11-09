@@ -13,6 +13,7 @@ ACTION 도구 함수 해석(resolve_action_fn).
 from tools import _TOOL_MAP
 from tools.github import (
     github_create_issue,
+    github_get_pr_files,
     github_list_orgs,
     github_list_repos,
     github_list_issues,
@@ -45,6 +46,7 @@ _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
         "github_list_repos": github_list_repos,
         "github_list_issues": github_list_issues,
         "github_list_pull_requests": github_list_pull_requests,
+        "github_get_pr_files": github_get_pr_files,
         # ACTION 노드(POST /v1/actions/execute)만 쓰는 쓰기 도구. AI 서브에이전트의 도구 목록은 따로
         # 하드코딩돼 있어 여기 등록해도 AI 쪽엔 노출되지 않는다.
         "github_create_issue": github_create_issue,

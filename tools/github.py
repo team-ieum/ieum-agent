@@ -1,5 +1,8 @@
+import fnmatch
 import json
 import re
+from pathlib import PurePosixPath
+
 import httpx
 from tools.http_client import get_http_client
 
@@ -240,6 +243,165 @@ async def github_list_pull_requests(token: str, owner: str, repo: str, state: st
         ]
         return json.dumps(
             {"success": True, "pulls": results, "total": len(results), "truncated": len(results) >= per_page},
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+DEFAULT_EXCLUDE_PATHS = "*.lock, package-lock.json, yarn.lock, pnpm-lock.yaml, dist/**, build/**, *.min.js, *.map"
+# 결과 크기 상한 — 처음부터 고정(spec 6절). 10페이지 × 100개 = 파일 1000개.
+_MAX_FILE_PAGES = 10
+_FILE_META_KEYS = ("filename", "status", "additions", "deletions", "changes")
+_HUNK_HEADER = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def _to_int(value):
+    """정수 또는 숫자 문자열(참조식 결과) → int. 아니면 None. bool은 int가 아니다."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _clamp(value, default: int, lo: int, hi: int) -> int:
+    n = _to_int(value)
+    return max(lo, min(n if n is not None else default, hi))
+
+
+def _split_patterns(value) -> list[str]:
+    return [p.strip() for p in value.split(",") if p.strip()] if isinstance(value, str) else []
+
+
+def _path_matches(path: str, patterns: list[str]) -> bool:
+    """`/`가 없는 패턴은 파일 이름에도 맞춘다(`*.lock`이 `web/x.lock`에 맞게)."""
+    name = PurePosixPath(path).name
+    return any(fnmatch.fnmatchcase(path, p) or ("/" not in p and fnmatch.fnmatchcase(name, p)) for p in patterns)
+
+
+def _right_side_lines(patch: str) -> set[int]:
+    """patch에서 PR 리뷰 줄 코멘트(side RIGHT)를 달 수 있는 새 파일 줄 번호(추가·문맥 줄)."""
+    lines: set[int] = set()
+    new_line = None
+    for raw in patch.split("\n"):
+        header = _HUNK_HEADER.match(raw)
+        if header:
+            new_line = int(header.group(1))
+        elif new_line is None or raw.startswith("-") or raw.startswith("\\"):
+            continue
+        else:
+            lines.add(new_line)
+            new_line += 1
+    return lines
+
+
+async def github_get_pr_files(
+    token: str,
+    owner: str,
+    repo: str,
+    pull_number: int,
+    include_paths: str = "",
+    exclude_paths: str = DEFAULT_EXCLUDE_PATHS,
+    max_files: int = 50,
+    max_diff_chars: int = 60000,
+) -> str:
+    """
+    GitHub PR에서 바뀐 파일 목록과 합친 diff를 가져옵니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        pull_number: PR 번호
+        include_paths: 포함할 경로 glob, 쉼표 구분 (비우면 전부)
+        exclude_paths: 제외할 경로 glob, 쉼표 구분
+        max_files: diff에 넣을 최대 파일 수 (1~300)
+        max_diff_chars: diff 최대 길이 (1000~200000자)
+
+    Returns:
+        found, total, items(파일 메타), diff, head_sha, skipped, truncated를 포함한 JSON 문자열
+    """
+    number = _to_int(pull_number)
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return json.dumps({"error": "owner/repo 형식이 올바르지 않습니다."}, ensure_ascii=False)
+    if number is None or number < 1:
+        return json.dumps({"error": "pull_number는 양의 정수여야 합니다."}, ensure_ascii=False)
+    max_files = _clamp(max_files, 50, 1, 300)
+    max_diff_chars = _clamp(max_diff_chars, 60000, 1000, 200000)
+    includes = _split_patterns(include_paths)
+    excludes = _split_patterns(exclude_paths)
+    try:
+        client = get_http_client()
+        pr_url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{number}"
+        response = await client.get(pr_url, headers=_headers(token), timeout=_TIMEOUT)
+        if response.status_code != 200:
+            return json.dumps(
+                {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
+                ensure_ascii=False,
+            )
+        head_sha = response.json()["head"]["sha"]
+
+        files: list[dict] = []
+        truncated = False
+        for page in range(1, _MAX_FILE_PAGES + 1):
+            response = await client.get(
+                f"{pr_url}/files",
+                headers=_headers(token),
+                params={"per_page": 100, "page": page},
+                timeout=_TIMEOUT,
+            )
+            if response.status_code != 200:
+                return json.dumps(
+                    {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
+                    ensure_ascii=False,
+                )
+            batch = response.json()
+            files.extend(batch)
+            if len(batch) < 100:
+                break
+        else:
+            truncated = True
+
+        # 처리 순서: 경로 필터 → max_files → diff 누적(넘친 파일부터 max_diff).
+        skipped: list[dict] = []
+        diff = ""
+        taken = 0
+        overflow = False
+        for f in files:
+            path = f["filename"]
+            if (includes and not _path_matches(path, includes)) or _path_matches(path, excludes):
+                reason = "filtered"
+            elif taken >= max_files:
+                reason = "max_files"
+            else:
+                taken += 1
+                patch = f.get("patch")
+                piece = f"--- {path}\n{patch}\n" if patch is not None else ""
+                if patch is None:
+                    reason = "no_patch"
+                elif overflow or len(diff) + len(piece) > max_diff_chars:
+                    overflow = True
+                    reason = "max_diff"
+                else:
+                    diff += piece
+                    continue
+            skipped.append({"filename": path, "reason": reason})
+
+        items = [{k: f.get(k) for k in _FILE_META_KEYS} for f in files]
+        return json.dumps(
+            {
+                "success": True,
+                "found": bool(items),
+                "total": len(items),
+                "items": items,
+                "diff": diff,
+                "head_sha": head_sha,
+                "skipped": skipped,
+                "truncated": truncated,
+            },
             ensure_ascii=False,
         )
     except Exception as e:
