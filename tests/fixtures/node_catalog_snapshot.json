@@ -2114,6 +2114,164 @@
     {
       "app": "github",
       "appTitle": "GitHub",
+      "description": "PR에서 바뀐 파일과 diff를 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.get_pr_files",
+        "type": "ACTION"
+      },
+      "id": "github.get_pr_files",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "PR이 있는 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "트리거의 PR 번호를 넣으세요",
+          "key": "pull_number",
+          "path": "config.pull_number",
+          "required": true,
+          "title": "PR 번호",
+          "type": "integer"
+        },
+        {
+          "default": "",
+          "description": "쉼표로 구분, 예: src/**",
+          "key": "include_paths",
+          "path": "config.include_paths",
+          "title": "포함 경로",
+          "type": "string"
+        },
+        {
+          "default": "*.lock, package-lock.json, yarn.lock, pnpm-lock.yaml, dist/**, build/**, *.min.js, *.map",
+          "key": "exclude_paths",
+          "path": "config.exclude_paths",
+          "title": "제외 경로",
+          "type": "string"
+        },
+        {
+          "default": 50,
+          "description": "1~300",
+          "key": "max_files",
+          "path": "config.max_files",
+          "title": "최대 파일 수",
+          "type": "integer"
+        },
+        {
+          "default": 60000,
+          "description": "1000~200000자",
+          "key": "max_diff_chars",
+          "path": "config.max_diff_chars",
+          "title": "최대 diff 길이",
+          "type": "integer"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "filename",
+              "title": "경로",
+              "type": "string"
+            },
+            {
+              "key": "status",
+              "title": "상태",
+              "type": "string"
+            },
+            {
+              "key": "additions",
+              "title": "추가 줄 수",
+              "type": "integer"
+            },
+            {
+              "key": "deletions",
+              "title": "삭제 줄 수",
+              "type": "integer"
+            },
+            {
+              "key": "changes",
+              "title": "변경 줄 수",
+              "type": "integer"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "파일",
+          "type": "object"
+        },
+        {
+          "key": "diff",
+          "title": "diff",
+          "type": "text"
+        },
+        {
+          "key": "head_sha",
+          "title": "최신 커밋 SHA",
+          "type": "string"
+        },
+        {
+          "children": [
+            {
+              "key": "filename",
+              "title": "경로",
+              "type": "string"
+            },
+            {
+              "key": "reason",
+              "title": "이유",
+              "type": "string"
+            }
+          ],
+          "key": "skipped",
+          "list": true,
+          "title": "빠진 파일",
+          "type": "object"
+        },
+        {
+          "key": "truncated",
+          "title": "잘림",
+          "type": "boolean"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub PR 변경 내용 가져오기",
+      "toolKey": "builtin:github_get_pr_files"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
       "description": "저장소의 이슈 목록을 가져와요.",
       "fixed": {
         "config": {
@@ -2286,6 +2444,292 @@
       ],
       "provider": "github",
       "title": "새 GitHub 이슈"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "저장소에 PR이 열리거나 새 커밋이 올라오면 시작해요. 저장소 멤버가 연 PR만 반응해요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.new_pull_request",
+        "type": "TRIGGER"
+      },
+      "id": "github.new_pull_request",
+      "inputFields": [
+        {
+          "description": "새 PR을 지켜볼 저장소",
+          "key": "repoId",
+          "optionsSource": "github.installed_repos",
+          "path": "config.repoId",
+          "ref": false,
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "default": true,
+          "key": "onOpened",
+          "path": "config.onOpened",
+          "ref": false,
+          "title": "PR이 열릴 때",
+          "type": "boolean"
+        },
+        {
+          "default": true,
+          "key": "onSynchronize",
+          "path": "config.onSynchronize",
+          "ref": false,
+          "title": "새 커밋이 올라올 때",
+          "type": "boolean"
+        },
+        {
+          "default": true,
+          "key": "onReopened",
+          "path": "config.onReopened",
+          "ref": false,
+          "title": "PR이 다시 열릴 때",
+          "type": "boolean"
+        },
+        {
+          "default": true,
+          "key": "onReadyForReview",
+          "path": "config.onReadyForReview",
+          "ref": false,
+          "title": "초안이 준비 완료될 때",
+          "type": "boolean"
+        },
+        {
+          "default": true,
+          "key": "excludeDrafts",
+          "path": "config.excludeDrafts",
+          "ref": false,
+          "title": "초안 PR 제외",
+          "type": "boolean"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "owner",
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "key": "repoName",
+          "title": "저장소 이름",
+          "type": "string"
+        },
+        {
+          "description": "owner/name",
+          "key": "repo",
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "key": "prNumber",
+          "title": "PR 번호",
+          "type": "integer"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "key": "url",
+          "title": "링크",
+          "type": "string"
+        },
+        {
+          "key": "author",
+          "title": "작성자",
+          "type": "string"
+        },
+        {
+          "key": "action",
+          "title": "이벤트",
+          "type": "string"
+        },
+        {
+          "key": "draft",
+          "title": "초안",
+          "type": "boolean"
+        },
+        {
+          "key": "baseBranch",
+          "title": "대상 브랜치",
+          "type": "string"
+        },
+        {
+          "key": "headBranch",
+          "title": "작업 브랜치",
+          "type": "string"
+        },
+        {
+          "key": "headSha",
+          "title": "최신 커밋 SHA",
+          "type": "string"
+        },
+        {
+          "key": "createdAt",
+          "title": "만든 시각",
+          "type": "datetime"
+        }
+      ],
+      "provider": "github",
+      "title": "새 GitHub PR"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "PR에 리뷰와 줄 코멘트를 남겨요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.submit_pr_review",
+        "type": "ACTION"
+      },
+      "id": "github.submit_pr_review",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "PR이 있는 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "트리거의 PR 번호를 넣으세요",
+          "key": "pull_number",
+          "path": "config.pull_number",
+          "required": true,
+          "title": "PR 번호",
+          "type": "integer"
+        },
+        {
+          "choices": [
+            {
+              "id": "bot",
+              "name": "IEUM 봇"
+            },
+            {
+              "id": "me",
+              "name": "내 GitHub 계정"
+            }
+          ],
+          "default": "bot",
+          "key": "author",
+          "path": "config.author",
+          "ref": false,
+          "title": "리뷰 작성자",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "COMMENT",
+              "name": "코멘트"
+            },
+            {
+              "id": "APPROVE",
+              "name": "승인"
+            },
+            {
+              "id": "REQUEST_CHANGES",
+              "name": "변경 요청"
+            }
+          ],
+          "default": "COMMENT",
+          "key": "event",
+          "path": "config.event",
+          "ref": false,
+          "title": "리뷰 결과",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "body",
+          "path": "config.body",
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "description": "[{path, line, body}] 목록 — AI 노드 출력을 넣으세요",
+          "key": "comments",
+          "path": "config.comments",
+          "title": "줄 코멘트",
+          "type": "json"
+        },
+        {
+          "default": "",
+          "description": "비우면 최신 커밋. 'GitHub PR 변경 내용 가져오기'의 head SHA를 넣으면 리뷰 중 새 커밋이 와도 줄 위치가 맞아요",
+          "key": "commit_id",
+          "path": "config.commit_id",
+          "title": "커밋 SHA",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "review_id",
+          "title": "리뷰 ID",
+          "type": "integer"
+        },
+        {
+          "key": "url",
+          "title": "리뷰 주소",
+          "type": "string"
+        },
+        {
+          "key": "state",
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "key": "posted_comments",
+          "title": "단 줄 코멘트 수",
+          "type": "integer"
+        },
+        {
+          "key": "moved_comments",
+          "title": "본문으로 옮긴 코멘트 수",
+          "type": "integer"
+        },
+        {
+          "key": "warnings",
+          "list": true,
+          "title": "경고",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub PR 리뷰 제출",
+      "toolKey": "builtin:github_submit_pr_review"
     },
     {
       "app": "gmail",
