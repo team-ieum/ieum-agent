@@ -5,6 +5,12 @@ import pytest
 
 from tests.action_outputs import assert_matches_outputs
 from tools.github import (
+    _api_error,
+    _csv,
+    _found,
+    _head_ref,
+    _issue_no,
+    _ref_path,
     _right_side_lines,
     github_create_issue,
     github_get_pr_files,
@@ -26,6 +32,73 @@ def client():
     mock = AsyncMock()
     with patch("tools.github.get_http_client", return_value=mock):
         yield mock
+
+
+# 이 PR의 카탈로그에는 새 이벤트가 없어 assert_matches_outputs 대신 반환 키를 직접 단언한다.
+_OUTPUT_KEYS: dict[str, set[str]] = {
+    "github.create_issue": {"number", "title", "url"},
+    "github.get_pr_files": {"diff", "found", "head_sha", "items", "skipped", "total", "truncated"},
+    "github.submit_pr_review": {"moved_comments", "posted_comments", "review_id", "state", "url", "warnings"},
+}
+
+
+def _assert_outputs(event: str, result: dict) -> None:
+    assert "error" not in result, result
+    assert set(result) - {"success"} == _OUTPUT_KEYS[event], (event, sorted(result))
+
+
+# ---------------------------------------------------------------------------
+# 공용 함수
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value, expected", [
+    (12, 12), ("12", 12), (" #12 ", 12),
+    ("0", None), ("-1", None), ("12.0", None), ("abc", None), ("", None), (None, None), (True, None),
+    ("１２", None),
+])
+def test_issue_no(value, expected):
+    assert _issue_no(value) == expected
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("main", "main"),
+    ("feature/a b#1", "feature/a%20b%231"),
+    ("docs/설명.md", "docs/%EC%84%A4%EB%AA%85.md"),
+    ("a/%2e%2e/b", "a/%252e%252e/b"),
+])
+def test_ref_path_허용(value, expected):
+    assert _ref_path(value) == expected
+
+
+@pytest.mark.parametrize("value", [
+    "../x", "a/../b", "a//b", "/a", "a/", ".", "a\\b", "a\nb", "", "   ", "a" * 1025, None, 3,
+])
+def test_ref_path_거부(value):
+    assert _ref_path(value) is None
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("feature/x", "feature/x"), ("user:feature/x", "user:feature/x"),
+    ("us er:x", None), ("user:../x", None), (":x", None),
+])
+def test_head_ref(value, expected):
+    assert _head_ref(value) == expected
+
+
+def test_csv():
+    assert _csv(" bug, p1 ,,bug ") == ["bug", "p1"]
+    assert _csv(None) == []
+
+
+def test_found_0건():
+    assert json.loads(_found([])) == {
+        "success": True, "found": False, "total": 0, "items": [], "message": "결과가 없습니다"}
+    assert json.loads(_found([{"a": 1}]))["message"] == ""
+
+
+def test_api_error_403은_권한_승인_안내():
+    assert json.loads(_api_error(_response(403, text="x")))["error"] == (
+        "GitHub API 오류 (403): x — GitHub App 새 권한을 승인했는지 확인해 주세요.")
 
 
 # ---------------------------------------------------------------------------

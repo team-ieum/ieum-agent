@@ -2,6 +2,7 @@ import fnmatch
 import json
 import re
 from pathlib import PurePosixPath
+from urllib.parse import quote
 
 import httpx
 from tools.http_client import get_http_client
@@ -12,6 +13,10 @@ _TIMEOUT = 30.0
 
 # GitHub 요청의 URL 경로 조각. `/`·`..`·공백·`?`가 들어가면 다른 GitHub API 경로로 샌다.
 _PATH_NAME = re.compile(r"[A-Za-z0-9_.-]+")
+# GitHub login(사용자·조직). BE `GitHubReposOptionSource.OWNER`와 같다.
+_LOGIN = re.compile(r"[A-Za-z0-9_-]{1,39}")
+_CONTROL_OR_BACKSLASH = re.compile(r"[\x00-\x1f\x7f\\]")
+_MAX_REF_PATH = 1024
 
 
 def _is_path_name(value) -> bool:
@@ -267,6 +272,64 @@ def _to_int(value):
     return None
 
 
+_MAX_ITEMS = 100
+_MAX_TEXT = 10_000
+
+
+def _issue_no(value) -> int | None:
+    """이슈·PR 번호 칸. 사람이 친 `#12`·앞뒤 공백은 12로 받는다. 1 미만·숫자 아님은 None."""
+    if isinstance(value, str):
+        value = value.strip()
+        value = value[1:] if value.startswith("#") else value
+    n = _to_int(value)
+    return n if n is not None and n >= 1 else None
+
+
+def _ref_path(value) -> str | None:
+    """브랜치·파일 경로 → URL 경로 조각. `/`는 두고 세그먼트마다 인코딩해 다른 API 경로로 새지 않게 한다."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value or len(value) > _MAX_REF_PATH or _CONTROL_OR_BACKSLASH.search(value):
+        return None
+    segments = value.split("/")
+    if any(seg in ("", ".", "..") for seg in segments):
+        return None
+    return "/".join(quote(seg, safe="") for seg in segments)
+
+
+def _is_login(value) -> bool:
+    return isinstance(value, str) and _LOGIN.fullmatch(value) is not None
+
+
+def _head_ref(value) -> str | None:
+    """PR head/base. `user:branch`(포크) 또는 브랜치. JSON·쿼리로 보내므로 인코딩 전 원문을 돌려준다."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    user, sep, branch = value.partition(":")
+    if sep:
+        return value if _is_login(user) and _ref_path(branch) is not None else None
+    return value if _ref_path(value) is not None else None
+
+
+def _csv(value) -> list[str]:
+    """쉼표 구분 문자열(라벨·담당자·리뷰어) → 순서 유지 중복 제거 목록."""
+    if not isinstance(value, str):
+        return []
+    return list(dict.fromkeys(p.strip() for p in value.split(",") if p.strip()))
+
+
+def _found(items: list, message: str | None = None, **extra) -> str:
+    """Search 공통 출력. 0건은 에러가 아니다."""
+    if message is None:
+        message = "" if items else "결과가 없습니다"
+    return json.dumps(
+        {"success": True, "found": bool(items), "total": len(items), "items": items, "message": message, **extra},
+        ensure_ascii=False,
+    )
+
+
 def _clamp(value, default: int, lo: int, hi: int) -> int:
     n = _to_int(value)
     return max(lo, min(n if n is not None else default, hi))
@@ -422,7 +485,10 @@ def _error(message: str) -> str:
 
 
 def _api_error(response) -> str:
-    return _error(f"GitHub API 오류 ({response.status_code}): {response.text}")
+    message = f"GitHub API 오류 ({response.status_code}): {response.text}"
+    if response.status_code == 403:
+        message += " — GitHub App 새 권한을 승인했는지 확인해 주세요."
+    return _error(message)
 
 
 def _parse_comments(value):
