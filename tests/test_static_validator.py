@@ -639,6 +639,29 @@ FIXED_NODE_REQUIRED = {
     "http.request": ["config.url"],
     "transform.map": ["config.mappings"],
     "manual.run": [],
+    # 포맷터 조건부 필수 칸(customPattern·index·value)은 카탈로그 required: false — 실행기만 검사한다(IEUM-AI-98)
+    "formatter.date_add": ["config.expression", "config.input"],
+    "formatter.date_compare": ["config.input", "config.other"],
+    "formatter.date_format": ["config.input"],
+    "formatter.list_pick": ["config.input"],
+    "formatter.list_to_text": ["config.input"],
+    "formatter.lookup_table": ["config.input", "config.table"],
+    "formatter.number_currency": ["config.input"],
+    "formatter.number_format": ["config.input"],
+    "formatter.number_math": ["config.input", "config.operation"],
+    "formatter.number_phone": ["config.input"],
+    "formatter.text_case": ["config.input"],
+    "formatter.text_default": ["config.defaultValue", "config.input"],
+    "formatter.text_extract": ["config.input", "config.kind"],
+    "formatter.text_extract_pattern": ["config.input", "config.pattern"],
+    "formatter.text_length": ["config.input"],
+    "formatter.text_markdown_to_html": ["config.input"],
+    "formatter.text_replace": ["config.find", "config.input"],
+    "formatter.text_split": ["config.input"],
+    "formatter.text_strip_html": ["config.input"],
+    "formatter.text_trim": ["config.input"],
+    "formatter.text_truncate": ["config.input", "config.maxLength"],
+    "formatter.text_url_encode": ["config.input"],
 }
 
 
@@ -819,3 +842,15 @@ def test_레거시_매칭_뷰는_없다():
     """옛 저장 모양 정규화(소문자 type·문자열 tools 원소)는 지웠다 — 칸 검사는 노드 원본을 본다(spec §5.2)."""
     import core.template_registry as tr
     assert not hasattr(tr, "_match_view")
+
+
+def _fmt(nid="f", event="formatter.date_format", **config):
+    return {"id": nid, "type": "TRANSFORM", "event": event, "config": config}
+
+
+def test_formatter_노드_input_비면_REQUIRED():
+    """포맷터는 전용 규칙 없이 카탈로그 칸 검사(필수·choice)와 참조 검사만 받는다(IEUM-AI-98)."""
+    assert _codes(validate_workflow(*_chain(_fmt()))) == [("REQUIRED", "f", "config.input")]
+    assert _codes(validate_workflow(*_chain(_fmt(input="지금", format="weird")))) == [("CHOICE", "f", "config.format")]
+    assert _codes(validate_workflow(*_chain(_fmt(input="{{nodes.zz.output.x}}")))) == [
+        ("REF_UNKNOWN_NODE", "f", "config.input")]

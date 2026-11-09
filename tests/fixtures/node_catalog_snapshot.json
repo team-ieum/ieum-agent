@@ -819,6 +819,1227 @@
       "toolKey": "builtin:discord_send_channel_message"
     },
     {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "날짜·시각에 '+1 month -2 days'·'+3일 -2시간'처럼 기간을 더하거나 빼요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.date_add",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.date_add",
+      "inputFields": [
+        {
+          "description": "'지금'·'오늘'도 쓸 수 있어요.",
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "description": "단위: 년·개월(달)·주·일·시간·분·초 또는 year·month·week·day·hour·minute·second. 예: +1 month -2 days",
+          "key": "expression",
+          "path": "config.expression",
+          "required": true,
+          "title": "더하거나 뺄 기간",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "날짜 더하기·빼기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "두 날짜 사이가 며칠·몇 시간·몇 분인지와 어느 쪽이 앞인지 알려 줘요(D-day 계산).",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.date_compare",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.date_compare",
+      "inputFields": [
+        {
+          "description": "'지금'·'오늘'도 쓸 수 있어요.",
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "기준 날짜",
+          "type": "string"
+        },
+        {
+          "description": "'지금'·'오늘'도 쓸 수 있어요.",
+          "key": "other",
+          "path": "config.other",
+          "required": true,
+          "title": "비교할 날짜",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "description": "비교할 날짜 − 기준 날짜. 지났으면 음수",
+          "key": "days",
+          "title": "일 차이",
+          "type": "integer"
+        },
+        {
+          "key": "hours",
+          "title": "시간 차이",
+          "type": "integer"
+        },
+        {
+          "key": "minutes",
+          "title": "분 차이",
+          "type": "integer"
+        },
+        {
+          "key": "isBefore",
+          "title": "기준 날짜가 앞",
+          "type": "boolean"
+        }
+      ],
+      "provider": "ieum",
+      "title": "두 날짜 비교"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "날짜·시각을 한국식(2026년 11월 7일 (토))·2026-11-07·ISO 같은 모양으로 바꾸고 시간대를 옮겨요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.date_format",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.date_format",
+      "inputFields": [
+        {
+          "description": "'지금'·'오늘'도 쓸 수 있어요.",
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "korean",
+              "name": "2026년 11월 7일 (토)"
+            },
+            {
+              "id": "korean_time",
+              "name": "2026년 11월 7일 (토) 13:30"
+            },
+            {
+              "id": "date",
+              "name": "2026-11-07"
+            },
+            {
+              "id": "datetime",
+              "name": "2026-11-07 13:30"
+            },
+            {
+              "id": "iso",
+              "name": "ISO (2026-11-07T13:30:00+09:00)"
+            },
+            {
+              "id": "custom",
+              "name": "직접 정하기"
+            }
+          ],
+          "default": "korean",
+          "key": "format",
+          "path": "config.format",
+          "ref": false,
+          "title": "표기 모양",
+          "type": "string"
+        },
+        {
+          "description": "'직접 정하기'일 때 필요해요. Java 날짜 패턴(예: yyyy.MM.dd HH:mm), 100자까지.",
+          "key": "customPattern",
+          "path": "config.customPattern",
+          "title": "직접 정한 모양",
+          "type": "string"
+        },
+        {
+          "default": "Asia/Seoul",
+          "description": "시간대가 없는 입력을 이 시간대로 봐요. 비우면 Asia/Seoul.",
+          "key": "fromTimezone",
+          "path": "config.fromTimezone",
+          "title": "입력 시간대",
+          "type": "string"
+        },
+        {
+          "default": "Asia/Seoul",
+          "description": "결과를 이 시간대로 바꿔요. 비우면 Asia/Seoul.",
+          "key": "toTimezone",
+          "path": "config.toTimezone",
+          "title": "결과 시간대",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "날짜 표기 바꾸기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "검색 결과 같은 목록에서 첫째·마지막·몇 번째 항목 하나를 골라요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.list_pick",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.list_pick",
+      "inputFields": [
+        {
+          "description": "JSON 배열이나 쉼표로 나눈 글.",
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "목록",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "first",
+              "name": "첫째"
+            },
+            {
+              "id": "last",
+              "name": "마지막"
+            },
+            {
+              "id": "nth",
+              "name": "몇 번째"
+            }
+          ],
+          "default": "first",
+          "key": "position",
+          "path": "config.position",
+          "ref": false,
+          "title": "고를 위치",
+          "type": "string"
+        },
+        {
+          "description": "'몇 번째'일 때 필요해요. 1부터 세요.",
+          "key": "index",
+          "path": "config.index",
+          "title": "몇 번째",
+          "type": "integer"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "description": "고른 항목 그대로. 객체면 객체(JSON)로 넘어가요",
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "목록에서 고르기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "목록의 항목들을 구분 기호로 이어 붙여 한 줄 글로 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.list_to_text",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.list_to_text",
+      "inputFields": [
+        {
+          "description": "JSON 배열이나 쉼표로 나눈 글.",
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "목록",
+          "type": "string"
+        },
+        {
+          "default": ", ",
+          "description": "비우면 쉼표와 공백(, ).",
+          "key": "separator",
+          "path": "config.separator",
+          "title": "구분 기호",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "목록을 글로"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "미리 적어 둔 대응표에서 입력과 같은 키를 찾아 짝지은 값으로 바꿔요(예: 코드 → 이름).",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.lookup_table",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.lookup_table",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "description": "키는 대소문자까지 글자 그대로 맞춰 찾아요.",
+          "key": "table",
+          "path": "config.table",
+          "required": true,
+          "title": "대응표",
+          "type": "dict"
+        },
+        {
+          "description": "대응표에 없을 때 낼 값. 비워 두면 빈 값이에요.",
+          "key": "fallback",
+          "path": "config.fallback",
+          "title": "없을 때 값",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "대응표로 바꾸기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "숫자를 12,000원·₩12,000·$12.00 같은 통화 금액 표기로 바꿔요. 환율 변환은 하지 않아요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.number_currency",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.number_currency",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "KRW",
+              "name": "원 (KRW)"
+            },
+            {
+              "id": "USD",
+              "name": "달러 (USD)"
+            },
+            {
+              "id": "JPY",
+              "name": "엔 (JPY)"
+            },
+            {
+              "id": "EUR",
+              "name": "유로 (EUR)"
+            },
+            {
+              "id": "CNY",
+              "name": "위안 (CNY)"
+            },
+            {
+              "id": "GBP",
+              "name": "파운드 (GBP)"
+            }
+          ],
+          "default": "KRW",
+          "key": "currency",
+          "path": "config.currency",
+          "ref": false,
+          "title": "통화",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "korean",
+              "name": "한국식 (12,000원)"
+            },
+            {
+              "id": "symbol",
+              "name": "기호 (₩12,000)"
+            }
+          ],
+          "default": "korean",
+          "description": "'한국식'은 원화에만 쓰고, 다른 통화는 기호 방식으로 내요.",
+          "key": "style",
+          "path": "config.style",
+          "ref": false,
+          "title": "표기 방식",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "금액 표기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "숫자에 천 단위 쉼표(1,000) 같은 구분 기호를 넣고 소수점 기호를 정해요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.number_format",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.number_format",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "comma",
+              "name": "쉼표 (1,000)"
+            },
+            {
+              "id": "period",
+              "name": "마침표 (1.000)"
+            },
+            {
+              "id": "space",
+              "name": "빈칸 (1 000)"
+            },
+            {
+              "id": "none",
+              "name": "없음 (1000)"
+            }
+          ],
+          "default": "comma",
+          "key": "thousands",
+          "path": "config.thousands",
+          "ref": false,
+          "title": "천 단위 구분",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "period",
+              "name": "마침표 (0.5)"
+            },
+            {
+              "id": "comma",
+              "name": "쉼표 (0,5)"
+            }
+          ],
+          "default": "period",
+          "description": "천 단위 구분과 같은 기호는 쓸 수 없어요.",
+          "key": "decimal",
+          "path": "config.decimal",
+          "ref": false,
+          "title": "소수점",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "숫자 표기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "숫자에 다른 숫자 하나를 더하기·빼기·곱하기·나누기하거나 부호를 바꿔요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.number_math",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.number_math",
+      "inputFields": [
+        {
+          "description": "\"1,000원\"처럼 써도 숫자로 읽어요.",
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "add",
+              "name": "더하기"
+            },
+            {
+              "id": "subtract",
+              "name": "빼기"
+            },
+            {
+              "id": "multiply",
+              "name": "곱하기"
+            },
+            {
+              "id": "divide",
+              "name": "나누기"
+            },
+            {
+              "id": "negate",
+              "name": "부호 바꾸기"
+            }
+          ],
+          "key": "operation",
+          "path": "config.operation",
+          "ref": false,
+          "required": true,
+          "title": "계산",
+          "type": "string"
+        },
+        {
+          "description": "입력값과 계산할 숫자. '부호 바꾸기'가 아니면 필요해요. 여러 번 계산하려면 노드를 이어 붙여요.",
+          "key": "value",
+          "path": "config.value",
+          "title": "계산할 값",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "계산하기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "한국 전화번호를 010-1234-5678·+82 10-1234-5678·숫자만 중 하나의 모양으로 맞춰요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.number_phone",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.number_phone",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "dash",
+              "name": "하이픈 (010-1234-5678)"
+            },
+            {
+              "id": "international",
+              "name": "국제 (+82 10-1234-5678)"
+            },
+            {
+              "id": "digits",
+              "name": "숫자만 (01012345678)"
+            }
+          ],
+          "default": "dash",
+          "key": "format",
+          "path": "config.format",
+          "ref": false,
+          "title": "표기 모양",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "전화번호 표기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "영문을 모두 대문자·모두 소문자·첫 글자만 대문자·단어마다 대문자로 바꿔요. 한글은 그대로예요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_case",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_case",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "upper",
+              "name": "모두 대문자"
+            },
+            {
+              "id": "lower",
+              "name": "모두 소문자"
+            },
+            {
+              "id": "capitalize",
+              "name": "첫 글자만 대문자"
+            },
+            {
+              "id": "title",
+              "name": "단어마다 첫 글자 대문자"
+            }
+          ],
+          "default": "title",
+          "key": "mode",
+          "path": "config.mode",
+          "ref": false,
+          "title": "바꿀 모양",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "대소문자 바꾸기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "앞 단계 값이 비어 있으면 정해 둔 기본값을, 비어 있지 않으면 원래 값을 그대로 넘겨요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_default",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_default",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "key": "defaultValue",
+          "path": "config.defaultValue",
+          "required": true,
+          "title": "기본값",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "기본값 넣기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "글 속에서 이메일 주소·한국 전화번호·웹 주소·숫자를 찾아 첫 번째 또는 전부 꺼내요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_extract",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_extract",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "email",
+              "name": "이메일"
+            },
+            {
+              "id": "phone",
+              "name": "전화번호"
+            },
+            {
+              "id": "url",
+              "name": "URL"
+            },
+            {
+              "id": "number",
+              "name": "숫자"
+            }
+          ],
+          "key": "kind",
+          "path": "config.kind",
+          "ref": false,
+          "required": true,
+          "title": "뽑을 것",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "description": "켜면 찾은 것 전부를 목록으로, 끄면 첫 번째 하나만 내요.",
+          "key": "all",
+          "path": "config.all",
+          "ref": false,
+          "title": "전부 뽑기",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "description": "찾은 첫 번째 값. '전부 뽑기'면 목록이에요. 못 찾으면 빈 값",
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "이메일·전화·URL·숫자 뽑기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "정규식 패턴에 맞는 부분을 글에서 찾아 첫 번째 또는 전부 꺼내요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_extract_pattern",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_extract_pattern",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "description": "Java 정규식, 200자까지. 그룹이 아니라 맞은 부분 전체를 내요.",
+          "key": "pattern",
+          "path": "config.pattern",
+          "required": true,
+          "title": "정규식 패턴",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "description": "켜면 맞은 것 전부를 목록으로, 끄면 첫 번째 하나만 내요.",
+          "key": "all",
+          "path": "config.all",
+          "ref": false,
+          "title": "전부 뽑기",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "description": "맞은 첫 번째 부분. '전부 뽑기'면 목록이에요. 없으면 빈 값",
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "패턴으로 뽑기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "텍스트 길이(글자 수) 또는 단어 수를 세서 숫자로 내요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_length",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_length",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "chars",
+              "name": "글자"
+            },
+            {
+              "id": "words",
+              "name": "단어"
+            }
+          ],
+          "default": "chars",
+          "key": "unit",
+          "path": "config.unit",
+          "ref": false,
+          "title": "셀 단위",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "integer"
+        }
+      ],
+      "provider": "ieum",
+      "title": "글자 수 세기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "마크다운(Markdown) 글(예: AI 답변)을 메일에 넣을 수 있는 안전한 HTML로 변환해요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_markdown_to_html",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_markdown_to_html",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "Markdown을 HTML로"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "글 속의 특정 글자를 찾아 전부 다른 글자로 치환하거나 지워요(정규식 아님).",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_replace",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_replace",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "description": "글자 그대로 찾아요. 공백은 [:space:], 줄바꿈은 [:newline:], 탭은 [:tab:]로 쓸 수 있어요.",
+          "key": "find",
+          "path": "config.find",
+          "required": true,
+          "title": "찾을 글자",
+          "type": "string"
+        },
+        {
+          "description": "비워 두면 찾은 글자를 지워요.",
+          "key": "replace",
+          "path": "config.replace",
+          "title": "바꿀 글자",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "찾아 바꾸기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "구분 기호(예: 쉼표)로 글을 조각내 첫째·둘째·마지막 조각이나 조각 전체 목록을 꺼내요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_split",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_split",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "default": ",",
+          "description": "비우면 쉼표(,).",
+          "key": "separator",
+          "path": "config.separator",
+          "title": "구분 기호",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "first",
+              "name": "첫째"
+            },
+            {
+              "id": "second",
+              "name": "둘째"
+            },
+            {
+              "id": "last",
+              "name": "마지막"
+            },
+            {
+              "id": "all",
+              "name": "전체 목록"
+            }
+          ],
+          "default": "first",
+          "key": "part",
+          "path": "config.part",
+          "ref": false,
+          "title": "꺼낼 조각",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "description": "고른 조각. '전체 목록'이면 조각 목록이에요. 없는 조각이면 빈 값",
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "텍스트 나누기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "메일 본문 같은 HTML에서 태그를 걷어내고 읽을 수 있는 글만 남겨요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_strip_html",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_strip_html",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "HTML 태그 없애기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "글 앞뒤의 빈칸·줄바꿈을 없애요. 글 가운데 공백은 그대로 둬요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_trim",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_trim",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "공백 정리"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "긴 글을 정한 글자 수까지만 남겨요. 끝에 말줄임표(…)를 붙일 수 있어요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_truncate",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_truncate",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "description": "한글·이모지도 한 글자로 세요.",
+          "key": "maxLength",
+          "path": "config.maxLength",
+          "required": true,
+          "title": "최대 글자 수",
+          "type": "integer"
+        },
+        {
+          "default": false,
+          "description": "켜면 잘린 글 끝에 …을 붙여요. …까지 합쳐 최대 글자 수예요.",
+          "key": "ellipsis",
+          "path": "config.ellipsis",
+          "ref": false,
+          "title": "말줄임표 붙이기",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "길이 자르기"
+    },
+    {
+      "app": "formatter",
+      "appTitle": "포맷터",
+      "description": "주소에 넣을 수 있게 글을 %로 인코딩하거나, 인코딩된 글을 원래대로 풀어요.",
+      "fixed": {
+        "config": {
+          "brand": "filter"
+        },
+        "event": "formatter.text_url_encode",
+        "type": "TRANSFORM"
+      },
+      "id": "formatter.text_url_encode",
+      "inputFields": [
+        {
+          "key": "input",
+          "path": "config.input",
+          "required": true,
+          "title": "입력값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "encode",
+              "name": "인코딩"
+            },
+            {
+              "id": "decode",
+              "name": "디코딩"
+            }
+          ],
+          "default": "encode",
+          "key": "direction",
+          "path": "config.direction",
+          "ref": false,
+          "title": "방향",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "TRANSFORM",
+      "outputFields": [
+        {
+          "key": "output",
+          "title": "결과",
+          "type": "string"
+        }
+      ],
+      "provider": "ieum",
+      "title": "URL 인코딩"
+    },
+    {
       "app": "github",
       "appTitle": "GitHub",
       "description": "저장소에 새 이슈를 만들어요.",
