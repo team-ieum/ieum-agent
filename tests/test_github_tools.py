@@ -390,6 +390,37 @@ async def test_find_or_create_issue_없으면_만든다(client):
     assert result["number"] == 9
 
 
+@pytest.mark.asyncio
+async def test_find_or_create_issue_찾기_오류면_만들지_않는다(client):
+    client.get = AsyncMock(return_value=_response(500, text="boom"))
+    client.post = AsyncMock()
+    result = json.loads(await github_find_or_create_issue(
+        token="t", owner="o", repo="r", search_by="title", value="x", title="x"))
+    assert "error" in result
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_issue_제목_빈값은_검색_전에_거부(client):
+    client.get = AsyncMock()
+    client.post = AsyncMock()
+    result = json.loads(await github_find_or_create_issue(
+        token="t", owner="o", repo="r", search_by="title", value="x", title="  "))
+    assert result == {"error": "title을 입력해 주세요."}
+    client.get.assert_not_called()
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["", None])
+async def test_find_issue_state_빈값은_open(client, state):
+    client.get = AsyncMock(return_value=_response(200, {"items": []}))
+    result = json.loads(await github_find_issue(
+        token="t", owner="o", repo="r", search_by="title", value="x", state=state))
+    assert "error" not in result
+    assert client.get.call_args.kwargs["params"]["q"].endswith(" state:open")
+
+
 # ---------------------------------------------------------------------------
 # PR 묶음 — create·update·request_reviewers·find·find_or_create·get_pr_reviews
 # ---------------------------------------------------------------------------
@@ -510,6 +541,26 @@ async def test_find_or_create_pull_request_없으면_만든다(client):
     assert client.post.call_count == 1
     assert result["created"] is True
     assert result["number"] == 6
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_pull_request_목록_오류면_만들지_않는다(client):
+    client.get = AsyncMock(return_value=_response(404, text="Not Found"))
+    client.post = AsyncMock()
+    result = json.loads(await github_find_or_create_pull_request(
+        token="t", owner="o", repo="r", head="feat/x", base="main", title="t"))
+    assert "error" in result
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["", None])
+async def test_find_pull_request_state_빈값은_open(client, state):
+    client.get = AsyncMock(return_value=_response(200, [_pr(3)]))
+    result = json.loads(await github_find_pull_request(
+        token="t", owner="o", repo="r", search_by="branch", value="feature/x", state=state))
+    assert "error" not in result
+    assert client.get.call_args.kwargs["params"]["state"] == "open"
 
 
 def _review(review_id: int, state: str, user_type: str = "User", body: str = "b") -> dict:

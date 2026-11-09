@@ -751,6 +751,7 @@ async def _find_issues(client, token, owner, repo, search_by, value, state, limi
     """(items, error JSON). 입력 검사는 HTTP 호출 전에 끝낸다. 404는 0건."""
     if search_by not in _ISSUE_SEARCH_BY:
         return [], _error(f"search_by는 {', '.join(_ISSUE_SEARCH_BY)} 중 하나여야 합니다.")
+    state = _text(state) or "open"
     if state not in _ISSUE_STATES:
         return [], _error("state는 open, closed, all 중 하나여야 합니다.")
     # 번호는 참조식 결과로 int가 올 수 있다.
@@ -1025,6 +1026,8 @@ async def github_find_or_create_issue(
     fields, error = _issue_fields(labels, assignees, milestone)
     if error:
         return error
+    if not _text(title):
+        return _error("title을 입력해 주세요.")
     try:
         client = get_http_client()
         items, error = await _find_issues(client, token, owner, repo, search_by, value, state, 1)
@@ -1267,6 +1270,7 @@ async def github_find_pull_request(
         return _error("owner/repo 형식이 올바르지 않습니다.")
     if search_by not in _PR_SEARCH_BY:
         return _error(f"search_by는 {', '.join(_PR_SEARCH_BY)} 중 하나여야 합니다.")
+    state = _text(state) or "open"
     if state not in _ISSUE_STATES:
         return _error("state는 open, closed, all 중 하나여야 합니다.")
     # 번호는 참조식 결과로 int가 올 수 있다.
