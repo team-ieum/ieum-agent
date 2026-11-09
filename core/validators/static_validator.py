@@ -6,6 +6,7 @@ POST /v1/workflows/validate와 대화형 생성(core/builder — 노드 검증·
 import json
 import re
 
+from core.output_fields import _KEY_RE
 from core.template_registry import _get_by_path, match_entry, trigger_type_of
 
 # 참조식 본문 {{ 여기 }}. BE 실행기(ExecutionCursor.VARIABLE_PATTERN)와 같은 규칙 — 실제로 치환하는 쪽이 진실이다.
@@ -250,9 +251,46 @@ def field_errors(node: dict) -> list[dict]:
             # 상한 밖 원소는 TOO_LARGE(_condition_errors)라 내용을 보지 않는다 — 원소마다 에러를 만들지 않게.
             value = [{**b, "rules": b["rules"][:MAX_RULES]} if isinstance(b, dict) and isinstance(b.get("rules"), list)
                      else b for b in value[:MAX_BRANCHES]]
+        if entry["node_type"] == "APPROVAL" and path in _APPROVAL_LISTS.values() and isinstance(value, list):
+            value = value[:MAX_APPROVAL_ITEMS]  # 상한 밖 원소는 TOO_LARGE(_approval_errors) 몫
         errors += _check(f, value, path, nid)
     if entry["node_type"] == "CONDITION":
         errors += _condition_errors(node, nid)
+    if entry["node_type"] == "APPROVAL":
+        errors += _approval_errors(node, nid)
+    return errors
+
+
+# 사람 확인 노드의 목록 칸 — event가 null이면 approval.request로 본다
+_APPROVAL_LISTS = {"approval.request": "config.items", "approval.collect": "config.fields"}
+MAX_APPROVAL_ITEMS = 20
+
+
+def _approval_errors(node: dict, nid) -> list[dict]:
+    """목록 칸 중 칸 정의(_check)로 못 거는 것: 개수 상한·key 형식·key 중복·choice 보기.
+    key가 None·""면 REQUIRED(_check) 몫, 참조식이 든 key는 REF_NOT_ALLOWED(ref:false) 몫이라 건너뛴다."""
+    path = _APPROVAL_LISTS.get(node.get("event") or "approval.request")
+    items = _get_by_path(node, path) if path else None
+    if not isinstance(items, list):
+        return []
+    errors = []
+    if len(items) > MAX_APPROVAL_ITEMS:
+        errors.append(_err("TOO_LARGE", f"목록은 {MAX_APPROVAL_ITEMS}개까지 넣을 수 있어요.", nid, path))
+    keys = set()
+    for i, it in enumerate(items[:MAX_APPROVAL_ITEMS]):
+        if not isinstance(it, dict):
+            continue
+        loc, key = f"{path}.{i}", it.get("key")
+        if key not in (None, "") and not (isinstance(key, str) and "{{" in key):
+            if not isinstance(key, str) or not _KEY_RE.fullmatch(key):
+                errors.append(_err("TYPE", "이름은 영문·숫자·밑줄(_)만 쓸 수 있고 숫자로 시작할 수 없어요(64자 이내).",
+                                   nid, f"{loc}.key"))
+            elif key in keys:
+                errors.append(_err("CHOICE", f"이름 '{_clip(key)}'이(가) 겹쳐요.", nid, f"{loc}.key"))
+            else:
+                keys.add(key)
+        if path == "config.fields" and it.get("type") == "choice" and it.get("options") in _EMPTY:
+            errors.append(_err("REQUIRED", "선택 칸은 '보기'를 입력하세요.", nid, f"{loc}.options"))
     return errors
 
 

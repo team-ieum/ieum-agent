@@ -4,7 +4,8 @@ import copy
 import pytest
 
 from core.template_registry import load_templates, match_entry
-from core.validators.static_validator import _check, condition_branches, field_errors, validate_workflow
+from core.validators.static_validator import (_approval_errors, _check, condition_branches, field_errors,
+                                              validate_workflow)
 
 TRIGGER = {"id": "t", "type": "TRIGGER", "event": "manual.run", "config": {}}
 
@@ -894,3 +895,40 @@ def test_formatter_노드_input_비면_REQUIRED():
     assert _codes(validate_workflow(*_chain(_fmt(input="지금", format="weird")))) == [("CHOICE", "f", "config.format")]
     assert _codes(validate_workflow(*_chain(_fmt(input="{{nodes.zz.output.x}}")))) == [
         ("REF_UNKNOWN_NODE", "f", "config.input")]
+
+
+# ── 사람 확인(APPROVAL) 목록 칸 — _approval_errors 직접 호출(approval.collect는 Part Z 전까지 agent 카탈로그에 없다) ──
+
+def _appr(event="approval.request", nid="p", **config):
+    return {"id": nid, "type": "APPROVAL", "event": event, "config": config}
+
+
+def test_approval_items_21개_TOO_LARGE():
+    items = [{"key": f"k{i}", "value": "v"} for i in range(21)]
+    assert _codes(_approval_errors(_appr(items=items), "p")) == [("TOO_LARGE", "p", "config.items")]
+
+
+def test_approval_key_한글_TYPE():
+    assert _codes(_approval_errors(_appr(items=[{"key": "이름", "value": "v"}]), "p")) == [
+        ("TYPE", "p", "config.items.0.key")]
+
+
+def test_approval_key_중복_CHOICE():
+    fields = [{"key": "a", "label": "A", "type": "short"}, {"key": "a", "label": "B", "type": "short"}]
+    assert _codes(_approval_errors(_appr("approval.collect", fields=fields), "p")) == [
+        ("CHOICE", "p", "config.fields.1.key")]
+
+
+def test_approval_choice_options_없음_REQUIRED():
+    fields = [{"key": "pick", "label": "고르기", "type": "choice", "options": ""}]
+    assert _codes(_approval_errors(_appr("approval.collect", fields=fields), "p")) == [
+        ("REQUIRED", "p", "config.fields.0.options")]
+
+
+def test_approval_정상_에러없음():
+    items = [{"key": "title", "value": "{{nodes.a.output.x}}"}, {"key": "", "value": "v"}, {"key": "{{x}}"}]
+    fields = [{"key": "amount", "label": "금액", "type": "number"},
+              {"key": "pick", "label": "고르기", "type": "choice", "options": "A,B"}]
+    assert _approval_errors(_appr(items=items), "p") == []
+    assert _approval_errors(_appr(None, items=items), "p") == []
+    assert _approval_errors(_appr("approval.collect", fields=fields), "p") == []
