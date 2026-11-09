@@ -125,6 +125,7 @@ def test_option_source_fields_fixed_set():
     ai = {"ai.reasoning", "ai.agent"}  # 프리셋은 빌더 목록에 없다(설계 결정 4)
     expected = {(a, k) for a in ai for k in ("model", "credentialId")} | {
         ("http.request", "webhookCredentialId"),
+        ("approval.request", "webhookCredentialId"), ("approval.collect", "webhookCredentialId"),
         ("slack.send_message", "webhookCredentialId"), ("discord.send_message", "webhookCredentialId"),
         ("slack_bot.send_channel_message", "channel"),
         ("discord_bot.send_channel_message", "guild_id"), ("discord_bot.send_channel_message", "channel_id"),
@@ -263,7 +264,7 @@ EXPECTED_BRANDS = {
     "schedule.weekly": "webhook", "schedule.monthly": "webhook", "webhook.catch": "webhook",
     "gmail.new_email": "gmail", "github.new_issue": "github", "github.new_pull_request": "github",
     "gmail.send_email": "gmail",
-    "http.request": "webhook", "approval.request": "webhook", "branch.if": "filter", "transform.map": "filter",
+    "http.request": "webhook", "approval.request": "webhook", "approval.collect": "webhook", "branch.if": "filter", "transform.map": "filter",
     "slack.send_message": "slack", "discord.send_message": "discord",
     "slack_bot.send_channel_message": "slack",
     "discord_bot.send_channel_message": "discord",

@@ -10,5 +10,6 @@ from core import template_registry as tr
 
 def test_approval_template_registered():
     tr.validate_registry()
-    tpl = tr.get_template("approval.request")
-    assert tpl is not None and tpl["node_type"] == "APPROVAL"
+    for event in ("approval.request", "approval.collect"):
+        tpl = tr.get_template(event)
+        assert tpl is not None and tpl["node_type"] == "APPROVAL", event

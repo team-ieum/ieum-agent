@@ -312,6 +312,209 @@
     {
       "app": "approval",
       "appTitle": "승인",
+      "description": "사람이 칸을 채우면 그 값으로 다음 단계를 이어가요.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "approval.collect",
+        "type": "APPROVAL"
+      },
+      "id": "approval.collect",
+      "inputFields": [
+        {
+          "description": "비우면 '값을 입력해 주세요'라고 보여요",
+          "key": "message",
+          "path": "config.message",
+          "title": "안내 메시지",
+          "type": "text"
+        },
+        {
+          "children": [
+            {
+              "key": "key",
+              "ref": false,
+              "required": true,
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "label",
+              "ref": false,
+              "title": "보여 줄 이름",
+              "type": "string"
+            },
+            {
+              "choices": [
+                {
+                  "id": "short",
+                  "name": "짧은 글"
+                },
+                {
+                  "id": "long",
+                  "name": "긴 글"
+                },
+                {
+                  "id": "number",
+                  "name": "숫자"
+                },
+                {
+                  "id": "date",
+                  "name": "날짜"
+                },
+                {
+                  "id": "boolean",
+                  "name": "예·아니오"
+                },
+                {
+                  "id": "choice",
+                  "name": "선택지"
+                }
+              ],
+              "key": "type",
+              "ref": false,
+              "required": true,
+              "title": "종류",
+              "type": "string"
+            },
+            {
+              "key": "required",
+              "ref": false,
+              "title": "꼭 채우기",
+              "type": "boolean"
+            },
+            {
+              "key": "default",
+              "title": "기본값",
+              "type": "text"
+            },
+            {
+              "description": "쉼표로 구분해요. 선택지일 때 꼭 채워요",
+              "key": "options",
+              "ref": false,
+              "title": "보기",
+              "type": "string"
+            }
+          ],
+          "description": "사람이 채울 칸이에요. 다음 단계에서 values.<이름>으로 꺼내요.",
+          "key": "fields",
+          "list": true,
+          "path": "config.fields",
+          "ref": false,
+          "required": true,
+          "title": "입력 칸",
+          "type": "object"
+        },
+        {
+          "description": "고르면 입력 요청을 Discord로도 알려요",
+          "key": "webhookCredentialId",
+          "optionsSource": "discord.webhooks",
+          "path": "config.webhookCredentialId",
+          "ref": false,
+          "title": "알림 받을 Discord 웹훅",
+          "type": "string"
+        },
+        {
+          "default": 24,
+          "description": "5분에서 7일 사이로 정해요",
+          "key": "timeoutAmount",
+          "path": "config.timeoutAmount",
+          "title": "제한 시간",
+          "type": "integer"
+        },
+        {
+          "choices": [
+            {
+              "id": "minutes",
+              "name": "분"
+            },
+            {
+              "id": "hours",
+              "name": "시간"
+            },
+            {
+              "id": "days",
+              "name": "일"
+            }
+          ],
+          "default": "hours",
+          "key": "timeoutUnit",
+          "path": "config.timeoutUnit",
+          "ref": false,
+          "title": "제한 시간 단위",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "stop",
+              "name": "멈추기"
+            },
+            {
+              "id": "continue",
+              "name": "건너뛰고 계속"
+            }
+          ],
+          "default": "stop",
+          "key": "onTimeout",
+          "path": "config.onTimeout",
+          "ref": false,
+          "title": "시간이 지나면",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "description": "제한 시간의 절반이 지나면 다시 알려요",
+          "key": "reminder",
+          "path": "config.reminder",
+          "ref": false,
+          "title": "중간에 한 번 더 알리기",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "APPROVAL",
+      "outputFields": [
+        {
+          "description": "submitted(제출)·timeout(시간 초과) 중 하나예요",
+          "key": "decision",
+          "title": "결정",
+          "type": "string"
+        },
+        {
+          "key": "approvedBy",
+          "title": "입력한 사람 ID",
+          "type": "string"
+        },
+        {
+          "key": "approvedAt",
+          "title": "입력한 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "reviewer",
+          "title": "처리한 사람",
+          "type": "object"
+        },
+        {
+          "key": "note",
+          "title": "메모",
+          "type": "string"
+        },
+        {
+          "description": "칸 이름으로 꺼내요. 예: values.email",
+          "dynamic": true,
+          "key": "values",
+          "title": "입력한 값",
+          "type": "object"
+        }
+      ],
+      "provider": "ieum",
+      "title": "값 입력받기"
+    },
+    {
+      "app": "approval",
+      "appTitle": "승인",
       "description": "사람이 승인해야 다음 단계로 넘어가요.",
       "fixed": {
         "config": {
@@ -323,10 +526,141 @@
       "id": "approval.request",
       "inputFields": [
         {
+          "description": "비우면 '승인이 필요해요'라고 보여요",
           "key": "message",
           "path": "config.message",
           "title": "승인 요청 메시지",
           "type": "text"
+        },
+        {
+          "children": [
+            {
+              "key": "key",
+              "ref": false,
+              "required": true,
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "value",
+              "title": "값",
+              "type": "text"
+            }
+          ],
+          "description": "승인하는 사람에게 보여 줄 값이에요. 다음 단계에서 content.<이름>으로 꺼내요.",
+          "key": "items",
+          "list": true,
+          "path": "config.items",
+          "ref": false,
+          "title": "검토할 내용",
+          "type": "object"
+        },
+        {
+          "default": false,
+          "key": "editable",
+          "path": "config.editable",
+          "title": "승인하면서 고칠 수 있게",
+          "type": "boolean"
+        },
+        {
+          "default": "승인",
+          "key": "approveLabel",
+          "path": "config.approveLabel",
+          "ref": false,
+          "title": "승인 버튼 이름",
+          "type": "string"
+        },
+        {
+          "default": "거절",
+          "key": "rejectLabel",
+          "path": "config.rejectLabel",
+          "ref": false,
+          "title": "거절 버튼 이름",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "stop",
+              "name": "멈추기"
+            },
+            {
+              "id": "continue",
+              "name": "계속하기"
+            }
+          ],
+          "default": "stop",
+          "key": "onReject",
+          "path": "config.onReject",
+          "ref": false,
+          "title": "거절하면",
+          "type": "string"
+        },
+        {
+          "description": "고르면 승인 요청을 Discord로도 알려요",
+          "key": "webhookCredentialId",
+          "optionsSource": "discord.webhooks",
+          "path": "config.webhookCredentialId",
+          "ref": false,
+          "title": "알림 받을 Discord 웹훅",
+          "type": "string"
+        },
+        {
+          "default": 24,
+          "description": "5분에서 7일 사이로 정해요",
+          "key": "timeoutAmount",
+          "path": "config.timeoutAmount",
+          "title": "제한 시간",
+          "type": "integer"
+        },
+        {
+          "choices": [
+            {
+              "id": "minutes",
+              "name": "분"
+            },
+            {
+              "id": "hours",
+              "name": "시간"
+            },
+            {
+              "id": "days",
+              "name": "일"
+            }
+          ],
+          "default": "hours",
+          "key": "timeoutUnit",
+          "path": "config.timeoutUnit",
+          "ref": false,
+          "title": "제한 시간 단위",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "stop",
+              "name": "멈추기"
+            },
+            {
+              "id": "continue",
+              "name": "건너뛰고 계속"
+            }
+          ],
+          "default": "stop",
+          "key": "onTimeout",
+          "path": "config.onTimeout",
+          "ref": false,
+          "title": "시간이 지나면",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "description": "제한 시간의 절반이 지나면 다시 알려요",
+          "key": "reminder",
+          "path": "config.reminder",
+          "ref": false,
+          "title": "중간에 한 번 더 알리기",
+          "type": "boolean"
         }
       ],
       "kind": "action",
@@ -338,6 +672,12 @@
           "type": "boolean"
         },
         {
+          "description": "approved(승인)·rejected(거절)·timeout(시간 초과) 중 하나예요",
+          "key": "decision",
+          "title": "결정",
+          "type": "string"
+        },
+        {
           "key": "approvedBy",
           "title": "승인자 ID",
           "type": "string"
@@ -346,6 +686,33 @@
           "key": "approvedAt",
           "title": "승인 시각",
           "type": "datetime"
+        },
+        {
+          "key": "reviewer",
+          "title": "처리한 사람",
+          "type": "object"
+        },
+        {
+          "key": "note",
+          "title": "메모",
+          "type": "string"
+        },
+        {
+          "description": "이름으로 꺼내요. 예: content.amount",
+          "dynamic": true,
+          "key": "content",
+          "title": "검토한 내용",
+          "type": "object"
+        },
+        {
+          "key": "rejectedBy",
+          "title": "거절한 사람 ID",
+          "type": "string"
+        },
+        {
+          "key": "reason",
+          "title": "거절 사유",
+          "type": "string"
         }
       ],
       "provider": "ieum",
