@@ -433,14 +433,15 @@ def _parse_comments(value):
         return value
     if not isinstance(value, str):
         return None
+    # RecursionError: `[`를 깊게 중첩한 입력.
     try:
         parsed = json.loads(value)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, RecursionError):
         text = _CODE_FENCE.sub("", value)
         start, end = text.find("["), text.rfind("]")
         try:
             parsed = json.loads(text[start:end + 1]) if 0 <= start < end else None
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
             parsed = None
     return parsed if isinstance(parsed, list) else None
 
@@ -487,6 +488,8 @@ async def github_submit_pr_review(
         return _error("owner/repo 형식이 올바르지 않습니다.")
     if number is None or number < 1:
         return _error("pull_number는 양의 정수여야 합니다.")
+    author = author or "bot"  # 빈 문자열·None은 기본값(BE도 author 없음을 봇으로 본다)
+    event = event or "COMMENT"
     if author not in ("bot", "me"):
         return _error("author는 bot 또는 me여야 합니다.")
     if event not in _REVIEW_EVENTS:
@@ -522,7 +525,9 @@ async def github_submit_pr_review(
             files, _, error = await _fetch_pr_files(client, token, pr_url)
             if error:
                 return error
-            ranges = {f["filename"]: _right_side_lines(f["patch"]) for f in files if f.get("patch")}
+            paths = {c["path"] for c in valid}
+            ranges = {f["filename"]: _right_side_lines(f["patch"])
+                      for f in files if f.get("patch") and f["filename"] in paths}
             for c in valid:
                 (inline if c["line"] in ranges.get(c["path"], set()) else moved).append(c)
 
@@ -538,35 +543,46 @@ async def github_submit_pr_review(
                 warnings.append(f"자기 PR에는 {event}를 할 수 없어 코멘트로 제출했습니다.")
                 event = "COMMENT"
 
-        sections = [body] if body.strip() else []
-        if moved:
-            sections.append("### 다른 줄에 대한 의견\n" + "\n".join(
-                f"- {c['path']}:{c['line']} — {c['body']}" for c in moved))
-
         # 4. 본문 없는 COMMENT·REQUEST_CHANGES는 GitHub가 거절한다. 안내 문구만 있는 빈 리뷰도 내지 않는다.
-        if not sections and event != "APPROVE":
-            if not inline:
-                return _error("리뷰 내용이 없습니다.")
-            sections.append("IEUM 리뷰")
-        if unreadable:
-            sections.append("줄 코멘트를 읽지 못했습니다")
-        review_body = "\n\n".join(sections)
-        # 5.
-        if len(review_body) > _MAX_REVIEW_BODY:
-            warnings.append(f"본문이 {_MAX_REVIEW_BODY}자를 넘어 잘랐습니다.")
-            review_body = review_body[:_MAX_REVIEW_BODY]
+        if not body.strip() and not moved and not inline and event != "APPROVE":
+            return _error("리뷰 내용이 없습니다.")
 
-        # 6.
-        payload = {
-            "event": event,
-            "body": review_body,
-            "comments": [{"path": c["path"], "line": c["line"], "side": "RIGHT", "body": c["body"]} for c in inline],
-        }
-        if isinstance(commit_id, str) and commit_id.strip():
-            payload["commit_id"] = commit_id.strip()
-        response = await client.post(f"{pr_url}/reviews", headers=_headers(token), json=payload, timeout=_TIMEOUT)
+        def review_body() -> str:
+            sections = [body] if body.strip() else []
+            if moved:
+                sections.append("### 다른 줄에 대한 의견\n" + "\n".join(
+                    f"- {c['path']}:{c['line']} — {c['body']}" for c in moved))
+            if not sections and event != "APPROVE":
+                sections.append("IEUM 리뷰")
+            if unreadable:
+                sections.append("줄 코멘트를 읽지 못했습니다")
+            return "\n\n".join(sections)
+
+        async def post_review():
+            # 5. 본문 상한 / 6. 제출
+            text = review_body()
+            payload = {
+                "event": event,
+                "body": text[:_MAX_REVIEW_BODY],
+                "comments": [{"path": c["path"], "line": c["line"], "side": "RIGHT", "body": c["body"]}
+                             for c in inline],
+            }
+            if isinstance(commit_id, str) and commit_id.strip():
+                payload["commit_id"] = commit_id.strip()
+            response = await client.post(f"{pr_url}/reviews", headers=_headers(token), json=payload,
+                                         timeout=_TIMEOUT)
+            return response, len(text) > _MAX_REVIEW_BODY
+
+        response, cut = await post_review()
+        # commit_id가 최신 head가 아니면 줄 범위가 다른 diff 기준이라 422가 날 수 있다 → 줄 코멘트를 본문으로 옮겨 한 번만 다시.
+        if response.status_code == 422 and inline:
+            warnings.append(f"GitHub가 줄 코멘트를 받지 않아 {len(inline)}개를 본문으로 옮겨 다시 제출했습니다.")
+            moved, inline = moved + inline, []
+            response, cut = await post_review()
         if response.status_code != 200:
             return _api_error(response)
+        if cut:
+            warnings.append(f"본문이 {_MAX_REVIEW_BODY}자를 넘어 잘랐습니다.")
         review = response.json()
         return json.dumps(
             {

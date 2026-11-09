@@ -501,6 +501,71 @@ async def test_submit_review_본문없고_comments_못읽으면_error(client):
     client.post.assert_not_called()
 
 
+_REVIEW_OK = {"id": 78, "html_url": "https://github.com/o/r/pull/5#pullrequestreview-78", "state": "COMMENTED"}
+
+
+@pytest.mark.asyncio
+async def test_submit_review_422면_줄코멘트를_본문으로_옮겨_한번_재시도(client):
+    _review_client(client)
+    client.post = AsyncMock(side_effect=[_response(422, text="line could not be resolved"), _response(200, _REVIEW_OK)])
+
+    result = await _submit(body="총평", comments=[{"path": "a.py", "line": 2, "body": "여기"}])
+
+    assert client.post.call_count == 2
+    first, second = (c.kwargs["json"] for c in client.post.call_args_list)
+    assert len(first["comments"]) == 1
+    assert second["comments"] == []
+    assert "다른 줄에 대한 의견" in second["body"] and "a.py:2 — 여기" in second["body"]
+    assert result["moved_comments"] == 1 and result["posted_comments"] == 0
+    assert result["review_id"] == 78 and len(result["warnings"]) == 1
+    assert [u for u in _get_urls(client) if not u.endswith("/files")] == []  # 재시도에 GET pulls/{n} 없음
+
+
+@pytest.mark.asyncio
+async def test_submit_review_재시도도_422면_error(client):
+    _review_client(client)
+    client.post = AsyncMock(return_value=_response(422, text="nope"))
+
+    result = await _submit(body="총평", comments=[{"path": "a.py", "line": 2, "body": "여기"}])
+
+    assert result == {"error": "GitHub API 오류 (422): nope"}
+    assert client.post.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_submit_review_줄코멘트_없이_422면_재시도_없음(client):
+    _review_client(client)
+    client.post = AsyncMock(return_value=_response(422, text="nope"))
+
+    result = await _submit(body="총평")
+
+    assert result == {"error": "GitHub API 오류 (422): nope"}
+    assert client.post.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_review_깊게_중첩된_comments는_본문만(client):
+    _review_client(client)
+
+    result = await _submit(body="총평", comments="[" * 100000)
+
+    assert "error" not in result
+    assert _posted(client)["comments"] == []
+    assert _posted(client)["body"].endswith("줄 코멘트를 읽지 못했습니다")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty", ["", None])
+async def test_submit_review_author_event_빈값은_기본값(client, empty):
+    _review_client(client)
+
+    result = await _submit(author=empty, event=empty, body="총평")
+
+    assert "error" not in result
+    assert _posted(client)["event"] == "COMMENT"
+    assert "https://api.github.com/user" not in _get_urls(client)
+
+
 @pytest.mark.asyncio
 async def test_submit_review_줄코멘트_본문_상한(client):
     _review_client(client)
