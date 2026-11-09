@@ -278,10 +278,12 @@ def _approval_errors(node: dict, nid) -> list[dict]:
         errors.append(_err("TOO_LARGE", f"목록은 {MAX_APPROVAL_ITEMS}개까지 넣을 수 있어요.", nid, path))
     keys = set()
     for i, it in enumerate(items[:MAX_APPROVAL_ITEMS]):
+        loc = f"{path}.{i}"
         if not isinstance(it, dict):
+            errors.append(_err("TYPE", "목록 원소는 객체여야 합니다.", nid, loc))
             continue
-        loc, key = f"{path}.{i}", it.get("key")
-        if key not in (None, "") and not (isinstance(key, str) and "{{" in key):
+        key = it.get("key")
+        if key not in _EMPTY and not (isinstance(key, str) and "{{" in key):
             if not isinstance(key, str) or not _KEY_RE.fullmatch(key):
                 errors.append(_err("TYPE", "이름은 영문·숫자·밑줄(_)만 쓸 수 있고 숫자로 시작할 수 없어요(64자 이내).",
                                    nid, f"{loc}.key"))
@@ -292,8 +294,13 @@ def _approval_errors(node: dict, nid) -> list[dict]:
                 errors.append(_err("CHOICE", f"이름 '{_clip(key)}'이(가) 겹쳐요.", nid, f"{loc}.key"))
             else:
                 keys.add(key)
-        if path == "config.fields" and it.get("type") == "choice" and it.get("options") in _EMPTY:
-            errors.append(_err("REQUIRED", "선택 칸은 '보기'를 입력하세요.", nid, f"{loc}.options"))
+        if path == "config.fields" and it.get("type") == "choice":
+            # BE ApprovalGateConfig.options()와 같게 쉼표로 나눠 strip한다. ponytail: 50개·100자 상한은 BE만 본다
+            options = it.get("options")
+            if options is not None and not isinstance(options, str):
+                errors.append(_err("TYPE", "보기는 쉼표로 구분한 문자열이어야 합니다.", nid, f"{loc}.options"))
+            elif not any(o.strip() for o in (options or "").split(",")):
+                errors.append(_err("REQUIRED", "선택 칸은 '보기'를 입력하세요.", nid, f"{loc}.options"))
     return errors
 
 

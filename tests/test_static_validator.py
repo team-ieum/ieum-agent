@@ -904,13 +904,36 @@ def _appr(event="approval.request", nid="p", **config):
 
 
 def test_approval_items_21개_TOO_LARGE():
-    items = [{"key": f"k{i}", "value": "v"} for i in range(21)]
+    items = [{"key": f"k{i}", "value": "v"} for i in range(20)] + [{"key": "이름", "value": "v"}]
     assert _codes(_approval_errors(_appr(items=items), "p")) == [("TOO_LARGE", "p", "config.items")]
 
 
 def test_approval_key_한글_TYPE():
     assert _codes(_approval_errors(_appr(items=[{"key": "이름", "value": "v"}]), "p")) == [
         ("TYPE", "p", "config.items.0.key")]
+
+
+def test_approval_key_뒤만_틀려도_TYPE():
+    assert _codes(_approval_errors(_appr(items=[{"key": "a-b", "value": "v"}]), "p")) == [
+        ("TYPE", "p", "config.items.0.key")]
+
+
+def test_approval_key_빈_목록은_REQUIRED_몫이라_에러없음():
+    assert _approval_errors(_appr(items=[{"key": [], "value": "v"}]), "p") == []
+
+
+def test_approval_객체_아닌_원소_TYPE():
+    assert _codes(_approval_errors(_appr("approval.collect", fields=["email"]), "p")) == [
+        ("TYPE", "p", "config.fields.0")]
+
+
+def test_approval_choice_options_쉼표뿐_REQUIRED_목록이면_TYPE():
+    blank = [{"key": "pick", "label": "고르기", "type": "choice", "options": " , "}]
+    assert _codes(_approval_errors(_appr("approval.collect", fields=blank), "p")) == [
+        ("REQUIRED", "p", "config.fields.0.options")]
+    listed = [{"key": "pick", "label": "고르기", "type": "choice", "options": ["A", "B"]}]
+    assert _codes(_approval_errors(_appr("approval.collect", fields=listed), "p")) == [
+        ("TYPE", "p", "config.fields.0.options")]
 
 
 def test_approval_민감_키_TYPE():
