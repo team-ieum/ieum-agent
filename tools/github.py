@@ -1,3 +1,4 @@
+import base64
 import fnmatch
 import json
 import re
@@ -1454,6 +1455,230 @@ async def github_get_pr_reviews(
             approved_count=sum(r.get("state") == "APPROVED" for r in picked),
             changes_requested_count=sum(r.get("state") == "CHANGES_REQUESTED" for r in picked),
         )
+    except Exception as e:
+        return _error(str(e))
+
+
+# ---------------------------------------------------------------------------
+# 조회 묶음 — find_branch·get_file·find_repo·find_org·check_org_membership·find_user
+# ---------------------------------------------------------------------------
+
+_MAX_FILE_CHARS = 100_000
+_MAX_FILE_BYTES = 1_048_576
+_MAX_DIR_ITEMS = 1000
+_NOT_MEMBER = "멤버가 아닙니다"
+
+
+async def _get_json(token: str, url: str, params: dict | None = None):
+    """200 → (본문, None), 404 → (None, None) — Search는 404를 0건으로 본다, 그 밖 → (None, error JSON)."""
+    response = await get_http_client().get(url, headers=_headers(token), params=params, timeout=_TIMEOUT)
+    if response.status_code == 404:
+        return None, None
+    if response.status_code != 200:
+        return None, _api_error(response)
+    return response.json(), None
+
+
+def _branch_item(branch: dict) -> dict:
+    return {"name": branch.get("name"), "sha": (branch.get("commit") or {}).get("sha"),
+            "protected": bool(branch.get("protected"))}
+
+
+async def github_find_branch(token: str, owner: str, repo: str, branch: str = "") -> str:
+    """
+    GitHub 레포지토리의 브랜치를 찾습니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        branch: 브랜치 이름 (비우면 브랜치 목록, 최대 100개)
+
+    Returns:
+        found, total, items(name, sha, protected), message를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    branch_path = None
+    if _text(branch):
+        branch_path = _ref_path(branch)
+        if branch_path is None:
+            return _error("브랜치 형식이 올바르지 않습니다.")
+    url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/branches"
+    try:
+        if branch_path is None:
+            data, error = await _get_json(token, url, {"per_page": 100})
+            branches = data or []
+        else:
+            data, error = await _get_json(token, f"{url}/{branch_path}")
+            branches = [data] if data else []
+        return error or _found([_branch_item(b) for b in branches[:_MAX_ITEMS]])
+    except Exception as e:
+        return _error(str(e))
+
+
+def _file_item(entry: dict, content: str = "", truncated: bool = False) -> dict:
+    return {"name": entry.get("name"), "path": entry.get("path"), "type": entry.get("type"), "sha": entry.get("sha"),
+            "size": entry.get("size"), "content": content, "truncated": truncated}
+
+
+def _file_content(entry: dict) -> tuple[str, bool]:
+    """(content, truncated). 1MB 넘는 파일은 GitHub가 내용을 주지 않는다(encoding none). 바이너리는 ""."""
+    if (entry.get("size") or 0) > _MAX_FILE_BYTES or entry.get("encoding") == "none":
+        return "", True
+    try:
+        text = base64.b64decode(entry.get("content") or "").decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return "", False
+    return text[:_MAX_FILE_CHARS], len(text) > _MAX_FILE_CHARS
+
+
+async def github_get_file(token: str, owner: str, repo: str, path: str, ref: str = "") -> str:
+    """
+    GitHub 레포지토리의 파일 내용이나 디렉터리 목록을 가져옵니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        path: 파일 또는 디렉터리 경로
+        ref: 브랜치·태그·커밋 SHA (비우면 기본 브랜치)
+
+    Returns:
+        found, total, items(name, path, type, sha, size, content, truncated), message를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    file_path = _ref_path(path)
+    if file_path is None:
+        return _error("path 형식이 올바르지 않습니다.")
+    params = None
+    if _text(ref):
+        params = {"ref": _base_ref(ref)}
+        if params["ref"] is None:
+            return _error("ref 형식이 올바르지 않습니다.")
+    try:
+        data, error = await _get_json(token, f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{file_path}", params)
+        if error:
+            return error
+        if data is None:
+            return _found([])
+        if isinstance(data, list):
+            return _found([_file_item(e) for e in data[:_MAX_DIR_ITEMS]])
+        return _found([_file_item(data, *_file_content(data))])
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_find_repo(token: str, owner: str, repo: str) -> str:
+    """
+    GitHub 레포지토리를 찾습니다.
+
+    Args:
+        token: GitHub access token
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+
+    Returns:
+        found, total, items(name, full_name, owner, private, default_branch, url, description), message를 포함한 JSON 문자열
+    """
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    try:
+        data, error = await _get_json(token, f"{_GITHUB_API_BASE}/repos/{owner}/{repo}")
+        if error:
+            return error
+        items = [{
+            "name": data.get("name"),
+            "full_name": data.get("full_name"),
+            "owner": (data.get("owner") or {}).get("login"),
+            "private": bool(data.get("private")),
+            "default_branch": data.get("default_branch"),
+            "url": data.get("html_url"),
+            "description": data.get("description") or "",
+        }] if data else []
+        return _found(items)
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_find_org(token: str, org: str) -> str:
+    """
+    GitHub 조직을 찾습니다.
+
+    Args:
+        token: GitHub access token
+        org: 조직 이름
+
+    Returns:
+        found, total, items(login, name, description, url), message를 포함한 JSON 문자열
+    """
+    if not _is_login(org):
+        return _error("org 형식이 올바르지 않습니다.")
+    try:
+        data, error = await _get_json(token, f"{_GITHUB_API_BASE}/orgs/{org}")
+        if error:
+            return error
+        items = [{"login": data.get("login"), "name": data.get("name"), "description": data.get("description") or "",
+                  "url": data.get("html_url")}] if data else []
+        return _found(items)
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_check_org_membership(token: str, org: str, username: str) -> str:
+    """
+    GitHub 사용자가 조직의 멤버인지 확인합니다.
+
+    Args:
+        token: GitHub access token
+        org: 조직 이름
+        username: 확인할 사용자 login
+
+    Returns:
+        found, total, items, message, member를 포함한 JSON 문자열
+    """
+    if not (_is_login(org) and _is_login(username)):
+        return _error("org/username 형식이 올바르지 않습니다.")
+    try:
+        client = get_http_client()
+        response = await client.get(
+            f"{_GITHUB_API_BASE}/orgs/{org}/members/{username}", headers=_headers(token), timeout=_TIMEOUT)
+        # 302: 요청자가 그 조직 멤버가 아니면 공개 멤버 확인 주소로 보낸다. 공유 클라이언트는 리다이렉트를 따라가지 않는다.
+        if response.status_code == 302:
+            response = await client.get(
+                f"{_GITHUB_API_BASE}/orgs/{org}/public_members/{username}", headers=_headers(token), timeout=_TIMEOUT)
+        if response.status_code == 204:
+            return _found([{"org": org, "username": username}], member=True)
+        if response.status_code == 404:
+            return _found([], _NOT_MEMBER, member=False)
+        return _api_error(response)
+    except Exception as e:
+        return _error(str(e))
+
+
+async def github_find_user(token: str, username: str = "") -> str:
+    """
+    GitHub 사용자를 찾습니다.
+
+    Args:
+        token: GitHub access token
+        username: 사용자 login (비우면 연결된 계정 본인)
+
+    Returns:
+        found, total, items(login, name, type, url), message를 포함한 JSON 문자열
+    """
+    username = _text(username)
+    if username and not _is_login(username):
+        return _error("username 형식이 올바르지 않습니다.")
+    url = f"{_GITHUB_API_BASE}/users/{username}" if username else f"{_GITHUB_API_BASE}/user"
+    try:
+        data, error = await _get_json(token, url)
+        if error:
+            return error
+        items = [{"login": data.get("login"), "name": data.get("name"), "type": data.get("type"),
+                  "url": data.get("html_url")}] if data else []
+        return _found(items)
     except Exception as e:
         return _error(str(e))
 

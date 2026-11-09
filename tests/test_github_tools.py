@@ -1,3 +1,4 @@
+import base64
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,7 +17,13 @@ from tools.github import (
     github_create_comment,
     github_create_issue,
     github_find_issue,
+    github_check_org_membership,
     github_create_pull_request,
+    github_find_branch,
+    github_find_org,
+    github_find_repo,
+    github_find_user,
+    github_get_file,
     github_find_or_create_issue,
     github_find_or_create_pull_request,
     github_find_pull_request,
@@ -60,6 +67,12 @@ _OUTPUT_KEYS: dict[str, set[str]] = {
     "github.find_or_create_pull_request": {"created", "number", "url", "title", "state", "draft"},
     "github.get_pr_reviews": {"found", "total", "items", "comments", "approved_count", "changes_requested_count",
                               "message"},
+    "github.find_branch": {"found", "total", "items", "message"},
+    "github.get_file": {"found", "total", "items", "message"},
+    "github.find_repo": {"found", "total", "items", "message"},
+    "github.find_org": {"found", "total", "items", "message"},
+    "github.check_org_membership": {"found", "total", "items", "message", "member"},
+    "github.find_user": {"found", "total", "items", "message"},
     "github.get_pr_files": {"diff", "found", "head_sha", "items", "skipped", "total", "truncated"},
     "github.submit_pr_review": {"moved_comments", "posted_comments", "review_id", "state", "url", "warnings"},
 }
@@ -568,6 +581,162 @@ async def test_get_pr_reviews_0건(client):
     assert result["found"] is False
     assert result["message"] == "결과가 없습니다"
     assert (result["total"], result["approved_count"], result["changes_requested_count"]) == (0, 0, 0)
+
+
+# ---------------------------------------------------------------------------
+# 조회 묶음 — find_branch·get_file·find_repo·find_org·check_org_membership·find_user
+# ---------------------------------------------------------------------------
+
+_EMPTY = {"success": True, "found": False, "total": 0, "items": [], "message": "결과가 없습니다"}
+
+
+def _branch(name: str) -> dict:
+    return {"name": name, "commit": {"sha": f"sha-{name}", "url": "x"}, "protected": False}
+
+
+@pytest.mark.asyncio
+async def test_find_branch_목록과_단건(client):
+    client.get = AsyncMock(return_value=_response(200, [_branch("main"), _branch("dev")]))
+    result = json.loads(await github_find_branch(token="t", owner="o", repo="r"))
+    _assert_outputs("github.find_branch", result)
+    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/branches"
+    assert client.get.call_args.kwargs["params"]["per_page"] == 100
+    assert result["items"][0] == {"name": "main", "sha": "sha-main", "protected": False}
+
+    client.get = AsyncMock(return_value=_response(200, _branch("feature/a b")))
+    result = json.loads(await github_find_branch(token="t", owner="o", repo="r", branch="feature/a b"))
+    _assert_outputs("github.find_branch", result)
+    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/branches/feature/a%20b"
+    assert result["total"] == 1
+
+    client.get = AsyncMock(return_value=_response(404, text="Not Found"))
+    assert json.loads(await github_find_branch(token="t", owner="o", repo="r", branch="x")) == _EMPTY
+
+    client.get = AsyncMock()
+    result = json.loads(await github_find_branch(token="t", owner="o", repo="r", branch="../main"))
+    assert "error" in result
+    client.get.assert_not_called()
+
+
+def _file(text: bytes | str, **extra) -> dict:
+    raw = text.encode() if isinstance(text, str) else text
+    return {"type": "file", "encoding": "base64", "content": base64.b64encode(raw).decode(), "size": len(raw),
+            "name": "a b.md", "path": "docs/a b.md", "sha": "s1", **extra}
+
+
+@pytest.mark.asyncio
+async def test_get_file_내용(client):
+    client.get = AsyncMock(return_value=_response(200, _file("안녕\n")))
+    result = json.loads(await github_get_file(token="t", owner="o", repo="r", path="docs/a b.md", ref="main"))
+    _assert_outputs("github.get_file", result)
+    item = result["items"][0]
+    assert set(item) == {"name", "path", "type", "sha", "size", "content", "truncated"}
+    assert (item["content"], item["truncated"]) == ("안녕\n", False)
+    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/contents/docs/a%20b.md"
+    assert client.get.call_args.kwargs["params"] == {"ref": "main"}
+
+
+@pytest.mark.asyncio
+async def test_get_file_큰_파일은_자른다(client):
+    client.get = AsyncMock(return_value=_response(200, _file("가" * 150_000)))
+    item = json.loads(await github_get_file(token="t", owner="o", repo="r", path="big.txt"))["items"][0]
+    assert (len(item["content"]), item["truncated"]) == (100_000, True)
+
+    client.get = AsyncMock(return_value=_response(200, {**_file(""), "content": "", "size": 2_000_000,
+                                                        "encoding": "none"}))
+    item = json.loads(await github_get_file(token="t", owner="o", repo="r", path="big.bin"))["items"][0]
+    assert (item["content"], item["truncated"]) == ("", True)
+
+
+@pytest.mark.asyncio
+async def test_get_file_바이너리는_빈_내용(client):
+    client.get = AsyncMock(return_value=_response(200, _file(b"\xff\xfe\x00")))
+    item = json.loads(await github_get_file(token="t", owner="o", repo="r", path="a.bin"))["items"][0]
+    assert (item["content"], item["truncated"]) == ("", False)
+
+
+@pytest.mark.asyncio
+async def test_get_file_디렉터리(client):
+    entries = [{"type": "file", "name": f"f{i}", "path": f"d/f{i}", "sha": "s", "size": 1} for i in range(1200)]
+    client.get = AsyncMock(return_value=_response(200, entries))
+    result = json.loads(await github_get_file(token="t", owner="o", repo="r", path="d"))
+    _assert_outputs("github.get_file", result)
+    assert (len(result["items"]), result["total"]) == (1000, 1000)
+    assert result["items"][0] == {"name": "f0", "path": "d/f0", "type": "file", "sha": "s", "size": 1,
+                                  "content": "", "truncated": False}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["../../x", "a//b"])
+async def test_get_file_경로_거부(client, path):
+    client.get = AsyncMock()
+    result = json.loads(await github_get_file(token="t", owner="o", repo="r", path=path))
+    assert "error" in result
+    client.get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_find_repo(client):
+    client.get = AsyncMock(return_value=_response(200, {
+        "name": "r", "full_name": "o/r", "owner": {"login": "o"}, "private": False, "default_branch": "main",
+        "html_url": "https://github.com/o/r", "description": None}))
+    result = json.loads(await github_find_repo(token="t", owner="o", repo="r"))
+    _assert_outputs("github.find_repo", result)
+    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r"
+    assert result["items"] == [{"name": "r", "full_name": "o/r", "owner": "o", "private": False,
+                                "default_branch": "main", "url": "https://github.com/o/r", "description": ""}]
+
+    client.get = AsyncMock(return_value=_response(404, text="Not Found"))
+    assert json.loads(await github_find_repo(token="t", owner="o", repo="r")) == _EMPTY
+
+
+@pytest.mark.asyncio
+async def test_find_org(client):
+    client.get = AsyncMock(return_value=_response(200, {
+        "login": "acme", "name": "Acme", "description": "d", "html_url": "https://github.com/acme"}))
+    result = json.loads(await github_find_org(token="t", org="acme"))
+    _assert_outputs("github.find_org", result)
+    assert client.get.call_args.args[0] == "https://api.github.com/orgs/acme"
+    assert set(result["items"][0]) == {"login", "name", "description", "url"}
+
+    client.get = AsyncMock(return_value=_response(404, text="Not Found"))
+    assert json.loads(await github_find_org(token="t", org="acme")) == _EMPTY
+
+
+@pytest.mark.asyncio
+async def test_find_user(client):
+    client.get = AsyncMock(return_value=_response(200, {
+        "login": "alice", "name": "Alice", "type": "User", "html_url": "https://github.com/alice"}))
+    result = json.loads(await github_find_user(token="t", username="alice"))
+    _assert_outputs("github.find_user", result)
+    assert client.get.call_args.args[0] == "https://api.github.com/users/alice"
+    assert set(result["items"][0]) == {"login", "name", "type", "url"}
+
+    await github_find_user(token="t", username="")
+    assert client.get.call_args.args[0] == "https://api.github.com/user"
+
+    client.get = AsyncMock(return_value=_response(404, text="Not Found"))
+    assert json.loads(await github_find_user(token="t", username="alice")) == _EMPTY
+
+
+@pytest.mark.asyncio
+async def test_check_org_membership(client):
+    client.get = AsyncMock(return_value=_response(204))
+    result = json.loads(await github_check_org_membership(token="t", org="acme", username="alice"))
+    _assert_outputs("github.check_org_membership", result)
+    assert (result["member"], result["found"]) == (True, True)
+    assert result["items"] == [{"org": "acme", "username": "alice"}]
+    assert client.get.call_args.args[0] == "https://api.github.com/orgs/acme/members/alice"
+
+    client.get = AsyncMock(return_value=_response(404))
+    result = json.loads(await github_check_org_membership(token="t", org="acme", username="alice"))
+    _assert_outputs("github.check_org_membership", result)
+    assert (result["member"], result["message"]) == (False, "멤버가 아닙니다")
+
+    client.get = AsyncMock(side_effect=[_response(302), _response(204)])
+    result = json.loads(await github_check_org_membership(token="t", org="acme", username="alice"))
+    assert result["member"] is True
+    assert client.get.call_args.args[0] == "https://api.github.com/orgs/acme/public_members/alice"
 
 
 # ---------------------------------------------------------------------------
