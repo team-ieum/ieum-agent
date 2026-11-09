@@ -142,8 +142,9 @@ def test_option_source_fields_fixed_set():
         ("notion.query_database", "database_id"),
         ("notion.create_row", "data_source_id"), ("notion.create_row", "template"),
         ("notion.update_row", "data_source_id"), ("notion.update_row", "row_id"),
-        *[(f"github.{x}", k) for x in ("list_issues", "create_issue") for k in ("owner", "repo")],
-        ("github.new_issue", "repoId"),
+        *[(f"github.{x}", k) for x in ("list_issues", "create_issue", "get_pr_files", "submit_pr_review")
+          for k in ("owner", "repo")],
+        ("github.new_issue", "repoId"), ("github.new_pull_request", "repoId"),
         ("gmail.send_email", "from_email"), ("gmail.send_email", "label_ids"),
     }
     assert got == expected
@@ -249,7 +250,7 @@ EXPECTED_BRANDS = {
     "ai.reasoning": "openai", "ai.agent": "openai",
     "manual.run": "webhook", "schedule.every": "webhook", "schedule.hourly": "webhook", "schedule.daily": "webhook",
     "schedule.weekly": "webhook", "schedule.monthly": "webhook", "webhook.catch": "webhook",
-    "gmail.new_email": "gmail", "github.new_issue": "github",
+    "gmail.new_email": "gmail", "github.new_issue": "github", "github.new_pull_request": "github",
     "gmail.send_email": "gmail",
     "http.request": "webhook", "approval.request": "webhook", "branch.if": "filter", "transform.map": "filter",
     "slack.send_message": "slack", "discord.send_message": "discord",
@@ -266,6 +267,7 @@ EXPECTED_BRANDS = {
     "google_calendar.update": "google", "google_calendar.delete": "google", "google_drive.read": "google",
     "google_drive.upload": "google",
     "github.list_issues": "github", "github.create_issue": "github",
+    "github.get_pr_files": "github", "github.submit_pr_review": "github",
     "formatter.text_case": "filter",
     "formatter.text_trim": "filter",
     "formatter.text_replace": "filter",
