@@ -287,10 +287,11 @@ def _issue_no(value) -> int | None:
 
 def _ref_path(value) -> str | None:
     """브랜치·파일 경로 → URL 경로 조각. `/`는 두고 세그먼트마다 인코딩해 다른 API 경로로 새지 않게 한다."""
-    if not isinstance(value, str):
+    # 제어 문자는 strip 전에 본다 — 앞뒤 `\n`도 거부.
+    if not isinstance(value, str) or _CONTROL_OR_BACKSLASH.search(value):
         return None
     value = value.strip()
-    if not value or len(value) > _MAX_REF_PATH or _CONTROL_OR_BACKSLASH.search(value):
+    if not value or len(value) > _MAX_REF_PATH:
         return None
     segments = value.split("/")
     if any(seg in ("", ".", "..") for seg in segments):
@@ -309,7 +310,9 @@ def _head_ref(value) -> str | None:
     value = value.strip()
     user, sep, branch = value.partition(":")
     if sep:
-        return value if _is_login(user) and _ref_path(branch) is not None else None
+        # 원문을 그대로 보내므로 branch 앞뒤 공백·두 번째 `:`가 있으면 거부한다.
+        ok = _is_login(user) and branch == branch.strip() and ":" not in branch and _ref_path(branch) is not None
+        return value if ok else None
     return value if _ref_path(value) is not None else None
 
 

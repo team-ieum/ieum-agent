@@ -77,7 +77,7 @@ def _assert_outputs(event: str, result: dict) -> None:
 @pytest.mark.parametrize("value, expected", [
     (12, 12), ("12", 12), (" #12 ", 12),
     ("0", None), ("-1", None), ("12.0", None), ("abc", None), ("", None), (None, None), (True, None),
-    ("１２", None),
+    ("１２", None), ("##12", None),
 ])
 def test_issue_no(value, expected):
     assert _issue_no(value) == expected
@@ -94,7 +94,7 @@ def test_ref_path_허용(value, expected):
 
 
 @pytest.mark.parametrize("value", [
-    "../x", "a/../b", "a//b", "/a", "a/", ".", "a\\b", "a\nb", "", "   ", "a" * 1025, None, 3,
+    "../x", "a/../b", "a//b", "/a", "a/", ".", "a\\b", "a\nb", "", "   ", "a" * 1025, None, 3, "\nmain",
 ])
 def test_ref_path_거부(value):
     assert _ref_path(value) is None
@@ -103,6 +103,7 @@ def test_ref_path_거부(value):
 @pytest.mark.parametrize("value, expected", [
     ("feature/x", "feature/x"), ("user:feature/x", "user:feature/x"),
     ("us er:x", None), ("user:../x", None), (":x", None),
+    ("../x", None), ("user: x", None), ("user:a:b", None), ("user:\nx", None),
 ])
 def test_head_ref(value, expected):
     assert _head_ref(value) == expected
@@ -116,7 +117,9 @@ def test_csv():
 def test_found_0건():
     assert json.loads(_found([])) == {
         "success": True, "found": False, "total": 0, "items": [], "message": "결과가 없습니다"}
-    assert json.loads(_found([{"a": 1}]))["message"] == ""
+    found = json.loads(_found([{"a": 1}]))
+    assert found["message"] == ""
+    assert (found["found"], found["total"]) == (True, 1)
 
 
 def test_api_error_403은_권한_승인_안내():
