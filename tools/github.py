@@ -262,7 +262,7 @@ def _to_int(value):
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, str) and value.strip().isdigit():
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
         return int(value.strip())
     return None
 
@@ -290,9 +290,7 @@ def _right_side_lines(patch: str) -> set[int]:
         header = _HUNK_HEADER.match(raw)
         if header:
             new_line = int(header.group(1))
-        elif new_line is None or raw.startswith("-") or raw.startswith("\\"):
-            continue
-        else:
+        elif new_line is not None and raw[:1] in ("+", " "):
             lines.add(new_line)
             new_line += 1
     return lines
@@ -508,6 +506,11 @@ async def github_submit_pr_review(
     if len(valid) > _MAX_REVIEW_COMMENTS:
         warnings.append(f"줄 코멘트는 {_MAX_REVIEW_COMMENTS}개까지라 {len(valid) - _MAX_REVIEW_COMMENTS}개를 버렸습니다.")
         valid = valid[:_MAX_REVIEW_COMMENTS]
+    long_bodies = [c for c in valid if len(c["body"]) > _MAX_REVIEW_BODY]
+    if long_bodies:
+        warnings.append(f"{_MAX_REVIEW_BODY}자를 넘는 줄 코멘트 {len(long_bodies)}개를 잘랐습니다.")
+        for c in long_bodies:
+            c["body"] = c["body"][:_MAX_REVIEW_BODY]
 
     try:
         client = get_http_client()
@@ -539,15 +542,15 @@ async def github_submit_pr_review(
         if moved:
             sections.append("### 다른 줄에 대한 의견\n" + "\n".join(
                 f"- {c['path']}:{c['line']} — {c['body']}" for c in moved))
+
+        # 4. 본문 없는 COMMENT·REQUEST_CHANGES는 GitHub가 거절한다. 안내 문구만 있는 빈 리뷰도 내지 않는다.
+        if not sections and event != "APPROVE":
+            if not inline:
+                return _error("리뷰 내용이 없습니다.")
+            sections.append("IEUM 리뷰")
         if unreadable:
             sections.append("줄 코멘트를 읽지 못했습니다")
         review_body = "\n\n".join(sections)
-
-        # 4. 본문 없는 COMMENT·REQUEST_CHANGES는 GitHub가 거절한다.
-        if not review_body and event != "APPROVE":
-            if not inline:
-                return _error("리뷰 내용이 없습니다.")
-            review_body = "IEUM 리뷰"
         # 5.
         if len(review_body) > _MAX_REVIEW_BODY:
             warnings.append(f"본문이 {_MAX_REVIEW_BODY}자를 넘어 잘랐습니다.")

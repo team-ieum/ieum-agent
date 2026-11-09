@@ -282,6 +282,26 @@ def test_right_side_lines():
     assert _right_side_lines("@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d") == {1, 2, 3}
 
 
+@pytest.mark.parametrize("patch, expected", [
+    ("@@ -10,2 +20,3 @@\n a\n+b\n c\n@@ -50,1 +60,2 @@ def f():\n x\n+y", {20, 21, 22, 60, 61}),
+    ("@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b\n\\ No newline at end of file", {1}),
+    ("@@ -3,2 +2,0 @@\n-a\n-b", set()),
+    ("@@ -0,0 +1 @@\n+a", {1}),
+    ("@@ -1,2 +1,2 @@\n a\n+b\n", {1, 2}),
+])
+def test_right_side_lines_경계(patch, expected):
+    assert _right_side_lines(patch) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pull_number", ["²", "１", "٣"])
+async def test_get_pr_files_비ASCII_숫자는_error(client, pull_number):
+    client.get = AsyncMock()
+    result = json.loads(await github_get_pr_files(token="t", owner="o", repo="r", pull_number=pull_number))
+    assert result == {"error": "pull_number는 양의 정수여야 합니다."}
+    client.get.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # github_submit_pr_review
 # ---------------------------------------------------------------------------
@@ -469,6 +489,39 @@ async def test_submit_review_본문_상한(client):
 
     assert len(_posted(client)["body"]) == 65536
     assert len(result["warnings"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_review_본문없고_comments_못읽으면_error(client):
+    _review_client(client)
+
+    result = await _submit(body="", comments="JSON 아님")
+
+    assert result == {"error": "리뷰 내용이 없습니다."}
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_submit_review_줄코멘트_본문_상한(client):
+    _review_client(client)
+
+    result = await _submit(body="총평", comments=[{"path": "a.py", "line": 1, "body": "y" * 70000}])
+
+    assert len(_posted(client)["comments"][0]["body"]) == 65536
+    assert len(result["warnings"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_review_옮긴_코멘트로_본문_상한(client):
+    _review_client(client)
+
+    result = await _submit(body="x" * 60000, comments=[
+        {"path": "없는.py", "line": 1, "body": "z" * 10000},
+    ])
+
+    assert result["moved_comments"] == 1
+    assert len(_posted(client)["body"]) <= 65536
+    assert any("65536" in w for w in result["warnings"])
 
 
 @pytest.mark.asyncio
