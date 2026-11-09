@@ -4,7 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tests.action_outputs import assert_matches_outputs
-from tools.github import _right_side_lines, github_create_issue, github_get_pr_files, github_list_issues
+from tools.github import (
+    _right_side_lines,
+    github_create_issue,
+    github_get_pr_files,
+    github_list_issues,
+    github_submit_pr_review,
+)
 
 
 def _response(status_code: int, data: dict | None = None, text: str = "") -> MagicMock:
@@ -274,3 +280,204 @@ async def test_get_pr_files_api_오류(client):
 
 def test_right_side_lines():
     assert _right_side_lines("@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d") == {1, 2, 3}
+
+
+# ---------------------------------------------------------------------------
+# github_submit_pr_review
+# ---------------------------------------------------------------------------
+
+_PATCH = "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d"  # a.py 오른쪽 줄 {1, 2, 3}
+
+
+def _review_client(client, *, me: str = "me-login", pr_author: str = "other", files=None):
+    """GET user·pulls/{n}·pulls/{n}/files, POST reviews(200)를 흉내 낸다."""
+    files = [_pr_file("a.py", _PATCH)] if files is None else files
+
+    async def get(url, **kwargs):
+        if url.endswith("/user"):
+            return _response(200, {"login": me})
+        if url.endswith("/files"):
+            return _response(200, files if kwargs["params"]["page"] == 1 else [])
+        return _response(200, {"head": {"sha": "abc"}, "user": {"login": pr_author}})
+
+    client.get = AsyncMock(side_effect=get)
+    client.post = AsyncMock(return_value=_response(200, {
+        "id": 77, "html_url": "https://github.com/o/r/pull/5#pullrequestreview-77", "state": "COMMENTED",
+    }))
+
+
+def _posted(client) -> dict:
+    return client.post.call_args.kwargs["json"]
+
+
+def _get_urls(client) -> list[str]:
+    return [c.args[0] for c in client.get.call_args_list]
+
+
+async def _submit(**kwargs) -> dict:
+    return json.loads(await github_submit_pr_review(token="t", owner="o", repo="r", pull_number=5, **kwargs))
+
+
+@pytest.mark.asyncio
+async def test_submit_review_줄코멘트_범위_안(client):
+    _review_client(client)
+
+    result = await _submit(body="총평", comments=[{"path": "a.py", "line": 2, "body": "여기"}])
+
+    assert_matches_outputs("github.submit_pr_review", result)
+    assert client.post.call_args.args[0] == "https://api.github.com/repos/o/r/pulls/5/reviews"
+    assert _posted(client)["comments"][0] == {"path": "a.py", "line": 2, "side": "RIGHT", "body": "여기"}
+    assert _posted(client)["event"] == "COMMENT" and _posted(client)["body"] == "총평"
+    assert result["posted_comments"] == 1
+    assert result == {"success": True, "review_id": 77, "url": "https://github.com/o/r/pull/5#pullrequestreview-77",
+                      "state": "COMMENTED", "posted_comments": 1, "moved_comments": 0, "warnings": []}
+
+
+@pytest.mark.asyncio
+async def test_submit_review_범위_밖은_본문으로(client):
+    _review_client(client)
+
+    result = await _submit(body="총평", comments=[
+        {"path": "없는.py", "line": 1, "body": "파일 없음"},
+        {"path": "a.py", "line": 9, "body": "줄 없음"},
+    ])
+
+    assert_matches_outputs("github.submit_pr_review", result)
+    assert _posted(client)["comments"] == []
+    body = _posted(client)["body"]
+    assert body.startswith("총평")
+    section = body[body.index("다른 줄에 대한 의견"):]
+    assert "없는.py:1 — 파일 없음" in section and "a.py:9 — 줄 없음" in section
+    assert result["moved_comments"] == 2 and result["posted_comments"] == 0
+
+
+@pytest.mark.asyncio
+async def test_submit_review_comments_펜스_문자열(client):
+    _review_client(client)
+
+    result = await _submit(
+        body="총평", comments='```json\n[{"path": "a.py", "line": 1, "body": "펜스"}]\n```')
+
+    assert result["posted_comments"] == 1
+    assert _posted(client)["comments"][0]["body"] == "펜스"
+    assert result["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_submit_review_comments_못읽으면_본문만(client):
+    _review_client(client)
+
+    result = await _submit(body="총평", comments="이건 JSON 아님")
+
+    assert "error" not in result
+    assert _posted(client)["comments"] == []
+    assert _posted(client)["body"].endswith("줄 코멘트를 읽지 못했습니다")
+    assert len(result["warnings"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_review_형식틀린_항목_버림(client):
+    _review_client(client)
+
+    result = await _submit(body="총평", comments=[
+        {"path": "a.py", "line": 0, "body": "줄 0"},
+        {"path": "a.py", "line": 1, "body": ""},
+        {"path": "a.py", "line": 1, "body": "정상"},
+    ])
+
+    assert [c["body"] for c in _posted(client)["comments"]] == ["정상"]
+    assert len(result["warnings"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_review_50개_초과_버림(client):
+    _review_client(client)
+
+    result = await _submit(body="총평", comments=[{"path": "a.py", "line": 1, "body": f"c{i}"} for i in range(55)])
+
+    assert len(_posted(client)["comments"]) == 50
+    assert result["posted_comments"] == 50
+    assert len(result["warnings"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_review_me_내PR_승인은_코멘트로(client):
+    _review_client(client, me="hodoon", pr_author="hodoon")
+
+    result = await _submit(author="me", event="APPROVE", body="좋아요")
+
+    assert "https://api.github.com/user" in _get_urls(client)
+    assert _posted(client)["event"] == "COMMENT"
+    assert len(result["warnings"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_review_bot은_GET_user_안부름(client):
+    _review_client(client)
+
+    await _submit(event="APPROVE", body="좋아요")
+
+    assert "https://api.github.com/user" not in _get_urls(client)
+    assert _posted(client)["event"] == "APPROVE"
+
+
+@pytest.mark.asyncio
+async def test_submit_review_본문없고_코멘트없으면_error(client):
+    _review_client(client)
+
+    result = await _submit()
+
+    assert result == {"error": "리뷰 내용이 없습니다."}
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_submit_review_본문없고_코멘트있으면_IEUM_리뷰(client):
+    _review_client(client)
+
+    await _submit(comments=[{"path": "a.py", "line": 1, "body": "여기"}])
+
+    assert _posted(client)["body"] == "IEUM 리뷰"
+
+
+@pytest.mark.asyncio
+async def test_submit_review_commit_id_전달(client):
+    _review_client(client)
+    await _submit(body="총평", commit_id="abc123")
+    assert _posted(client)["commit_id"] == "abc123"
+
+    _review_client(client)
+    await _submit(body="총평")
+    assert "commit_id" not in _posted(client)
+
+
+@pytest.mark.asyncio
+async def test_submit_review_event_선택지_밖이면_error(client):
+    _review_client(client)
+
+    result = await _submit(event="DISMISS", body="총평")
+
+    assert "error" in result
+    client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_submit_review_본문_상한(client):
+    _review_client(client)
+
+    result = await _submit(body="x" * 70000)
+
+    assert len(_posted(client)["body"]) == 65536
+    assert len(result["warnings"]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner, repo, pull_number", [("a/b", "r", 1), ("o", "r/../x", 1), ("o", "r", 0)])
+async def test_submit_review_owner_형식_오류(client, owner, repo, pull_number):
+    client.get = AsyncMock()
+    client.post = AsyncMock()
+    result = json.loads(await github_submit_pr_review(
+        token="t", owner=owner, repo=repo, pull_number=pull_number, body="총평"))
+    assert "error" in result
+    client.get.assert_not_called()
+    client.post.assert_not_called()

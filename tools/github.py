@@ -298,6 +298,28 @@ def _right_side_lines(patch: str) -> set[int]:
     return lines
 
 
+async def _fetch_pr_files(client, token: str, pr_url: str):
+    """PR 파일 목록(최대 10페이지). (files, truncated, error JSON 또는 None)."""
+    files: list[dict] = []
+    for page in range(1, _MAX_FILE_PAGES + 1):
+        response = await client.get(
+            f"{pr_url}/files",
+            headers=_headers(token),
+            params={"per_page": 100, "page": page},
+            timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return files, False, json.dumps(
+                {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
+                ensure_ascii=False,
+            )
+        batch = response.json()
+        files.extend(batch)
+        if len(batch) < 100:
+            return files, False, None
+    return files, True, None
+
+
 async def github_get_pr_files(
     token: str,
     owner: str,
@@ -344,26 +366,9 @@ async def github_get_pr_files(
             )
         head_sha = response.json()["head"]["sha"]
 
-        files: list[dict] = []
-        truncated = False
-        for page in range(1, _MAX_FILE_PAGES + 1):
-            response = await client.get(
-                f"{pr_url}/files",
-                headers=_headers(token),
-                params={"per_page": 100, "page": page},
-                timeout=_TIMEOUT,
-            )
-            if response.status_code != 200:
-                return json.dumps(
-                    {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
-                    ensure_ascii=False,
-                )
-            batch = response.json()
-            files.extend(batch)
-            if len(batch) < 100:
-                break
-        else:
-            truncated = True
+        files, truncated, error = await _fetch_pr_files(client, token, pr_url)
+        if error:
+            return error
 
         # 처리 순서: 경로 필터 → max_files → diff 누적(넘친 파일부터 max_diff).
         skipped: list[dict] = []
@@ -406,4 +411,172 @@ async def github_get_pr_files(
         )
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+_REVIEW_EVENTS = ("COMMENT", "APPROVE", "REQUEST_CHANGES")
+_MAX_REVIEW_COMMENTS = 50
+_MAX_REVIEW_BODY = 65536
+_CODE_FENCE = re.compile(r"```[A-Za-z]*")
+
+
+def _error(message: str) -> str:
+    return json.dumps({"error": message}, ensure_ascii=False)
+
+
+def _api_error(response) -> str:
+    return _error(f"GitHub API 오류 ({response.status_code}): {response.text}")
+
+
+def _parse_comments(value):
+    """줄 코멘트 목록. AI 출력은 JSON 문자열에 코드 펜스·설명이 붙어 오기 쉽다. 못 읽으면 None."""
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        text = _CODE_FENCE.sub("", value)
+        start, end = text.find("["), text.rfind("]")
+        try:
+            parsed = json.loads(text[start:end + 1]) if 0 <= start < end else None
+        except json.JSONDecodeError:
+            parsed = None
+    return parsed if isinstance(parsed, list) else None
+
+
+def _valid_comment(c) -> dict | None:
+    if not isinstance(c, dict):
+        return None
+    path, line, body = c.get("path"), _to_int(c.get("line")), c.get("body")
+    if not (isinstance(path, str) and path and line and line > 0 and isinstance(body, str) and body.strip()):
+        return None
+    return {"path": path, "line": line, "body": body}
+
+
+async def github_submit_pr_review(
+    token: str,
+    owner: str,
+    repo: str,
+    pull_number: int,
+    author: str = "bot",
+    event: str = "COMMENT",
+    body: str = "",
+    comments=None,
+    commit_id: str = "",
+) -> str:
+    """
+    GitHub PR에 리뷰(본문·줄 코멘트)를 제출합니다. 되돌릴 수 없는 쓰기라 ACTION 노드에서만 씁니다.
+
+    Args:
+        token: GitHub access token (author=bot이면 BE가 봇 설치 토큰을 싣는다)
+        owner: 레포지토리 소유자 (조직 또는 사용자 이름)
+        repo: 레포지토리 이름
+        pull_number: PR 번호
+        author: 리뷰 작성자 (bot | me, 기본값: bot)
+        event: 리뷰 결과 (COMMENT | APPROVE | REQUEST_CHANGES, 기본값: COMMENT)
+        body: 리뷰 본문
+        comments: 줄 코멘트 목록 [{path, line, body}] 또는 그 JSON 문자열
+        commit_id: 리뷰할 커밋 SHA (비우면 최신 head)
+
+    Returns:
+        review_id, url, state, posted_comments, moved_comments, warnings를 포함한 JSON 문자열
+    """
+    number = _to_int(pull_number)
+    if not (_is_path_name(owner) and _is_path_name(repo)):
+        return _error("owner/repo 형식이 올바르지 않습니다.")
+    if number is None or number < 1:
+        return _error("pull_number는 양의 정수여야 합니다.")
+    if author not in ("bot", "me"):
+        return _error("author는 bot 또는 me여야 합니다.")
+    if event not in _REVIEW_EVENTS:
+        return _error(f"event는 {', '.join(_REVIEW_EVENTS)} 중 하나여야 합니다.")
+    body = body if isinstance(body, str) else ""
+    warnings: list[str] = []
+
+    # 0~1. 줄 코멘트 파싱·검사
+    parsed = _parse_comments(comments)
+    unreadable = parsed is None
+    if unreadable:
+        warnings.append("줄 코멘트를 읽지 못해 본문만 제출했습니다.")
+        parsed = []
+    valid = [v for v in map(_valid_comment, parsed) if v]
+    if len(valid) < len(parsed):
+        warnings.append(f"형식이 틀린 줄 코멘트 {len(parsed) - len(valid)}개를 버렸습니다.")
+    if len(valid) > _MAX_REVIEW_COMMENTS:
+        warnings.append(f"줄 코멘트는 {_MAX_REVIEW_COMMENTS}개까지라 {len(valid) - _MAX_REVIEW_COMMENTS}개를 버렸습니다.")
+        valid = valid[:_MAX_REVIEW_COMMENTS]
+
+    try:
+        client = get_http_client()
+        pr_url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{number}"
+
+        # 2. patch 오른쪽 줄 밖 코멘트는 본문으로 — 하나라도 범위 밖이면 리뷰 전체가 422다.
+        inline, moved = [], []
+        if valid:
+            files, _, error = await _fetch_pr_files(client, token, pr_url)
+            if error:
+                return error
+            ranges = {f["filename"]: _right_side_lines(f["patch"]) for f in files if f.get("patch")}
+            for c in valid:
+                (inline if c["line"] in ranges.get(c["path"], set()) else moved).append(c)
+
+        # 3. 자기 PR은 승인·변경 요청을 못 한다(422) → 코멘트로 낮춘다.
+        if author == "me" and event != "COMMENT":
+            me = await client.get(f"{_GITHUB_API_BASE}/user", headers=_headers(token), timeout=_TIMEOUT)
+            if me.status_code != 200:
+                return _api_error(me)
+            pr = await client.get(pr_url, headers=_headers(token), timeout=_TIMEOUT)
+            if pr.status_code != 200:
+                return _api_error(pr)
+            if me.json().get("login") == (pr.json().get("user") or {}).get("login"):
+                warnings.append(f"자기 PR에는 {event}를 할 수 없어 코멘트로 제출했습니다.")
+                event = "COMMENT"
+
+        sections = [body] if body.strip() else []
+        if moved:
+            sections.append("### 다른 줄에 대한 의견\n" + "\n".join(
+                f"- {c['path']}:{c['line']} — {c['body']}" for c in moved))
+        if unreadable:
+            sections.append("줄 코멘트를 읽지 못했습니다")
+        review_body = "\n\n".join(sections)
+
+        # 4. 본문 없는 COMMENT·REQUEST_CHANGES는 GitHub가 거절한다.
+        if not review_body and event != "APPROVE":
+            if not inline:
+                return _error("리뷰 내용이 없습니다.")
+            review_body = "IEUM 리뷰"
+        # 5.
+        if len(review_body) > _MAX_REVIEW_BODY:
+            warnings.append(f"본문이 {_MAX_REVIEW_BODY}자를 넘어 잘랐습니다.")
+            review_body = review_body[:_MAX_REVIEW_BODY]
+
+        # 6.
+        payload = {
+            "event": event,
+            "body": review_body,
+            "comments": [{"path": c["path"], "line": c["line"], "side": "RIGHT", "body": c["body"]} for c in inline],
+        }
+        if isinstance(commit_id, str) and commit_id.strip():
+            payload["commit_id"] = commit_id.strip()
+        response = await client.post(f"{pr_url}/reviews", headers=_headers(token), json=payload, timeout=_TIMEOUT)
+        if response.status_code != 200:
+            return _api_error(response)
+        review = response.json()
+        return json.dumps(
+            {
+                "success": True,
+                "review_id": review["id"],
+                "url": review["html_url"],
+                "state": review["state"],
+                "posted_comments": len(inline),
+                "moved_comments": len(moved),
+                "warnings": warnings,
+            },
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        return _error(str(e))
 
