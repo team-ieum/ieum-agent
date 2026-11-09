@@ -661,6 +661,7 @@ FIXED_NODE_REQUIRED = {
     # ai.agent fixed(tools [], agentType react)는 AI라 프리셋 match를 보고 ai.github_query가 된다 — 도구를 고르기 전 모양
     "ai.agent": ["config.llmProvider", "config.prompt"],
     "approval.request": [],
+    "approval.collect": ["config.fields"],
     "branch.if": ["config.left", "config.operator", "config.right"],
     "http.request": ["config.url"],
     "transform.map": ["config.mappings"],
@@ -897,7 +898,7 @@ def test_formatter_노드_input_비면_REQUIRED():
         ("REF_UNKNOWN_NODE", "f", "config.input")]
 
 
-# ── 사람 확인(APPROVAL) 목록 칸 — _approval_errors 직접 호출(approval.collect는 Part Z 전까지 agent 카탈로그에 없다) ──
+# ── 사람 확인(APPROVAL) 목록 칸 — _approval_errors 직접 호출 ──
 
 def _appr(event="approval.request", nid="p", **config):
     return {"id": nid, "type": "APPROVAL", "event": event, "config": config}
@@ -963,3 +964,19 @@ def test_approval_정상_에러없음():
     assert _approval_errors(_appr(items=items), "p") == []
     assert _approval_errors(_appr(None, items=items), "p") == []
     assert _approval_errors(_appr("approval.collect", fields=fields), "p") == []
+
+
+# ── field_errors 경로 — 카탈로그 칸 검사(_check)와 APPROVAL 훅이 함께 돈다 ──
+
+def test_approval_collect_정적검증_연결():
+    fields = [{"key": f"k{i}", "label": "칸", "type": "short"} for i in range(20)] + [{"key": "", "type": "nope"}]
+    assert _codes(field_errors(_appr("approval.collect", fields=fields))) == [("TOO_LARGE", "p", "config.fields")]
+
+
+def test_approval_빈_key는_REQUIRED():
+    assert _codes(field_errors(_appr(items=[{"key": "", "value": "v"}]))) == [("REQUIRED", "p", "config.items.0.key")]
+
+
+def test_approval_상한밖_원소는_칸검사_안함():
+    items = [{"key": f"k{i}", "value": "v"} for i in range(20)] + [{"key": "", "value": "v"}]
+    assert _codes(field_errors(_appr(items=items))) == [("TOO_LARGE", "p", "config.items")]

@@ -36,6 +36,7 @@ def test_그_밖은_other(text):
     ("branch.if", "free"),
     ("transform.map", "free"),
     ("approval.request", "free"),
+    ("approval.collect", "free"),
     ("webhook.catch", "listen"),
 ])
 def test_테스트_판정(event, kind):

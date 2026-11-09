@@ -23,7 +23,9 @@ def _keys(tid):
     ("http.request", ["statusCode", "body"]),
     ("branch.if", ["branch", "branches", "matched", "result"]),
     ("transform.map", []),
-    ("approval.request", ["approved", "approvedBy", "approvedAt"]),
+    ("approval.request", ["approved", "decision", "approvedBy", "approvedAt", "reviewer", "note", "content",
+                          "rejectedBy", "reason"]),
+    ("approval.collect", ["decision", "approvedBy", "approvedAt", "reviewer", "note", "values"]),
     ("ai.reasoning", ["output"]),
     ("ai.mcp", ["output"]),
 ])
