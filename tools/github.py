@@ -274,7 +274,6 @@ def _to_int(value):
 
 
 _MAX_ITEMS = 100
-_MAX_TEXT = 10_000
 
 
 def _issue_no(value) -> int | None:
@@ -717,6 +716,13 @@ def _dropped(sent: dict, issue: dict) -> list[str]:
     return warnings
 
 
+def _same_title(a, b) -> bool:
+    """앞뒤 공백 정리·연속 공백 하나로·대소문자 무시."""
+    def norm(s) -> str:
+        return " ".join(str(s or "").split()).casefold()
+    return norm(a) == norm(b)
+
+
 def _issue_item(issue: dict) -> dict:
     return {
         "number": issue["number"],
@@ -1030,9 +1036,14 @@ async def github_find_or_create_issue(
         return _error("title을 입력해 주세요.")
     try:
         client = get_http_client()
-        items, error = await _find_issues(client, token, owner, repo, search_by, value, state, 1)
+        # 제목 검색(`in:title`)은 토큰 일치라 부분 일치 이슈가 걸린다 → 여러 건 받아 제목 완전 일치만 남긴다.
+        by_title = search_by == "title"
+        items, error = await _find_issues(
+            client, token, owner, repo, search_by, value, state, _MAX_ITEMS if by_title else 1)
         if error:
             return error
+        if by_title:
+            items = [i for i in items if _same_title(i["title"], value)]
         if items:
             found = items[0]
             return json.dumps(
@@ -1060,7 +1071,13 @@ _PR_SEARCH_BY = ("number", "branch", "title", "body", "author")
 _PR_NUMBER_ERROR = "pull_number는 양의 정수여야 합니다."
 _REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED")
 _AUTHOR_TYPES = ("human", "bot", "all")
-_MAX_REVIEW_COMMENTS_OUT = 300
+# get_pr_reviews 출력 상한(2026-11-09 최종 리뷰 결정) — BE 응답 상한(4MB) 안에 들고 뒤 AI 노드 컨텍스트로 들어간다.
+_REVIEW_DECISIONS = ("APPROVED", "CHANGES_REQUESTED")
+_MAX_REVIEWS_OUT = 50
+_MAX_REVIEW_TEXT = 2_000
+_MAX_REVIEW_COMMENTS_OUT = 100
+_MAX_COMMENT_TEXT = 1_000
+_MAX_REVIEW_TEXT_TOTAL = 150_000
 
 
 def _pr_item(pr: dict) -> dict:
@@ -1397,7 +1414,7 @@ async def github_get_pr_reviews(
         author_type: 작성자 종류 (human | bot | all, 기본값: all)
 
     Returns:
-        found, total, items, comments, approved_count, changes_requested_count, message를 포함한 JSON 문자열
+        found, total, items, comments, approved_count, changes_requested_count, message, truncated를 포함한 JSON 문자열
     """
     if not (_is_path_name(owner) and _is_path_name(repo)):
         return _error("owner/repo 형식이 올바르지 않습니다.")
@@ -1417,50 +1434,87 @@ async def github_get_pr_reviews(
     try:
         client = get_http_client()
         pr_url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{number}"
-        reviews, _, error = await _fetch_pages(client, token, f"{pr_url}/reviews")
+        reviews, truncated, error = await _fetch_pages(client, token, f"{pr_url}/reviews")
         if error:
             return error
         comments: list[dict] = []
         if include_comments:
-            comments, _, error = await _fetch_pages(client, token, f"{pr_url}/comments")
+            comments, more, error = await _fetch_recent_comments(client, token, pr_url, kept)
             if error:
                 return error
+            truncated = truncated or more
 
-        # 수치는 필터 뒤·자르기 전 기준. PENDING은 아직 제출 전인 리뷰라 뺀다.
-        picked = [
-            r for r in reviews
-            if r.get("state") != "PENDING" and (not wanted or r.get("state") in wanted) and kept(r.get("user"))
-        ]
+        # PENDING은 아직 제출 전인 리뷰라 뺀다. GitHub 응답은 오래된 것부터.
+        submitted = [r for r in reviews if r.get("state") != "PENDING" and kept(r.get("user"))]
+        # GitHub PR 화면처럼 리뷰어마다 마지막 결정 하나로 센다(states 필터·자르기 전 전체 기준).
+        decisions = {
+            (r.get("user") or {}).get("login"): r["state"] for r in submitted if r.get("state") in _REVIEW_DECISIONS
+        }
+        picked = [r for r in reversed(submitted) if not wanted or r.get("state") in wanted]  # 최신 우선
+        truncated = truncated or len(picked) > _MAX_REVIEWS_OUT
+
+        budget = _MAX_REVIEW_TEXT_TOTAL
+
+        def cut(text, limit: int) -> str:
+            nonlocal budget, truncated
+            text = text or ""
+            out = text[:min(limit, budget)]
+            budget -= len(out)
+            truncated = truncated or len(out) < len(text)
+            return out
+
         items = [
             {
                 "id": r.get("id"),
                 "author": (r.get("user") or {}).get("login"),
                 "author_type": _author_type(r.get("user")),
                 "state": r.get("state"),
-                "body": (r.get("body") or "")[:_MAX_TEXT],
+                "body": cut(r.get("body"), _MAX_REVIEW_TEXT),
                 "submitted_at": r.get("submitted_at"),
                 "commit_id": r.get("commit_id"),
             }
-            for r in picked[:_MAX_ITEMS]
+            for r in picked[:_MAX_REVIEWS_OUT]
         ]
         out_comments = [
             {
                 "path": c.get("path"),
                 "line": c.get("line") if c.get("line") is not None else c.get("original_line"),
-                "body": (c.get("body") or "")[:_MAX_TEXT],
+                "body": cut(c.get("body"), _MAX_COMMENT_TEXT),
                 "author": (c.get("user") or {}).get("login"),
                 "created_at": c.get("created_at"),
             }
-            for c in comments if kept(c.get("user"))
-        ][:_MAX_REVIEW_COMMENTS_OUT]
+            for c in comments
+        ]
         return _found(
             items,
             comments=out_comments,
-            approved_count=sum(r.get("state") == "APPROVED" for r in picked),
-            changes_requested_count=sum(r.get("state") == "CHANGES_REQUESTED" for r in picked),
+            approved_count=sum(s == "APPROVED" for s in decisions.values()),
+            changes_requested_count=sum(s == "CHANGES_REQUESTED" for s in decisions.values()),
+            truncated=truncated,
         )
     except Exception as e:
         return _error(str(e))
+
+
+async def _fetch_recent_comments(client, token: str, pr_url: str, kept) -> tuple[list[dict], bool, str | None]:
+    """줄 코멘트를 최신순으로 받아 `kept`를 통과한 것이 100개 모이면 멈춘다. (comments, 더 있을 수 있음, error)."""
+    comments: list[dict] = []
+    batch: list = []
+    for page in range(1, _MAX_FILE_PAGES + 1):
+        response = await client.get(
+            f"{pr_url}/comments",
+            headers=_headers(token),
+            params={"per_page": 100, "page": page, "sort": "created", "direction": "desc"},
+            timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return [], False, _api_error(response)
+        batch = response.json()
+        comments.extend(c for c in batch if kept(c.get("user")))
+        if len(comments) >= _MAX_REVIEW_COMMENTS_OUT or len(batch) < 100:
+            break
+    more = len(comments) > _MAX_REVIEW_COMMENTS_OUT or len(batch) == 100
+    return comments[:_MAX_REVIEW_COMMENTS_OUT], more, None
 
 
 # ---------------------------------------------------------------------------
@@ -1505,9 +1559,10 @@ async def github_find_branch(token: str, owner: str, repo: str, branch: str = ""
         return _error("owner/repo 형식이 올바르지 않습니다.")
     branch_path = None
     if _text(branch):
-        branch_path = _ref_path(branch)
-        if branch_path is None:
+        if _ref_path(branch) is None:
             return _error("브랜치 형식이 올바르지 않습니다.")
+        # 이름 전체를 한 조각으로 — `/`가 남으면 …/branches/main/protection 같은 하위 API로 닿는다.
+        branch_path = quote(branch.strip(), safe="")
     url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/branches"
     try:
         if branch_path is None:

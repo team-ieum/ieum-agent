@@ -66,7 +66,7 @@ _OUTPUT_KEYS: dict[str, set[str]] = {
     "github.find_pull_request": {"found", "total", "items", "message"},
     "github.find_or_create_pull_request": {"created", "number", "url", "title", "state", "draft"},
     "github.get_pr_reviews": {"found", "total", "items", "comments", "approved_count", "changes_requested_count",
-                              "message"},
+                              "message", "truncated"},
     "github.find_branch": {"found", "total", "items", "message"},
     "github.get_file": {"found", "total", "items", "message"},
     "github.find_repo": {"found", "total", "items", "message"},
@@ -369,12 +369,34 @@ async def test_find_or_create_issue_있으면_만들지_않는다(client):
     client.get = AsyncMock(return_value=_response(200, {"items": [_issue(4)]}))
     client.post = AsyncMock()
     result = json.loads(await github_find_or_create_issue(
-        token="t", owner="o", repo="r", search_by="title", value="이슈", title="이슈"))
+        token="t", owner="o", repo="r", search_by="title", value="이슈 4", title="이슈 4"))
     _assert_outputs("github.find_or_create_issue", result)
     assert result["created"] is False
     assert result["number"] == 4
     assert result["warnings"] == []
     client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_issue_제목은_완전_일치만(client):
+    """`in:title`은 토큰 일치라 부분 일치 이슈가 걸린다 — 제목 완전 일치만 '있음'으로 본다."""
+    client.get = AsyncMock(return_value=_response(200, {"items": [
+        {**_issue(4), "title": "로그인 화면 오류 수정"},
+        {**_issue(5), "title": "  Login   Error "},
+    ]}))
+    client.post = AsyncMock()
+    result = json.loads(await github_find_or_create_issue(
+        token="t", owner="o", repo="r", search_by="title", value="login error", title="login error"))
+    assert (result["created"], result["number"]) == (False, 5)
+    client.post.assert_not_called()
+
+    client.get = AsyncMock(return_value=_response(200, {"items": [{**_issue(4), "title": "로그인 화면 오류 수정"}]}))
+    client.post = AsyncMock(return_value=_response(201, {
+        "number": 9, "title": "로그인 오류", "state": "open", "html_url": "u"}))
+    result = json.loads(await github_find_or_create_issue(
+        token="t", owner="o", repo="r", search_by="title", value="로그인 오류", title="로그인 오류"))
+    assert (result["created"], result["number"]) == (True, 9)
+    client.post.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -563,17 +585,28 @@ async def test_find_pull_request_state_빈값은_open(client, state):
     assert client.get.call_args.kwargs["params"]["state"] == "open"
 
 
-def _review(review_id: int, state: str, user_type: str = "User", body: str = "b") -> dict:
-    return {"id": review_id, "state": state, "body": body, "user": {"login": f"u{review_id}", "type": user_type},
+def _review(review_id: int, state: str, user_type: str = "User", body: str = "b", login: str | None = None) -> dict:
+    return {"id": review_id, "state": state, "body": body,
+            "user": {"login": login or f"u{review_id}", "type": user_type},
             "submitted_at": "2026-11-02T00:00:00Z", "commit_id": "abc"}
 
 
+def _comment(n: int, body: str = "c", user_type: str = "User") -> dict:
+    return {"path": f"f{n}.py", "line": n, "body": body, "user": {"login": f"c{n}", "type": user_type},
+            "created_at": "2026-11-02T00:00:00Z"}
+
+
 def _reviews_client(client, reviews: list, comments: list = ()) -> None:
+    """reviews는 GitHub처럼 오래된 것부터, comments는 최신순 요청(sort=created&direction=desc) 결과로 준다."""
     def get(url, **kwargs):
         page = kwargs["params"]["page"]
         data = reviews if url.endswith("/reviews") else list(comments)
         return _response(200, data[(page - 1) * 100: page * 100])
     client.get = AsyncMock(side_effect=get)
+
+
+def _comment_gets(client) -> list:
+    return [c for c in client.get.call_args_list if c.args[0].endswith("/comments")]
 
 
 @pytest.mark.asyncio
@@ -588,11 +621,51 @@ async def test_get_pr_reviews_필터와_수치(client):
     ])
     result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3", author_type="human"))
     _assert_outputs("github.get_pr_reviews", result)
-    assert [i["id"] for i in result["items"]] == [1, 3]
+    assert [i["id"] for i in result["items"]] == [3, 1]  # 최신 우선
     assert set(result["items"][0]) == {"id", "author", "author_type", "state", "body", "submitted_at", "commit_id"}
     assert (result["approved_count"], result["changes_requested_count"]) == (1, 1)
     assert result["comments"] == [
         {"path": "a.py", "line": 4, "body": "c", "author": "u1", "created_at": "2026-11-02T00:00:00Z"}]
+    assert result["truncated"] is False
+    params = _comment_gets(client)[0].kwargs["params"]
+    assert (params["sort"], params["direction"]) == ("created", "desc")
+
+
+@pytest.mark.asyncio
+async def test_get_pr_reviews_리뷰어별_마지막_결정(client):
+    """GitHub PR 화면처럼 리뷰어마다 마지막 APPROVED|CHANGES_REQUESTED 하나로 센다. COMMENTED는 결정을 바꾸지 않는다."""
+    _reviews_client(client, [
+        _review(1, "APPROVED", login="alice"),
+        _review(2, "CHANGES_REQUESTED", login="alice"),
+        _review(3, "COMMENTED", login="alice"),
+    ])
+    result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3"))
+    assert (result["approved_count"], result["changes_requested_count"]) == (0, 1)
+
+
+@pytest.mark.asyncio
+async def test_get_pr_reviews_본문_합계_상한(client):
+    reviews = [_review(i, "COMMENTED", body="r" * 5_000) for i in range(50)]
+    comments = [_comment(i, body="c" * 5_000) for i in range(100)]
+    _reviews_client(client, reviews, comments)
+    result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3"))
+    _assert_outputs("github.get_pr_reviews", result)
+    assert {len(i["body"]) for i in result["items"]} == {2_000}
+    assert len(result["comments"]) == 100
+    assert all(len(c["body"]) <= 1_000 for c in result["comments"])
+    total = sum(len(i["body"]) for i in result["items"]) + sum(len(c["body"]) for c in result["comments"])
+    assert total == 150_000
+    assert result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_pr_reviews_코멘트_100개면_페이지_중단(client):
+    _reviews_client(client, [_review(1, "COMMENTED")], [_comment(i) for i in range(250)])
+    result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3"))
+    assert [c["path"] for c in result["comments"]][:2] == ["f0.py", "f1.py"]  # 받은 최신순 그대로
+    assert len(result["comments"]) == 100
+    assert len(_comment_gets(client)) == 1
+    assert result["truncated"] is True
 
 
 @pytest.mark.asyncio
@@ -611,14 +684,15 @@ async def test_get_pr_reviews_상태_필터(client):
 
 @pytest.mark.asyncio
 async def test_get_pr_reviews_상한(client):
-    reviews = [_review(i, "APPROVED", body="x" * 20_000 if i == 0 else "b") for i in range(150)]
+    reviews = [_review(i, "APPROVED", body="x" * 20_000 if i == 149 else "b") for i in range(150)]
     _reviews_client(client, reviews)
     result = json.loads(await github_get_pr_reviews(
         token="t", owner="o", repo="r", pull_number="3", include_comments=False))
     _assert_outputs("github.get_pr_reviews", result)
-    assert len(result["items"]) == 100
-    assert result["approved_count"] == 150
-    assert len(result["items"][0]["body"]) == 10_000
+    assert [i["id"] for i in result["items"]] == list(range(149, 99, -1))  # 최신 50개, 최신 우선
+    assert result["approved_count"] == 150  # 수치는 자르기 전 전체 기준
+    assert len(result["items"][0]["body"]) == 2_000
+    assert result["truncated"] is True
     assert result["comments"] == []
     assert all(c.args[0].endswith("/reviews") for c in client.get.call_args_list)
     assert client.get.call_count == 2
@@ -657,8 +731,12 @@ async def test_find_branch_목록과_단건(client):
     client.get = AsyncMock(return_value=_response(200, _branch("feature/a b")))
     result = json.loads(await github_find_branch(token="t", owner="o", repo="r", branch="feature/a b"))
     _assert_outputs("github.find_branch", result)
-    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/branches/feature/a%20b"
+    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/branches/feature%2Fa%20b"
     assert result["total"] == 1
+
+    # `/`가 경로 구분자로 남으면 브랜치 보호(…/branches/main/protection) 같은 하위 API로 닿는다.
+    await github_find_branch(token="t", owner="o", repo="r", branch="main/protection")
+    assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/branches/main%2Fprotection"
 
     client.get = AsyncMock(return_value=_response(404, text="Not Found"))
     assert json.loads(await github_find_branch(token="t", owner="o", repo="r", branch="x")) == _EMPTY
