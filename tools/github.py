@@ -108,7 +108,16 @@ async def github_list_issues(token: str, owner: str, repo: str, state: str = "op
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
-async def github_create_issue(token: str, owner: str, repo: str, title: str, body: str = "") -> str:
+async def github_create_issue(
+    token: str,
+    owner: str,
+    repo: str,
+    title: str,
+    body: str = "",
+    labels: str = "",
+    assignees: str = "",
+    milestone: str = "",
+) -> str:
     """
     GitHub 레포지토리에 새 이슈를 만듭니다.
 
@@ -118,28 +127,26 @@ async def github_create_issue(token: str, owner: str, repo: str, title: str, bod
         repo: 레포지토리 이름
         title: 이슈 제목
         body: 이슈 본문 (선택)
+        labels: 붙일 라벨, 쉼표 구분 (선택)
+        assignees: 지정할 담당자 login, 쉼표 구분 (선택)
+        milestone: 지정할 마일스톤 번호 (선택)
 
     Returns:
-        만들어진 이슈의 number, url, title을 포함한 JSON 문자열
+        만들어진 이슈의 number, url, title, warnings를 포함한 JSON 문자열
     """
     if not (_is_path_name(owner) and _is_path_name(repo)):
         return json.dumps({"error": "owner/repo 형식이 올바르지 않습니다."}, ensure_ascii=False)
+    fields, error = _issue_fields(labels, assignees, milestone)
+    if error:
+        return error
     try:
-        client = get_http_client()
-        response = await client.post(
-            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/issues",
-            headers=_headers(token),
-            json={"title": title, "body": body},
-            timeout=_TIMEOUT,
-        )
-        if response.status_code != 201:
-            return json.dumps(
-                {"error": f"GitHub API 오류 ({response.status_code}): {response.text}"},
-                ensure_ascii=False,
-            )
-        issue = response.json()
+        issue, error = await _create_issue(
+            get_http_client(), token, owner, repo, {"title": title, "body": body, **fields})
+        if error:
+            return error
         return json.dumps(
-            {"success": True, "number": issue["number"], "url": issue["html_url"], "title": issue["title"]},
+            {"success": True, "number": issue["number"], "url": issue["html_url"], "title": issue["title"],
+             "warnings": _dropped(fields, issue)},
             ensure_ascii=False,
         )
     except Exception as e:

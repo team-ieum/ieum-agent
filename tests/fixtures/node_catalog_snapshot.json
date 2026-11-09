@@ -699,6 +699,212 @@
       "title": "조건 분기"
     },
     {
+      "app": "delay",
+      "appTitle": "기다리기",
+      "description": "정한 시간만큼 기다린 뒤 다음 단계로 넘어가요. 1분~30일.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "delay.for",
+        "type": "DELAY"
+      },
+      "id": "delay.for",
+      "inputFields": [
+        {
+          "key": "amount",
+          "path": "config.amount",
+          "required": true,
+          "title": "기다릴 양",
+          "type": "integer"
+        },
+        {
+          "choices": [
+            {
+              "id": "minutes",
+              "name": "분"
+            },
+            {
+              "id": "hours",
+              "name": "시간"
+            },
+            {
+              "id": "days",
+              "name": "일"
+            },
+            {
+              "id": "weeks",
+              "name": "주"
+            }
+          ],
+          "key": "unit",
+          "path": "config.unit",
+          "ref": false,
+          "required": true,
+          "title": "단위",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "DELAY",
+      "outputFields": [
+        {
+          "key": "waitedUntil",
+          "title": "재개한 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "scheduledFor",
+          "title": "예정했던 시각",
+          "type": "datetime"
+        }
+      ],
+      "provider": "ieum",
+      "title": "일정 시간 기다리기"
+    },
+    {
+      "app": "delay",
+      "appTitle": "기다리기",
+      "description": "같은 이름의 큐를 지나는 실행을 하나씩 간격을 두고 내보내요. 앱 호출 제한을 피할 때 써요.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "delay.queue",
+        "type": "DELAY"
+      },
+      "id": "delay.queue",
+      "inputFields": [
+        {
+          "description": "같은 이름끼리 순서를 나눠요(내 워크플로우끼리만)",
+          "key": "queueName",
+          "path": "config.queueName",
+          "required": true,
+          "title": "큐 이름",
+          "type": "string"
+        },
+        {
+          "key": "amount",
+          "path": "config.amount",
+          "required": true,
+          "title": "간격",
+          "type": "integer"
+        },
+        {
+          "choices": [
+            {
+              "id": "minutes",
+              "name": "분"
+            },
+            {
+              "id": "hours",
+              "name": "시간"
+            },
+            {
+              "id": "days",
+              "name": "일"
+            },
+            {
+              "id": "weeks",
+              "name": "주"
+            }
+          ],
+          "key": "unit",
+          "path": "config.unit",
+          "ref": false,
+          "required": true,
+          "title": "단위",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "DELAY",
+      "outputFields": [
+        {
+          "key": "waitedUntil",
+          "title": "재개한 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "scheduledFor",
+          "title": "예정했던 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "queuePosition",
+          "title": "앞에 있던 실행 수",
+          "type": "integer"
+        }
+      ],
+      "provider": "ieum",
+      "title": "순서대로 간격 두고 내보내기"
+    },
+    {
+      "app": "delay",
+      "appTitle": "기다리기",
+      "description": "정한 시각이 되면 다음 단계로 넘어가요. 시간대가 없으면 한국 시간이에요.",
+      "fixed": {
+        "config": {
+          "brand": "webhook"
+        },
+        "event": "delay.until",
+        "type": "DELAY"
+      },
+      "id": "delay.until",
+      "inputFields": [
+        {
+          "description": "예: 2026-11-10 09:00 또는 앞 단계 값",
+          "key": "until",
+          "path": "config.until",
+          "required": true,
+          "title": "시각",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "continue_15m",
+              "name": "15분 이내면 바로 계속"
+            },
+            {
+              "id": "continue_1h",
+              "name": "1시간 이내면 바로 계속"
+            },
+            {
+              "id": "continue_1d",
+              "name": "1일 이내면 바로 계속"
+            },
+            {
+              "id": "always",
+              "name": "항상 바로 계속"
+            }
+          ],
+          "default": "continue_1d",
+          "key": "ifPast",
+          "path": "config.ifPast",
+          "ref": false,
+          "title": "이미 지난 시각이면",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "DELAY",
+      "outputFields": [
+        {
+          "key": "waitedUntil",
+          "title": "재개한 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "scheduledFor",
+          "title": "예정했던 시각",
+          "type": "datetime"
+        }
+      ],
+      "provider": "ieum",
+      "title": "정한 시각까지 기다리기"
+    },
+    {
       "app": "discord",
       "appTitle": "Discord (웹훅)",
       "description": "등록한 웹훅으로 Discord에 메시지를 보내요.",
@@ -2042,6 +2248,221 @@
     {
       "app": "github",
       "appTitle": "GitHub",
+      "description": "이슈나 PR에 라벨을 더해요. 기존 라벨은 남아요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.add_labels",
+        "type": "ACTION"
+      },
+      "id": "github.add_labels",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "이슈나 PR이 있는 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "이슈·PR 번호 — 트리거 번호를 넣거나 직접 적어요",
+          "key": "issue_number",
+          "path": "config.issue_number",
+          "required": true,
+          "title": "이슈 번호",
+          "type": "string"
+        },
+        {
+          "description": "쉼표로 구분, 저장소에 이미 있는 라벨 이름",
+          "key": "labels",
+          "path": "config.labels",
+          "required": true,
+          "title": "라벨",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "number",
+          "title": "이슈 번호",
+          "type": "integer"
+        },
+        {
+          "key": "labels",
+          "list": true,
+          "title": "라벨",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 이슈에 라벨 추가",
+      "toolKey": "builtin:github_add_labels"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "사용자가 조직의 멤버인지 확인해요. 멤버가 아니면 '멤버가 아닙니다'로 이어가요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.check_org_membership",
+        "type": "ACTION"
+      },
+      "id": "github.check_org_membership",
+      "inputFields": [
+        {
+          "description": "조직을 고르세요 — 맨 앞 항목은 내 계정이에요",
+          "key": "org",
+          "optionsSource": "github.owners",
+          "path": "config.org",
+          "required": true,
+          "title": "조직",
+          "type": "string"
+        },
+        {
+          "description": "확인할 GitHub 아이디",
+          "key": "username",
+          "path": "config.username",
+          "required": true,
+          "title": "사용자",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "member",
+          "title": "멤버임",
+          "type": "boolean"
+        },
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "org",
+              "title": "조직",
+              "type": "string"
+            },
+            {
+              "key": "username",
+              "title": "사용자",
+              "type": "string"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "멤버",
+          "type": "object"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 조직 멤버 확인",
+      "toolKey": "builtin:github_check_org_membership"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "이슈나 PR에 코멘트를 달아요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.create_comment",
+        "type": "ACTION"
+      },
+      "id": "github.create_comment",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "이슈나 PR이 있는 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "이슈·PR 번호 — 트리거 번호를 넣거나 직접 적어요",
+          "key": "issue_number",
+          "path": "config.issue_number",
+          "required": true,
+          "title": "이슈 번호",
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "path": "config.body",
+          "required": true,
+          "title": "코멘트",
+          "type": "text"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "id",
+          "title": "코멘트 ID",
+          "type": "integer"
+        },
+        {
+          "key": "url",
+          "title": "코멘트 주소",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 코멘트 달기",
+      "toolKey": "builtin:github_create_comment"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
       "description": "저장소에 새 이슈를 만들어요.",
       "fixed": {
         "config": {
@@ -2086,6 +2507,34 @@
           "path": "config.body",
           "title": "내용",
           "type": "text"
+        },
+        {
+          "default": "",
+          "description": "쉼표로 구분, 저장소에 이미 있는 라벨 이름",
+          "key": "labels",
+          "path": "config.labels",
+          "title": "라벨",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "쉼표로 구분한 GitHub 아이디",
+          "key": "assignees",
+          "path": "config.assignees",
+          "title": "담당자",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "milestone",
+          "optionsInputs": [
+            "owner",
+            "repo"
+          ],
+          "optionsSource": "github.milestones",
+          "path": "config.milestone",
+          "title": "마일스톤",
+          "type": "string"
         }
       ],
       "kind": "action",
@@ -2105,11 +2554,1251 @@
           "key": "title",
           "title": "제목",
           "type": "string"
+        },
+        {
+          "key": "warnings",
+          "list": true,
+          "title": "반영되지 않은 항목",
+          "type": "string"
         }
       ],
       "provider": "github",
       "title": "GitHub 이슈 만들기",
       "toolKey": "builtin:github_create_issue"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "브랜치의 변경을 다른 브랜치로 합치는 PR을 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.create_pull_request",
+        "type": "ACTION"
+      },
+      "id": "github.create_pull_request",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "PR을 만들 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "description": "다른 포크면 아이디:브랜치",
+          "key": "head",
+          "optionsInputs": [
+            "owner",
+            "repo"
+          ],
+          "optionsSource": "github.branches",
+          "path": "config.head",
+          "required": true,
+          "title": "보낼 브랜치",
+          "type": "string"
+        },
+        {
+          "key": "base",
+          "optionsInputs": [
+            "owner",
+            "repo"
+          ],
+          "optionsSource": "github.branches",
+          "path": "config.base",
+          "required": true,
+          "title": "받을 브랜치",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "body",
+          "path": "config.body",
+          "title": "내용",
+          "type": "text"
+        },
+        {
+          "default": false,
+          "key": "draft",
+          "path": "config.draft",
+          "ref": false,
+          "title": "초안으로 만들기",
+          "type": "boolean"
+        },
+        {
+          "default": true,
+          "key": "maintainer_can_modify",
+          "path": "config.maintainer_can_modify",
+          "ref": false,
+          "title": "관리자 수정 허용",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "number",
+          "title": "PR 번호",
+          "type": "integer"
+        },
+        {
+          "key": "url",
+          "title": "PR 주소",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "state",
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "key": "draft",
+          "title": "초안",
+          "type": "boolean"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub PR 만들기",
+      "toolKey": "builtin:github_create_pull_request"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "저장소의 브랜치를 찾아요. 이름을 비우면 브랜치 목록을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.find_branch",
+        "type": "ACTION"
+      },
+      "id": "github.find_branch",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "브랜치를 찾을 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "비우면 전체 목록(최대 100개)",
+          "key": "branch",
+          "optionsInputs": [
+            "owner",
+            "repo"
+          ],
+          "optionsSource": "github.branches",
+          "path": "config.branch",
+          "title": "브랜치",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "name",
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "sha",
+              "title": "최신 커밋 SHA",
+              "type": "string"
+            },
+            {
+              "key": "protected",
+              "title": "보호됨",
+              "type": "boolean"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "브랜치",
+          "type": "object"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 브랜치 찾기",
+      "toolKey": "builtin:github_find_branch"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "번호·라벨·담당자·작성자·제목·본문으로 이슈를 찾아요. 없으면 '결과가 없습니다'로 이어가요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.find_issue",
+        "type": "ACTION"
+      },
+      "id": "github.find_issue",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "이슈를 찾을 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "number",
+              "name": "번호"
+            },
+            {
+              "id": "title",
+              "name": "제목"
+            },
+            {
+              "id": "body",
+              "name": "본문"
+            },
+            {
+              "id": "label",
+              "name": "라벨"
+            },
+            {
+              "id": "assignee",
+              "name": "담당자"
+            },
+            {
+              "id": "author",
+              "name": "작성자"
+            }
+          ],
+          "key": "search_by",
+          "path": "config.search_by",
+          "ref": false,
+          "required": true,
+          "title": "찾는 기준",
+          "type": "string"
+        },
+        {
+          "description": "이슈 번호·라벨 이름·GitHub 아이디·검색어",
+          "key": "value",
+          "path": "config.value",
+          "required": true,
+          "title": "찾을 값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "open",
+              "name": "열림"
+            },
+            {
+              "id": "closed",
+              "name": "닫힘"
+            },
+            {
+              "id": "all",
+              "name": "전체"
+            }
+          ],
+          "default": "open",
+          "key": "state",
+          "path": "config.state",
+          "ref": false,
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "default": 20,
+          "description": "1~100",
+          "key": "max_results",
+          "path": "config.max_results",
+          "title": "최대 개수",
+          "type": "integer"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "number",
+              "title": "번호",
+              "type": "integer"
+            },
+            {
+              "key": "title",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "state",
+              "title": "상태",
+              "type": "string"
+            },
+            {
+              "key": "url",
+              "title": "이슈 주소",
+              "type": "string"
+            },
+            {
+              "key": "labels",
+              "list": true,
+              "title": "라벨",
+              "type": "string"
+            },
+            {
+              "key": "assignees",
+              "list": true,
+              "title": "담당자",
+              "type": "string"
+            },
+            {
+              "key": "author",
+              "title": "작성자",
+              "type": "string"
+            },
+            {
+              "key": "created_at",
+              "title": "만든 시각",
+              "type": "datetime"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "이슈",
+          "type": "object"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 이슈 찾기",
+      "toolKey": "builtin:github_find_issue"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "조건에 맞는 이슈를 찾고, 없으면 새로 만들어요. 제목은 정확히 같은 이슈만 찾아요 — 중복을 확실히 막으려면 라벨 기준으로 찾으세요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.find_or_create_issue",
+        "type": "ACTION"
+      },
+      "id": "github.find_or_create_issue",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "이슈를 찾거나 만들 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "number",
+              "name": "번호"
+            },
+            {
+              "id": "title",
+              "name": "제목"
+            },
+            {
+              "id": "body",
+              "name": "본문"
+            },
+            {
+              "id": "label",
+              "name": "라벨"
+            },
+            {
+              "id": "assignee",
+              "name": "담당자"
+            },
+            {
+              "id": "author",
+              "name": "작성자"
+            }
+          ],
+          "key": "search_by",
+          "path": "config.search_by",
+          "ref": false,
+          "required": true,
+          "title": "찾는 기준",
+          "type": "string"
+        },
+        {
+          "description": "이슈 번호·라벨 이름·GitHub 아이디·검색어",
+          "key": "value",
+          "path": "config.value",
+          "required": true,
+          "title": "찾을 값",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "새 이슈 제목",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "body",
+          "path": "config.body",
+          "title": "새 이슈 내용",
+          "type": "text"
+        },
+        {
+          "default": "",
+          "description": "쉼표로 구분, 저장소에 이미 있는 라벨 이름",
+          "key": "labels",
+          "path": "config.labels",
+          "title": "라벨",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "쉼표로 구분한 GitHub 아이디",
+          "key": "assignees",
+          "path": "config.assignees",
+          "title": "담당자",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "milestone",
+          "optionsInputs": [
+            "owner",
+            "repo"
+          ],
+          "optionsSource": "github.milestones",
+          "path": "config.milestone",
+          "title": "마일스톤",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "open",
+              "name": "열림"
+            },
+            {
+              "id": "closed",
+              "name": "닫힘"
+            },
+            {
+              "id": "all",
+              "name": "전체"
+            }
+          ],
+          "default": "open",
+          "key": "state",
+          "path": "config.state",
+          "ref": false,
+          "title": "찾을 이슈 상태",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "created",
+          "title": "새로 만듦",
+          "type": "boolean"
+        },
+        {
+          "key": "number",
+          "title": "이슈 번호",
+          "type": "integer"
+        },
+        {
+          "key": "url",
+          "title": "이슈 주소",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "state",
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "key": "warnings",
+          "list": true,
+          "title": "반영되지 않은 항목",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 이슈 찾기, 없으면 만들기",
+      "toolKey": "builtin:github_find_or_create_issue"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "같은 브랜치끼리 열린 PR을 찾고, 없으면 새로 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.find_or_create_pull_request",
+        "type": "ACTION"
+      },
+      "id": "github.find_or_create_pull_request",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "PR을 찾거나 만들 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "다른 포크면 아이디:브랜치",
+          "key": "head",
+          "optionsInputs": [
+            "owner",
+            "repo"
+          ],
+          "optionsSource": "github.branches",
+          "path": "config.head",
+          "required": true,
+          "title": "보낼 브랜치",
+          "type": "string"
+        },
+        {
+          "key": "base",
+          "optionsInputs": [
+            "owner",
+            "repo"
+          ],
+          "optionsSource": "github.branches",
+          "path": "config.base",
+          "required": true,
+          "title": "받을 브랜치",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "새 PR 제목",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "body",
+          "path": "config.body",
+          "title": "새 PR 내용",
+          "type": "text"
+        },
+        {
+          "default": false,
+          "key": "draft",
+          "path": "config.draft",
+          "ref": false,
+          "title": "초안으로 만들기",
+          "type": "boolean"
+        },
+        {
+          "default": true,
+          "key": "maintainer_can_modify",
+          "path": "config.maintainer_can_modify",
+          "ref": false,
+          "title": "관리자 수정 허용",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "created",
+          "title": "새로 만듦",
+          "type": "boolean"
+        },
+        {
+          "key": "number",
+          "title": "PR 번호",
+          "type": "integer"
+        },
+        {
+          "key": "url",
+          "title": "PR 주소",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "state",
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "key": "draft",
+          "title": "초안",
+          "type": "boolean"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub PR 찾기, 없으면 만들기",
+      "toolKey": "builtin:github_find_or_create_pull_request"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "아이디로 조직을 찾아 이름·설명을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.find_org",
+        "type": "ACTION"
+      },
+      "id": "github.find_org",
+      "inputFields": [
+        {
+          "description": "찾을 조직의 GitHub 아이디",
+          "key": "org",
+          "path": "config.org",
+          "required": true,
+          "title": "조직",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "login",
+              "title": "아이디",
+              "type": "string"
+            },
+            {
+              "key": "name",
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "description",
+              "title": "설명",
+              "type": "text"
+            },
+            {
+              "key": "url",
+              "title": "조직 주소",
+              "type": "string"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "조직",
+          "type": "object"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 조직 찾기",
+      "toolKey": "builtin:github_find_org"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "번호·브랜치·작성자·제목·본문으로 PR을 찾아요. 없으면 '결과가 없습니다'로 이어가요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.find_pull_request",
+        "type": "ACTION"
+      },
+      "id": "github.find_pull_request",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "PR을 찾을 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "number",
+              "name": "번호"
+            },
+            {
+              "id": "title",
+              "name": "제목"
+            },
+            {
+              "id": "body",
+              "name": "본문"
+            },
+            {
+              "id": "author",
+              "name": "작성자"
+            },
+            {
+              "id": "branch",
+              "name": "브랜치"
+            }
+          ],
+          "key": "search_by",
+          "path": "config.search_by",
+          "ref": false,
+          "required": true,
+          "title": "찾는 기준",
+          "type": "string"
+        },
+        {
+          "description": "PR 번호·브랜치 이름·GitHub 아이디·검색어",
+          "key": "value",
+          "path": "config.value",
+          "required": true,
+          "title": "찾을 값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "open",
+              "name": "열림"
+            },
+            {
+              "id": "closed",
+              "name": "닫힘"
+            },
+            {
+              "id": "all",
+              "name": "전체"
+            }
+          ],
+          "default": "open",
+          "key": "state",
+          "path": "config.state",
+          "ref": false,
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "default": 20,
+          "description": "1~100",
+          "key": "max_results",
+          "path": "config.max_results",
+          "title": "최대 개수",
+          "type": "integer"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "number",
+              "title": "번호",
+              "type": "integer"
+            },
+            {
+              "key": "title",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "state",
+              "title": "상태",
+              "type": "string"
+            },
+            {
+              "key": "url",
+              "title": "PR 주소",
+              "type": "string"
+            },
+            {
+              "key": "draft",
+              "title": "초안",
+              "type": "boolean"
+            },
+            {
+              "key": "author",
+              "title": "작성자",
+              "type": "string"
+            },
+            {
+              "key": "created_at",
+              "title": "만든 시각",
+              "type": "datetime"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "PR",
+          "type": "object"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub PR 찾기",
+      "toolKey": "builtin:github_find_pull_request"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "소유자와 이름으로 저장소를 찾아 기본 정보를 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.find_repo",
+        "type": "ACTION"
+      },
+      "id": "github.find_repo",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "찾을 저장소 이름",
+          "key": "repo",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "name",
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "full_name",
+              "title": "전체 이름",
+              "type": "string"
+            },
+            {
+              "key": "owner",
+              "title": "소유자",
+              "type": "string"
+            },
+            {
+              "key": "private",
+              "title": "비공개",
+              "type": "boolean"
+            },
+            {
+              "key": "default_branch",
+              "title": "기본 브랜치",
+              "type": "string"
+            },
+            {
+              "key": "url",
+              "title": "저장소 주소",
+              "type": "string"
+            },
+            {
+              "key": "description",
+              "title": "설명",
+              "type": "text"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "저장소",
+          "type": "object"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 저장소 찾기",
+      "toolKey": "builtin:github_find_repo"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "아이디로 GitHub 사용자를 찾아 이름·종류를 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.find_user",
+        "type": "ACTION"
+      },
+      "id": "github.find_user",
+      "inputFields": [
+        {
+          "default": "",
+          "description": "비우면 연결한 내 계정",
+          "key": "username",
+          "path": "config.username",
+          "title": "사용자",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "login",
+              "title": "아이디",
+              "type": "string"
+            },
+            {
+              "key": "name",
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "type",
+              "title": "종류",
+              "type": "string"
+            },
+            {
+              "key": "url",
+              "title": "프로필 주소",
+              "type": "string"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "사용자",
+          "type": "object"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 사용자 찾기",
+      "toolKey": "builtin:github_find_user"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "저장소 파일의 내용을 10만 자까지 가져와요. 폴더 경로면 안에 든 항목 목록을 줘요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.get_file",
+        "type": "ACTION"
+      },
+      "id": "github.get_file",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "파일이 있는 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "예: src/main.py",
+          "key": "path",
+          "path": "config.path",
+          "required": true,
+          "title": "파일 경로",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "브랜치·태그·커밋 SHA, 비우면 기본 브랜치",
+          "key": "ref",
+          "path": "config.ref",
+          "title": "브랜치·태그·커밋",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "name",
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "path",
+              "title": "경로",
+              "type": "string"
+            },
+            {
+              "key": "type",
+              "title": "종류",
+              "type": "string"
+            },
+            {
+              "key": "sha",
+              "title": "SHA",
+              "type": "string"
+            },
+            {
+              "key": "size",
+              "title": "크기(바이트)",
+              "type": "integer"
+            },
+            {
+              "key": "content",
+              "title": "내용",
+              "type": "text"
+            },
+            {
+              "key": "truncated",
+              "title": "잘림",
+              "type": "boolean"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "파일",
+          "type": "object"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 파일 내용 가져오기",
+      "toolKey": "builtin:github_get_file"
     },
     {
       "app": "github",
@@ -2268,6 +3957,206 @@
       "provider": "github",
       "title": "GitHub PR 변경 내용 가져오기",
       "toolKey": "builtin:github_get_pr_files"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "PR에 달린 리뷰와 줄 코멘트를 가져와요. 승인·변경 요청 수도 함께 세요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.get_pr_reviews",
+        "type": "ACTION"
+      },
+      "id": "github.get_pr_reviews",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "PR이 있는 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "트리거의 PR 번호를 넣거나 번호를 직접 적어요",
+          "key": "pull_number",
+          "path": "config.pull_number",
+          "required": true,
+          "title": "PR 번호",
+          "type": "string"
+        },
+        {
+          "default": true,
+          "key": "include_comments",
+          "path": "config.include_comments",
+          "ref": false,
+          "title": "줄 코멘트도 가져오기",
+          "type": "boolean"
+        },
+        {
+          "default": "",
+          "description": "쉼표로 구분: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED (비우면 전부)",
+          "key": "states",
+          "path": "config.states",
+          "title": "리뷰 상태",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "human",
+              "name": "사람만"
+            },
+            {
+              "id": "bot",
+              "name": "봇만"
+            },
+            {
+              "id": "all",
+              "name": "전부"
+            }
+          ],
+          "default": "all",
+          "key": "author_type",
+          "path": "config.author_type",
+          "ref": false,
+          "title": "작성자 종류",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "id",
+              "title": "리뷰 ID",
+              "type": "integer"
+            },
+            {
+              "key": "author",
+              "title": "작성자",
+              "type": "string"
+            },
+            {
+              "key": "author_type",
+              "title": "작성자 종류",
+              "type": "string"
+            },
+            {
+              "key": "state",
+              "title": "상태",
+              "type": "string"
+            },
+            {
+              "key": "body",
+              "title": "내용",
+              "type": "text"
+            },
+            {
+              "key": "submitted_at",
+              "title": "제출 시각",
+              "type": "datetime"
+            },
+            {
+              "key": "commit_id",
+              "title": "커밋 SHA",
+              "type": "string"
+            }
+          ],
+          "description": "최신 리뷰부터 최대 50개, 본문은 2,000자까지",
+          "key": "items",
+          "list": true,
+          "title": "리뷰",
+          "type": "object"
+        },
+        {
+          "children": [
+            {
+              "key": "path",
+              "title": "경로",
+              "type": "string"
+            },
+            {
+              "key": "line",
+              "title": "줄",
+              "type": "integer"
+            },
+            {
+              "key": "body",
+              "title": "내용",
+              "type": "text"
+            },
+            {
+              "key": "author",
+              "title": "작성자",
+              "type": "string"
+            },
+            {
+              "key": "created_at",
+              "title": "만든 시각",
+              "type": "datetime"
+            }
+          ],
+          "description": "최신 코멘트부터 최대 100개, 본문은 1,000자까지",
+          "key": "comments",
+          "list": true,
+          "title": "줄 코멘트",
+          "type": "object"
+        },
+        {
+          "description": "리뷰어별 마지막 결정 기준",
+          "key": "approved_count",
+          "title": "승인 수",
+          "type": "integer"
+        },
+        {
+          "description": "리뷰어별 마지막 결정 기준",
+          "key": "changes_requested_count",
+          "title": "변경 요청 수",
+          "type": "integer"
+        },
+        {
+          "description": "목록이나 본문이 잘렸으면 true",
+          "key": "truncated",
+          "title": "잘림",
+          "type": "boolean"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub PR 리뷰 가져오기",
+      "toolKey": "builtin:github_get_pr_reviews"
     },
     {
       "app": "github",
@@ -2590,6 +4479,76 @@
     {
       "app": "github",
       "appTitle": "GitHub",
+      "description": "PR에 리뷰어를 지정해 리뷰를 요청해요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.request_reviewers",
+        "type": "ACTION"
+      },
+      "id": "github.request_reviewers",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "PR이 있는 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "트리거의 PR 번호를 넣거나 번호를 직접 적어요",
+          "key": "pull_number",
+          "path": "config.pull_number",
+          "required": true,
+          "title": "PR 번호",
+          "type": "string"
+        },
+        {
+          "description": "쉼표로 구분한 GitHub 아이디",
+          "key": "reviewers",
+          "path": "config.reviewers",
+          "required": true,
+          "title": "리뷰어",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "number",
+          "title": "PR 번호",
+          "type": "integer"
+        },
+        {
+          "key": "requested_reviewers",
+          "list": true,
+          "title": "요청된 리뷰어",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub PR 리뷰어 지정",
+      "toolKey": "builtin:github_request_reviewers"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
       "description": "PR에 리뷰와 줄 코멘트를 남겨요.",
       "fixed": {
         "config": {
@@ -2730,6 +4689,285 @@
       "provider": "github",
       "title": "GitHub PR 리뷰 제출",
       "toolKey": "builtin:github_submit_pr_review"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "이슈의 제목·내용·상태·라벨·담당자를 바꿔요. 빈 칸은 그대로 둬요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.update_issue",
+        "type": "ACTION"
+      },
+      "id": "github.update_issue",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "이슈가 있는 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "트리거의 이슈 번호를 넣거나 번호를 직접 적어요",
+          "key": "issue_number",
+          "path": "config.issue_number",
+          "required": true,
+          "title": "이슈 번호",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "title",
+          "path": "config.title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "body",
+          "path": "config.body",
+          "title": "내용",
+          "type": "text"
+        },
+        {
+          "choices": [
+            {
+              "id": "open",
+              "name": "열림"
+            },
+            {
+              "id": "closed",
+              "name": "닫힘"
+            }
+          ],
+          "default": "",
+          "key": "state",
+          "path": "config.state",
+          "ref": false,
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "completed",
+              "name": "완료"
+            },
+            {
+              "id": "not_planned",
+              "name": "진행 안 함"
+            },
+            {
+              "id": "duplicate",
+              "name": "중복"
+            },
+            {
+              "id": "reopened",
+              "name": "다시 열림"
+            }
+          ],
+          "default": "",
+          "description": "상태를 바꿀 때만 적용돼요",
+          "key": "state_reason",
+          "path": "config.state_reason",
+          "ref": false,
+          "title": "닫는 이유",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "쉼표로 구분. 기존 라벨을 모두 바꿔요 — 더하려면 '라벨 추가' 노드",
+          "key": "labels",
+          "path": "config.labels",
+          "title": "라벨",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "쉼표로 구분한 GitHub 아이디",
+          "key": "assignees",
+          "path": "config.assignees",
+          "title": "담당자",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "milestone",
+          "optionsInputs": [
+            "owner",
+            "repo"
+          ],
+          "optionsSource": "github.milestones",
+          "path": "config.milestone",
+          "title": "마일스톤",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "number",
+          "title": "이슈 번호",
+          "type": "integer"
+        },
+        {
+          "key": "url",
+          "title": "이슈 주소",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "state",
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "key": "warnings",
+          "list": true,
+          "title": "반영되지 않은 항목",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub 이슈 수정",
+      "toolKey": "builtin:github_update_issue"
+    },
+    {
+      "app": "github",
+      "appTitle": "GitHub",
+      "description": "PR의 제목·내용·상태·받을 브랜치를 바꿔요. 빈 칸은 그대로 둬요.",
+      "fixed": {
+        "config": {
+          "brand": "github"
+        },
+        "event": "github.update_pull_request",
+        "type": "ACTION"
+      },
+      "id": "github.update_pull_request",
+      "inputFields": [
+        {
+          "description": "저장소를 가진 계정 또는 조직",
+          "key": "owner",
+          "optionsSource": "github.owners",
+          "path": "config.owner",
+          "required": true,
+          "title": "소유자",
+          "type": "string"
+        },
+        {
+          "description": "PR이 있는 저장소",
+          "key": "repo",
+          "optionsInputs": [
+            "owner"
+          ],
+          "optionsSource": "github.repos",
+          "path": "config.repo",
+          "required": true,
+          "title": "저장소",
+          "type": "string"
+        },
+        {
+          "description": "트리거의 PR 번호를 넣거나 번호를 직접 적어요",
+          "key": "pull_number",
+          "path": "config.pull_number",
+          "required": true,
+          "title": "PR 번호",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "title",
+          "path": "config.title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "body",
+          "path": "config.body",
+          "title": "내용",
+          "type": "text"
+        },
+        {
+          "choices": [
+            {
+              "id": "open",
+              "name": "열림"
+            },
+            {
+              "id": "closed",
+              "name": "닫힘"
+            }
+          ],
+          "default": "",
+          "key": "state",
+          "path": "config.state",
+          "ref": false,
+          "title": "상태",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "base",
+          "optionsInputs": [
+            "owner",
+            "repo"
+          ],
+          "optionsSource": "github.branches",
+          "path": "config.base",
+          "title": "받을 브랜치",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "number",
+          "title": "PR 번호",
+          "type": "integer"
+        },
+        {
+          "key": "url",
+          "title": "PR 주소",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "state",
+          "title": "상태",
+          "type": "string"
+        }
+      ],
+      "provider": "github",
+      "title": "GitHub PR 수정",
+      "toolKey": "builtin:github_update_pull_request"
     },
     {
       "app": "gmail",

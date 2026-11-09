@@ -600,6 +600,28 @@ FIXED_NODE_REQUIRED = {
     "github.list_issues": ["config.owner", "config.repo"],
     "github.get_pr_files": ["config.owner", "config.pull_number", "config.repo"],
     "github.submit_pr_review": ["config.owner", "config.pull_number", "config.repo"],
+    "github.find_issue": ["config.owner", "config.repo", "config.search_by", "config.value"],
+    "github.update_issue": ["config.issue_number", "config.owner", "config.repo"],
+    "github.add_labels": ["config.issue_number", "config.labels", "config.owner", "config.repo"],
+    "github.create_comment": ["config.body", "config.issue_number", "config.owner", "config.repo"],
+    "github.find_or_create_issue": ["config.owner", "config.repo", "config.search_by", "config.title",
+                                    "config.value"],
+    "github.create_pull_request": ["config.base", "config.head", "config.owner", "config.repo", "config.title"],
+    "github.update_pull_request": ["config.owner", "config.pull_number", "config.repo"],
+    "github.request_reviewers": ["config.owner", "config.pull_number", "config.repo", "config.reviewers"],
+    "github.find_pull_request": ["config.owner", "config.repo", "config.search_by", "config.value"],
+    "github.find_or_create_pull_request": ["config.base", "config.head", "config.owner", "config.repo",
+                                           "config.title"],
+    "github.get_pr_reviews": ["config.owner", "config.pull_number", "config.repo"],
+    "github.find_branch": ["config.owner", "config.repo"],
+    "github.get_file": ["config.owner", "config.path", "config.repo"],
+    "github.find_repo": ["config.owner", "config.repo"],
+    "github.find_org": ["config.org"],
+    "github.check_org_membership": ["config.org", "config.username"],
+    "github.find_user": [],
+    "delay.for": ["config.amount", "config.unit"],
+    "delay.until": ["config.until"],
+    "delay.queue": ["config.amount", "config.queueName", "config.unit"],
     "google_calendar.create": ["config.end_datetime", "config.start_datetime", "config.summary"],
     "google_calendar.delete": ["config.event_id"],
     "google_calendar.find": [],
@@ -680,6 +702,21 @@ def test_카탈로그_전_항목_기본값_노드():
         assert {e["code"] for e in errors} <= {"REQUIRED"}, (t["id"], errors)  # fixed 자체는 형식이 맞아야 한다
         actual[t["id"]] = sorted(e["field"] for e in errors)
     assert actual == FIXED_NODE_REQUIRED
+
+
+def _delay(event, **config):
+    return {"id": "d", "type": "DELAY", "event": event, "config": config}
+
+
+def test_delay_queue_필수칸_REQUIRED():
+    nodes, edges = _chain(_delay("delay.queue"))
+    assert _codes(validate_workflow(nodes, edges)) == [
+        ("REQUIRED", "d", "config.amount"), ("REQUIRED", "d", "config.queueName"), ("REQUIRED", "d", "config.unit")]
+
+
+def test_delay_unit_목록밖_CHOICE():
+    nodes, edges = _chain(_delay("delay.for", amount=10, unit="months"))
+    assert _codes(validate_workflow(nodes, edges)) == [("CHOICE", "d", "config.unit")]
 
 
 def test_닫히지_않은_중괄호가_길어도_빨리_끝난다():

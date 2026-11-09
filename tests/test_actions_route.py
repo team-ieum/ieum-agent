@@ -52,7 +52,8 @@ def test_LLM_헤더_없이_끝까지_실행된다():
 
     assert res.status_code == 200
     assert res.json() == {"success": True, "errorMessage": None, "errorCode": None,
-                          "output": {"number": 7, "url": "https://github.com/o/r/issues/7", "title": "버그"}}
+                          "output": {"number": 7, "url": "https://github.com/o/r/issues/7", "title": "버그",
+                                     "warnings": []}}
     assert http.post.call_args.kwargs["headers"]["Authorization"] == "Bearer gh-token"
     assert http.post.call_args.kwargs["json"] == {"title": "버그", "body": "재현"}
 

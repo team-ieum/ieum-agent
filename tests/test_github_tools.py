@@ -52,9 +52,9 @@ def client():
         yield mock
 
 
-# 이 PR의 카탈로그에는 새 이벤트가 없어 assert_matches_outputs 대신 반환 키를 직접 단언한다.
+# 반환 키 고정. 카탈로그 outputFields 대조는 성공 테스트마다 assert_matches_outputs로 따로 한다.
 _OUTPUT_KEYS: dict[str, set[str]] = {
-    "github.create_issue": {"number", "title", "url"},
+    "github.create_issue": {"number", "title", "url", "warnings"},
     "github.find_issue": {"found", "total", "items", "message"},
     "github.update_issue": {"number", "url", "title", "state", "warnings"},
     "github.add_labels": {"number", "labels"},
@@ -154,7 +154,8 @@ async def test_create_issue_성공(client):
         token="gh-token", owner="o", repo="r", title="버그", body="재현 방법"))
 
     assert_matches_outputs("github.create_issue", result)
-    assert result == {"success": True, "number": 7, "url": "https://github.com/o/r/issues/7", "title": "버그"}
+    assert result == {"success": True, "number": 7, "url": "https://github.com/o/r/issues/7", "title": "버그",
+                      "warnings": []}
     args, kwargs = client.post.call_args
     assert args[0] == "https://api.github.com/repos/o/r/issues"
     assert kwargs["json"] == {"title": "버그", "body": "재현 방법"}
@@ -166,6 +167,30 @@ async def test_create_issue_본문_기본값은_빈_문자열(client):
     client.post = AsyncMock(return_value=_response(201, {"number": 1, "title": "t", "html_url": "u"}))
     await github_create_issue(token="gh-token", owner="o", repo="r", title="t")
     assert client.post.call_args.kwargs["json"] == {"title": "t", "body": ""}
+
+
+@pytest.mark.asyncio
+async def test_create_issue_라벨_담당자_마일스톤(client):
+    client.post = AsyncMock(return_value=_response(201, {
+        "number": 7, "title": "버그", "html_url": "u", "labels": [{"name": "bug"}], "assignees": [], "milestone": None,
+    }))
+
+    result = json.loads(await github_create_issue(
+        token="gh-token", owner="o", repo="r", title="버그", body="b", labels="bug, p1", assignees="alice",
+        milestone="3"))
+
+    _assert_outputs("github.create_issue", result)
+    assert client.post.call_args.kwargs["json"] == {
+        "title": "버그", "body": "b", "labels": ["bug", "p1"], "assignees": ["alice"], "milestone": 3}
+    assert result["warnings"] == ["반영되지 않은 라벨: p1", "반영되지 않은 담당자: alice", "반영되지 않은 마일스톤: 3"]
+
+
+@pytest.mark.asyncio
+async def test_create_issue_milestone_형식오류(client):
+    client.post = AsyncMock()
+    result = json.loads(await github_create_issue(token="gh-token", owner="o", repo="r", title="t", milestone="v1"))
+    assert "error" in result
+    client.post.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -218,6 +243,7 @@ async def test_find_issue_번호(client):
     client.get = AsyncMock(return_value=_response(200, _issue(5)))
     result = json.loads(await github_find_issue(token="t", owner="o", repo="r", search_by="number", value="5"))
     _assert_outputs("github.find_issue", result)
+    assert_matches_outputs("github.find_issue", result)
     assert result["found"] is True
     assert set(result["items"][0]) == _ISSUE_ITEM_KEYS
     assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/issues/5"
@@ -291,6 +317,7 @@ async def test_update_issue_빈칸은_보내지_않는다(client):
     client.patch = AsyncMock(return_value=_updated())
     result = json.loads(await github_update_issue(token="t", owner="o", repo="r", issue_number="#7", title="새 제목"))
     _assert_outputs("github.update_issue", result)
+    assert_matches_outputs("github.update_issue", result)
     assert client.patch.call_args.args[0] == "https://api.github.com/repos/o/r/issues/7"
     assert client.patch.call_args.kwargs["json"] == {"title": "새 제목"}
 
@@ -339,6 +366,7 @@ async def test_add_labels(client):
     client.post = AsyncMock(return_value=_response(200, [{"name": "old"}, {"name": "bug"}, {"name": "p1"}]))
     result = json.loads(await github_add_labels(token="t", owner="o", repo="r", issue_number="7", labels="bug,p1"))
     _assert_outputs("github.add_labels", result)
+    assert_matches_outputs("github.add_labels", result)
     assert client.post.call_args.args[0] == "https://api.github.com/repos/o/r/issues/7/labels"
     assert client.post.call_args.kwargs["json"] == {"labels": ["bug", "p1"]}
     assert result["labels"] == ["old", "bug", "p1"]
@@ -354,6 +382,7 @@ async def test_create_comment(client):
     client.post = AsyncMock(return_value=_response(201, {"id": 1, "html_url": "u"}))
     result = json.loads(await github_create_comment(token="t", owner="o", repo="r", issue_number="7", body="좋아요"))
     _assert_outputs("github.create_comment", result)
+    assert_matches_outputs("github.create_comment", result)
     assert result == {"success": True, "id": 1, "url": "u"}
     assert client.post.call_args.args[0] == "https://api.github.com/repos/o/r/issues/7/comments"
 
@@ -371,6 +400,7 @@ async def test_find_or_create_issue_있으면_만들지_않는다(client):
     result = json.loads(await github_find_or_create_issue(
         token="t", owner="o", repo="r", search_by="title", value="이슈 4", title="이슈 4"))
     _assert_outputs("github.find_or_create_issue", result)
+    assert_matches_outputs("github.find_or_create_issue", result)
     assert result["created"] is False
     assert result["number"] == 4
     assert result["warnings"] == []
@@ -463,6 +493,7 @@ async def test_create_pull_request(client):
     result = json.loads(await github_create_pull_request(
         token="t", owner="o", repo="r", title="t", head="user:feat/x", base="main"))
     _assert_outputs("github.create_pull_request", result)
+    assert_matches_outputs("github.create_pull_request", result)
     assert client.post.call_args.args[0] == "https://api.github.com/repos/o/r/pulls"
     assert client.post.call_args.kwargs["json"] == {
         "title": "t", "head": "user:feat/x", "base": "main", "body": "", "draft": False, "maintainer_can_modify": True}
@@ -479,6 +510,7 @@ async def test_update_pull_request_빈칸은_보내지_않는다(client):
     client.patch = AsyncMock(return_value=_response(200, {**_pr(3), "state": "closed"}))
     result = json.loads(await github_update_pull_request(token="t", owner="o", repo="r", pull_number="3", state="closed"))
     _assert_outputs("github.update_pull_request", result)
+    assert_matches_outputs("github.update_pull_request", result)
     assert client.patch.call_args.args[0] == "https://api.github.com/repos/o/r/pulls/3"
     assert client.patch.call_args.kwargs["json"] == {"state": "closed"}
 
@@ -495,6 +527,7 @@ async def test_request_reviewers(client):
     result = json.loads(await github_request_reviewers(
         token="t", owner="o", repo="r", pull_number="3", reviewers="alice, bob"))
     _assert_outputs("github.request_reviewers", result)
+    assert_matches_outputs("github.request_reviewers", result)
     assert client.post.call_args.args[0] == "https://api.github.com/repos/o/r/pulls/3/requested_reviewers"
     assert client.post.call_args.kwargs["json"] == {"reviewers": ["alice", "bob"]}
     assert result["requested_reviewers"] == ["alice", "bob"]
@@ -520,6 +553,7 @@ async def test_find_pull_request_브랜치(client):
     result = json.loads(await github_find_pull_request(
         token="t", owner="o", repo="r", search_by="branch", value="feature/x"))
     _assert_outputs("github.find_pull_request", result)
+    assert_matches_outputs("github.find_pull_request", result)
     assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/pulls"
     assert client.get.call_args.kwargs["params"]["head"] == "o:feature/x"
     assert [i["number"] for i in result["items"]] == [3]
@@ -546,6 +580,7 @@ async def test_find_or_create_pull_request_있으면_만들지_않는다(client)
     result = json.loads(await github_find_or_create_pull_request(
         token="t", owner="o", repo="r", head="feat/x", base="main", title="t"))
     _assert_outputs("github.find_or_create_pull_request", result)
+    assert_matches_outputs("github.find_or_create_pull_request", result)
     assert result["created"] is False
     assert result["number"] == 5
     params = client.get.call_args.kwargs["params"]
@@ -560,6 +595,7 @@ async def test_find_or_create_pull_request_없으면_만든다(client):
     result = json.loads(await github_find_or_create_pull_request(
         token="t", owner="o", repo="r", head="feat/x", base="main", title="t"))
     _assert_outputs("github.find_or_create_pull_request", result)
+    assert_matches_outputs("github.find_or_create_pull_request", result)
     assert client.post.call_count == 1
     assert result["created"] is True
     assert result["number"] == 6
@@ -621,6 +657,7 @@ async def test_get_pr_reviews_필터와_수치(client):
     ])
     result = json.loads(await github_get_pr_reviews(token="t", owner="o", repo="r", pull_number="3", author_type="human"))
     _assert_outputs("github.get_pr_reviews", result)
+    assert_matches_outputs("github.get_pr_reviews", result)
     assert [i["id"] for i in result["items"]] == [3, 1]  # 최신 우선
     assert set(result["items"][0]) == {"id", "author", "author_type", "state", "body", "submitted_at", "commit_id"}
     assert (result["approved_count"], result["changes_requested_count"]) == (1, 1)
@@ -736,6 +773,7 @@ async def test_find_branch_목록과_단건(client):
     client.get = AsyncMock(return_value=_response(200, [_branch("main"), _branch("dev")]))
     result = json.loads(await github_find_branch(token="t", owner="o", repo="r"))
     _assert_outputs("github.find_branch", result)
+    assert_matches_outputs("github.find_branch", result)
     assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r/branches"
     assert client.get.call_args.kwargs["params"]["per_page"] == 100
     assert result["items"][0] == {"name": "main", "sha": "sha-main", "protected": False}
@@ -770,6 +808,7 @@ async def test_get_file_내용(client):
     client.get = AsyncMock(return_value=_response(200, _file("안녕\n")))
     result = json.loads(await github_get_file(token="t", owner="o", repo="r", path="docs/a b.md", ref="main"))
     _assert_outputs("github.get_file", result)
+    assert_matches_outputs("github.get_file", result)
     item = result["items"][0]
     assert set(item) == {"name", "path", "type", "sha", "size", "content", "truncated"}
     assert (item["content"], item["truncated"]) == ("안녕\n", False)
@@ -823,6 +862,7 @@ async def test_find_repo(client):
         "html_url": "https://github.com/o/r", "description": None}))
     result = json.loads(await github_find_repo(token="t", owner="o", repo="r"))
     _assert_outputs("github.find_repo", result)
+    assert_matches_outputs("github.find_repo", result)
     assert client.get.call_args.args[0] == "https://api.github.com/repos/o/r"
     assert result["items"] == [{"name": "r", "full_name": "o/r", "owner": "o", "private": False,
                                 "default_branch": "main", "url": "https://github.com/o/r", "description": ""}]
@@ -837,6 +877,7 @@ async def test_find_org(client):
         "login": "acme", "name": "Acme", "description": "d", "html_url": "https://github.com/acme"}))
     result = json.loads(await github_find_org(token="t", org="acme"))
     _assert_outputs("github.find_org", result)
+    assert_matches_outputs("github.find_org", result)
     assert client.get.call_args.args[0] == "https://api.github.com/orgs/acme"
     assert set(result["items"][0]) == {"login", "name", "description", "url"}
 
@@ -850,6 +891,7 @@ async def test_find_user(client):
         "login": "alice", "name": "Alice", "type": "User", "html_url": "https://github.com/alice"}))
     result = json.loads(await github_find_user(token="t", username="alice"))
     _assert_outputs("github.find_user", result)
+    assert_matches_outputs("github.find_user", result)
     assert client.get.call_args.args[0] == "https://api.github.com/users/alice"
     assert set(result["items"][0]) == {"login", "name", "type", "url"}
 
@@ -865,6 +907,7 @@ async def test_check_org_membership(client):
     client.get = AsyncMock(return_value=_response(204))
     result = json.loads(await github_check_org_membership(token="t", org="acme", username="alice"))
     _assert_outputs("github.check_org_membership", result)
+    assert_matches_outputs("github.check_org_membership", result)
     assert (result["member"], result["found"]) == (True, True)
     assert result["items"] == [{"org": "acme", "username": "alice"}]
     assert client.get.call_args.args[0] == "https://api.github.com/orgs/acme/members/alice"
@@ -872,6 +915,7 @@ async def test_check_org_membership(client):
     client.get = AsyncMock(return_value=_response(404))
     result = json.loads(await github_check_org_membership(token="t", org="acme", username="alice"))
     _assert_outputs("github.check_org_membership", result)
+    assert_matches_outputs("github.check_org_membership", result)
     assert (result["member"], result["message"]) == (False, "멤버가 아닙니다")
 
     client.get = AsyncMock(side_effect=[_response(302), _response(204)])
