@@ -40,3 +40,19 @@ def test_every_user_facing_tool_has_template():
 def test_all_node_types_have_at_least_one_template():
     types = {t["node_type"] for t in tr.load_templates().values()}
     assert {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL"} <= types
+
+
+def _delay_tpl(node_type="DELAY"):
+    return {"id": "delay.for", "node_type": node_type, "kind": "action", "tool_key": None,
+            "title": "일정 시간 기다리기", "description": "정한 시간만큼 기다려요",
+            "fixed": {"type": node_type, "config": {}}, "inputFields": []}
+
+
+def test_delay_node_type_is_valid():
+    tr._validate_template(_delay_tpl(), "delay.for", tr._tool_map_keys(), {})
+
+
+def test_unknown_node_type_still_rejected():
+    import pytest
+    with pytest.raises(tr.TemplateSchemaError):
+        tr._validate_template(_delay_tpl("WAIT"), "delay.for", tr._tool_map_keys(), {})

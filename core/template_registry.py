@@ -21,7 +21,7 @@ _NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _KINDS = {"trigger", "action", "search"}
 _SUBMODULE_HINT = "`git submodule update --init`으로 catalog/를 받아라"
 
-_VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL", "ACTION"}
+_VALID_NODE_TYPES = {"TRIGGER", "AI", "HTTP", "CONDITION", "TRANSFORM", "APPROVAL", "ACTION", "DELAY"}
 
 _REQUIRED_TOP_KEYS = {"id", "node_type", "tool_key", "fixed"}
 # 옛 생성 경로 칸 — 읽는 곳이 없다. 파일에 쓰면 거부
