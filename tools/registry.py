@@ -49,6 +49,7 @@ from tools.gmail import (
     gmail_trash,
 )
 from tools.google_calendar import google_calendar_delete
+from tools.google_forms import google_forms_get_form, google_forms_set_accepting_responses
 from tools.google_sheets import (
     google_sheets_append_top,
     google_sheets_find_or_create_row,
@@ -118,6 +119,9 @@ _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_sheets_append_top": google_sheets_append_top,
     "builtin:google_sheets_update_row": google_sheets_update_row,
     "builtin:google_sheets_find_or_create_row": google_sheets_find_or_create_row,
+    # 폼 내용이 AI 프롬프트로 들어가는 경로를 막으려 조회(get_form)도 ACTION 전용(lane-forms 확정 결정 Q3)
+    "builtin:google_forms_set_accepting_responses": google_forms_set_accepting_responses,
+    "builtin:google_forms_get_form": google_forms_get_form,
 }
 
 
@@ -141,7 +145,7 @@ def _service_of(name: str) -> str:
     """도구 키에서 서비스명을 추론한다. builtin: 프리픽스와 세부 동작 접미사를 제거한다."""
     base = name.split(":", 1)[-1]  # builtin:notion_create_page -> notion_create_page
     for service in ("notion", "github", "google_sheets", "google_calendar", "google_drive",
-                    "slack", "discord", "web_search", "http_fetch",
+                    "google_forms", "slack", "discord", "web_search", "http_fetch",
                     "workflow_context", "json_parse", "text_extract", "date_format"):
         if base == service or base.startswith(service):
             return service
@@ -159,6 +163,7 @@ SERVICE_BRAND: dict[str, str] = {
     "google_sheets": "sheets",
     "google_calendar": "google",
     "google_drive": "google",
+    "google_forms": "google",
 }
 
 # tool_key가 없는 노드(트리거/구조 노드, 도구 없는 AI 노드)의 node_type별 기본 brand.

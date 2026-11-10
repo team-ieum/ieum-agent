@@ -109,6 +109,7 @@ def test_앱_표시_이름은_apps_json_title이다():
     assert by_id["discord.send_message"]["appTitle"] == "Discord (웹훅)"
     assert by_id["discord_bot.send_channel_message"]["appTitle"] == "Discord"
     assert by_id["google_calendar.find"]["appTitle"] == "Google Calendar"
+    assert by_id["google_forms.get_form"]["appTitle"] == "Google Forms"
 
 
 def test_agent_tools_field_is_not_ref():
@@ -162,6 +163,7 @@ def test_option_source_fields_fixed_set():
         *[(f"gmail.{x}", k) for x in ("add_label", "remove_label") for k in ("message_id", "label_ids")],
         ("gmail.remove_thread_label", "thread_id"), ("gmail.remove_thread_label", "label_ids"),
         ("gmail.archive", "message_id"), ("gmail.trash", "message_id"),
+        ("google_forms.set_accepting_responses", "form_id"), ("google_forms.get_form", "form_id"),
     }
     assert got == expected
 
@@ -174,6 +176,11 @@ def _action(entry_id: str) -> dict:
 
 def _field(entry_id: str, key: str) -> dict:
     return next(f for f in _action(entry_id)["inputFields"] if f["key"] == key)
+
+
+def test_forms_응답_받기_칸은_참조식을_받지_않는다():
+    """문자열 "false"가 참으로 읽혀 응답이 켜지는 길을 칸에서도 막는다(도구는 bool만 받는다)."""
+    assert _field("google_forms.set_accepting_responses", "accepting")["ref"] is False
 
 
 @pytest.mark.parametrize("field, title, sources, inputs", [
@@ -194,6 +201,7 @@ def _field(entry_id: str, key: str) -> dict:
     ("sheet_id", "워크시트", {"google.worksheets"}, ["spreadsheet_id"]),
     ("lookup_column", "찾을 열", {"google.sheet_columns"}, ["spreadsheet_id", "sheet_id"]),
     ("lookup_column_2", "보조 열", {"google.sheet_columns"}, ["spreadsheet_id", "sheet_id"]),
+    ("form_id", "폼", {"google.forms"}, None),
 ])
 def test_app_option_sources(field, title, sources, inputs):
     """공급원 키는 BE OptionSource.key()와 1:1 계약(IEUM-BE-72·73·76). 그 필드를 가진 액션 항목 전부에서
@@ -307,6 +315,7 @@ EXPECTED_BRANDS = {
     "google_calendar.create": "google", "google_calendar.find": "google",
     "google_calendar.update": "google", "google_calendar.delete": "google", "google_drive.read": "google",
     "google_drive.upload": "google",
+    "google_forms.set_accepting_responses": "google", "google_forms.get_form": "google",
     "github.list_issues": "github", "github.create_issue": "github",
     "github.get_pr_files": "github", "github.submit_pr_review": "github",
     **{f"github.{x}": "github" for x in (

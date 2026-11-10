@@ -109,6 +109,13 @@ def test_final_input_field_keys_unique(tmp_path, monkeypatch):
         _load_from(tmp_path, monkeypatch, mutate)
 
 
+def test_forms_도구는_ai_agent_도구_선택지에_없다():
+    """lane-forms 확정 결정 Q3 — 두 Forms 도구는 ACTION 전용."""
+    tools = next(f for f in tr.load_templates(force=True)["ai.agent"]["inputFields"] if f["key"] == "tools")
+    ids = {c["id"] for c in tools["choices"]}
+    assert not ids & {"builtin:google_forms_set_accepting_responses", "builtin:google_forms_get_form"}
+
+
 def test_agent_tool_choices_skip_builder_hidden_actions(tmp_path, monkeypatch):
     """builder: false 액션은 빌더에 없으니 ai.agent 도구 선택지에도 없다(그 항목은 title도 필수가 아니다)."""
     def hide(raw):

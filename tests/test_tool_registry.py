@@ -117,6 +117,21 @@ def test_gmail_정리_노드는_ACTION_전용이다(action):
     assert get_tools_for_request([{"name": key}]) == []
 
 
+def test_forms_도구는_ACTION_전용이다():
+    """폼 내용이 AI 프롬프트로 들어가는 경로를 막는다(lane-forms 확정 결정 Q3) — 조회도 _TOOL_MAP 밖."""
+    from tools import _TOOL_MAP, get_tools_for_request
+    from tools.google_forms import google_forms_get_form, google_forms_set_accepting_responses
+    from tools.registry import SERVICE_BRAND, _service_of
+
+    for key, fn in (("builtin:google_forms_set_accepting_responses", google_forms_set_accepting_responses),
+                    ("builtin:google_forms_get_form", google_forms_get_form)):
+        assert resolve_action_fn(key) is fn
+        assert key not in _TOOL_MAP
+        assert get_tools_for_request([{"name": key}]) == []
+    assert _service_of("builtin:google_forms_get_form") == "google_forms"
+    assert SERVICE_BRAND["google_forms"] == "google"
+
+
 @pytest.mark.parametrize("key", [
     "mcp", "github_list_issues", "builtin:github_nope", "builtin:github_", "builtin:github_list_issues ",
     "builtin:does_not_exist", "", None, 5, ["builtin:github_list_issues"],
