@@ -109,6 +109,10 @@
               "name": "시트에 행 추가"
             },
             {
+              "id": "builtin:google_sheets_append_rows",
+              "name": "시트에 여러 행 추가"
+            },
+            {
               "id": "builtin:google_sheets_find_spreadsheet",
               "name": "스프레드시트 찾기"
             },
@@ -8974,6 +8978,106 @@
     {
       "app": "google_sheets",
       "appTitle": "Google Sheets",
+      "description": "표 끝에 여러 행을 한 번에 추가해요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.append_rows",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.append_rows",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "앞 단계 목록(JSON 배열). 항목 키는 열 문자(A)나 머리글 이름이에요",
+          "key": "rows",
+          "path": "config.rows",
+          "required": true,
+          "title": "행 목록",
+          "type": "json"
+        },
+        {
+          "description": "열마다 목록 항목에서 꺼낼 키 이름(예: email, values.B). 비우면 항목 키를 열 문자·머리글로 읽어요",
+          "fieldsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "fieldsSource": "google.sheet_columns",
+          "key": "column_map",
+          "path": "config.column_map",
+          "ref": false,
+          "title": "열별 항목 키",
+          "type": "dict"
+        },
+        {
+          "choices": [
+            {
+              "id": "USER_ENTERED",
+              "name": "자동 변환"
+            },
+            {
+              "id": "RAW",
+              "name": "그대로 저장"
+            }
+          ],
+          "default": "USER_ENTERED",
+          "description": "전화번호·우편번호처럼 앞자리 0을 지켜야 하면 '그대로 저장'",
+          "key": "value_input_option",
+          "path": "config.value_input_option",
+          "ref": false,
+          "title": "입력값 해석",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "updatedRange",
+          "title": "기록된 범위",
+          "type": "string"
+        },
+        {
+          "key": "row_number",
+          "title": "첫 행 번호",
+          "type": "integer"
+        },
+        {
+          "key": "row_count",
+          "title": "추가한 행 수",
+          "type": "integer"
+        }
+      ],
+      "provider": "google",
+      "title": "시트에 여러 행 추가",
+      "toolKey": "builtin:google_sheets_append_rows"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
       "description": "머리글 바로 아래(2행)에 한 행을 넣어요.",
       "fixed": {
         "config": {
@@ -9058,6 +9162,143 @@
       "provider": "google",
       "title": "시트 맨 위에 행 추가",
       "toolKey": "builtin:google_sheets_append_top"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "행의 값만 지워요. 서식과 행은 남아요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.clear_rows",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.clear_rows",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "예: 5 / 5,7 / 5-9. '시트에서 여러 행 찾기' 결과 목록도 돼요",
+          "key": "row_numbers",
+          "path": "config.row_numbers",
+          "required": true,
+          "title": "행 번호",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "row_count",
+          "title": "비운 행 수",
+          "type": "integer"
+        },
+        {
+          "key": "row_numbers",
+          "list": true,
+          "title": "비운 행 번호",
+          "type": "integer"
+        }
+      ],
+      "provider": "google",
+      "title": "시트 행 비우기",
+      "toolKey": "builtin:google_sheets_clear_rows"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "행을 지우고 아래 행을 당겨요. 되돌릴 수 없어요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.delete_rows",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.delete_rows",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "예: 5 / 5,7 / 5-9. '시트에서 여러 행 찾기' 결과 목록도 돼요",
+          "key": "row_numbers",
+          "path": "config.row_numbers",
+          "required": true,
+          "title": "행 번호",
+          "type": "string"
+        },
+        {
+          "description": "켜야 실행돼요. 지운 행은 되돌릴 수 없어요(버전 기록으로만 복구)",
+          "key": "confirm_delete",
+          "path": "config.confirm_delete",
+          "ref": false,
+          "required": true,
+          "title": "삭제 확인",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "row_count",
+          "title": "삭제한 행 수",
+          "type": "integer"
+        },
+        {
+          "key": "row_numbers",
+          "list": true,
+          "title": "삭제한 행 번호",
+          "type": "integer"
+        }
+      ],
+      "provider": "google",
+      "title": "시트 행 삭제",
+      "toolKey": "builtin:google_sheets_delete_rows"
     },
     {
       "app": "google_sheets",
@@ -9400,6 +9641,108 @@
       "provider": "google",
       "title": "워크시트 찾기",
       "toolKey": "builtin:google_sheets_find_worksheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "행의 배경색·글자색·굵게·기울임·취소선을 바꿔요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.format_rows",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.format_rows",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "예: 5 / 5,7 / 5-9. '시트에서 여러 행 찾기' 결과 목록도 돼요",
+          "key": "row_numbers",
+          "path": "config.row_numbers",
+          "required": true,
+          "title": "행 번호",
+          "type": "string"
+        },
+        {
+          "description": "#RRGGBB(예: #FFF2CC). 비우면 그대로",
+          "key": "background_color",
+          "path": "config.background_color",
+          "title": "배경색",
+          "type": "string"
+        },
+        {
+          "description": "#RRGGBB(예: #1A73E8). 비우면 그대로",
+          "key": "text_color",
+          "path": "config.text_color",
+          "title": "글자색",
+          "type": "string"
+        },
+        {
+          "description": "비우면 그대로, 켜면 적용, 끄면 해제",
+          "key": "bold",
+          "path": "config.bold",
+          "ref": false,
+          "title": "굵게",
+          "type": "boolean"
+        },
+        {
+          "description": "비우면 그대로, 켜면 적용, 끄면 해제",
+          "key": "italic",
+          "path": "config.italic",
+          "ref": false,
+          "title": "기울임",
+          "type": "boolean"
+        },
+        {
+          "description": "비우면 그대로, 켜면 적용, 끄면 해제",
+          "key": "strikethrough",
+          "path": "config.strikethrough",
+          "ref": false,
+          "title": "취소선",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "row_count",
+          "title": "서식을 바꾼 행 수",
+          "type": "integer"
+        },
+        {
+          "key": "row_numbers",
+          "list": true,
+          "title": "서식을 바꾼 행 번호",
+          "type": "integer"
+        }
+      ],
+      "provider": "google",
+      "title": "시트 행 서식",
+      "toolKey": "builtin:google_sheets_format_rows"
     },
     {
       "app": "google_sheets",
@@ -10214,6 +10557,111 @@
       "provider": "google",
       "title": "시트 행 수정",
       "toolKey": "builtin:google_sheets_update_row"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "행 번호마다 값을 한 번에 바꿔요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.update_rows",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.update_rows",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "항목마다 row_number와 바꿀 열 값. 바꿀 열만 담아요(찾기 결과를 그대로 넣으면 수식이 값으로 바뀌어요)",
+          "key": "rows",
+          "path": "config.rows",
+          "required": true,
+          "title": "행 목록",
+          "type": "json"
+        },
+        {
+          "description": "열마다 목록 항목에서 꺼낼 키 이름(예: email, values.B). 비우면 항목 키를 열 문자·머리글로 읽어요",
+          "fieldsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "fieldsSource": "google.sheet_columns",
+          "key": "column_map",
+          "path": "config.column_map",
+          "ref": false,
+          "title": "열별 항목 키",
+          "type": "dict"
+        },
+        {
+          "default": false,
+          "description": "켜면 비운 열의 기존 값을 지워요",
+          "key": "overwrite_all",
+          "path": "config.overwrite_all",
+          "ref": false,
+          "title": "모든 열 덮어쓰기",
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            {
+              "id": "USER_ENTERED",
+              "name": "자동 변환"
+            },
+            {
+              "id": "RAW",
+              "name": "그대로 저장"
+            }
+          ],
+          "default": "USER_ENTERED",
+          "description": "전화번호·우편번호처럼 앞자리 0을 지켜야 하면 '그대로 저장'",
+          "key": "value_input_option",
+          "path": "config.value_input_option",
+          "ref": false,
+          "title": "입력값 해석",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "row_count",
+          "title": "수정한 행 수",
+          "type": "integer"
+        },
+        {
+          "key": "row_numbers",
+          "list": true,
+          "title": "수정한 행 번호",
+          "type": "integer"
+        }
+      ],
+      "provider": "google",
+      "title": "시트 여러 행 수정",
+      "toolKey": "builtin:google_sheets_update_rows"
     },
     {
       "app": "http",

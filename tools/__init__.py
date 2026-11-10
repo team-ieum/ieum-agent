@@ -25,6 +25,7 @@ from tools.google_sheets import (
     google_sheets_get_rows, google_sheets_get_row, google_sheets_find_spreadsheet, google_sheets_find_worksheet,
     google_sheets_get_spreadsheet,
 )
+from tools.google_sheets_rows import google_sheets_append_rows
 from tools.google_calendar import google_calendar_create, google_calendar_find, google_calendar_update
 from tools.google_drive import google_drive_read, google_drive_upload
 from tools.workflow_context import workflow_context
@@ -96,6 +97,7 @@ _TOOL_MAP: dict = {
     "builtin:google_sheets_find_spreadsheet": google_sheets_find_spreadsheet,
     "builtin:google_sheets_find_worksheet": google_sheets_find_worksheet,
     "builtin:google_sheets_get_spreadsheet": google_sheets_get_spreadsheet,
+    "builtin:google_sheets_append_rows": google_sheets_append_rows,
     "builtin:google_calendar_create": google_calendar_create,
     "builtin:google_calendar_find": google_calendar_find,
     "builtin:google_calendar_update": google_calendar_update,

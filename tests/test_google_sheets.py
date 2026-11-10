@@ -11,7 +11,8 @@ from core import template_registry as tr
 from tests.action_outputs import assert_matches_outputs
 from tools import _TOOL_MAP, get_tools_for_request
 from tools.google_sheets import (
-    _Invalid, _col, _header_range, _resolve, _row, _row_number,
+    _Invalid, _batch_update, _cell_format, _col, _find_spreadsheets, _header_range, _resolve, _rgb, _row,
+    _row_number, _tri,
     google_sheets_append, google_sheets_append_top, google_sheets_find_or_create_row,
     google_sheets_find_spreadsheet, google_sheets_find_worksheet, google_sheets_get_row, google_sheets_get_rows,
     google_sheets_get_spreadsheet,
@@ -66,8 +67,13 @@ class _Sheets:
     @staticmethod
     def _kind(call):
         method, url, kwargs = call
-        if method == "POST" and url.endswith(":batchUpdate"):
-            return "insert" if "insertDimension" in kwargs["json"]["requests"][0] else "delete"
+        if method != "POST":
+            return None
+        if url.endswith("/values:batchUpdate"):
+            return "values_batch"
+        if url.endswith(":batchUpdate"):
+            key = next(iter(kwargs["json"]["requests"][0]))
+            return {"insertDimension": "insert", "deleteDimension": "delete"}.get(key, key)
         return None
 
     async def get(self, url, **kwargs):
@@ -737,6 +743,65 @@ async def test_스프레드시트_0건():
     assert result == {"success": True, "found": False, "total": 0, "items": [], "truncated": False}
 
 
+@pytest.mark.asyncio
+async def test_batch_update는_요청_여러_개를_한_번에_보내고_응답을_돌려준다():
+    reqs = [{"addSheet": {"properties": {"title": "새"}}},
+            {"updateSheetProperties": {"properties": {"sheetId": 9, "index": 0}, "fields": "index"}}]
+    reply = {"replies": [{"addSheet": {"properties": {"sheetId": 9}}}, {}]}
+    fake = _Sheets(GRID, fail={"addSheet": _resp(200, reply)})
+    data = await _batch_update(fake, "t", "s1", reqs)
+    [(_, url, kwargs)] = fake.of("POST")
+    assert url == "https://sheets.googleapis.com/v4/spreadsheets/s1:batchUpdate"
+    assert kwargs["json"] == {"requests": reqs}
+    assert data == reply
+
+
+@pytest.mark.asyncio
+async def test_batch_update는_요청_하나도_받는다():
+    fake = _Sheets(GRID)
+    req = {"deleteDimension": {"range": _DIM}}
+    assert await _batch_update(fake, "t", "s1", req) == {}
+    [(_, _, kwargs)] = fake.of("POST")
+    assert kwargs["json"] == {"requests": [req]}
+
+
+@pytest.mark.asyncio
+async def test_batch_update_오류는_실패():
+    fake = _Sheets(GRID, fail={"delete": _resp(400, {"error": {"message": "bad"}})})
+    with pytest.raises(_Invalid, match=r"Google Sheets API 오류 \(400\): bad"):
+        await _batch_update(fake, "t", "s1", {"deleteDimension": {"range": _DIM}})
+
+
+@pytest.mark.parametrize("tail, body, expected", [
+    ("/spreadsheets/s1/values:batchUpdate", {"valueInputOption": "RAW", "data": []}, "values_batch"),
+    ("/spreadsheets/s1:batchUpdate", {"requests": [{"insertDimension": {}}]}, "insert"),
+    ("/spreadsheets/s1:batchUpdate", {"requests": [{"deleteDimension": {}}]}, "delete"),
+    ("/spreadsheets/s1:batchUpdate", {"requests": [{"repeatCell": {}}, {"deleteDimension": {}}]}, "repeatCell"),
+    ("/spreadsheets/s1/values:batchClear", {"ranges": []}, None),
+])
+def test_가짜는_values_batchUpdate를_구조_batch로_보지_않는다(tail, body, expected):
+    assert _Sheets._kind(("POST", "https://sheets.googleapis.com/v4" + tail, {"json": body})) == expected
+
+
+@pytest.mark.asyncio
+async def test_스프레드시트_검색_헬퍼는_폴더_안만_찾는다():
+    fake = _Sheets(GRID, drive_files=[_FILE], drive_next_page_token="p2")
+    items, truncated = await _find_spreadsheets(fake, "t", "예산", "exact", folder_id="fld'1")
+    assert fake.calls[0][2]["params"]["q"] == _SPREADSHEET_Q + "name = '예산' and 'fld\\'1' in parents"
+    assert truncated is True
+    assert items == [{"id": "f1", "name": "예산", "url": _FILE["webViewLink"],
+                      "modified_time": _FILE["modifiedTime"], "owned_by_me": True}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("folder_id", [None, "", "  "])
+async def test_스프레드시트_검색_헬퍼는_폴더가_비면_전체에서(folder_id):
+    fake = _Sheets(GRID, drive_files=[_FILE])
+    _, truncated = await _find_spreadsheets(fake, "t", "예산", "prefix", folder_id=folder_id)
+    assert fake.calls[0][2]["params"]["q"] == _SPREADSHEET_Q + "name contains '예산'"
+    assert truncated is False
+
+
 _TWO_SHEETS = (("Sales", 0, 26), ("요약", 7, 5))
 
 
@@ -930,11 +995,12 @@ def test_AI_노드_도구_선택지의_Sheets는_쓰기_전용_셋을_뺀다():
     sheets = {c["id"] for c in tools["choices"] if c["id"].startswith("builtin:google_sheets_")}
     assert sheets == {f"builtin:google_sheets_{x}" for x in (
         "append", "lookup_row", "read", "lookup_rows", "get_rows", "get_row",
-        "find_spreadsheet", "find_worksheet", "get_spreadsheet")}
+        "find_spreadsheet", "find_worksheet", "get_spreadsheet", "append_rows")}
 
 
 def test_ACTION_전용_Sheets_도구는_AI_목록_밖에서만_풀린다():
-    for name in ("append_top", "update_row", "find_or_create_row"):
+    for name in ("append_top", "update_row", "find_or_create_row", "update_rows", "clear_rows", "delete_rows",
+                 "format_rows"):
         key = f"builtin:google_sheets_{name}"
         assert key not in _TOOL_MAP and key in _ACTION_ONLY_TOOLS and resolve_action_fn(key) is not None
     assert resolve_action_fn("builtin:google_sheets_write") is None
@@ -994,3 +1060,64 @@ async def test_그리드_한도가_아닌_400은_그대로_오류():
     fake = _Sheets(GRID, values_by_range={"'Sales'!4:4": _resp(400, {"error": {"message": "Unable to parse range"}})})
     result = await _call(fake, google_sheets_get_row, sheet_id="0", row_number=4)
     assert "Unable to parse range" in result["error"]
+
+
+# --- 공용 서식 헬퍼 ---
+@pytest.mark.parametrize("value, expected", [
+    ("#FFF2CC", {"red": 1.0, "green": 242 / 255, "blue": 204 / 255}),
+    ("#ff0000", {"red": 1.0, "green": 0.0, "blue": 0.0}),
+    (" #000000 ", {"red": 0.0, "green": 0.0, "blue": 0.0}),
+])
+def test_rgb는_샵_6자리_16진수를_0에서_1로(value, expected):
+    assert _rgb(value, "배경색") == expected
+
+
+@pytest.mark.parametrize("value", ["FFF2CC", "#FFF", "#GGGGGG", "#FFF2CC0", "", None, 123])
+def test_rgb_형식이_틀리면_칸_이름을_담아_실패(value):
+    with pytest.raises(ValueError) as e:
+        _rgb(value, "배경색")
+    assert "배경색" in str(e.value)
+
+
+@pytest.mark.parametrize("value, expected", [
+    (None, None), ("", None), ("  ", None), (True, True), ("true", True), ("TRUE", True),
+    (False, False), ("false", False), (" False ", False),
+])
+def test_tri는_비움_참_거짓_세_상태(value, expected):
+    assert _tri(value) is expected
+
+
+@pytest.mark.parametrize("value", [1, 0, "yes", "켜기", "1", []])
+def test_tri_그_밖_값은_실패(value):
+    with pytest.raises(ValueError):
+        _tri(value)
+
+
+def test_cell_format은_채운_칸만_싣는다():
+    assert _cell_format(background_color="#FFF2CC", bold=False) == (
+        {"backgroundColorStyle": {"rgbColor": {"red": 1.0, "green": 242 / 255, "blue": 204 / 255}},
+         "textFormat": {"bold": False}},
+        ["userEnteredFormat.backgroundColorStyle", "userEnteredFormat.textFormat.bold"])
+
+
+def test_cell_format_다섯_칸_전부():
+    assert _cell_format(background_color="#000000", text_color="#0000FF", bold="true", italic=False,
+                        strikethrough=True) == (
+        {"backgroundColorStyle": {"rgbColor": {"red": 0.0, "green": 0.0, "blue": 0.0}},
+         "textFormat": {"foregroundColorStyle": {"rgbColor": {"red": 0.0, "green": 0.0, "blue": 1.0}},
+                        "bold": True, "italic": False, "strikethrough": True}},
+        ["userEnteredFormat.backgroundColorStyle", "userEnteredFormat.textFormat.foregroundColorStyle",
+         "userEnteredFormat.textFormat.bold", "userEnteredFormat.textFormat.italic",
+         "userEnteredFormat.textFormat.strikethrough"])
+
+
+def test_cell_format_비면_빈_값():
+    assert _cell_format() == ({}, [])
+    assert _cell_format(background_color="", text_color=None, bold="", italic=None, strikethrough="  ") == ({}, [])
+
+
+@pytest.mark.parametrize("kwargs, name", [({"text_color": "red"}, "글자색"), ({"italic": "maybe"}, "기울임")])
+def test_cell_format_잘못된_값은_칸_이름을_담아_실패(kwargs, name):
+    with pytest.raises(ValueError) as e:
+        _cell_format(**kwargs)
+    assert name in str(e.value)
