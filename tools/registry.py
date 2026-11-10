@@ -71,6 +71,14 @@ from tools.google_sheets_rows import (
     google_sheets_format_rows,
     google_sheets_update_rows,
 )
+from tools.google_sheets_ranges import (
+    google_sheets_add_column,
+    google_sheets_add_conditional_format,
+    google_sheets_copy_range,
+    google_sheets_format_range,
+    google_sheets_set_data_validation,
+    google_sheets_sort_range,
+)
 
 # 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
 # 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증과 설정 폼에서 제외한다.
@@ -145,6 +153,13 @@ _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_sheets_clear_rows": google_sheets_clear_rows,
     "builtin:google_sheets_delete_rows": google_sheets_delete_rows,
     "builtin:google_sheets_format_rows": google_sheets_format_rows,
+    # Sheets 열·범위 — 기존 구조·서식을 바꾸고 API로 되돌릴 수 없다(레인 G 확정 결정: ACTION 전용)
+    "builtin:google_sheets_add_column": google_sheets_add_column,
+    "builtin:google_sheets_copy_range": google_sheets_copy_range,
+    "builtin:google_sheets_sort_range": google_sheets_sort_range,
+    "builtin:google_sheets_format_range": google_sheets_format_range,
+    "builtin:google_sheets_add_conditional_format": google_sheets_add_conditional_format,
+    "builtin:google_sheets_set_data_validation": google_sheets_set_data_validation,
     # 폼 내용이 AI 프롬프트로 들어가는 경로를 막으려 조회(get_form)도 ACTION 전용(lane-forms 확정 결정 Q3)
     "builtin:google_forms_set_accepting_responses": google_forms_set_accepting_responses,
     "builtin:google_forms_get_form": google_forms_get_form,

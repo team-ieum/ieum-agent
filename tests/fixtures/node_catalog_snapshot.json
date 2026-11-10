@@ -8890,6 +8890,313 @@
     {
       "app": "google_sheets",
       "appTitle": "Google Sheets",
+      "description": "1행에 머리글을 쓴 새 열을 넣어요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.add_column",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.add_column",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "1행에 쓸 머리글. 입력한 글자 그대로 저장해요",
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "열 제목",
+          "type": "string"
+        },
+        {
+          "description": "이 열 앞에 넣어요. 비우면 맨 끝. 중간에 넣으면 오른쪽 열 문자가 바뀌어 이 시트를 쓰는 다른 노드의 열 칸이 어긋나요. 보통 비워 두세요",
+          "key": "before_column",
+          "optionsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "optionsSource": "google.sheet_columns",
+          "path": "config.before_column",
+          "ref": false,
+          "title": "넣을 위치",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "넣은 열. 예: E",
+          "key": "column",
+          "title": "열 문자",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "열 제목",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "시트에 열 추가",
+      "toolKey": "builtin:google_sheets_add_column"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "조건에 맞는 셀에 서식을 입혀요. 실행할 때마다 규칙이 하나씩 쌓여요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.add_conditional_format",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.add_conditional_format",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "A1 표기. 예: A1:C10, A:A, 2:10. 시트는 위에서 고른 시트예요",
+          "key": "cell_range",
+          "path": "config.cell_range",
+          "required": true,
+          "title": "범위",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "NUMBER_GREATER",
+              "name": "숫자: 보다 큼"
+            },
+            {
+              "id": "NUMBER_GREATER_THAN_EQ",
+              "name": "숫자: 크거나 같음"
+            },
+            {
+              "id": "NUMBER_LESS",
+              "name": "숫자: 보다 작음"
+            },
+            {
+              "id": "NUMBER_LESS_THAN_EQ",
+              "name": "숫자: 작거나 같음"
+            },
+            {
+              "id": "NUMBER_EQ",
+              "name": "숫자: 같음"
+            },
+            {
+              "id": "NUMBER_NOT_EQ",
+              "name": "숫자: 같지 않음"
+            },
+            {
+              "id": "NUMBER_BETWEEN",
+              "name": "숫자: 사이"
+            },
+            {
+              "id": "NUMBER_NOT_BETWEEN",
+              "name": "숫자: 사이 아님"
+            },
+            {
+              "id": "TEXT_CONTAINS",
+              "name": "텍스트: 포함"
+            },
+            {
+              "id": "TEXT_NOT_CONTAINS",
+              "name": "텍스트: 포함 안 함"
+            },
+            {
+              "id": "TEXT_EQ",
+              "name": "텍스트: 정확히 일치"
+            },
+            {
+              "id": "TEXT_STARTS_WITH",
+              "name": "텍스트: 시작"
+            },
+            {
+              "id": "TEXT_ENDS_WITH",
+              "name": "텍스트: 끝남"
+            },
+            {
+              "id": "DATE_EQ",
+              "name": "날짜: 같음"
+            },
+            {
+              "id": "DATE_BEFORE",
+              "name": "날짜: 이전"
+            },
+            {
+              "id": "DATE_AFTER",
+              "name": "날짜: 이후"
+            },
+            {
+              "id": "BLANK",
+              "name": "비어 있음"
+            },
+            {
+              "id": "NOT_BLANK",
+              "name": "비어 있지 않음"
+            },
+            {
+              "id": "CUSTOM_FORMULA",
+              "name": "맞춤 수식"
+            }
+          ],
+          "key": "condition",
+          "path": "config.condition",
+          "ref": false,
+          "required": true,
+          "title": "조건",
+          "type": "string"
+        },
+        {
+          "description": "조건과 비교할 값. '맞춤 수식'은 =로 시작해요. '비어 있음'·'비어 있지 않음'에선 안 써요",
+          "key": "value_1",
+          "path": "config.value_1",
+          "title": "값",
+          "type": "string"
+        },
+        {
+          "description": "'사이'·'사이 아님'에서만 써요",
+          "key": "value_2",
+          "path": "config.value_2",
+          "title": "두 번째 값",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "PAST_YEAR",
+              "name": "지난 1년"
+            },
+            {
+              "id": "PAST_MONTH",
+              "name": "지난 한 달"
+            },
+            {
+              "id": "PAST_WEEK",
+              "name": "지난 한 주"
+            },
+            {
+              "id": "YESTERDAY",
+              "name": "어제"
+            },
+            {
+              "id": "TODAY",
+              "name": "오늘"
+            },
+            {
+              "id": "TOMORROW",
+              "name": "내일"
+            }
+          ],
+          "description": "날짜 조건에서 값 대신 써요",
+          "key": "relative_date",
+          "path": "config.relative_date",
+          "ref": false,
+          "title": "상대 날짜",
+          "type": "string"
+        },
+        {
+          "description": "#RRGGBB(예: #FFF2CC). 비우면 그대로",
+          "key": "background_color",
+          "path": "config.background_color",
+          "title": "배경색",
+          "type": "string"
+        },
+        {
+          "description": "#RRGGBB(예: #1F4E79). 비우면 그대로",
+          "key": "text_color",
+          "path": "config.text_color",
+          "title": "글자색",
+          "type": "string"
+        },
+        {
+          "description": "비우면 그대로, 끄면 굵게를 풀어요",
+          "key": "bold",
+          "path": "config.bold",
+          "ref": false,
+          "title": "굵게",
+          "type": "boolean"
+        },
+        {
+          "description": "비우면 그대로, 끄면 기울임을 풀어요",
+          "key": "italic",
+          "path": "config.italic",
+          "ref": false,
+          "title": "기울임",
+          "type": "boolean"
+        },
+        {
+          "description": "비우면 그대로, 끄면 취소선을 풀어요",
+          "key": "strikethrough",
+          "path": "config.strikethrough",
+          "ref": false,
+          "title": "취소선",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "range",
+          "title": "규칙을 건 범위",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "조건부 서식 추가",
+      "toolKey": "builtin:google_sheets_add_conditional_format"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
       "description": "표 끝에 한 행을 추가해요.",
       "fixed": {
         "config": {
@@ -9226,6 +9533,133 @@
       "provider": "google",
       "title": "시트 행 비우기",
       "toolKey": "builtin:google_sheets_clear_rows"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "범위를 같은 시트의 다른 위치에 붙여 넣어요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.copy_range",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.copy_range",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "A1 표기. 예: A1:C10, A:A, 2:10. 시트는 위에서 고른 시트예요",
+          "key": "source_range",
+          "path": "config.source_range",
+          "required": true,
+          "title": "복사할 범위",
+          "type": "string"
+        },
+        {
+          "description": "왼쪽 위 셀 하나만 써도 돼요(예: E1). 그 자리의 값·서식을 덮어써요",
+          "key": "destination_range",
+          "path": "config.destination_range",
+          "required": true,
+          "title": "붙여 넣을 위치",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "PASTE_NORMAL",
+              "name": "전부"
+            },
+            {
+              "id": "PASTE_VALUES",
+              "name": "값만"
+            },
+            {
+              "id": "PASTE_FORMAT",
+              "name": "서식만"
+            },
+            {
+              "id": "PASTE_NO_BORDERS",
+              "name": "테두리 빼고 전부"
+            },
+            {
+              "id": "PASTE_FORMULA",
+              "name": "수식만"
+            },
+            {
+              "id": "PASTE_DATA_VALIDATION",
+              "name": "데이터 유효성만"
+            },
+            {
+              "id": "PASTE_CONDITIONAL_FORMATTING",
+              "name": "조건부 서식만"
+            }
+          ],
+          "default": "PASTE_NORMAL",
+          "key": "paste_type",
+          "path": "config.paste_type",
+          "ref": false,
+          "title": "붙여 넣을 내용",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "NORMAL",
+              "name": "그대로"
+            },
+            {
+              "id": "TRANSPOSE",
+              "name": "행·열 바꾸기"
+            }
+          ],
+          "default": "NORMAL",
+          "key": "paste_orientation",
+          "path": "config.paste_orientation",
+          "ref": false,
+          "title": "방향",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "source",
+          "title": "복사한 범위",
+          "type": "string"
+        },
+        {
+          "key": "destination",
+          "title": "붙여 넣은 위치",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "시트 범위 복사",
+      "toolKey": "builtin:google_sheets_copy_range"
     },
     {
       "app": "google_sheets",
@@ -9641,6 +10075,214 @@
       "provider": "google",
       "title": "워크시트 찾기",
       "toolKey": "builtin:google_sheets_find_worksheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "범위의 숫자 형식·색·글자 모양·정렬을 바꿔요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.format_range",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.format_range",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "A1 표기. 예: A1:C10, A:A, 2:10. 시트는 위에서 고른 시트예요",
+          "key": "cell_range",
+          "path": "config.cell_range",
+          "required": true,
+          "title": "범위",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "TEXT",
+              "name": "텍스트"
+            },
+            {
+              "id": "NUMBER",
+              "name": "숫자"
+            },
+            {
+              "id": "PERCENT",
+              "name": "퍼센트"
+            },
+            {
+              "id": "CURRENCY",
+              "name": "통화"
+            },
+            {
+              "id": "DATE",
+              "name": "날짜"
+            },
+            {
+              "id": "TIME",
+              "name": "시간"
+            },
+            {
+              "id": "DATE_TIME",
+              "name": "날짜+시간"
+            },
+            {
+              "id": "SCIENTIFIC",
+              "name": "지수"
+            }
+          ],
+          "description": "비우면 그대로",
+          "key": "number_format",
+          "path": "config.number_format",
+          "ref": false,
+          "title": "숫자 형식",
+          "type": "string"
+        },
+        {
+          "description": "숫자 형식을 고를 때만 써요. 예: yyyy-mm-dd, #,##0",
+          "key": "number_pattern",
+          "path": "config.number_pattern",
+          "title": "형식 패턴",
+          "type": "string"
+        },
+        {
+          "description": "#RRGGBB(예: #FFF2CC). 비우면 그대로",
+          "key": "background_color",
+          "path": "config.background_color",
+          "title": "배경색",
+          "type": "string"
+        },
+        {
+          "description": "#RRGGBB(예: #1F4E79). 비우면 그대로",
+          "key": "text_color",
+          "path": "config.text_color",
+          "title": "글자색",
+          "type": "string"
+        },
+        {
+          "description": "비우면 그대로, 끄면 굵게를 풀어요",
+          "key": "bold",
+          "path": "config.bold",
+          "ref": false,
+          "title": "굵게",
+          "type": "boolean"
+        },
+        {
+          "description": "비우면 그대로, 끄면 기울임을 풀어요",
+          "key": "italic",
+          "path": "config.italic",
+          "ref": false,
+          "title": "기울임",
+          "type": "boolean"
+        },
+        {
+          "description": "비우면 그대로, 끄면 취소선을 풀어요",
+          "key": "strikethrough",
+          "path": "config.strikethrough",
+          "ref": false,
+          "title": "취소선",
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            {
+              "id": "LEFT",
+              "name": "왼쪽"
+            },
+            {
+              "id": "CENTER",
+              "name": "가운데"
+            },
+            {
+              "id": "RIGHT",
+              "name": "오른쪽"
+            }
+          ],
+          "key": "horizontal_alignment",
+          "path": "config.horizontal_alignment",
+          "ref": false,
+          "title": "가로 정렬",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "TOP",
+              "name": "위"
+            },
+            {
+              "id": "MIDDLE",
+              "name": "가운데"
+            },
+            {
+              "id": "BOTTOM",
+              "name": "아래"
+            }
+          ],
+          "key": "vertical_alignment",
+          "path": "config.vertical_alignment",
+          "ref": false,
+          "title": "세로 정렬",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "OVERFLOW_CELL",
+              "name": "넘침"
+            },
+            {
+              "id": "CLIP",
+              "name": "자르기"
+            },
+            {
+              "id": "WRAP",
+              "name": "줄바꿈"
+            }
+          ],
+          "key": "wrap_strategy",
+          "path": "config.wrap_strategy",
+          "ref": false,
+          "title": "줄바꿈",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "range",
+          "title": "서식을 바꾼 범위",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "시트 범위 서식",
+      "toolKey": "builtin:google_sheets_format_range"
     },
     {
       "app": "google_sheets",
@@ -10452,6 +11094,310 @@
       "provider": "google",
       "title": "시트 읽기",
       "toolKey": "builtin:google_sheets_read"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "범위에 입력 규칙을 걸어요. 범위에 있던 규칙은 이것으로 바뀌어요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.set_data_validation",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.set_data_validation",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "A1 표기. 예: A1:C10, A:A, 2:10. 시트는 위에서 고른 시트예요",
+          "key": "cell_range",
+          "path": "config.cell_range",
+          "required": true,
+          "title": "범위",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "NUMBER_GREATER",
+              "name": "숫자: 보다 큼"
+            },
+            {
+              "id": "NUMBER_GREATER_THAN_EQ",
+              "name": "숫자: 크거나 같음"
+            },
+            {
+              "id": "NUMBER_LESS",
+              "name": "숫자: 보다 작음"
+            },
+            {
+              "id": "NUMBER_LESS_THAN_EQ",
+              "name": "숫자: 작거나 같음"
+            },
+            {
+              "id": "NUMBER_EQ",
+              "name": "숫자: 같음"
+            },
+            {
+              "id": "NUMBER_NOT_EQ",
+              "name": "숫자: 같지 않음"
+            },
+            {
+              "id": "NUMBER_BETWEEN",
+              "name": "숫자: 사이"
+            },
+            {
+              "id": "NUMBER_NOT_BETWEEN",
+              "name": "숫자: 사이 아님"
+            },
+            {
+              "id": "TEXT_CONTAINS",
+              "name": "텍스트: 포함"
+            },
+            {
+              "id": "TEXT_NOT_CONTAINS",
+              "name": "텍스트: 포함 안 함"
+            },
+            {
+              "id": "TEXT_EQ",
+              "name": "텍스트: 정확히 일치"
+            },
+            {
+              "id": "TEXT_IS_EMAIL",
+              "name": "텍스트: 이메일"
+            },
+            {
+              "id": "TEXT_IS_URL",
+              "name": "텍스트: URL"
+            },
+            {
+              "id": "DATE_EQ",
+              "name": "날짜: 같음"
+            },
+            {
+              "id": "DATE_BEFORE",
+              "name": "날짜: 이전"
+            },
+            {
+              "id": "DATE_AFTER",
+              "name": "날짜: 이후"
+            },
+            {
+              "id": "DATE_ON_OR_BEFORE",
+              "name": "날짜: 같거나 이전"
+            },
+            {
+              "id": "DATE_ON_OR_AFTER",
+              "name": "날짜: 같거나 이후"
+            },
+            {
+              "id": "DATE_BETWEEN",
+              "name": "날짜: 사이"
+            },
+            {
+              "id": "DATE_NOT_BETWEEN",
+              "name": "날짜: 사이 아님"
+            },
+            {
+              "id": "DATE_IS_VALID",
+              "name": "유효한 날짜"
+            },
+            {
+              "id": "ONE_OF_RANGE",
+              "name": "범위 안의 값 중 하나"
+            },
+            {
+              "id": "ONE_OF_LIST",
+              "name": "목록 중 하나"
+            },
+            {
+              "id": "BOOLEAN",
+              "name": "체크박스"
+            },
+            {
+              "id": "CUSTOM_FORMULA",
+              "name": "맞춤 수식"
+            }
+          ],
+          "key": "condition",
+          "path": "config.condition",
+          "ref": false,
+          "required": true,
+          "title": "조건",
+          "type": "string"
+        },
+        {
+          "description": "조건과 비교할 값. '범위 안의 값 중 하나'는 범위(예: '목록'!A2:A), '맞춤 수식'은 =로 시작, '체크박스'는 체크했을 때 값(비우면 TRUE)",
+          "key": "value_1",
+          "path": "config.value_1",
+          "title": "값",
+          "type": "string"
+        },
+        {
+          "description": "'사이'·'사이 아님'에서 써요. '체크박스'에선 해제했을 때 값",
+          "key": "value_2",
+          "path": "config.value_2",
+          "title": "두 번째 값",
+          "type": "string"
+        },
+        {
+          "description": "'목록 중 하나'에서만 써요. 최대 500개, =로 시작하는 항목은 안 돼요",
+          "key": "values",
+          "list": true,
+          "path": "config.values",
+          "title": "목록 항목",
+          "type": "string"
+        },
+        {
+          "description": "셀을 고르면 보이는 안내 문구",
+          "key": "input_message",
+          "path": "config.input_message",
+          "title": "입력 안내",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "description": "끄면 경고만 보여요",
+          "key": "strict",
+          "path": "config.strict",
+          "ref": false,
+          "title": "잘못된 입력 거부",
+          "type": "boolean"
+        },
+        {
+          "default": true,
+          "description": "'목록 중 하나'·'범위 안의 값 중 하나'에서 셀에 드롭다운을 보여요",
+          "key": "show_dropdown",
+          "path": "config.show_dropdown",
+          "ref": false,
+          "title": "드롭다운 표시",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "range",
+          "title": "규칙을 건 범위",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "데이터 유효성 설정",
+      "toolKey": "builtin:google_sheets_set_data_validation"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "기준 열 값으로 행 순서를 바꿔요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.sort_range",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.sort_range",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "이 열 값으로 정렬해요",
+          "key": "sort_column",
+          "optionsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "optionsSource": "google.sheet_columns",
+          "path": "config.sort_column",
+          "ref": false,
+          "required": true,
+          "title": "기준 열",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "ASCENDING",
+              "name": "오름차순"
+            },
+            {
+              "id": "DESCENDING",
+              "name": "내림차순"
+            }
+          ],
+          "default": "ASCENDING",
+          "key": "sort_order",
+          "path": "config.sort_order",
+          "ref": false,
+          "title": "순서",
+          "type": "string"
+        },
+        {
+          "description": "A1 표기(예: A2:F100). 비우면 머리글(1행)을 뺀 전체. 1행을 넣으면 머리글도 섞여요. 정렬 뒤엔 앞 노드의 행 번호가 다른 행을 가리켜요",
+          "key": "cell_range",
+          "path": "config.cell_range",
+          "title": "정렬할 범위",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "range",
+          "title": "정렬한 범위",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "시트 범위 정렬",
+      "toolKey": "builtin:google_sheets_sort_range"
     },
     {
       "app": "google_sheets",
