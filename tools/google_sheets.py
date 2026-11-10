@@ -124,7 +124,7 @@ def _int(value, default: int | None, name: str) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     s = value.strip() if isinstance(value, str) else ""
-    if s.isascii() and s.lstrip("-").isdigit():
+    if re.fullmatch(r"-?[0-9]+", s):
         return int(s)
     raise _Invalid(f"{name}이(가) 올바르지 않아요: {value!r}")
 
@@ -547,7 +547,7 @@ async def google_sheets_get_rows(access_token: str, spreadsheet_id: str, sheet_i
             raise _Invalid(f"가져올 행 수는 1~1500이어야 해요: {row_count!r}")
         start = max(_int(start_row, 2, "시작 행"), 2)
         client = get_http_client()
-        _, title, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        _, title, col_count = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
         response = await client.get(
             _values_url(spreadsheet_id, _a1_range(f"{m[1]}{start}:{m[2]}{start + count - 1}", title)),
             headers=_headers(access_token),
@@ -556,7 +556,8 @@ async def google_sheets_get_rows(access_token: str, spreadsheet_id: str, sheet_i
         )
         rows = _ok(response).get("values") or []
         first = _col_index(m[1])
-        width = _col_index(m[2]) - first + 1
+        # A:ZZZ처럼 넓게 적어도 시트에 실제로 있는 열까지만 채운다 — 행당 18,278키 × 1,500행 폭증 방지.
+        width = max(min(_col_index(m[2]), col_count - 1) - first + 1, 0)
         items = [{"row_number": start + k,
                   "values": {_col(first + i): str(row[i]) if i < len(row) else "" for i in range(width)}}
                  for k, row in enumerate(rows)]

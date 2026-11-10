@@ -857,3 +857,17 @@ def test_ACTION_전용_Sheets_도구는_AI_목록_밖에서만_풀린다():
         key = f"builtin:google_sheets_{name}"
         assert key not in _TOOL_MAP and key in _ACTION_ONLY_TOOLS and resolve_action_fn(key) is not None
     assert resolve_action_fn("builtin:google_sheets_write") is None
+
+
+@pytest.mark.asyncio
+async def test_행_수가_마이너스_두_개면_친절한_오류():
+    result = await _no_google(google_sheets_get_rows, spreadsheet_id="s1", sheet_id="0", column_range="A:D",
+                              row_count="--5")
+    assert "가져올 행 수이(가) 올바르지 않아요" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_넓은_열_범위는_시트_열_수까지만_값을_채운다():
+    fake = _Sheets(GRID, sheets=(("Sales", 0, 4),), values_by_range={"'Sales'!A2:ZZZ2": [["a", "b"]]})
+    result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:ZZZ", row_count=1)
+    assert result["items"][0]["values"] == {"A": "a", "B": "b", "C": "", "D": ""}
