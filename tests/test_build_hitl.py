@@ -31,6 +31,11 @@ def test_그_밖은_other(text):
     ("gmail.get_thread", "read"),
     ("gmail.add_label", "write"),
     ("gmail.trash", "write"),
+    ("gmail.reply", "write"),
+    ("gmail.forward", "write"),
+    ("gmail.create_draft", "write"),
+    ("gmail.create_reply_draft", "write"),
+    ("gmail.find_or_send", "write"),
     ("notion.search", "read"),
     ("gmail.new_email", "app_trigger"),
     ("github.new_issue", "app_trigger"),
@@ -57,6 +62,27 @@ def test_요약에_메일_받는_사람을_보인다():
             "config": {"to": "kim@ieum.io", "cc": "lee@ieum.io", "bcc": "park@ieum.io"}}
     assert target_summary(node, {}) == \
         'Gmail 메일 보내기 · 받는 사람: kim@ieum.io · 참조: lee@ieum.io · 숨은참조: park@ieum.io · 이름 "보고"'
+
+
+@pytest.mark.parametrize("event", ["gmail.reply", "gmail.create_reply_draft"])
+def test_답장_받는_사람을_비우면_원래_보낸_사람에게_답장으로_보인다(event):
+    node = {"id": "r", "event": event, "label": "답장", "config": {"thread_id": "T1", "body": "x"}}
+    summary = target_summary(node, {"r|config.thread_id": {"T1": "회의 — 홍길동"}})
+    assert summary.endswith('대화: 회의 — 홍길동 · 받는 사람: 대화 회의 — 홍길동의 원래 보낸 사람에게 답장 · 이름 "답장"')
+    assert "대화 T1의 원래 보낸 사람에게 답장" in target_summary(node, {})
+
+
+def test_답장_받는_사람을_주면_주소를_보인다():
+    node = {"id": "r", "event": "gmail.reply", "label": "답장",
+            "config": {"thread_id": "T1", "body": "x", "to": "kim@ieum.io"}}
+    summary = target_summary(node, {})
+    assert "받는 사람: kim@ieum.io" in summary and "원래 보낸 사람" not in summary
+
+
+@pytest.mark.parametrize("event", ["gmail.forward", "gmail.create_draft", "gmail.find_or_send"])
+def test_전달_초안_찾고보내기_요약에_받는_사람을_보인다(event):
+    node = {"id": "g", "event": event, "label": "메일", "config": {"to": "kim@ieum.io"}}
+    assert "받는 사람: kim@ieum.io" in target_summary(node, {})
 
 def test_http는_GET도_쓰기이고_요약에_method와_호스트():
     node = {"id": "h", "event": "http.request", "label": "조회", "config": {"method": "GET", "url": "https://api.x.com/a?k=1"}}

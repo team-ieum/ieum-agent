@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from tests.test_gmail import API, SEND_AS, _b64, _client, _msg, _posts, _sendas, _sent
+from tests.action_outputs import assert_matches_outputs
 from tests.test_google_tools import _make_mock_response
 from tools.gmail import (
     _FORWARDED,
@@ -85,6 +86,7 @@ async def test_답장은_대상_메일_헤더로_같은_대화에_보낸다():
     get, post = _get(), _posts()
     result = await _reply(_client(get=get, post=post))
     assert result == {"success": True, "messageId": "m-1", "threadId": "t-1"}
+    assert_matches_outputs("gmail.reply", result)
     send = next(c for c in post.await_args_list if c.args[0] == f"{API}/messages/send")
     assert send.kwargs["json"]["threadId"] == "t1"
     msg = _sent(post)
@@ -207,6 +209,7 @@ async def test_답장_초안은_drafts에_threadId와_함께():
     post = _draft_post()
     result = await _call(gmail_create_reply_draft, _client(get=_get(), post=post), thread_id="t1", body="확인")
     assert result == {"success": True, "draftId": "d1", "messageId": "m9", "threadId": "t1"}
+    assert_matches_outputs("gmail.create_reply_draft", result)
     message, msg = _drafted(post)
     assert message["threadId"] == "t1"
     assert (msg["In-Reply-To"], msg["Subject"], msg["To"]) == ("<a@x>", "Re: 회의", "홍길동 <a@b.c>")
@@ -217,6 +220,7 @@ async def test_초안은_받는_사람_없이도_만든다():
     post = _draft_post()
     result = await _call(gmail_create_draft, _client(post=post), subject="제목", body="본문")
     assert result == {"success": True, "draftId": "d1", "messageId": "m9", "threadId": "t1"}
+    assert_matches_outputs("gmail.create_draft", result)
     assert post.await_count == 1
     message, msg = _drafted(post)
     assert "threadId" not in message
@@ -336,6 +340,7 @@ async def test_전달은_원본_첨부를_다시_붙여_업로드_경로로_보�
     get, post = _fwd_get(_original()), _fwd_post()
     result = await _forward(_client(get=get, post=post))
     assert result == {"success": True, "messageId": "m-1", "threadId": "t-9"}
+    assert_matches_outputs("gmail.forward", result)
     call, msg = _uploaded(post)
     assert call.kwargs["params"] == {"uploadType": "media"}
     assert call.kwargs["headers"]["Content-Type"] == "message/rfc822"
@@ -582,6 +587,7 @@ async def test_찾으면_보내지_않고_created_false():
     assert post.await_count == 0
     assert get.await_args_list[0].kwargs["params"] == {"q": "from:boss", "maxResults": 1, "labelIds": ["L_S"]}
     assert result == {"success": True, "created": False, **_normalize(_msg("f1"))}
+    assert_matches_outputs("gmail.find_or_send", result)
 
 
 @pytest.mark.asyncio
@@ -594,6 +600,7 @@ async def test_없으면_보내고_created_true_보낸_값으로():
     assert (result["messageId"], result["threadId"], result["to"], result["subject"], result["bodyText"],
             result["snippet"], result["from"]) == ("m-1", "t-1", "a@x.com", "보고", "안녕", "", "")
     assert result["receivedAt"].endswith("Z") and result["labels"] == ["SENT"]
+    assert_matches_outputs("gmail.find_or_send", result)
 
 
 @pytest.mark.asyncio

@@ -108,7 +108,9 @@ async def test_Google_권한_부족은_추가할_권한으로_안내():
 @pytest.mark.parametrize("event, path", [("gmail.send_email", "config.from_email"),
                                          ("gmail.send_email", "config.label_ids"),
                                          ("gmail.add_label", "config.message_id"),
-                                         ("gmail.get_thread", "config.thread_id")])
+                                         ("gmail.get_thread", "config.thread_id"),
+                                         ("gmail.reply", "config.thread_id"),
+                                         ("gmail.forward", "config.message_id")])
 async def test_Gmail_공급원_권한_부족은_Gmail_권한으로_안내(event, path):
     node = {"id": "g", "event": event, "type": "ACTION", "label": "메일", "config": {}}
     turn = _turn([node], options={"error": {"code": "GOOGLE_SCOPE_REQUIRED", "message": "Google 권한이 부족합니다."}})

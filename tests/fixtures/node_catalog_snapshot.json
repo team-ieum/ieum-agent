@@ -5465,6 +5465,124 @@
     {
       "app": "gmail",
       "appTitle": "Gmail",
+      "description": "새 메일 초안을 만들어요. 보내지는 않아요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.create_draft",
+        "type": "ACTION"
+      },
+      "id": "gmail.create_draft",
+      "inputFields": [
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로. 초안이라 비워도 돼요",
+          "key": "to",
+          "path": "config.to",
+          "title": "받는 사람",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "cc",
+          "path": "config.cc",
+          "title": "참조",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "bcc",
+          "path": "config.bcc",
+          "title": "숨은참조",
+          "type": "string"
+        },
+        {
+          "description": "Gmail에 등록한 주소. 비우면 기본 주소",
+          "key": "from_email",
+          "optionsSource": "google.gmail_send_as",
+          "path": "config.from_email",
+          "ref": false,
+          "title": "보낸 사람",
+          "type": "string"
+        },
+        {
+          "key": "from_name",
+          "path": "config.from_name",
+          "title": "보낸 사람 이름",
+          "type": "string"
+        },
+        {
+          "key": "reply_to",
+          "path": "config.reply_to",
+          "title": "답장 받을 주소",
+          "type": "string"
+        },
+        {
+          "key": "subject",
+          "path": "config.subject",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "text/plain",
+              "name": "일반 텍스트"
+            },
+            {
+              "id": "text/html",
+              "name": "HTML"
+            }
+          ],
+          "default": "text/plain",
+          "key": "body_format",
+          "path": "config.body_format",
+          "ref": false,
+          "title": "본문 형식",
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "path": "config.body",
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "default": false,
+          "description": "보낸 사람의 Gmail 서명을 본문 끝에 붙여요",
+          "key": "include_signature",
+          "path": "config.include_signature",
+          "ref": false,
+          "title": "서명 포함",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "draftId",
+          "title": "초안 ID",
+          "type": "string"
+        },
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 초안 만들기",
+      "toolKey": "builtin:google_gmail_create_draft"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
       "description": "새 라벨을 만들어요.",
       "fixed": {
         "config": {
@@ -6379,6 +6497,128 @@
     {
       "app": "gmail",
       "appTitle": "Gmail",
+      "description": "대화에 답장 초안을 만들어요. 보내지는 않아요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.create_reply_draft",
+        "type": "ACTION"
+      },
+      "id": "gmail.create_reply_draft",
+      "inputFields": [
+        {
+          "description": "답장할 대화. 제목은 원래 메일 제목에 Re:를 붙여요",
+          "key": "thread_id",
+          "optionsSource": "google.gmail_threads",
+          "path": "config.thread_id",
+          "required": true,
+          "title": "대화",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로. 받는 사람·참조·숨은참조를 모두 비우면 원래 메일의 답장 주소(없으면 보낸 사람), 내가 보낸 메일이면 그 메일의 받는 사람·참조로 넣어요",
+          "key": "to",
+          "path": "config.to",
+          "title": "받는 사람",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "cc",
+          "path": "config.cc",
+          "title": "참조",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "bcc",
+          "path": "config.bcc",
+          "title": "숨은참조",
+          "type": "string"
+        },
+        {
+          "description": "Gmail에 등록한 주소. 비우면 기본 주소",
+          "key": "from_email",
+          "optionsSource": "google.gmail_send_as",
+          "path": "config.from_email",
+          "ref": false,
+          "title": "보낸 사람",
+          "type": "string"
+        },
+        {
+          "key": "from_name",
+          "path": "config.from_name",
+          "title": "보낸 사람 이름",
+          "type": "string"
+        },
+        {
+          "key": "reply_to",
+          "path": "config.reply_to",
+          "title": "답장 받을 주소",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "text/plain",
+              "name": "일반 텍스트"
+            },
+            {
+              "id": "text/html",
+              "name": "HTML"
+            }
+          ],
+          "default": "text/plain",
+          "key": "body_format",
+          "path": "config.body_format",
+          "ref": false,
+          "title": "본문 형식",
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "path": "config.body",
+          "required": true,
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "default": false,
+          "description": "보낸 사람의 Gmail 서명을 본문 끝에 붙여요",
+          "key": "include_signature",
+          "path": "config.include_signature",
+          "ref": false,
+          "title": "서명 포함",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "draftId",
+          "title": "초안 ID",
+          "type": "string"
+        },
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 답장 초안 만들기",
+      "toolKey": "builtin:google_gmail_create_reply_draft"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
       "description": "검색어에 맞는 메일을 최근 순으로 찾아요.",
       "fixed": {
         "config": {
@@ -6496,6 +6736,327 @@
       "provider": "google",
       "title": "Gmail 메일 찾기",
       "toolKey": "builtin:google_gmail_find_email"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "검색어에 맞는 메일을 찾고, 없을 때만 메일을 보내요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.find_or_send",
+        "type": "ACTION"
+      },
+      "id": "gmail.find_or_send",
+      "inputFields": [
+        {
+          "description": "Gmail 검색창과 같은 문법. 날짜는 PST 자정 기준 — 정확히 하려면 after:<epoch초>",
+          "key": "query",
+          "path": "config.query",
+          "required": true,
+          "title": "검색어",
+          "type": "string"
+        },
+        {
+          "description": "고른 라벨을 모두 가진 메일",
+          "key": "search_label_ids",
+          "list": true,
+          "optionsSource": "google.gmail_labels",
+          "path": "config.search_label_ids",
+          "ref": false,
+          "title": "라벨",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "key": "include_spam_trash",
+          "path": "config.include_spam_trash",
+          "ref": false,
+          "title": "스팸·휴지통 포함",
+          "type": "boolean"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로. 받는 사람·참조·숨은참조 중 하나는 채워요",
+          "key": "to",
+          "path": "config.to",
+          "title": "받는 사람",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "cc",
+          "path": "config.cc",
+          "title": "참조",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "bcc",
+          "path": "config.bcc",
+          "title": "숨은참조",
+          "type": "string"
+        },
+        {
+          "description": "Gmail에 등록한 주소. 비우면 기본 주소",
+          "key": "from_email",
+          "optionsSource": "google.gmail_send_as",
+          "path": "config.from_email",
+          "ref": false,
+          "title": "보낸 사람",
+          "type": "string"
+        },
+        {
+          "key": "from_name",
+          "path": "config.from_name",
+          "title": "보낸 사람 이름",
+          "type": "string"
+        },
+        {
+          "key": "reply_to",
+          "path": "config.reply_to",
+          "title": "답장 받을 주소",
+          "type": "string"
+        },
+        {
+          "key": "subject",
+          "path": "config.subject",
+          "required": true,
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "text/plain",
+              "name": "일반 텍스트"
+            },
+            {
+              "id": "text/html",
+              "name": "HTML"
+            }
+          ],
+          "default": "text/plain",
+          "key": "body_format",
+          "path": "config.body_format",
+          "ref": false,
+          "title": "본문 형식",
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "path": "config.body",
+          "required": true,
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "default": false,
+          "description": "보낸 사람의 Gmail 서명을 본문 끝에 붙여요",
+          "key": "include_signature",
+          "path": "config.include_signature",
+          "ref": false,
+          "title": "서명 포함",
+          "type": "boolean"
+        },
+        {
+          "description": "보낸 메일에 붙일 라벨(여러 개)",
+          "key": "label_ids",
+          "list": true,
+          "optionsSource": "google.gmail_labels",
+          "path": "config.label_ids",
+          "ref": false,
+          "title": "보낸 뒤 붙일 라벨",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "찾지 못해 메일을 보냈는지. 보냈으면 메일 칸은 보낸 값이에요",
+          "key": "created",
+          "title": "새로 보냄",
+          "type": "boolean"
+        },
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "스레드 ID",
+          "type": "string"
+        },
+        {
+          "key": "from",
+          "title": "보낸 사람",
+          "type": "string"
+        },
+        {
+          "key": "to",
+          "title": "받는 사람",
+          "type": "string"
+        },
+        {
+          "key": "subject",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "snippet",
+          "title": "미리보기",
+          "type": "text"
+        },
+        {
+          "key": "bodyText",
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "key": "receivedAt",
+          "title": "받은 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "labels",
+          "list": true,
+          "title": "라벨 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 메일 찾기, 없으면 보내기",
+      "toolKey": "builtin:google_gmail_find_or_send"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "메일을 원본 첨부까지 그대로 다른 사람에게 전달해요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.forward",
+        "type": "ACTION"
+      },
+      "id": "gmail.forward",
+      "inputFields": [
+        {
+          "description": "전달할 메일. 제목은 원래 제목에 Fwd:를 붙여요",
+          "key": "message_id",
+          "optionsSource": "google.gmail_messages",
+          "path": "config.message_id",
+          "required": true,
+          "title": "메일",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로. 받는 사람·참조·숨은참조 중 하나는 채워요",
+          "key": "to",
+          "path": "config.to",
+          "title": "받는 사람",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "cc",
+          "path": "config.cc",
+          "title": "참조",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "bcc",
+          "path": "config.bcc",
+          "title": "숨은참조",
+          "type": "string"
+        },
+        {
+          "description": "Gmail에 등록한 주소. 비우면 기본 주소",
+          "key": "from_email",
+          "optionsSource": "google.gmail_send_as",
+          "path": "config.from_email",
+          "ref": false,
+          "title": "보낸 사람",
+          "type": "string"
+        },
+        {
+          "key": "from_name",
+          "path": "config.from_name",
+          "title": "보낸 사람 이름",
+          "type": "string"
+        },
+        {
+          "key": "reply_to",
+          "path": "config.reply_to",
+          "title": "답장 받을 주소",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "text/plain",
+              "name": "일반 텍스트"
+            },
+            {
+              "id": "text/html",
+              "name": "HTML"
+            }
+          ],
+          "default": "text/plain",
+          "description": "HTML을 고르면 원본의 HTML 본문을 살려 전달해요",
+          "key": "body_format",
+          "path": "config.body_format",
+          "ref": false,
+          "title": "본문 형식",
+          "type": "string"
+        },
+        {
+          "description": "전달하는 메일 위에 붙여요. 비워도 돼요",
+          "key": "body",
+          "path": "config.body",
+          "title": "덧붙일 말",
+          "type": "text"
+        },
+        {
+          "default": false,
+          "description": "보낸 사람의 Gmail 서명을 본문 끝에 붙여요",
+          "key": "include_signature",
+          "path": "config.include_signature",
+          "ref": false,
+          "title": "서명 포함",
+          "type": "boolean"
+        },
+        {
+          "description": "보낸 메일에 붙일 라벨(여러 개)",
+          "key": "label_ids",
+          "list": true,
+          "optionsSource": "google.gmail_labels",
+          "path": "config.label_ids",
+          "ref": false,
+          "title": "보낸 뒤 붙일 라벨",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 메일 전달하기",
+      "toolKey": "builtin:google_gmail_forward"
     },
     {
       "app": "gmail",
@@ -6766,6 +7327,133 @@
       "provider": "google",
       "title": "Gmail 대화에서 라벨 떼기",
       "toolKey": "builtin:google_gmail_remove_thread_label"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "대화에서 내가 보내지 않은 가장 최근 메일에 답장을 보내요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.reply",
+        "type": "ACTION"
+      },
+      "id": "gmail.reply",
+      "inputFields": [
+        {
+          "description": "답장할 대화. 제목은 원래 메일 제목에 Re:를 붙여요",
+          "key": "thread_id",
+          "optionsSource": "google.gmail_threads",
+          "path": "config.thread_id",
+          "required": true,
+          "title": "대화",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로. 받는 사람·참조·숨은참조를 모두 비우면 원래 메일의 답장 주소(없으면 보낸 사람), 내가 보낸 메일이면 그 메일의 받는 사람·참조로 보내요",
+          "key": "to",
+          "path": "config.to",
+          "title": "받는 사람",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "cc",
+          "path": "config.cc",
+          "title": "참조",
+          "type": "string"
+        },
+        {
+          "description": "이메일 주소, 여러 명은 쉼표로",
+          "key": "bcc",
+          "path": "config.bcc",
+          "title": "숨은참조",
+          "type": "string"
+        },
+        {
+          "description": "Gmail에 등록한 주소. 비우면 기본 주소",
+          "key": "from_email",
+          "optionsSource": "google.gmail_send_as",
+          "path": "config.from_email",
+          "ref": false,
+          "title": "보낸 사람",
+          "type": "string"
+        },
+        {
+          "key": "from_name",
+          "path": "config.from_name",
+          "title": "보낸 사람 이름",
+          "type": "string"
+        },
+        {
+          "key": "reply_to",
+          "path": "config.reply_to",
+          "title": "답장 받을 주소",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "text/plain",
+              "name": "일반 텍스트"
+            },
+            {
+              "id": "text/html",
+              "name": "HTML"
+            }
+          ],
+          "default": "text/plain",
+          "key": "body_format",
+          "path": "config.body_format",
+          "ref": false,
+          "title": "본문 형식",
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "path": "config.body",
+          "required": true,
+          "title": "본문",
+          "type": "text"
+        },
+        {
+          "default": false,
+          "description": "보낸 사람의 Gmail 서명을 본문 끝에 붙여요",
+          "key": "include_signature",
+          "path": "config.include_signature",
+          "ref": false,
+          "title": "서명 포함",
+          "type": "boolean"
+        },
+        {
+          "description": "보낸 메일에 붙일 라벨(여러 개)",
+          "key": "label_ids",
+          "list": true,
+          "optionsSource": "google.gmail_labels",
+          "path": "config.label_ids",
+          "ref": false,
+          "title": "보낸 뒤 붙일 라벨",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 답장하기",
+      "toolKey": "builtin:google_gmail_reply"
     },
     {
       "app": "gmail",
@@ -7655,6 +8343,495 @@
       "provider": "google",
       "title": "폼 정보 가져오기",
       "toolKey": "builtin:google_forms_get_form"
+    },
+    {
+      "app": "google_forms",
+      "appTitle": "Google Forms",
+      "description": "응답 ID로 구글 폼 응답 하나를 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_forms.get_response",
+        "type": "ACTION"
+      },
+      "id": "google_forms.get_response",
+      "inputFields": [
+        {
+          "description": "대상 폼(편집 화면 주소의 폼 ID도 돼요)",
+          "key": "form_id",
+          "optionsSource": "google.forms",
+          "path": "config.form_id",
+          "required": true,
+          "title": "폼",
+          "type": "string"
+        },
+        {
+          "description": "가져올 응답(응답 ID를 직접 넣어도 돼요)",
+          "key": "response_id",
+          "optionsInputs": [
+            "form_id"
+          ],
+          "optionsSource": "google.form_responses",
+          "path": "config.response_id",
+          "required": true,
+          "title": "응답",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "응답을 찾았는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "responseId",
+              "title": "응답 ID",
+              "type": "string"
+            },
+            {
+              "description": "마지막으로 제출(수정 포함)한 시각",
+              "key": "submittedAt",
+              "title": "제출 시각",
+              "type": "datetime"
+            },
+            {
+              "key": "createdAt",
+              "title": "처음 제출 시각",
+              "type": "datetime"
+            },
+            {
+              "description": "이메일을 수집하는 폼만, 아니면 빈 값",
+              "key": "respondentEmail",
+              "title": "응답자 이메일",
+              "type": "string"
+            },
+            {
+              "description": "질문 ID로 꺼내요. 예: answers.<질문 ID>. 답하지 않은 질문은 없어요",
+              "dynamic": true,
+              "fieldsInputs": [
+                "form_id"
+              ],
+              "fieldsSource": "google.form_questions",
+              "key": "answers",
+              "title": "답",
+              "type": "dict"
+            },
+            {
+              "children": [
+                {
+                  "key": "questionId",
+                  "title": "질문 ID",
+                  "type": "string"
+                },
+                {
+                  "key": "question",
+                  "title": "질문",
+                  "type": "string"
+                },
+                {
+                  "description": "글·글 목록·숫자·파일 정보 목록({fileId, fileName, mimeType}) 중 하나",
+                  "key": "answer",
+                  "title": "답",
+                  "type": "json"
+                }
+              ],
+              "description": "폼 질문 순서",
+              "key": "answerList",
+              "list": true,
+              "title": "답 목록",
+              "type": "object"
+            },
+            {
+              "description": "퀴즈가 아니면 비어 있어요",
+              "key": "totalScore",
+              "title": "점수",
+              "type": "number"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "응답",
+          "type": "object"
+        }
+      ],
+      "provider": "google",
+      "title": "폼 응답 하나 가져오기",
+      "toolKey": "builtin:google_forms_get_response"
+    },
+    {
+      "app": "google_forms",
+      "appTitle": "Google Forms",
+      "description": "구글 폼 응답을 기간으로 골라 최근 제출 순으로 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_forms.list_responses",
+        "type": "ACTION"
+      },
+      "id": "google_forms.list_responses",
+      "inputFields": [
+        {
+          "description": "대상 폼(편집 화면 주소의 폼 ID도 돼요)",
+          "key": "form_id",
+          "optionsSource": "google.forms",
+          "path": "config.form_id",
+          "required": true,
+          "title": "폼",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "today",
+              "name": "오늘"
+            },
+            {
+              "id": "last_7_days",
+              "name": "최근 7일"
+            },
+            {
+              "id": "last_30_days",
+              "name": "최근 30일"
+            },
+            {
+              "id": "all",
+              "name": "전체"
+            },
+            {
+              "id": "custom",
+              "name": "직접 입력"
+            }
+          ],
+          "default": "last_7_days",
+          "description": "오늘·최근 며칠은 한국 시간 기준",
+          "key": "period",
+          "path": "config.period",
+          "ref": false,
+          "title": "기간",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "기간이 '직접 입력'일 때 이 시각 이후 제출된 응답. 예: 2026-11-01T09:00:00+09:00",
+          "key": "since",
+          "path": "config.since",
+          "title": "시작 시각",
+          "type": "string"
+        },
+        {
+          "default": 100,
+          "description": "기본 100, 최대 500",
+          "key": "max_results",
+          "path": "config.max_results",
+          "title": "최대 개수",
+          "type": "integer"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "한 건 이상 찾았는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "responseId",
+              "title": "응답 ID",
+              "type": "string"
+            },
+            {
+              "description": "마지막으로 제출(수정 포함)한 시각",
+              "key": "submittedAt",
+              "title": "제출 시각",
+              "type": "datetime"
+            },
+            {
+              "key": "createdAt",
+              "title": "처음 제출 시각",
+              "type": "datetime"
+            },
+            {
+              "description": "이메일을 수집하는 폼만, 아니면 빈 값",
+              "key": "respondentEmail",
+              "title": "응답자 이메일",
+              "type": "string"
+            },
+            {
+              "description": "질문 ID로 꺼내요. 예: answers.<질문 ID>. 답하지 않은 질문은 없어요",
+              "dynamic": true,
+              "fieldsInputs": [
+                "form_id"
+              ],
+              "fieldsSource": "google.form_questions",
+              "key": "answers",
+              "title": "답",
+              "type": "dict"
+            },
+            {
+              "children": [
+                {
+                  "key": "questionId",
+                  "title": "질문 ID",
+                  "type": "string"
+                },
+                {
+                  "key": "question",
+                  "title": "질문",
+                  "type": "string"
+                },
+                {
+                  "description": "글·글 목록·숫자·파일 정보 목록({fileId, fileName, mimeType}) 중 하나",
+                  "key": "answer",
+                  "title": "답",
+                  "type": "json"
+                }
+              ],
+              "description": "폼 질문 순서",
+              "key": "answerList",
+              "list": true,
+              "title": "답 목록",
+              "type": "object"
+            },
+            {
+              "description": "퀴즈가 아니면 비어 있어요",
+              "key": "totalScore",
+              "title": "점수",
+              "type": "number"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "응답",
+          "type": "object"
+        },
+        {
+          "description": "결과가 너무 커서 오래된 응답을 뺐는지",
+          "key": "truncated",
+          "title": "잘림",
+          "type": "boolean"
+        }
+      ],
+      "provider": "google",
+      "title": "폼 응답 목록 가져오기",
+      "toolKey": "builtin:google_forms_list_responses"
+    },
+    {
+      "app": "google_forms",
+      "appTitle": "Google Forms",
+      "description": "구글 폼에 응답이 새로 들어오거나 수정되면 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_forms.new_or_updated_response",
+        "type": "TRIGGER"
+      },
+      "id": "google_forms.new_or_updated_response",
+      "inputFields": [
+        {
+          "description": "지켜볼 폼(편집 화면 주소의 폼 ID도 돼요)",
+          "key": "form_id",
+          "optionsSource": "google.forms",
+          "path": "config.form_id",
+          "ref": false,
+          "required": true,
+          "title": "폼",
+          "type": "string"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "responseId",
+          "title": "응답 ID",
+          "type": "string"
+        },
+        {
+          "description": "마지막으로 제출(수정 포함)한 시각",
+          "key": "submittedAt",
+          "title": "제출 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "createdAt",
+          "title": "처음 제출 시각",
+          "type": "datetime"
+        },
+        {
+          "description": "이메일을 수집하는 폼만, 아니면 빈 값",
+          "key": "respondentEmail",
+          "title": "응답자 이메일",
+          "type": "string"
+        },
+        {
+          "description": "질문 ID로 꺼내요. 예: answers.<질문 ID>. 답하지 않은 질문은 없어요",
+          "dynamic": true,
+          "fieldsInputs": [
+            "form_id"
+          ],
+          "fieldsSource": "google.form_questions",
+          "key": "answers",
+          "title": "답",
+          "type": "dict"
+        },
+        {
+          "children": [
+            {
+              "key": "questionId",
+              "title": "질문 ID",
+              "type": "string"
+            },
+            {
+              "key": "question",
+              "title": "질문",
+              "type": "string"
+            },
+            {
+              "description": "글·글 목록·숫자·파일 정보 목록({fileId, fileName, mimeType}) 중 하나",
+              "key": "answer",
+              "title": "답",
+              "type": "json"
+            }
+          ],
+          "description": "폼 질문 순서",
+          "key": "answerList",
+          "list": true,
+          "title": "답 목록",
+          "type": "object"
+        },
+        {
+          "description": "퀴즈가 아니면 비어 있어요",
+          "key": "totalScore",
+          "title": "점수",
+          "type": "number"
+        },
+        {
+          "description": "이미 제출한 응답을 고쳐 다시 제출했는지",
+          "key": "isUpdate",
+          "title": "수정된 응답",
+          "type": "boolean"
+        }
+      ],
+      "provider": "google",
+      "title": "새 폼 응답 또는 수정된 응답"
+    },
+    {
+      "app": "google_forms",
+      "appTitle": "Google Forms",
+      "description": "구글 폼에 새 응답이 제출되면 시작해요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_forms.new_response",
+        "type": "TRIGGER"
+      },
+      "id": "google_forms.new_response",
+      "inputFields": [
+        {
+          "description": "지켜볼 폼(편집 화면 주소의 폼 ID도 돼요)",
+          "key": "form_id",
+          "optionsSource": "google.forms",
+          "path": "config.form_id",
+          "ref": false,
+          "required": true,
+          "title": "폼",
+          "type": "string"
+        }
+      ],
+      "kind": "trigger",
+      "nodeType": "TRIGGER",
+      "outputFields": [
+        {
+          "key": "responseId",
+          "title": "응답 ID",
+          "type": "string"
+        },
+        {
+          "description": "마지막으로 제출(수정 포함)한 시각",
+          "key": "submittedAt",
+          "title": "제출 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "createdAt",
+          "title": "처음 제출 시각",
+          "type": "datetime"
+        },
+        {
+          "description": "이메일을 수집하는 폼만, 아니면 빈 값",
+          "key": "respondentEmail",
+          "title": "응답자 이메일",
+          "type": "string"
+        },
+        {
+          "description": "질문 ID로 꺼내요. 예: answers.<질문 ID>. 답하지 않은 질문은 없어요",
+          "dynamic": true,
+          "fieldsInputs": [
+            "form_id"
+          ],
+          "fieldsSource": "google.form_questions",
+          "key": "answers",
+          "title": "답",
+          "type": "dict"
+        },
+        {
+          "children": [
+            {
+              "key": "questionId",
+              "title": "질문 ID",
+              "type": "string"
+            },
+            {
+              "key": "question",
+              "title": "질문",
+              "type": "string"
+            },
+            {
+              "description": "글·글 목록·숫자·파일 정보 목록({fileId, fileName, mimeType}) 중 하나",
+              "key": "answer",
+              "title": "답",
+              "type": "json"
+            }
+          ],
+          "description": "폼 질문 순서",
+          "key": "answerList",
+          "list": true,
+          "title": "답 목록",
+          "type": "object"
+        },
+        {
+          "description": "퀴즈가 아니면 비어 있어요",
+          "key": "totalScore",
+          "title": "점수",
+          "type": "number"
+        }
+      ],
+      "provider": "google",
+      "title": "새 폼 응답"
     },
     {
       "app": "google_forms",
