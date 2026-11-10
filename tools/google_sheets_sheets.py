@@ -27,11 +27,27 @@ def _title(title, message: str) -> str:
     return str(title)
 
 
+def _reply_props(data: dict, key: str):
+    try:
+        return data["replies"][0][key]["properties"]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _new_sheet(props) -> tuple[int, str]:
+    """Google이 만든 시트의 (sheetId, 제목). proto3 JSON은 값이 0인 sheetId를 생략하므로 제목이 있으면 없는 id는 0.
+    응답이 비었는데 0으로 가정하면 되돌리기 deleteSheet가 기존 시트 0을 지울 수 있어 여기서 멈춘다."""
+    sheet_id = props.get("sheetId", 0) if isinstance(props, dict) else None
+    if (not isinstance(props, dict) or _blank(props.get("title"))
+            or not isinstance(sheet_id, int) or isinstance(sheet_id, bool)):
+        raise _Invalid("Google 응답에 새 시트 정보가 없어요. 시트가 생겼는지 확인해 주세요")
+    return sheet_id, str(props["title"])
+
+
 async def _create_worksheet(client, access_token: str, spreadsheet_id: str, title: str, headers: list[str]) -> dict:
     data = await _batch_update(client, access_token, spreadsheet_id, {"addSheet": {"properties": {
         "title": title, "gridProperties": {"columnCount": max(26, len(headers))}}}})
-    props = data["replies"][0]["addSheet"]["properties"]
-    new_id, new_title = props.get("sheetId", 0), props.get("title", title)
+    new_id, new_title = _new_sheet(_reply_props(data, "addSheet"))
     if headers:
         try:
             await _put(client, access_token, spreadsheet_id, _a1_range("A1", new_title), headers, "RAW")
@@ -134,14 +150,6 @@ async def google_sheets_rename_worksheet(access_token: str, spreadsheet_id: str,
         return _fail(tool, str(e))
 
 
-def _copied_id(props: dict) -> int:
-    # 기본값 0을 쓰면 되돌리기 deleteSheet가 대상 파일의 기존 시트 0을 지울 수 있다.
-    sheet_id = props.get("sheetId")
-    if not isinstance(sheet_id, int) or isinstance(sheet_id, bool):
-        raise _Invalid("복사본 시트 ID를 받지 못했어요. 대상 파일에 복사본이 생겼는지 확인해 주세요")
-    return sheet_id
-
-
 async def google_sheets_copy_worksheet(access_token: str, spreadsheet_id: str, sheet_id: str,
                                        destination_spreadsheet_id: str | None = None,
                                        new_title: str | None = None) -> str:
@@ -168,17 +176,16 @@ async def google_sheets_copy_worksheet(access_token: str, spreadsheet_id: str, s
         if dest == sid:
             data = await _batch_update(client, access_token, sid, {"duplicateSheet": {
                 "sourceSheetId": src_id, **({"newSheetName": name} if name else {})}})
-            props = data["replies"][0]["duplicateSheet"]["properties"]
-            return json.dumps({"success": True, "spreadsheet_id": dest, "sheet_id": str(_copied_id(props)),
-                               "title": props.get("title", "")}, ensure_ascii=False)
+            new_id, title = _new_sheet(_reply_props(data, "duplicateSheet"))
+            return json.dumps({"success": True, "spreadsheet_id": dest, "sheet_id": str(new_id), "title": title},
+                              ensure_ascii=False)
         response = await client.post(
             f"{_spreadsheet_url(sid)}/sheets/{src_id}:copyTo",
             headers=_headers(access_token),
             json={"destinationSpreadsheetId": dest},
             timeout=_TIMEOUT,
         )
-        props = _ok(response)
-        new_id, title = _copied_id(props), props.get("title", "")
+        new_id, title = _new_sheet(_ok(response))
         if name:
             try:
                 await _batch_update(client, access_token, dest, {"updateSheetProperties": {
@@ -341,7 +348,9 @@ async def _create_spreadsheet(client, access_token: str, title: str, folder_id: 
         url, body = _DRIVE_FILES_URL, {**body, "mimeType": "application/vnd.google-apps.spreadsheet"}
     response = await client.post(url, headers=_headers(access_token), params=params, json=body, timeout=_TIMEOUT)
     data = _ok(response, "Google Drive API")
-    fid = data.get("id", "")
+    fid = data.get("id")
+    if not isinstance(fid, str) or not fid:  # 빈 id로 헤더·휴지통 요청을 보내지 않는다
+        raise _Invalid("Google 응답에 만든 스프레드시트 ID가 없어요. 드라이브에 파일이 생겼는지 확인해 주세요")
     if headers:  # copy_from이면 _file_args가 비워 둔다
         try:
             if len(headers) > 26:

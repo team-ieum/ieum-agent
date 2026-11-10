@@ -188,6 +188,27 @@ async def test_되돌리기도_실패하면_남은_시트를_알린다():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("tool", [google_sheets_create_worksheet, google_sheets_find_or_create_worksheet])
+@pytest.mark.parametrize("body", [
+    {}, {"replies": []}, {"replies": [{}]}, {"replies": [{"addSheet": {"properties": {"sheetId": 9}}}]},
+    {"replies": [{"addSheet": {"properties": {"sheetId": "5", "title": "요약"}}}]},
+])
+async def test_addSheet_응답이_비면_되돌리기_전에_멈춘다(tool, body):
+    fake = _Fake(fail={"addSheet": _resp(200, body), "put": _err("boom")})
+    result = await _run(fake, tool, spreadsheet_id="abc", title="요약", headers="a")
+    assert "새 시트 정보가 없어요" in result["error"]
+    assert fake.of("put") == [] and fake.of("deleteSheet") == []
+
+
+@pytest.mark.asyncio
+async def test_addSheet_응답에_sheetId가_생략되면_0이다():
+    fake = _Fake(fail={"addSheet": _resp(200, {"replies": [{"addSheet": {"properties": {"title": "요약"}}}]})})
+    result = await _run(fake, google_sheets_create_worksheet, spreadsheet_id="abc", title="요약", headers="a")
+    assert result == {"success": True, "spreadsheet_id": "abc", "sheet_id": "0", "title": "요약"}
+    assert len(fake.of("put")) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("kwargs", [
     {"spreadsheet_id": "", "title": "요약"},
     {"spreadsheet_id": "a/b", "title": "요약"},
@@ -328,21 +349,39 @@ async def test_복사_되돌리기도_실패하면_남은_시트를_알린다():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("body", [{}, {"sheetId": "103", "title": "Copy of Sales"}])
-async def test_copyTo_응답에_시트_ID가_없으면_멈춘다(body):
-    fake = _Fake(fail={"copyTo": _resp(200, body)})
+@pytest.mark.parametrize("body", [{}, {"sheetId": 103}, {"sheetId": "5", "title": "Copy of Sales"},
+                                  {"sheetId": True, "title": "Copy of Sales"}])
+async def test_copyTo_응답이_비면_되돌리기_전에_멈춘다(body):
+    fake = _Fake(fail={"copyTo": _resp(200, body), "updateSheetProperties": _err("boom")})
     result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0",
                         destination_spreadsheet_id="dst", new_title="받은 시트")
-    assert "복사본 시트 ID를 받지 못했어요" in result["error"]
+    assert "새 시트 정보가 없어요" in result["error"]
     assert fake.of("updateSheetProperties") == [] and fake.of("deleteSheet") == []
 
 
 @pytest.mark.asyncio
-async def test_duplicateSheet_응답에_시트_ID가_없으면_멈춘다():
-    reply = {"replies": [{"duplicateSheet": {"properties": {"title": "복사본"}}}]}
+async def test_copyTo_응답에_sheetId가_생략되면_0이다():
+    fake = _Fake(fail={"copyTo": _resp(200, {"title": "Copy of Sales"})})
+    result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        destination_spreadsheet_id="dst", new_title="받은 시트")
+    assert result == {"success": True, "spreadsheet_id": "dst", "sheet_id": "0", "title": "받은 시트"}
+    assert _req(fake.of("updateSheetProperties")[0])["updateSheetProperties"]["properties"]["sheetId"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply, ok", [
+    ({"replies": [{"duplicateSheet": {"properties": {"title": "복사본"}}}]}, True),
+    ({"replies": [{"duplicateSheet": {}}]}, False),
+    ({"replies": []}, False),
+    ({"replies": [{"duplicateSheet": {"properties": {"sheetId": "5", "title": "복사본"}}}]}, False),
+])
+async def test_duplicateSheet_응답_기준(reply, ok):
     fake = _Fake(fail={"duplicateSheet": _resp(200, reply)})
     result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0", new_title="복사본")
-    assert "복사본 시트 ID를 받지 못했어요" in result["error"]
+    if ok:
+        assert result == {"success": True, "spreadsheet_id": "abc", "sheet_id": "0", "title": "복사본"}
+    else:
+        assert "새 시트 정보가 없어요" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -530,6 +569,16 @@ async def test_헤더_실패하면_파일을_휴지통으로():
     assert patch_call[2]["json"] == {"trashed": True}
     assert patch_call[2]["params"]["supportsAllDrives"] == "true"
     assert "error" in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["drive_create", "drive_copy"])
+async def test_Drive_응답에_파일_ID가_없으면_멈춘다(kind):
+    fake = _Fake(fail={kind: _resp(200, {"name": "예산"})})
+    result = await _run(fake, google_sheets_create_spreadsheet, title="예산", headers="a",
+                        copy_from="src1" if kind == "drive_copy" else None)
+    assert "만든 스프레드시트 ID가 없어요" in result["error"]
+    assert fake.of("put") == [] and fake.of("drive_patch") == [] and fake.of("appendDimension") == []
 
 
 @pytest.mark.asyncio
