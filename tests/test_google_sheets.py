@@ -41,8 +41,9 @@ class _Sheets:
     fail: {"append"|"update"|"insert"|"delete"|"get_values": MagicMock 응답 또는 던질 예외}."""
 
     def __init__(self, grid, sheets=(("Sales", 0, 26),), fail=None, updated_range=None, omit_sheet_id=False,
-                 omit_column_count=False, values_by_range=None, sheet_types=None, drive_files=()):
+                 omit_column_count=False, values_by_range=None, sheet_types=None, drive_files=(), drive_next_page_token=None):
         self.grid = grid
+        self.drive_next_page_token = drive_next_page_token
         self.sheet_types = sheet_types or {}  # {제목: sheetType}, 없으면 GRID
         self.drive_files = list(drive_files)
         self.values_by_range = values_by_range or {}  # {A1 범위: 행 목록 또는 None(values 키 없음)}
@@ -72,7 +73,10 @@ class _Sheets:
     async def get(self, url, **kwargs):
         self.calls.append(("GET", url, kwargs))
         if url.startswith("https://www.googleapis.com/drive/v3/files"):
-            return _resp(200, {"files": self.drive_files})
+            page = {"files": self.drive_files}
+            if self.drive_next_page_token:
+                page["nextPageToken"] = self.drive_next_page_token
+            return self._answer("drive", page)
         if "/values/" not in url:
             props = []
             for index, (title, sid, count) in enumerate(self.sheets):
@@ -516,7 +520,7 @@ async def test_여러_행_찾기_시작_행(start_row, rows):
 @pytest.mark.asyncio
 async def test_여러_행_찾기_0건은_성공():
     _, result = await _lookup_rows(lookup_value="zzz")
-    assert result == {"success": True, "found": False, "total": 0, "items": []}
+    assert result == {"success": True, "found": False, "total": 0, "items": [], "truncated": False}
 
 
 @pytest.mark.asyncio
@@ -562,7 +566,37 @@ async def test_한_결과의_항목은_가장_긴_행_폭으로_키가_같다():
 async def test_데이터_밖_범위는_0건():
     fake = _Sheets(GRID, values_by_range={"'Sales'!A100:B101": None})
     result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:B", row_count=2, start_row=100)
-    assert result == {"success": True, "found": False, "total": 0, "items": []}
+    assert result == {"success": True, "found": False, "total": 0, "items": [], "truncated": False}
+
+
+_BIG = "가" * 1000  # 한 칸 UTF-8 3,000바이트
+
+
+@pytest.mark.asyncio
+async def test_여러_행_가져오기는_2MB를_넘기_전에_멈춘다():
+    rows = [[_BIG]] * 1500  # 약 4.5MB
+    fake = _Sheets(GRID, values_by_range={"'Sales'!A2:A1501": rows})
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        raw = await google_sheets_get_rows(access_token="t", spreadsheet_id="s1", sheet_id="0", column_range="A:A",
+                                           row_count=1500)
+    result = json.loads(raw)
+    assert result["truncated"] is True and 0 < result["total"] == len(result["items"]) < 1500
+    assert len(raw.encode()) < 2_100_000
+    assert [i["row_number"] for i in result["items"]] == list(range(2, 2 + result["total"]))  # 앞에서부터 담는다
+    assert_matches_outputs("google_sheets.get_rows", result)
+
+
+@pytest.mark.asyncio
+async def test_여러_행_찾기는_2MB를_넘기_전에_멈춘다():
+    grid = [["이름", "메모", "메모2"]] + [["a", _BIG, _BIG]] * 600  # 상한 500행 × 6KB ≈ 3MB
+    fake = _Sheets(grid)
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        raw = await google_sheets_lookup_rows(access_token="t", spreadsheet_id="s1", sheet_id="0",
+                                              lookup_column="A", lookup_value="a")
+    result = json.loads(raw)
+    assert result["truncated"] is True and 0 < result["total"] < 500
+    assert len(raw.encode()) < 2_100_000
+    assert_matches_outputs("google_sheets.lookup_rows", result)
 
 
 @pytest.mark.asyncio
@@ -614,12 +648,12 @@ async def test_빈_행이나_데이터_밖_행은_못_찾음(rows):
 
 # --- S6 스프레드시트 찾기 · S7 워크시트 찾기 · S8 ID로 스프레드시트 가져오기 ---
 _FILE = {"id": "f1", "name": "예산", "webViewLink": "https://docs.google.com/spreadsheets/d/f1/edit",
-         "modifiedTime": "2026-11-01T00:00:00.000Z"}
+         "modifiedTime": "2026-11-01T00:00:00.000Z", "ownedByMe": True}
 _SPREADSHEET_Q = "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and "
 
 
-async def _find_spreadsheet(files=(_FILE,), **kwargs):
-    fake = _Sheets(GRID, drive_files=files)
+async def _find_spreadsheet(files=(_FILE,), fake=None, **kwargs):
+    fake = fake or _Sheets(GRID, drive_files=files)
     with patch("tools.google_sheets.get_http_client", return_value=fake):
         result = json.loads(await google_sheets_find_spreadsheet(access_token="t", **kwargs))
     return fake, result
@@ -630,12 +664,37 @@ async def test_스프레드시트_찾기_정확히():
     fake, result = await _find_spreadsheet(name="예산")
     [(_, url, kwargs)] = fake.calls
     assert url == "https://www.googleapis.com/drive/v3/files"
-    assert kwargs["params"] == {"q": _SPREADSHEET_Q + "name = '예산'", "fields": "files(id,name,webViewLink,modifiedTime)",
+    assert kwargs["params"] == {"q": _SPREADSHEET_Q + "name = '예산'",
+                                "fields": "nextPageToken,files(id,name,webViewLink,modifiedTime,ownedByMe)",
                                 "orderBy": "modifiedTime desc", "pageSize": 50, "supportsAllDrives": "true",
                                 "includeItemsFromAllDrives": "true"}
-    assert result == {"success": True, "found": True, "total": 1, "items": [
-        {"id": "f1", "name": "예산", "url": _FILE["webViewLink"], "modified_time": _FILE["modifiedTime"]}]}
+    assert result == {"success": True, "found": True, "total": 1, "truncated": False, "items": [
+        {"id": "f1", "name": "예산", "url": _FILE["webViewLink"], "modified_time": _FILE["modifiedTime"],
+         "owned_by_me": True}]}
     assert_matches_outputs("google_sheets.find_spreadsheet", result)
+
+
+@pytest.mark.asyncio
+async def test_남이_공유한_파일은_내_파일이_아니다():
+    # ownedByMe가 거짓이거나 빠지면(공유 드라이브 등) 내 파일이 아니다 — 남이 만든 같은 이름 시트를 가려내게.
+    _, result = await _find_spreadsheet(files=[{**_FILE, "ownedByMe": False}, {"id": "f2", "name": "예산"}],
+                                        name="예산")
+    assert [i["owned_by_me"] for i in result["items"]] == [False, False]
+
+
+@pytest.mark.asyncio
+async def test_다음_페이지가_있으면_잘림():
+    _, result = await _find_spreadsheet(fake=_Sheets(GRID, drive_files=[_FILE], drive_next_page_token="p2"),
+                                        name="예산", match="prefix")
+    assert result["truncated"] is True and result["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_Drive_오류는_Drive로_알린다():
+    fake = _Sheets(GRID, fail={"drive": _resp(403, {"error": {"message": "insufficient scope"}})})
+    _, result = await _find_spreadsheet(fake=fake, name="예산")
+    assert "Google Drive API 오류 (403): insufficient scope" in result["error"]
+    assert "Sheets API" not in result["error"]
 
 
 @pytest.mark.asyncio
@@ -661,7 +720,7 @@ async def test_스프레드시트_찾기_거절(kwargs):
 @pytest.mark.asyncio
 async def test_스프레드시트_0건():
     _, result = await _find_spreadsheet(files=[], name="없음")
-    assert result == {"success": True, "found": False, "total": 0, "items": []}
+    assert result == {"success": True, "found": False, "total": 0, "items": [], "truncated": False}
 
 
 _TWO_SHEETS = (("Sales", 0, 26), ("요약", 7, 5))

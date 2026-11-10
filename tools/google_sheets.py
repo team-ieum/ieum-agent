@@ -130,7 +130,7 @@ def _int(value, default: int | None, name: str) -> int:
     raise _Invalid(f"{name}이(가) 올바르지 않아요: {value!r}")
 
 
-def _ok(response) -> dict:
+def _ok(response, api: str = "Google Sheets API") -> dict:
     try:
         data = response.json()
     except Exception:
@@ -138,8 +138,23 @@ def _ok(response) -> dict:
     if not response.is_success:
         err = data.get("error") if isinstance(data, dict) else None
         message = err.get("message") if isinstance(err, dict) else None
-        raise _Invalid(f"Google Sheets API 오류 ({response.status_code}): {message or '알 수 없는 오류'}")
+        raise _Invalid(f"{api} 오류 ({response.status_code}): {message or '알 수 없는 오류'}")
     return data if isinstance(data, dict) else {}
+
+
+_OUTPUT_BUDGET = 2_000_000  # 출력 UTF-8 바이트 예산 — BE 응답 한도(4MB)·AI 컨텍스트 보호
+
+
+def _rows_result(items: list) -> str:
+    """앞에서부터 예산(2MB)을 넘기 직전까지 담는다. 넘쳐 뺀 행이 있으면 truncated 참."""
+    size, kept = 0, len(items)
+    for k, item in enumerate(items):
+        size += len(json.dumps(item, ensure_ascii=False).encode()) + 2  # 항목 구분자 ", "
+        if size > _OUTPUT_BUDGET:
+            kept = k
+            break
+    return json.dumps({"success": True, "found": kept > 0, "total": kept, "items": items[:kept],
+                       "truncated": kept < len(items)}, ensure_ascii=False)
 
 
 def _spreadsheet_url(spreadsheet_id: str) -> str:
@@ -516,9 +531,7 @@ async def google_sheets_lookup_rows(access_token: str, spreadsheet_id: str, shee
         client = get_http_client()
         _, matches = await _lookup(client, access_token, spreadsheet_id, sheet_id, lookup_column, lookup_value,
                                    lookup_column_2, lookup_value_2, from_bottom, start_row=start, limit=limit)
-        items = [{"row_number": n, "values": values} for n, values in matches]
-        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items},
-                          ensure_ascii=False)
+        return _rows_result([{"row_number": n, "values": values} for n, values in matches])
     except Exception as e:
         return _fail(tool, str(e))
 
@@ -565,8 +578,7 @@ async def google_sheets_get_rows(access_token: str, spreadsheet_id: str, sheet_i
         items = [{"row_number": start + k,
                   "values": {_col(first + i): str(row[i]) if i < len(row) else "" for i in range(width)}}
                  for k, row in enumerate(rows)]
-        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items},
-                          ensure_ascii=False)
+        return _rows_result(items)
     except Exception as e:
         return _fail(tool, str(e))
 
@@ -655,14 +667,18 @@ async def google_sheets_find_spreadsheet(access_token: str, name: str, match: st
         response = await client.get(
             _DRIVE_FILES_URL,
             headers=_headers(access_token),
-            params={"q": q, "fields": "files(id,name,webViewLink,modifiedTime)", "orderBy": "modifiedTime desc",
-                    "pageSize": 50, "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"},
+            params={"q": q, "fields": "nextPageToken,files(id,name,webViewLink,modifiedTime,ownedByMe)",
+                    "orderBy": "modifiedTime desc", "pageSize": 50, "supportsAllDrives": "true",
+                    "includeItemsFromAllDrives": "true"},
             timeout=_TIMEOUT,
         )
+        data = _ok(response, "Google Drive API")
         items = [{"id": f.get("id", ""), "name": f.get("name", ""), "url": f.get("webViewLink", ""),
-                  "modified_time": f.get("modifiedTime", "")} for f in _ok(response).get("files", [])]
-        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items},
-                          ensure_ascii=False)
+                  "modified_time": f.get("modifiedTime", ""), "owned_by_me": f.get("ownedByMe") is True}
+                 for f in data.get("files", [])]
+        # 한 페이지(50개)만 받는다 — 다음 페이지가 있으면 잘렸다고 알린다.
+        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items,
+                           "truncated": bool(data.get("nextPageToken"))}, ensure_ascii=False)
     except Exception as e:
         return _fail(tool, str(e))
 

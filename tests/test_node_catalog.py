@@ -262,9 +262,10 @@ def test_sheets_출력_칸():
     assert outs["google_sheets.lookup_row"] == ["found", "total", "items", "row_number", "values"]
     assert outs["google_sheets.find_or_create_row"] == ["created", "row_number", "values"]
     assert _action("google_sheets.lookup_row")["kind"] == "search"
-    assert outs["google_sheets.lookup_rows"] == outs["google_sheets.get_rows"] == ["found", "total", "items"]
+    assert outs["google_sheets.lookup_rows"] == outs["google_sheets.get_rows"] == \
+        ["found", "total", "items", "truncated"]
     assert outs["google_sheets.get_row"] == ["found", "total", "items", "row_number", "values"]
-    assert outs["google_sheets.find_spreadsheet"] == ["found", "total", "items"]
+    assert outs["google_sheets.find_spreadsheet"] == ["found", "total", "items", "truncated"]
     assert outs["google_sheets.find_worksheet"] == ["found", "total", "items", "sheet_id", "title"]
     assert outs["google_sheets.get_spreadsheet"] == ["found", "total", "items", "title", "url", "sheets"]
     for x in ("lookup_rows", "get_rows", "get_row", "find_spreadsheet", "find_worksheet", "get_spreadsheet"):
