@@ -4,7 +4,7 @@ import re
 
 from tools.google_sheets import (
     _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _cell_format, _check, _col, _col_index, _fail,
-    _find_sheet, _header_range, _headers, _ok, _put, _resolve, _values_url,
+    _find_sheet, _header_range, _headers, _ok, _put, _resolve, _tri, _values_url,
 )
 from tools.http_client import get_http_client
 
@@ -16,6 +16,18 @@ _NUMBER_FORMATS = ("TEXT", "NUMBER", "PERCENT", "CURRENCY", "DATE", "TIME", "DAT
 _H_ALIGNS = ("LEFT", "CENTER", "RIGHT")
 _V_ALIGNS = ("TOP", "MIDDLE", "BOTTOM")
 _WRAPS = ("OVERFLOW_CELL", "CLIP", "WRAP")
+_RELATIVE_DATES = ("PAST_YEAR", "PAST_MONTH", "PAST_WEEK", "YESTERDAY", "TODAY", "TOMORROW")
+# 조건 → 필요한 값 개수(카탈로그 choices 순서)
+_NUMBER_CONDITIONS = {"NUMBER_GREATER": 1, "NUMBER_GREATER_THAN_EQ": 1, "NUMBER_LESS": 1, "NUMBER_LESS_THAN_EQ": 1,
+                      "NUMBER_EQ": 1, "NUMBER_NOT_EQ": 1, "NUMBER_BETWEEN": 2, "NUMBER_NOT_BETWEEN": 2}
+_CF_CONDITIONS = {**_NUMBER_CONDITIONS, "TEXT_CONTAINS": 1, "TEXT_NOT_CONTAINS": 1, "TEXT_EQ": 1,
+                  "TEXT_STARTS_WITH": 1, "TEXT_ENDS_WITH": 1, "DATE_EQ": 1, "DATE_BEFORE": 1, "DATE_AFTER": 1,
+                  "BLANK": 0, "NOT_BLANK": 0, "CUSTOM_FORMULA": 1}
+_DV_CONDITIONS = {**_NUMBER_CONDITIONS, "TEXT_CONTAINS": 1, "TEXT_NOT_CONTAINS": 1, "TEXT_EQ": 1,
+                  "TEXT_IS_EMAIL": 0, "TEXT_IS_URL": 0, "DATE_EQ": 1, "DATE_BEFORE": 1, "DATE_AFTER": 1,
+                  "DATE_ON_OR_BEFORE": 1, "DATE_ON_OR_AFTER": 1, "DATE_BETWEEN": 2, "DATE_NOT_BETWEEN": 2,
+                  "DATE_IS_VALID": 0, "ONE_OF_RANGE": 1, "ONE_OF_LIST": 0, "BOOLEAN": 0, "CUSTOM_FORMULA": 1}
+_RELATIVE_DATE_CONDITIONS = ("DATE_EQ", "DATE_BEFORE", "DATE_AFTER")
 
 _A1_PART = re.compile(r"([A-Z]{1,3})?([0-9]{1,7})?")
 
@@ -254,6 +266,140 @@ async def google_sheets_format_range(access_token: str, spreadsheet_id: str, she
         sid, title, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
         await _batch_update(client, access_token, spreadsheet_id, [{"repeatCell": {
             "range": _grid_range(cell_range, sid), "cell": {"userEnteredFormat": fmt}, "fields": ",".join(mask)}}])
+        return json.dumps({"success": True, "range": _a1_range(str(cell_range).strip(), title)}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+def _condition(condition, allowed) -> str:
+    condition = _choice(condition, allowed, "조건")
+    if condition is None:
+        raise _Invalid("조건을 골라 주세요")
+    return condition
+
+
+def _values_for(condition: str, count: int, value_1, value_2) -> list[str]:
+    """조건이 쓰는 앞 count개 값. 비면 거절, 뒤에 남은 값은 무시."""
+    picked = (value_1, value_2)[:count]
+    if any(_blank(v) for v in picked):
+        raise _Invalid(f"조건 {condition}은(는) 값 {count}개가 필요해요")
+    values = [str(v).strip() for v in picked]
+    if condition == "CUSTOM_FORMULA" and not values[0].startswith("="):
+        raise _Invalid("맞춤 수식은 =로 시작해요")
+    return values
+
+
+async def google_sheets_add_conditional_format(access_token: str, spreadsheet_id: str, sheet_id: str,
+                                               cell_range: str, condition: str, value_1: str | None = None,
+                                               value_2: str | None = None, relative_date: str | None = None,
+                                               background_color: str | None = None, text_color: str | None = None,
+                                               bold: bool | None = None, italic: bool | None = None,
+                                               strikethrough: bool | None = None) -> str:
+    """
+    Google Sheets 범위에 조건부 서식 규칙을 맨 앞에 추가합니다. 실행할 때마다 규칙이 하나씩 쌓입니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        cell_range: 범위(A1 표기, 예: A1:C10, A:A, 2:10)
+        condition: 조건(NUMBER_GREATER·TEXT_CONTAINS·DATE_BEFORE·BLANK·CUSTOM_FORMULA 등)
+        value_1: 비교할 값. 맞춤 수식은 =로 시작
+        value_2: 두 번째 값(사이·사이 아님에서만)
+        relative_date: 날짜 조건(DATE_EQ·DATE_BEFORE·DATE_AFTER)에서 값 대신 쓰는 상대 날짜
+        background_color: 배경색 #RRGGBB
+        text_color: 글자색 #RRGGBB
+        bold: 굵게(비움=그대로, true=켜기, false=끄기)
+        italic: 기울임(비움=그대로, true=켜기, false=끄기)
+        strikethrough: 취소선(비움=그대로, true=켜기, false=끄기)
+
+    Returns:
+        range(규칙을 건 범위)를 포함한 JSON 문자열
+    """
+    tool = "google_sheets_add_conditional_format"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        condition = _condition(condition, _CF_CONDITIONS)
+        rd = _choice(relative_date, _RELATIVE_DATES, "상대 날짜") if condition in _RELATIVE_DATE_CONDITIONS else None
+        if rd:
+            values = [{"relativeDate": rd}]
+        else:
+            values = [{"userEnteredValue": v}
+                      for v in _values_for(condition, _CF_CONDITIONS[condition], value_1, value_2)]
+        fmt, mask = _cell_format(background_color=background_color, text_color=text_color, bold=bold,
+                                 italic=italic, strikethrough=strikethrough)
+        if not mask:
+            raise _Invalid("바꿀 서식이 없어요")
+        _grid_range(cell_range, 0)
+        cond = {"type": condition, **({"values": values} if values else {})}
+        client = get_http_client()
+        sid, title, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        await _batch_update(client, access_token, spreadsheet_id, [{"addConditionalFormatRule": {
+            "rule": {"ranges": [_grid_range(cell_range, sid)], "booleanRule": {"condition": cond, "format": fmt}},
+            "index": 0}}])
+        return json.dumps({"success": True, "range": _a1_range(str(cell_range).strip(), title)}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+def _dv_values(condition: str, value_1, value_2, values) -> list[str]:
+    if condition == "ONE_OF_LIST":
+        if not isinstance(values, list) or not values:
+            raise _Invalid("목록 항목이 1개 이상 필요해요")
+        if len(values) > 500:
+            raise _Invalid("목록 항목은 500개까지예요")
+        for x in values:
+            if not isinstance(x, str) or _blank(x) or x.strip().startswith("="):
+                raise _Invalid(f"목록 항목은 =로 시작하지 않는 글자만 돼요: {x!r}")
+        return list(values)
+    if condition == "BOOLEAN":
+        if _blank(value_1) and not _blank(value_2):
+            raise _Invalid("체크 값을 먼저 채워 주세요")
+        return [str(v).strip() for v in (value_1, value_2) if not _blank(v)]
+    picked = _values_for(condition, _DV_CONDITIONS[condition], value_1, value_2)
+    if condition == "ONE_OF_RANGE" and not picked[0].startswith("="):
+        picked[0] = "=" + picked[0]
+    return picked
+
+
+async def google_sheets_set_data_validation(access_token: str, spreadsheet_id: str, sheet_id: str, cell_range: str,
+                                            condition: str, value_1: str | None = None, value_2: str | None = None,
+                                            values: list[str] | None = None, input_message: str | None = None,
+                                            strict: bool = False, show_dropdown: bool = True) -> str:
+    """
+    Google Sheets 범위에 데이터 유효성(입력 규칙)을 겁니다. 범위에 있던 규칙은 이것으로 바뀝니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        cell_range: 범위(A1 표기, 예: A1:C10, A:A, 2:10)
+        condition: 조건(NUMBER_BETWEEN·TEXT_IS_EMAIL·DATE_AFTER·ONE_OF_LIST·ONE_OF_RANGE·BOOLEAN 등)
+        value_1: 비교할 값. ONE_OF_RANGE는 범위, CUSTOM_FORMULA는 =로 시작, BOOLEAN은 체크했을 때 값
+        value_2: 두 번째 값(사이·사이 아님). BOOLEAN은 해제했을 때 값
+        values: ONE_OF_LIST 목록 항목(최대 500개, =로 시작 불가)
+        input_message: 셀을 고르면 보이는 안내 문구
+        strict: 참이면 잘못된 입력을 거부, 거짓이면 경고만
+        show_dropdown: 목록·범위 조건에서 셀에 드롭다운 표시
+
+    Returns:
+        range(규칙을 건 범위)를 포함한 JSON 문자열
+    """
+    tool = "google_sheets_set_data_validation"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        condition = _condition(condition, _DV_CONDITIONS)
+        picked = _dv_values(condition, value_1, value_2, values)
+        rule = {"condition": {"type": condition, **({"values": [{"userEnteredValue": v} for v in picked]}
+                                                    if picked else {})},
+                "strict": _tri(strict) is True, "showCustomUi": _tri(show_dropdown) is not False}
+        if not _blank(input_message):
+            rule["inputMessage"] = str(input_message)
+        _grid_range(cell_range, 0)
+        client = get_http_client()
+        sid, title, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        await _batch_update(client, access_token, spreadsheet_id,
+                            [{"setDataValidation": {"range": _grid_range(cell_range, sid), "rule": rule}}])
         return json.dumps({"success": True, "range": _a1_range(str(cell_range).strip(), title)}, ensure_ascii=False)
     except Exception as e:
         return _fail(tool, str(e))

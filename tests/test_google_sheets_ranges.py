@@ -4,13 +4,18 @@ from unittest.mock import patch
 import pytest
 
 from common.error_code import ToolErrorCode
+from core import template_registry as tr
 from tests.action_outputs import assert_matches_outputs
 from tests.test_google_sheets import GRID, _Sheets, _range, _resp
+from tools import _TOOL_MAP
 from tools.google_sheets import _Invalid, _cell_format
 from tools.google_sheets_ranges import (
-    _grid_range, google_sheets_add_column, google_sheets_copy_range, google_sheets_format_range,
+    _CF_CONDITIONS, _DV_CONDITIONS, _H_ALIGNS, _NUMBER_FORMATS, _PASTE_ORIENTATIONS, _PASTE_TYPES, _RELATIVE_DATES,
+    _SORT_ORDERS, _V_ALIGNS, _WRAPS, _grid_range, google_sheets_add_column, google_sheets_add_conditional_format,
+    google_sheets_copy_range, google_sheets_format_range, google_sheets_set_data_validation,
     google_sheets_sort_range,
 )
+from tools.registry import _ACTION_ONLY_TOOLS, resolve_action_fn
 
 
 async def _call(fake, tool, **kwargs):
@@ -279,3 +284,186 @@ async def test_정렬과_줄바꿈():
 async def test_서식_거절은_Google을_부르지_않는다(override):
     await _no_google(google_sheets_format_range, **{"spreadsheet_id": "s1", "sheet_id": "0", "cell_range": "A1",
                                                     **override})
+
+
+# --- 선택지·등록 ---
+
+@pytest.mark.parametrize("event, key, const", [
+    ("google_sheets.add_conditional_format", "condition", _CF_CONDITIONS),
+    ("google_sheets.set_data_validation", "condition", _DV_CONDITIONS),
+    ("google_sheets.add_conditional_format", "relative_date", _RELATIVE_DATES),
+    ("google_sheets.copy_range", "paste_type", _PASTE_TYPES),
+    ("google_sheets.copy_range", "paste_orientation", _PASTE_ORIENTATIONS),
+    ("google_sheets.sort_range", "sort_order", _SORT_ORDERS),
+    ("google_sheets.format_range", "number_format", _NUMBER_FORMATS),
+    ("google_sheets.format_range", "horizontal_alignment", _H_ALIGNS),
+    ("google_sheets.format_range", "vertical_alignment", _V_ALIGNS),
+    ("google_sheets.format_range", "wrap_strategy", _WRAPS),
+])
+def test_카탈로그_선택지는_코드_상수와_같다(event, key, const):
+    field = next(f for f in tr.get_template(event)["inputFields"] if f["key"] == key)
+    assert [c["id"] for c in field["choices"]] == list(const)
+
+
+def test_열·범위_도구는_ACTION_전용():
+    for name in ("add_column", "copy_range", "sort_range", "format_range", "add_conditional_format",
+                 "set_data_validation"):
+        key = f"builtin:google_sheets_{name}"
+        assert key not in _TOOL_MAP and key in _ACTION_ONLY_TOOLS and resolve_action_fn(key) is not None, key
+
+
+# --- C13 add_conditional_format ---
+
+def _condition(fake) -> dict:
+    return _requests(fake)[0]["addConditionalFormatRule"]["rule"]["booleanRule"]["condition"]
+
+
+_CF_OK = {"spreadsheet_id": "s1", "sheet_id": "0", "cell_range": "A1:A9", "bold": True}
+
+
+@pytest.mark.asyncio
+async def test_조건부_서식_숫자_사이():
+    fake = _Sheets(GRID)
+    result = await _call(fake, google_sheets_add_conditional_format, sheet_id="0", cell_range="B2:B",
+                         condition="NUMBER_BETWEEN", value_1="1", value_2="9", bold=True)
+    assert _requests(fake) == [{"addConditionalFormatRule": {"rule": {
+        "ranges": [{"sheetId": 0, "startRowIndex": 1, "startColumnIndex": 1, "endColumnIndex": 2}],
+        "booleanRule": {"condition": {"type": "NUMBER_BETWEEN",
+                                      "values": [{"userEnteredValue": "1"}, {"userEnteredValue": "9"}]},
+                        "format": _cell_format(bold=True)[0]}}, "index": 0}}]
+    assert result["range"] == "'Sales'!B2:B"
+    assert_matches_outputs("google_sheets.add_conditional_format", result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("condition, values, count", [
+    ("NUMBER_GREATER", {}, 1), ("NUMBER_BETWEEN", {"value_1": "1"}, 2), ("TEXT_CONTAINS", {"value_1": "  "}, 1),
+    ("DATE_BEFORE", {}, 1), ("CUSTOM_FORMULA", {"value_1": "A1>3"}, None),
+])
+async def test_조건부_서식_필요한_값이_비면_거절(condition, values, count):
+    result = await _no_google(google_sheets_add_conditional_format, **_CF_OK, condition=condition, **values)
+    if count:
+        assert f"값 {count}개가 필요해요" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_남은_값은_무시():
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_add_conditional_format, sheet_id="0", cell_range="A1", condition="NUMBER_GREATER",
+                value_1="5", value_2="9", bold=True)
+    assert _condition(fake)["values"] == [{"userEnteredValue": "5"}]
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_add_conditional_format, sheet_id="0", cell_range="A1", condition="BLANK",
+                value_1="x", bold=True)
+    assert _condition(fake) == {"type": "BLANK"}
+
+
+@pytest.mark.asyncio
+async def test_상대_날짜():
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_add_conditional_format, sheet_id="0", cell_range="A1", condition="DATE_AFTER",
+                relative_date="PAST_WEEK", value_1="2026-01-01", bold=True)
+    assert _condition(fake)["values"] == [{"relativeDate": "PAST_WEEK"}]
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_add_conditional_format, sheet_id="0", cell_range="A1", condition="TEXT_EQ",
+                value_1="a", relative_date="TODAY", bold=True)
+    assert _condition(fake)["values"] == [{"userEnteredValue": "a"}]
+    await _no_google(google_sheets_add_conditional_format, **_CF_OK, condition="DATE_EQ", relative_date="LAST_DECADE")
+
+
+@pytest.mark.asyncio
+async def test_맞춤_수식():
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_add_conditional_format, sheet_id="0", cell_range="A1",
+                condition="CUSTOM_FORMULA", value_1=" =$A2>3", bold=True)
+    assert _condition(fake)["values"] == [{"userEnteredValue": "=$A2>3"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("override", [
+    {"condition": "NOT_BLANK", "bold": None}, {"condition": ""}, {"condition": "TEXT_IS_EMAIL"}, {"condition": "X"},
+    {"condition": "NOT_BLANK", "cell_range": ""},
+])
+async def test_조건부_서식_거절(override):
+    await _no_google(google_sheets_add_conditional_format, **{**_CF_OK, **override})
+
+
+# --- C14 set_data_validation ---
+
+def _dv(fake) -> dict:
+    return _requests(fake)[0]["setDataValidation"]["rule"]
+
+
+_DV_OK = {"spreadsheet_id": "s1", "sheet_id": "0", "cell_range": "C2:C"}
+
+
+@pytest.mark.asyncio
+async def test_유효성_목록():
+    fake = _Sheets(GRID)
+    result = await _call(fake, google_sheets_set_data_validation, sheet_id="0", cell_range="C2:C",
+                         condition="ONE_OF_LIST", values=["예", "아니오"], input_message="골라 주세요")
+    assert _requests(fake) == [{"setDataValidation": {
+        "range": {"sheetId": 0, "startRowIndex": 1, "startColumnIndex": 2, "endColumnIndex": 3},
+        "rule": {"condition": {"type": "ONE_OF_LIST",
+                               "values": [{"userEnteredValue": "예"}, {"userEnteredValue": "아니오"}]},
+                 "inputMessage": "골라 주세요", "strict": False, "showCustomUi": True}}}]
+    assert_matches_outputs("google_sheets.set_data_validation", result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("values", [None, [], ["a", ""], ["=A1"], [1], ["x"] * 501])
+async def test_유효성_목록_거절(values):
+    await _no_google(google_sheets_set_data_validation, **_DV_OK, condition="ONE_OF_LIST", values=values)
+
+
+@pytest.mark.asyncio
+async def test_유효성_목록_500개는_된다():
+    fake = _Sheets(GRID)
+    result = await _call(fake, google_sheets_set_data_validation, sheet_id="0", cell_range="C2:C",
+                         condition="ONE_OF_LIST", values=["x"] * 500)
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_유효성_범위_조건은_등호를_붙인다():
+    for value, expected in (("'목록'!A2:A", "='목록'!A2:A"), ("=Sheet2!A:A", "=Sheet2!A:A")):
+        fake = _Sheets(GRID)
+        await _call(fake, google_sheets_set_data_validation, sheet_id="0", cell_range="C2:C",
+                    condition="ONE_OF_RANGE", value_1=value)
+        assert _dv(fake)["condition"]["values"] == [{"userEnteredValue": expected}]
+
+
+@pytest.mark.asyncio
+async def test_유효성_체크박스():
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_set_data_validation, sheet_id="0", cell_range="C2:C", condition="BOOLEAN")
+    assert _dv(fake)["condition"] == {"type": "BOOLEAN"}
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_set_data_validation, sheet_id="0", cell_range="C2:C", condition="BOOLEAN",
+                value_1="Y", value_2="N")
+    assert _dv(fake)["condition"]["values"] == [{"userEnteredValue": "Y"}, {"userEnteredValue": "N"}]
+    await _no_google(google_sheets_set_data_validation, **_DV_OK, condition="BOOLEAN", value_2="N")
+
+
+@pytest.mark.asyncio
+async def test_유효성_값_개수():
+    result = await _no_google(google_sheets_set_data_validation, **_DV_OK, condition="DATE_BETWEEN",
+                              value_1="2026-01-01")
+    assert "값 2개가 필요해요" in result["error"]
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_set_data_validation, sheet_id="0", cell_range="C2:C", condition="TEXT_IS_URL",
+                value_1="x", strict=True, show_dropdown=False)
+    rule = _dv(fake)
+    assert rule["condition"] == {"type": "TEXT_IS_URL"}
+    assert (rule["strict"], rule["showCustomUi"]) == (True, False)
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_set_data_validation, sheet_id="0", cell_range="C2:C", condition="TEXT_IS_URL",
+                strict="false")
+    assert _dv(fake)["strict"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("override", [{"condition": ""}, {"condition": "BLANK"},
+                                      {"condition": "TEXT_IS_URL", "cell_range": "A:B10"}])
+async def test_유효성_거절(override):
+    await _no_google(google_sheets_set_data_validation, **{**_DV_OK, **override})
