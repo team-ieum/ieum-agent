@@ -358,6 +358,225 @@ async def _label_after_send(client, headers: dict, message_id, labels: list):
         return None
 
 
+_REPLY_HEADERS = ["Message-ID", "References", "Subject", "Reply-To", "From", "To", "Cc"]
+
+
+async def _reply_target(tool: str, client, headers: dict, thread: str):
+    """답장 대상 = 초안을 뺀 메일 중 내가 보낸 것(SENT)이 아닌 마지막 메일, 없으면 마지막 메일(Gmail UI 답장 기본)."""
+    response = await client.get(f"{_GMAIL_API}/threads/{thread}", headers=headers,
+                                params={"format": "metadata", "metadataHeaders": _REPLY_HEADERS}, timeout=_TIMEOUT)
+    if not response.is_success:
+        return _api_error(response)
+    # threads.get은 대화 안의 내 초안도 돌려준다 — 초안에 답하면 In-Reply-To가 틀어진다
+    messages = [m for m in response.json().get("messages") or [] if "DRAFT" not in (m.get("labelIds") or [])]
+    if not messages:
+        return _fail(tool, "답장할 메일이 대화에 없어요")
+    target = next((m for m in reversed(messages) if "SENT" not in (m.get("labelIds") or [])), messages[-1])
+    values: dict = {}
+    for h in (target.get("payload") or {}).get("headers") or []:
+        values.setdefault(str(h.get("name", "")).lower(), str(h.get("value") or ""))
+    return {"message_id": values.get("message-id", ""), "references": values.get("references", ""),
+            "subject": values.get("subject", ""), "reply_to": values.get("reply-to") or values.get("from", ""),
+            "sent": "SENT" in (target.get("labelIds") or []), "to": values.get("to", ""), "cc": values.get("cc", "")}
+
+
+def _reply_headers(msg: EmailMessage, target: dict) -> None:
+    message_id = target["message_id"].strip()
+    if message_id:
+        msg["In-Reply-To"] = _header(message_id)
+        msg["References"] = _header(f"{target['references']} {message_id}".strip())
+
+
+def _re_subject(subject: str) -> str:
+    return subject if subject.lower().startswith("re:") else f"Re: {subject}"
+
+
+async def _reply_mime(tool: str, access_token: str, *, thread_id, to, cc, bcc, from_email, from_name, reply_to,
+                      body_format: str, body: str, include_signature):
+    """답장·답장 초안 공통 — (client, headers, thread, msg) 또는 error JSON."""
+    thread = _path_id(thread_id)
+    if thread is None:
+        return _fail(tool, _BAD_THREAD_ID)
+    inputs = _send_inputs(tool, to=to, cc=cc, bcc=bcc, from_email=from_email, from_name=from_name,
+                          include_signature=include_signature, need_recipient=False)
+    if isinstance(inputs, str):
+        return inputs
+    client = get_http_client()
+    headers = _headers(access_token)
+    target = await _reply_target(tool, client, headers, thread)
+    if isinstance(target, str):
+        return target
+    if not (inputs["to"] or inputs["cc"] or inputs["bcc"]):
+        # 내 메일에 답장하면 그 메일의 원래 받는 사람에게(Gmail 화면과 같음, 2026-11-10 사용자 결정)
+        if target["sent"]:
+            inputs["to"], inputs["cc"] = ([] if _blank(v) else [v] for v in (target["to"], target["cc"]))
+        elif not _blank(target["reply_to"]):
+            inputs["to"] = [target["reply_to"]]
+        if not (inputs["to"] or inputs["cc"]):
+            return _fail(tool, "답장 받을 주소를 원래 메일에서 찾지 못했어요")
+    msg = await _mime(tool, client, headers, inputs, reply_to=reply_to, subject=_re_subject(target["subject"]),
+                      body_format=body_format, body=body)
+    if isinstance(msg, str):
+        return msg
+    _reply_headers(msg, target)
+    return client, headers, thread, msg
+
+
+async def _save_draft(client, headers: dict, msg: EmailMessage, thread: Optional[str] = None) -> str:
+    message = {"raw": _raw(msg)}
+    if thread:
+        message["threadId"] = thread
+    response = await client.post(f"{_GMAIL_API}/drafts", headers=headers, json={"message": message}, timeout=_TIMEOUT)
+    if not response.is_success:
+        return _api_error(response)
+    data = response.json()
+    saved = data.get("message") or {}
+    return _ok(draftId=data.get("id", ""), messageId=saved.get("id", ""), threadId=saved.get("threadId", ""))
+
+
+async def gmail_reply(
+    access_token: str,
+    *,
+    thread_id: str,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    body_format: str = "text/plain",
+    body: str,
+    include_signature: bool = False,
+    label_ids: Optional[list[str]] = None,
+) -> str:
+    """Gmail 대화에 답장한다(같은 대화로 묶인다).
+
+    Args:
+        thread_id: 대화 ID
+        to: 받는 사람. 셋 다 비우면 원래 메일의 답장 주소
+        cc: 참조
+        bcc: 숨은 참조
+        from_email: 보낸 사람 주소(Gmail 별칭). 비우면 기본 주소
+        from_name: 보낸 사람 이름
+        reply_to: 답장 받을 주소
+        body_format: "text/plain" 또는 "text/html"
+        body: 본문
+        include_signature: Gmail 서명 붙이기
+        label_ids: 보낸 메일에 붙일 라벨 ID 목록
+
+    Returns:
+        성공 {"success": true, "messageId", "threadId"}, 실패 {"error"}
+    """
+    tool = "gmail_reply"
+    labels = [] if _blank(label_ids) else _emails(label_ids)
+    try:
+        built = await _reply_mime(tool, access_token, thread_id=thread_id, to=to, cc=cc, bcc=bcc,
+                                  from_email=from_email, from_name=from_name, reply_to=reply_to,
+                                  body_format=body_format, body=body, include_signature=include_signature)
+        if isinstance(built, str):
+            return built
+        client, headers, thread, msg = built
+        sent = await _deliver(client, headers, msg, thread_id=thread)
+        if isinstance(sent, str):
+            return sent
+    except Exception as e:
+        return _fail(tool, str(e))
+    await _label_after_send(client, headers, sent["messageId"], labels)
+    return _ok(messageId=sent["messageId"], threadId=sent["threadId"])
+
+
+async def gmail_create_reply_draft(
+    access_token: str,
+    *,
+    thread_id: str,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    body_format: str = "text/plain",
+    body: str,
+    include_signature: bool = False,
+) -> str:
+    """Gmail 대화에 답장 초안을 만든다(보내지 않는다).
+
+    Args:
+        thread_id: 대화 ID
+        to: 받는 사람. 셋 다 비우면 원래 메일의 답장 주소
+        cc: 참조
+        bcc: 숨은 참조
+        from_email: 보낸 사람 주소(Gmail 별칭). 비우면 기본 주소
+        from_name: 보낸 사람 이름
+        reply_to: 답장 받을 주소
+        body_format: "text/plain" 또는 "text/html"
+        body: 본문
+        include_signature: Gmail 서명 붙이기
+
+    Returns:
+        성공 {"success": true, "draftId", "messageId", "threadId"}, 실패 {"error"}
+    """
+    tool = "gmail_create_reply_draft"
+    try:
+        built = await _reply_mime(tool, access_token, thread_id=thread_id, to=to, cc=cc, bcc=bcc,
+                                  from_email=from_email, from_name=from_name, reply_to=reply_to,
+                                  body_format=body_format, body=body, include_signature=include_signature)
+        if isinstance(built, str):
+            return built
+        client, headers, thread, msg = built
+        return await _save_draft(client, headers, msg, thread)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def gmail_create_draft(
+    access_token: str,
+    *,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    subject: Optional[str] = None,
+    body_format: str = "text/plain",
+    body: Optional[str] = None,
+    include_signature: bool = False,
+) -> str:
+    """Gmail에 새 초안을 만든다(보내지 않는다. 받는 사람·제목·본문 모두 비워도 된다).
+
+    Args:
+        to: 받는 사람(쉼표 구분 또는 목록)
+        cc: 참조
+        bcc: 숨은 참조
+        from_email: 보낸 사람 주소(Gmail 별칭). 비우면 기본 주소
+        from_name: 보낸 사람 이름
+        reply_to: 답장 받을 주소
+        subject: 제목
+        body_format: "text/plain" 또는 "text/html"
+        body: 본문
+        include_signature: Gmail 서명 붙이기
+
+    Returns:
+        성공 {"success": true, "draftId", "messageId", "threadId"}, 실패 {"error"}
+    """
+    tool = "gmail_create_draft"
+    inputs = _send_inputs(tool, to=to, cc=cc, bcc=bcc, from_email=from_email, from_name=from_name,
+                          include_signature=include_signature, need_recipient=False)
+    if isinstance(inputs, str):
+        return inputs
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        msg = await _mime(tool, client, headers, inputs, reply_to=reply_to, subject=subject,
+                          body_format=body_format, body="" if body is None else str(body))
+        if isinstance(msg, str):
+            return msg
+        return await _save_draft(client, headers, msg)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
 def _json_size(value) -> int:
     return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 
