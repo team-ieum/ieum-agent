@@ -251,3 +251,14 @@ async def test_출력의_예약_키는_LLM에_주지_않는다():
     assert [f["key"] for f in out["fields"]] == ["branch", "branches", "matched", "result"]
     assert state["tests"]["c"]["fields"] == ["branch", "branches", "matched", "result"]
     assert "_branchKeys" not in sample_summary({"_branchKeys": ["b_11111111"], **output})  # 사용자 샘플 요약에도 안 보인다
+
+
+@pytest.mark.asyncio
+async def test_동적_출력_노드_테스트는_조회_경로를_알려_준다():
+    form_t = {"id": "t", "event": "google_forms.new_response", "type": "TRIGGER", "label": "설문",
+              "config": {"form_id": "F1"}}
+    result = {"data": {"status": "SUCCESS", "output": {"responseId": "R1", "answers": {"q1": "x"}}}}
+    turn = _turn([form_t], edges=[], result=result)
+    out = await tools.test_node(turn, {}, "t")
+    assert out["dynamic"] == ["output.answers"]
+    assert [f["key"] for f in out["fields"]] == ["responseId", "answers"]
