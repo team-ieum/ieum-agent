@@ -1,9 +1,10 @@
-"""Google Sheets 시트·파일 도구(레인 S): 워크시트 만들기·찾고 없으면 만들기·이름 바꾸기."""
+"""Google Sheets 시트·파일 도구(레인 S): 워크시트 만들기·복사·이름·속성·삭제, 스프레드시트 만들기, 찾고 없으면 만들기."""
 import json
+from urllib.parse import quote
 
 from tools.google_sheets import (
-    _SHEET_PROPS, _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _check, _fail, _find_sheet, _flag,
-    _grid_sheets, _headers, _int, _ok, _put, _sid, _spreadsheet_url,
+    _DRIVE_FILES_URL, _SHEET_PROPS, _SPREADSHEET_ID, _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _check,
+    _fail, _find_sheet, _find_spreadsheets, _flag, _grid_sheets, _headers, _int, _ok, _put, _sid, _spreadsheet_url,
 )
 from tools.http_client import get_http_client
 
@@ -302,5 +303,105 @@ async def google_sheets_delete_worksheet(access_token: str, spreadsheet_id: str,
         await _batch_update(client, access_token, spreadsheet_id, {"deleteSheet": {"sheetId": sid}})
         return json.dumps({"success": True, "deleted": True, "sheet_id": str(sid), "title": title},
                           ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+def _drive_id(value, message: str) -> str | None:
+    if _blank(value):
+        return None
+    v = str(value).strip()
+    if not _SPREADSHEET_ID.fullmatch(v):
+        raise _Invalid(f"{message}: {value!r}")
+    return v
+
+
+def _file_args(title, folder_id, copy_from, headers) -> tuple[str, str | None, str | None, list[str]]:
+    title = _title(title, "이름이 비어 있어요").strip()
+    folder_id = _drive_id(folder_id, "폴더 ID가 올바르지 않아요")
+    copy_from = _drive_id(copy_from, "복사할 스프레드시트 ID가 올바르지 않아요")
+    return title, folder_id, copy_from, [] if copy_from else _split_headers(headers)
+
+
+async def _create_spreadsheet(client, access_token: str, title: str, folder_id: str | None, copy_from: str | None,
+                              headers: list[str]) -> dict:
+    params = {"supportsAllDrives": "true", "fields": "id,name,webViewLink"}
+    body = {"name": title, **({"parents": [folder_id]} if folder_id else {})}
+    if copy_from:
+        url = f"{_DRIVE_FILES_URL}/{quote(copy_from, safe='')}/copy"
+    else:
+        url, body = _DRIVE_FILES_URL, {**body, "mimeType": "application/vnd.google-apps.spreadsheet"}
+    response = await client.post(url, headers=_headers(access_token), params=params, json=body, timeout=_TIMEOUT)
+    data = _ok(response, "Google Drive API")
+    fid = data.get("id", "")
+    if headers:  # copy_from이면 _file_args가 비워 둔다
+        try:
+            if len(headers) > 26:
+                await _batch_update(client, access_token, fid, {"appendDimension": {
+                    "sheetId": 0, "dimension": "COLUMNS", "length": len(headers) - 26}})
+            await _put(client, access_token, fid, "A1", headers, "RAW")
+        except Exception as e:
+            try:  # 만든 파일을 휴지통으로 보내 되돌린다
+                trash = await client.patch(f"{_DRIVE_FILES_URL}/{quote(fid, safe='')}",
+                                           headers=_headers(access_token), params={"supportsAllDrives": "true"},
+                                           json={"trashed": True}, timeout=_TIMEOUT)
+                _ok(trash, "Google Drive API")
+            except Exception:
+                raise _Invalid(f"{e} — 만든 스프레드시트 '{title}'({fid})가 남았을 수 있어요") from e
+            raise
+    return {"spreadsheet_id": fid, "title": data.get("name", title), "url": data.get("webViewLink", "")}
+
+
+async def google_sheets_create_spreadsheet(access_token: str, title: str, folder_id: str | None = None,
+                                           copy_from: str | None = None, headers: str | None = None) -> str:
+    """
+    새 Google Sheets 스프레드시트를 만들거나 기존 파일을 복사합니다. 같은 이름 파일이 있어도 새로 만듭니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        title: 파일 이름
+        folder_id: 만들 폴더 ID. 비우면 내 드라이브 최상위
+        copy_from: 복사할 스프레드시트 ID. 고르면 이 파일을 복사(헤더는 무시)
+        headers: 첫 시트 1행에 쓸 열 제목(쉼표 구분)
+
+    Returns:
+        spreadsheet_id, title, url을 포함한 JSON 문자열
+    """
+    tool = "google_sheets_create_spreadsheet"
+    try:
+        args = _file_args(title, folder_id, copy_from, headers)
+        client = get_http_client()
+        created = await _create_spreadsheet(client, access_token, *args)
+        return json.dumps({"success": True, **created}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_find_or_create_spreadsheet(access_token: str, title: str, folder_id: str | None = None,
+                                                   copy_from: str | None = None, headers: str | None = None) -> str:
+    """
+    이름이 정확히 같은 스프레드시트를 찾고(폴더를 고르면 그 폴더 안에서만) 없으면 만듭니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        title: 파일 이름(정확히 일치)
+        folder_id: 찾고 만들 폴더 ID. 비우면 전체에서 찾고 내 드라이브 최상위에 만듦
+        copy_from: 없을 때 복사할 스프레드시트 ID(헤더는 무시)
+        headers: 새로 만들 때 첫 시트 1행에 쓸 열 제목(쉼표 구분)
+
+    Returns:
+        created, spreadsheet_id, title, url을 포함한 JSON 문자열
+    """
+    tool = "google_sheets_find_or_create_spreadsheet"
+    try:
+        title, folder_id, copy_from, cols = _file_args(title, folder_id, copy_from, headers)
+        client = get_http_client()
+        items, _ = await _find_spreadsheets(client, access_token, title, "exact", folder_id)
+        if items:  # 최근 수정 순 첫 항목
+            first = items[0]
+            return json.dumps({"success": True, "created": False, "spreadsheet_id": first["id"],
+                               "title": first["name"], "url": first["url"]}, ensure_ascii=False)
+        created = await _create_spreadsheet(client, access_token, title, folder_id, copy_from, cols)
+        return json.dumps({"success": True, "created": True, **created}, ensure_ascii=False)
     except Exception as e:
         return _fail(tool, str(e))

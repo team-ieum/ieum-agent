@@ -8,8 +8,9 @@ from tests.action_outputs import assert_matches_outputs
 from tests.test_google_sheets import _resp
 from tools.google_sheets import _DRIVE_FILES_URL, _SHEET_PROPS
 from tools.google_sheets_sheets import (
-    google_sheets_copy_worksheet, google_sheets_create_worksheet, google_sheets_delete_worksheet,
-    google_sheets_find_or_create_worksheet, google_sheets_rename_worksheet, google_sheets_update_worksheet,
+    google_sheets_copy_worksheet, google_sheets_create_spreadsheet, google_sheets_create_worksheet,
+    google_sheets_delete_worksheet, google_sheets_find_or_create_spreadsheet, google_sheets_find_or_create_worksheet,
+    google_sheets_rename_worksheet, google_sheets_update_worksheet,
 )
 
 
@@ -441,3 +442,126 @@ async def test_마지막_시트_삭제는_Google_오류를_그대로():
     result = await _run(fake, google_sheets_delete_worksheet, spreadsheet_id="abc", sheet_id="0",
                         confirm_delete=True)
     assert "You can't remove all the sheets in a document." in result["error"]
+
+
+# --- C20 create_spreadsheet ---
+
+_NEW_URL = "https://docs.google.com/spreadsheets/d/newfile1/edit"
+
+
+@pytest.mark.asyncio
+async def test_스프레드시트_만들기():
+    fake = _Fake()
+    result = await _run(fake, google_sheets_create_spreadsheet, title="예산")
+    [create] = fake.of("drive_create")
+    assert create[2]["params"]["supportsAllDrives"] == "true"
+    assert create[2]["params"]["fields"] == "id,name,webViewLink"
+    assert create[2]["json"] == {"name": "예산", "mimeType": "application/vnd.google-apps.spreadsheet"}
+    assert fake.of("put") == []
+    assert result == {"success": True, "spreadsheet_id": "newfile1", "title": "예산", "url": _NEW_URL}
+    assert_matches_outputs("google_sheets.create_spreadsheet", result)
+
+
+@pytest.mark.asyncio
+async def test_폴더를_고르면_parents():
+    fake = _Fake()
+    await _run(fake, google_sheets_create_spreadsheet, title="예산", folder_id="fold1")
+    assert fake.of("drive_create")[0][2]["json"]["parents"] == ["fold1"]
+
+
+@pytest.mark.asyncio
+async def test_새_파일_헤더는_첫_시트_A1_RAW():
+    fake = _Fake()
+    await _run(fake, google_sheets_create_spreadsheet, title="예산", headers="a,b")
+    [put] = fake.of("put")
+    assert "/spreadsheets/newfile1/values/A1" in put[1]
+    assert put[2]["params"] == {"valueInputOption": "RAW"}
+    assert put[2]["json"]["values"] == [["a", "b"]]
+    assert fake.of("appendDimension") == []
+
+
+@pytest.mark.asyncio
+async def test_헤더_30개면_열을_먼저_늘린다():
+    fake = _Fake()
+    await _run(fake, google_sheets_create_spreadsheet, title="예산", headers=",".join(f"h{i}" for i in range(30)))
+    kinds = [fake._kind(*c) for c in fake.calls]
+    assert kinds == ["drive_create", "appendDimension", "put"]
+    assert _req(fake.of("appendDimension")[0]) == {
+        "appendDimension": {"sheetId": 0, "dimension": "COLUMNS", "length": 4}}
+
+
+@pytest.mark.asyncio
+async def test_복사하면_헤더를_무시한다():
+    fake = _Fake()
+    result = await _run(fake, google_sheets_create_spreadsheet, title="예산", copy_from="src1", headers="a,b",
+                        folder_id="fold1")
+    [copy] = fake.of("drive_copy")
+    assert copy[1].endswith("/files/src1/copy")
+    assert copy[2]["json"] == {"name": "예산", "parents": ["fold1"]}
+    assert copy[2]["params"]["supportsAllDrives"] == "true"
+    assert fake.of("put") == [] and fake.of("drive_create") == []
+    assert result["spreadsheet_id"] == "copyfile1"
+
+
+@pytest.mark.asyncio
+async def test_헤더_실패하면_파일을_휴지통으로():
+    fake = _Fake(fail={"put": _err("boom")})
+    result = await _run(fake, google_sheets_create_spreadsheet, title="예산", headers="a")
+    [patch_call] = fake.of("drive_patch")
+    assert patch_call[1].endswith("/files/newfile1")
+    assert patch_call[2]["json"] == {"trashed": True}
+    assert patch_call[2]["params"]["supportsAllDrives"] == "true"
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_휴지통도_실패하면_남은_파일을_알린다():
+    fake = _Fake(fail={"put": _err("boom"), "drive_patch": _err("nope")})
+    result = await _run(fake, google_sheets_create_spreadsheet, title="예산", headers="a")
+    assert "만든 스프레드시트 '예산'(newfile1)가 남았을 수 있어요" in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [
+    {"title": ""}, {"title": None}, {"title": "예산", "folder_id": "a/b"}, {"title": "예산", "copy_from": "x y"},
+    {"title": "예산", "headers": 1},
+])
+async def test_스프레드시트_만들기_입력_거절(kwargs):
+    await _no_google(google_sheets_create_spreadsheet, **kwargs)
+    await _no_google(google_sheets_find_or_create_spreadsheet, **kwargs)
+
+
+# --- S9 find_or_create_spreadsheet ---
+
+@pytest.mark.asyncio
+async def test_스프레드시트_찾기_없으면_만들기_찾음():
+    fake = _Fake(drive_files=[{"id": "f1", "name": "예산", "webViewLink": "u1", "modifiedTime": "2026-11-10T00:00:00Z"},
+                              {"id": "f2", "name": "예산", "webViewLink": "u2", "modifiedTime": "2026-11-01T00:00:00Z"}])
+    result = await _run(fake, google_sheets_find_or_create_spreadsheet, title="예산", headers="a")
+    assert len(fake.of("drive_list")) == 1
+    assert fake.of("drive_create") == [] and fake.of("put") == []
+    assert result == {"success": True, "created": False, "spreadsheet_id": "f1", "title": "예산", "url": "u1"}
+    assert_matches_outputs("google_sheets.find_or_create_spreadsheet", result)
+
+
+@pytest.mark.asyncio
+async def test_스프레드시트_찾기_없으면_만들기_만듦():
+    fake = _Fake()
+    result = await _run(fake, google_sheets_find_or_create_spreadsheet, title="예산", headers="a")
+    assert len(fake.of("drive_create")) == 1 and len(fake.of("put")) == 1
+    assert result == {"success": True, "created": True, "spreadsheet_id": "newfile1", "title": "예산",
+                      "url": _NEW_URL}
+    assert_matches_outputs("google_sheets.find_or_create_spreadsheet", result)
+
+
+@pytest.mark.asyncio
+async def test_폴더를_고르면_그_폴더_안에서만_찾는다():
+    fake = _Fake()
+    await _run(fake, google_sheets_find_or_create_spreadsheet, title="예산", folder_id="fold1")
+    q = fake.of("drive_list")[0][2]["params"]["q"]
+    assert "'fold1' in parents" in q and "name = '예산'" in q
+    assert fake.of("drive_create")[0][2]["json"]["parents"] == ["fold1"]
+
+    fake = _Fake()
+    await _run(fake, google_sheets_find_or_create_spreadsheet, title="예산")
+    assert "in parents" not in fake.of("drive_list")[0][2]["params"]["q"]
