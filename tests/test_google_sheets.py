@@ -11,7 +11,7 @@ from core import template_registry as tr
 from tests.action_outputs import assert_matches_outputs
 from tools import _TOOL_MAP, get_tools_for_request
 from tools.google_sheets import (
-    _Invalid, _col, _header_range, _resolve, _row, _row_number,
+    _Invalid, _batch_update, _col, _find_spreadsheets, _header_range, _resolve, _row, _row_number,
     google_sheets_append, google_sheets_append_top, google_sheets_find_or_create_row,
     google_sheets_find_spreadsheet, google_sheets_find_worksheet, google_sheets_get_row, google_sheets_get_rows,
     google_sheets_get_spreadsheet,
@@ -66,8 +66,13 @@ class _Sheets:
     @staticmethod
     def _kind(call):
         method, url, kwargs = call
-        if method == "POST" and url.endswith(":batchUpdate"):
-            return "insert" if "insertDimension" in kwargs["json"]["requests"][0] else "delete"
+        if method != "POST":
+            return None
+        if url.endswith("/values:batchUpdate"):
+            return "values_batch"
+        if url.endswith(":batchUpdate"):
+            key = next(iter(kwargs["json"]["requests"][0]))
+            return {"insertDimension": "insert", "deleteDimension": "delete"}.get(key, key)
         return None
 
     async def get(self, url, **kwargs):
@@ -735,6 +740,65 @@ async def test_스프레드시트_찾기_거절(kwargs):
 async def test_스프레드시트_0건():
     _, result = await _find_spreadsheet(files=[], name="없음")
     assert result == {"success": True, "found": False, "total": 0, "items": [], "truncated": False}
+
+
+@pytest.mark.asyncio
+async def test_batch_update는_요청_여러_개를_한_번에_보내고_응답을_돌려준다():
+    reqs = [{"addSheet": {"properties": {"title": "새"}}},
+            {"updateSheetProperties": {"properties": {"sheetId": 9, "index": 0}, "fields": "index"}}]
+    reply = {"replies": [{"addSheet": {"properties": {"sheetId": 9}}}, {}]}
+    fake = _Sheets(GRID, fail={"addSheet": _resp(200, reply)})
+    data = await _batch_update(fake, "t", "s1", reqs)
+    [(_, url, kwargs)] = fake.of("POST")
+    assert url == "https://sheets.googleapis.com/v4/spreadsheets/s1:batchUpdate"
+    assert kwargs["json"] == {"requests": reqs}
+    assert data == reply
+
+
+@pytest.mark.asyncio
+async def test_batch_update는_요청_하나도_받는다():
+    fake = _Sheets(GRID)
+    req = {"deleteDimension": {"range": _DIM}}
+    assert await _batch_update(fake, "t", "s1", req) == {}
+    [(_, _, kwargs)] = fake.of("POST")
+    assert kwargs["json"] == {"requests": [req]}
+
+
+@pytest.mark.asyncio
+async def test_batch_update_오류는_실패():
+    fake = _Sheets(GRID, fail={"delete": _resp(400, {"error": {"message": "bad"}})})
+    with pytest.raises(_Invalid, match=r"Google Sheets API 오류 \(400\): bad"):
+        await _batch_update(fake, "t", "s1", {"deleteDimension": {"range": _DIM}})
+
+
+@pytest.mark.parametrize("tail, body, expected", [
+    ("/spreadsheets/s1/values:batchUpdate", {"valueInputOption": "RAW", "data": []}, "values_batch"),
+    ("/spreadsheets/s1:batchUpdate", {"requests": [{"insertDimension": {}}]}, "insert"),
+    ("/spreadsheets/s1:batchUpdate", {"requests": [{"deleteDimension": {}}]}, "delete"),
+    ("/spreadsheets/s1:batchUpdate", {"requests": [{"repeatCell": {}}, {"deleteDimension": {}}]}, "repeatCell"),
+    ("/spreadsheets/s1/values:batchClear", {"ranges": []}, None),
+])
+def test_가짜는_values_batchUpdate를_구조_batch로_보지_않는다(tail, body, expected):
+    assert _Sheets._kind(("POST", "https://sheets.googleapis.com/v4" + tail, {"json": body})) == expected
+
+
+@pytest.mark.asyncio
+async def test_스프레드시트_검색_헬퍼는_폴더_안만_찾는다():
+    fake = _Sheets(GRID, drive_files=[_FILE], drive_next_page_token="p2")
+    items, truncated = await _find_spreadsheets(fake, "t", "예산", "exact", folder_id="fld'1")
+    assert fake.calls[0][2]["params"]["q"] == _SPREADSHEET_Q + "name = '예산' and 'fld\\'1' in parents"
+    assert truncated is True
+    assert items == [{"id": "f1", "name": "예산", "url": _FILE["webViewLink"],
+                      "modified_time": _FILE["modifiedTime"], "owned_by_me": True}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("folder_id", [None, "", "  "])
+async def test_스프레드시트_검색_헬퍼는_폴더가_비면_전체에서(folder_id):
+    fake = _Sheets(GRID, drive_files=[_FILE])
+    _, truncated = await _find_spreadsheets(fake, "t", "예산", "prefix", folder_id=folder_id)
+    assert fake.calls[0][2]["params"]["q"] == _SPREADSHEET_Q + "name contains '예산'"
+    assert truncated is False
 
 
 _TWO_SHEETS = (("Sales", 0, 26), ("요약", 7, 5))

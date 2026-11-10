@@ -292,14 +292,16 @@ async def _put(client, access_token, spreadsheet_id, a1_range: str, row: list, v
     return _ok(response)
 
 
-async def _batch_update(client, access_token, spreadsheet_id, request: dict) -> None:
+async def _batch_update(client, access_token, spreadsheet_id, requests: dict | list[dict]) -> dict:
+    """구조 요청 하나(dict) 또는 여러 개(list)를 한 번에 보내고 응답 JSON(replies 포함)을 돌려준다."""
+    requests = [requests] if isinstance(requests, dict) else list(requests)
     response = await client.post(
         f"{_spreadsheet_url(spreadsheet_id)}:batchUpdate",
         headers=_headers(access_token),
-        json={"requests": [request]},
+        json={"requests": requests},
         timeout=_TIMEOUT,
     )
-    _ok(response)
+    return _ok(response)
 
 
 async def _append(client, access_token, spreadsheet_id, title: str, row: list, value_input_option: str) -> dict:
@@ -655,6 +657,32 @@ def _grid_sheets(data: dict) -> list[dict]:
     return sheets
 
 
+async def _find_spreadsheets(client, access_token, name: str, match: str,
+                             folder_id: str | None = None) -> tuple[list[dict], bool]:
+    """Drive에서 스프레드시트를 이름으로 찾는다(최근 수정 순, 한 페이지 50개). (items, 잘렸는지)를 돌려준다.
+    match는 exact면 정확히 일치, 그 밖은 이름 포함. folder_id가 있으면 그 폴더 안만 찾는다.
+    name·match 입력 검사는 하지 않는다 — 호출자가 get_http_client() 전에 한다."""
+    op = "=" if match == "exact" else "contains"
+    q = (f"mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and "
+         f"name {op} '{_drive_quote(str(name))}'")
+    if not _blank(folder_id):
+        q += f" and '{_drive_quote(str(folder_id).strip())}' in parents"
+    response = await client.get(
+        _DRIVE_FILES_URL,
+        headers=_headers(access_token),
+        params={"q": q, "fields": "nextPageToken,files(id,name,webViewLink,modifiedTime,ownedByMe)",
+                "orderBy": "modifiedTime desc", "pageSize": 50, "supportsAllDrives": "true",
+                "includeItemsFromAllDrives": "true"},
+        timeout=_TIMEOUT,
+    )
+    data = _ok(response, "Google Drive API")
+    items = [{"id": f.get("id", ""), "name": f.get("name", ""), "url": f.get("webViewLink", ""),
+              "modified_time": f.get("modifiedTime", ""), "owned_by_me": f.get("ownedByMe") is True}
+             for f in data.get("files", [])]
+    # 한 페이지(50개)만 받는다 — 다음 페이지가 있으면 잘렸다고 알린다.
+    return items, bool(data.get("nextPageToken"))
+
+
 async def google_sheets_find_spreadsheet(access_token: str, name: str, match: str = "exact") -> str:
     """
     이름으로 Google Sheets 스프레드시트를 찾습니다(최근 수정 순, 최대 50개).
@@ -674,25 +702,10 @@ async def google_sheets_find_spreadsheet(access_token: str, name: str, match: st
             raise _Invalid(f"일치 방식은 exact 또는 prefix만 돼요: {match!r}")
         if _blank(name):
             raise _Invalid("이름이 비어 있어요")
-        op = "=" if match == "exact" else "contains"
-        q = (f"mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and "
-             f"name {op} '{_drive_quote(str(name))}'")
         client = get_http_client()
-        response = await client.get(
-            _DRIVE_FILES_URL,
-            headers=_headers(access_token),
-            params={"q": q, "fields": "nextPageToken,files(id,name,webViewLink,modifiedTime,ownedByMe)",
-                    "orderBy": "modifiedTime desc", "pageSize": 50, "supportsAllDrives": "true",
-                    "includeItemsFromAllDrives": "true"},
-            timeout=_TIMEOUT,
-        )
-        data = _ok(response, "Google Drive API")
-        items = [{"id": f.get("id", ""), "name": f.get("name", ""), "url": f.get("webViewLink", ""),
-                  "modified_time": f.get("modifiedTime", ""), "owned_by_me": f.get("ownedByMe") is True}
-                 for f in data.get("files", [])]
-        # 한 페이지(50개)만 받는다 — 다음 페이지가 있으면 잘렸다고 알린다.
+        items, truncated = await _find_spreadsheets(client, access_token, name, match)
         return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items,
-                           "truncated": bool(data.get("nextPageToken"))}, ensure_ascii=False)
+                           "truncated": truncated}, ensure_ascii=False)
     except Exception as e:
         return _fail(tool, str(e))
 
