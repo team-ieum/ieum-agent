@@ -365,6 +365,7 @@ async def _label_after_send(client, headers: dict, message_id, labels: list, tim
 
 
 _REPLY_HEADERS = ["Message-ID", "References", "Subject", "Reply-To", "From", "To", "Cc"]
+_SKIP_REPLY_LABELS = {"DRAFT", "TRASH", "SPAM"}
 
 
 async def _reply_target(tool: str, client, headers: dict, thread: str):
@@ -373,8 +374,9 @@ async def _reply_target(tool: str, client, headers: dict, thread: str):
                                 params={"format": "metadata", "metadataHeaders": _REPLY_HEADERS}, timeout=_TIMEOUT)
     if not response.is_success:
         return _api_error(response)
-    # threads.get은 대화 안의 내 초안도 돌려준다 — 초안에 답하면 In-Reply-To가 틀어진다
-    messages = [m for m in response.json().get("messages") or [] if "DRAFT" not in (m.get("labelIds") or [])]
+    # threads.get은 대화 안의 내 초안·휴지통·스팸도 돌려준다 — Gmail 대화 화면처럼 빼야 엉뚱한 메일에 답하지 않는다
+    messages = [m for m in response.json().get("messages") or []
+                if not _SKIP_REPLY_LABELS & set(m.get("labelIds") or [])]
     if not messages:
         return _fail(tool, "답장할 메일이 대화에 없어요")
     target = next((m for m in reversed(messages) if "SENT" not in (m.get("labelIds") or [])), messages[-1])
@@ -584,7 +586,10 @@ async def gmail_create_draft(
 
 
 _GMAIL_MAX = 35_000_000  # Gmail 메일 크기 상한(업로드 경로)
-_FORWARD_DEADLINE = 150.0  # 원본 받기~발송 전체 — BE→agent 180초보다 먼저 끝나야 BE 재시도가 두 번 보내지 않는다
+# 마감은 실행기 한도(settings.AGENT_TIMEOUT_SECONDS)에서 뺀다 — 실행기가 먼저 끊으면 재시도 가능한 AGENT_TIMEOUT이
+# 되어 이미 나간 메일을 다시 보낼 수 있다(spec 3절 C3 시간 예산, 2026-11-10 사용자 결정)
+_FORWARD_MARGIN = 30.0  # 원본 받기~발송 마감 = 실행기 한도 − 30초
+_LABEL_MARGIN = 5.0  # 발송 뒤 라벨 마감 = 실행기 한도 − 5초
 _FORWARD_TIMEOUT = 120.0  # 전달의 요청 하나
 _FORWARDED = "---------- Forwarded message ---------"
 
@@ -699,8 +704,11 @@ async def gmail_forward(
     if isinstance(inputs, str):
         return inputs
     limit = f"{_GMAIL_MAX / 1_000_000:g}MB"
+    from core.config import settings  # 함수 안 — gmail 모듈 import가 Settings(MONGODB_URL)를 요구하지 않게
+
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + _FORWARD_DEADLINE
+    started, budget = loop.time(), settings.AGENT_TIMEOUT_SECONDS - _FORWARD_MARGIN
+    deadline, label_deadline = started + budget, started + settings.AGENT_TIMEOUT_SECONDS - _LABEL_MARGIN
     try:
         client = get_http_client()
         headers = _headers(access_token)
@@ -730,16 +738,16 @@ async def gmail_forward(
             if isinstance(sent, str):
                 return sent
     except TimeoutError:
-        return _fail(tool, f"원본 받기·보내기가 제한 시간 {_FORWARD_DEADLINE:g}초 안에 끝나지 않았어요")
+        return _fail(tool, f"원본 받기·보내기가 제한 시간 {budget:g}초 안에 끝나지 않았어요")
     except Exception as e:
         return _fail(tool, str(e))
-    # 라벨은 마감 밖(실패해도 성공)이지만 남은 시간 안에서만 — BE→agent 180초를 넘기면 BE 재시도가 두 번 보낸다
-    remaining = deadline - loop.time()
+    # 라벨은 발송 마감 밖(실패해도 성공)이지만 실행기 한도 − 5초 안에서만 — 실행기가 먼저 끊으면 재시도가 두 번 보낸다
+    remaining = label_deadline - loop.time()
     if labels and remaining <= 0:
         logger.warning("Gmail 전달 라벨 건너뜀(마감 지남) messageId=%s", sent["messageId"])
     else:
         try:
-            async with asyncio.timeout_at(deadline):  # httpx timeout은 단계별이라 전체 상한이 아니다
+            async with asyncio.timeout_at(label_deadline):  # httpx timeout은 단계별이라 전체 상한이 아니다
                 await _label_after_send(client, headers, sent["messageId"], labels,
                                         timeout=min(_TIMEOUT, remaining))
         except TimeoutError:

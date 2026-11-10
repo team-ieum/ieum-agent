@@ -6,6 +6,9 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+import tools.gmail as gmail_module
+from core.config import settings
+
 from tests.test_gmail import API, SEND_AS, _b64, _client, _msg, _posts, _sendas, _sent
 from tests.action_outputs import assert_matches_outputs
 from tests.test_google_tools import _make_mock_response
@@ -136,6 +139,23 @@ async def test_답장_대상은_초안과_내가_보낸_메일을_건너뛴다(m
     post = _posts()
     await _reply(_client(get=_get(_thread(*messages)), post=post))
     assert _sent(post)["In-Reply-To"] == target
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("label", ["TRASH", "SPAM"])
+async def test_답장_대상은_휴지통과_스팸_메일을_건너뛴다(label):   # Gmail 대화 화면이 숨기는 메일
+    messages = [M1, _m("m2", ["INBOX", label], {"Message-ID": "<t@x>", "From": "spam@x.com"})]
+    post = _posts()
+    await _reply(_client(get=_get(_thread(*messages)), post=post))
+    msg = _sent(post)
+    assert (msg["In-Reply-To"], msg["To"]) == ("<a@x>", "홍길동 <a@b.c>")
+
+
+@pytest.mark.asyncio
+async def test_대화가_초안_휴지통_스팸뿐이면_실패():
+    messages = [_m("m1", ["TRASH"]), _m("m2", ["SPAM"]), _m("m3", ["DRAFT"])]
+    result = await _reply(_client(get=_get(_thread(*messages))))
+    assert "답장할 메일이 대화에 없어요" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -502,17 +522,28 @@ async def test_전달_요청은_C3_전용_타임아웃():
     assert _uploaded(post)[0].kwargs["timeout"] == 120.0
 
 
+def _budget(monkeypatch, send: float, label: float | None = None, limit: float = 10.0):
+    """실행기 한도 limit에서 발송 마감 = send초, 라벨 마감 = label초(기본 send)가 되게 여유값을 바꾼다."""
+    monkeypatch.setattr(settings, "AGENT_TIMEOUT_SECONDS", limit)
+    monkeypatch.setattr("tools.gmail._FORWARD_MARGIN", limit - send)
+    monkeypatch.setattr("tools.gmail._LABEL_MARGIN", limit - (send if label is None else label))
+
+
+def test_기본_마감은_실행기_한도에서_30초_라벨은_5초_앞이다():
+    assert (gmail_module._FORWARD_MARGIN, gmail_module._LABEL_MARGIN) == (30.0, 5.0)
+
+
 @pytest.mark.asyncio
-async def test_150초_마감을_넘으면_보내지_않고_실패한다(monkeypatch):
-    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 0.01)
+async def test_발송_마감을_넘으면_보내지_않고_실패한다(monkeypatch):
+    _budget(monkeypatch, 0.01)
     post = AsyncMock()
     result = await _forward(_client(get=_fwd_get(_original(), sleep=1), post=post))
     assert "시간" in result["error"] and post.await_count == 0
 
 
 @pytest.mark.asyncio
-async def test_업로드_POST도_150초_마감_안에_있다(monkeypatch):
-    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 0.05)
+async def test_업로드_POST도_발송_마감_안에_있다(monkeypatch):
+    _budget(monkeypatch, 0.05)
     post = _fwd_post(sleep=1)
     result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
     assert "시간" in result["error"]
@@ -520,17 +551,26 @@ async def test_업로드_POST도_150초_마감_안에_있다(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_전달_라벨은_마감까지_남은_시간_안에서_붙인다(monkeypatch):   # BE→agent 180초를 넘지 않게
-    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 5.0)
+async def test_전달_라벨은_라벨_마감까지_남은_시간_안에서_붙인다(monkeypatch):   # 실행기보다 먼저 끝나게
+    _budget(monkeypatch, 3.0, label=5.0)
     post = _fwd_post()
     await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
     modify = post.await_args_list[-1]
-    assert modify.args[0].endswith("/modify") and 0 < modify.kwargs["timeout"] <= 5.0
+    assert modify.args[0].endswith("/modify") and 3.0 < modify.kwargs["timeout"] <= 5.0
 
 
 @pytest.mark.asyncio
-async def test_마감이_다_되면_라벨은_건너뛰고_성공이다(monkeypatch):
-    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 0.3)
+async def test_발송_마감을_지나도_라벨_마감_전이면_라벨을_붙인다(monkeypatch):
+    _budget(monkeypatch, 0.2, label=0.8)
+    post = _fwd_post(block=0.3)   # 업로드가 루프를 막아 발송 마감을 지난 채 2xx
+    result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
+    assert result["success"] is True
+    assert [c.args[0] for c in post.await_args_list] == [UPLOAD, f"{API}/messages/m-1/modify"]
+
+
+@pytest.mark.asyncio
+async def test_라벨_마감이_다_되면_라벨은_건너뛰고_성공이다(monkeypatch):
+    _budget(monkeypatch, 0.3)
     post = _fwd_post(block=0.4)   # 업로드가 루프를 막아 마감이 끊지 못한 채 2xx — 메일은 이미 나갔다
     result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
     assert result == {"success": True, "messageId": "m-1", "threadId": "t-9"}
@@ -538,8 +578,25 @@ async def test_마감이_다_되면_라벨은_건너뛰고_성공이다(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_전달은_실행기보다_먼저_끝나_AGENT_TIMEOUT이_되지_않는다(monkeypatch):   # 최종 리뷰 I1 probe E
+    from api.schemas.request import ActionExecutionRequest
+    from core.action_executor import run_action
+    monkeypatch.setattr(settings, "AGENT_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr("tools.gmail._FORWARD_MARGIN", 0.3)
+    monkeypatch.setattr("tools.gmail._LABEL_MARGIN", 0.1)
+    post = _fwd_post(sleep=0.5, modify=2)   # 발송은 0.5초에 성공, 라벨은 늦다
+    request = ActionExecutionRequest(nodeId="n1", toolKey="builtin:google_gmail_forward",
+                                     config={"message_id": "m1", "to": "kim@x.com", "label_ids": ["L1"]})
+    with patch("tools.gmail.get_http_client", return_value=_client(get=_fwd_get(_original()), post=post)), \
+            patch("core.action_executor.save_execution_log", AsyncMock()):
+        result = await run_action(gmail_forward, request, "u1", google_access_token="token")
+    assert result.success is True and result.errorCode != "AGENT_TIMEOUT"
+    assert result.output["messageId"] == "m-1"
+
+
+@pytest.mark.asyncio
 async def test_라벨_요청도_마감에서_끊고_성공이다(monkeypatch):   # httpx timeout은 단계별이라 전체 상한이 아니다
-    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 0.3)
+    _budget(monkeypatch, 0.3)
     post = _fwd_post(modify=2)
     started = time.monotonic()
     result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
