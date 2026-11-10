@@ -104,6 +104,19 @@ def test_gmail_send_email은_ACTION_전용이다():
     assert get_tools_for_request([{"name": "builtin:google_gmail_send_email"}]) == []
 
 
+@pytest.mark.parametrize("action", ["find_email", "get_thread", "add_label", "remove_label", "remove_thread_label",
+                                    "archive", "trash", "create_label"])
+def test_gmail_정리_노드는_ACTION_전용이다(action):
+    """spec 2026-11-10 확정 결정 Q1 — _TOOL_MAP 밖, resolve_action_fn만 푼다."""
+    import tools.gmail
+    from tools import _TOOL_MAP, get_tools_for_request
+
+    key = f"builtin:google_gmail_{action}"
+    assert resolve_action_fn(key) is getattr(tools.gmail, f"gmail_{action}")
+    assert key not in _TOOL_MAP
+    assert get_tools_for_request([{"name": key}]) == []
+
+
 @pytest.mark.parametrize("key", [
     "mcp", "github_list_issues", "builtin:github_nope", "builtin:github_", "builtin:github_list_issues ",
     "builtin:does_not_exist", "", None, 5, ["builtin:github_list_issues"],

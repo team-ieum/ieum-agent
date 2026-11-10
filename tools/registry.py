@@ -37,7 +37,17 @@ from tools.github import (
     github_submit_pr_review,
     github_update_issue,
 )
-from tools.gmail import gmail_send_email
+from tools.gmail import (
+    gmail_add_label,
+    gmail_archive,
+    gmail_create_label,
+    gmail_find_email,
+    gmail_get_thread,
+    gmail_remove_label,
+    gmail_remove_thread_label,
+    gmail_send_email,
+    gmail_trash,
+)
 from tools.google_calendar import google_calendar_delete
 from tools.google_sheets import (
     google_sheets_append_top,
@@ -96,6 +106,15 @@ _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
 _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_calendar_delete": google_calendar_delete,
     "builtin:google_gmail_send_email": gmail_send_email,
+    # Gmail 정리 노드 — 메일 본문 프롬프트 인젝션으로 AI 노드가 라벨·휴지통을 건드리지 못하게(spec 2026-11-10 Q1)
+    "builtin:google_gmail_find_email": gmail_find_email,
+    "builtin:google_gmail_get_thread": gmail_get_thread,
+    "builtin:google_gmail_add_label": gmail_add_label,
+    "builtin:google_gmail_remove_label": gmail_remove_label,
+    "builtin:google_gmail_remove_thread_label": gmail_remove_thread_label,
+    "builtin:google_gmail_archive": gmail_archive,
+    "builtin:google_gmail_trash": gmail_trash,
+    "builtin:google_gmail_create_label": gmail_create_label,
     "builtin:google_sheets_append_top": google_sheets_append_top,
     "builtin:google_sheets_update_row": google_sheets_update_row,
     "builtin:google_sheets_find_or_create_row": google_sheets_find_or_create_row,

@@ -156,6 +156,10 @@ def test_option_source_fields_fixed_set():
         ("github.update_pull_request", "base"), ("github.find_branch", "branch"),
         ("github.new_issue", "repoId"), ("github.new_pull_request", "repoId"),
         ("gmail.send_email", "from_email"), ("gmail.send_email", "label_ids"),
+        ("gmail.find_email", "label_ids"), ("gmail.get_thread", "thread_id"),
+        *[(f"gmail.{x}", k) for x in ("add_label", "remove_label") for k in ("message_id", "label_ids")],
+        ("gmail.remove_thread_label", "thread_id"), ("gmail.remove_thread_label", "label_ids"),
+        ("gmail.archive", "message_id"), ("gmail.trash", "message_id"),
     }
     assert got == expected
 
@@ -264,6 +268,9 @@ EXPECTED_BRANDS = {
     "schedule.weekly": "webhook", "schedule.monthly": "webhook", "webhook.catch": "webhook",
     "gmail.new_email": "gmail", "github.new_issue": "github", "github.new_pull_request": "github",
     "gmail.send_email": "gmail",
+    **{f"gmail.{x}": "gmail" for x in (
+        "find_email", "get_thread", "add_label", "remove_label", "remove_thread_label", "archive", "trash",
+        "create_label")},
     "http.request": "webhook", "approval.request": "webhook", "approval.collect": "webhook", "branch.if": "filter", "transform.map": "filter",
     "slack.send_message": "slack", "discord.send_message": "discord",
     "slack_bot.send_channel_message": "slack",
@@ -399,8 +406,9 @@ def test_캘린더_선택형_불리언_칸은_참조식을_받지_않는다(entr
 
 def test_find_출력은_검색_약속을_따른다():
     """SCHEMA 앱 이벤트 약속 1 — found·total·items 필수."""
-    keys = {f["key"] for f in tr.get_template("google_calendar.find")["outputFields"]}
-    assert {"found", "total", "items"} <= keys
+    for event in ("google_calendar.find", "gmail.find_email"):
+        keys = {f["key"] for f in tr.get_template(event)["outputFields"]}
+        assert {"found", "total", "items"} <= keys, event
 
 
 def test_slack_bot_채널_메시지_계약():
@@ -509,3 +517,29 @@ def test_gmail_send_email_칸():
     assert (f["include_signature"]["type"], f["include_signature"]["default"]) == ("boolean", False)
     assert f["body_format"]["default"] == "text/plain" and f["body"]["type"] == "text"
     assert f["to"]["type"] == "string" and "list" not in f["to"]
+
+
+def test_gmail_정리_노드_칸():
+    """spec 2026-11-10 §3 — 칸 순서·필수·참조식 여부·드롭다운이 도구 시그니처·카탈로그와 맞물린다."""
+    find = {x["key"]: x for x in _action("gmail.find_email")["inputFields"]}
+    assert list(find) == ["query", "label_ids", "include_spam_trash", "max_results"]
+    assert {k for k, x in find.items() if x.get("required")} == {"query"}
+    assert find["max_results"]["default"] == 20
+    assert find["include_spam_trash"]["ref"] is False
+    for event in ("find_email", "add_label", "remove_label", "remove_thread_label"):
+        assert _field(f"gmail.{event}", "label_ids")["ref"] is False, event
+    for event, key, source in (("add_label", "message_id", "google.gmail_messages"),
+                               ("remove_label", "message_id", "google.gmail_messages"),
+                               ("archive", "message_id", "google.gmail_messages"),
+                               ("trash", "message_id", "google.gmail_messages"),
+                               ("get_thread", "thread_id", "google.gmail_threads"),
+                               ("remove_thread_label", "thread_id", "google.gmail_threads")):
+        f = _field(f"gmail.{event}", key)
+        assert "ref" not in f and f["optionsSource"] == source and f["required"], (event, key)
+    label = {x["key"]: x for x in _action("gmail.create_label")["inputFields"]}
+    assert {k for k, x in label.items() if x.get("required")} == {"name"}
+    for key in ("label_list_visibility", "message_list_visibility", "text_color", "background_color"):
+        assert label[key]["ref"] is False, key
+    colors = {c["id"] for c in label["text_color"]["choices"]}
+    assert {"#000000", "#ffffff"} <= colors
+    assert label["text_color"]["choices"] == label["background_color"]["choices"]

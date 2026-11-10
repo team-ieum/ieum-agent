@@ -178,6 +178,18 @@ def test_gmail_send_email은_빌더에_있고_AI_도구_선택지에_없다():
     assert not {"gmail", "builtin:google_gmail_send_email"} & {c["id"] for c in tools["choices"]}
 
 
+_GMAIL_ACTION_ONLY = ("find_email", "get_thread", "add_label", "remove_label", "remove_thread_label", "archive",
+                      "trash", "create_label")
+
+
+def test_gmail_정리_노드는_AI_도구_선택지에_없다():
+    """spec 2026-11-10 확정 결정 Q1 — 메일 본문 프롬프트 인젝션으로 AI 노드가 라벨·휴지통을 건드리지 못하게."""
+    tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
+    keys = {f"builtin:google_gmail_{x}" for x in _GMAIL_ACTION_ONLY}
+    assert not keys & {c["id"] for c in tools["choices"]}
+    assert all(tr.get_template(f"gmail.{x}")["builder"] is True for x in _GMAIL_ACTION_ONLY)
+
+
 def test_cold_load_never_enters_match_entry_brand_path(monkeypatch):
     """로더가 brand를 계산하는 중에 match_entry(→ load_templates 재진입 → 무한 재귀)를 부르면 기동이 실패한다."""
     def boom(*args, **kwargs):
