@@ -130,10 +130,12 @@ def test_option_source_fields_fixed_set():
         ("slack_bot.send_channel_message", "channel"),
         ("discord_bot.send_channel_message", "guild_id"), ("discord_bot.send_channel_message", "channel_id"),
         *[(f"google_sheets.{x}", k)
-          for x in ("read", "append", "append_top", "update_row", "lookup_row", "find_or_create_row")
+          for x in ("read", "append", "append_top", "update_row", "lookup_row", "find_or_create_row",
+                    "lookup_rows", "get_rows", "get_row")
           for k in ("spreadsheet_id", "sheet_id")],
-        *[(f"google_sheets.{x}", k) for x in ("lookup_row", "find_or_create_row")
+        *[(f"google_sheets.{x}", k) for x in ("lookup_row", "find_or_create_row", "lookup_rows")
           for k in ("lookup_column", "lookup_column_2")],
+        ("google_sheets.find_worksheet", "spreadsheet_id"), ("google_sheets.get_spreadsheet", "spreadsheet_id"),
         ("google_calendar.create", "calendar_id"), ("google_calendar.find", "calendar_id"),
         ("google_calendar.update", "calendar_id"), ("google_calendar.update", "event_id"),
         ("google_calendar.delete", "calendar_id"), ("google_calendar.delete", "event_id"),
@@ -218,6 +220,13 @@ _SHEETS_FIELDS = {
                                          "lookup_column_2", "lookup_value_2", "from_bottom", "columns",
                                          "value_input_option"],
     "google_sheets.read": ["spreadsheet_id", "sheet_id", "cell_range"],
+    "google_sheets.lookup_rows": ["spreadsheet_id", "sheet_id", "lookup_column", "lookup_value",
+                                  "lookup_column_2", "lookup_value_2", "from_bottom", "start_row", "max_rows"],
+    "google_sheets.get_rows": ["spreadsheet_id", "sheet_id", "column_range", "row_count", "start_row"],
+    "google_sheets.get_row": ["spreadsheet_id", "sheet_id", "row_number"],
+    "google_sheets.find_spreadsheet": ["name", "match"],
+    "google_sheets.find_worksheet": ["spreadsheet_id", "title"],
+    "google_sheets.get_spreadsheet": ["spreadsheet_id"],
 }
 
 
@@ -225,9 +234,11 @@ _SHEETS_FIELDS = {
 def test_sheets_열별_칸_노드_계약(event, keys):
     f = {x["key"]: x for x in _action(event)["inputFields"]}
     assert list(f) == keys
-    assert (f["spreadsheet_id"]["required"], f["spreadsheet_id"]["ref"]) == (True, False)
-    assert (f["sheet_id"]["required"], f["sheet_id"]["ref"], f["sheet_id"]["optionsSource"]) == \
-        (True, False, "google.worksheets")
+    if "spreadsheet_id" in f:
+        assert (f["spreadsheet_id"]["required"], f["spreadsheet_id"]["ref"]) == (True, False)
+    if "sheet_id" in f:
+        assert (f["sheet_id"]["required"], f["sheet_id"]["ref"], f["sheet_id"]["optionsSource"]) == \
+            (True, False, "google.worksheets")
     if "columns" in f:
         c = f["columns"]
         assert (c["type"], c["ref"], c["required"], c["fieldsSource"], c["fieldsInputs"]) == \
@@ -251,6 +262,14 @@ def test_sheets_출력_칸():
     assert outs["google_sheets.lookup_row"] == ["found", "total", "items", "row_number", "values"]
     assert outs["google_sheets.find_or_create_row"] == ["created", "row_number", "values"]
     assert _action("google_sheets.lookup_row")["kind"] == "search"
+    assert outs["google_sheets.lookup_rows"] == outs["google_sheets.get_rows"] == \
+        ["found", "total", "items", "truncated"]
+    assert outs["google_sheets.get_row"] == ["found", "total", "items", "row_number", "values"]
+    assert outs["google_sheets.find_spreadsheet"] == ["found", "total", "items", "truncated"]
+    assert outs["google_sheets.find_worksheet"] == ["found", "total", "items", "sheet_id", "title"]
+    assert outs["google_sheets.get_spreadsheet"] == ["found", "total", "items", "title", "url", "sheets"]
+    for x in ("lookup_rows", "get_rows", "get_row", "find_spreadsheet", "find_worksheet", "get_spreadsheet"):
+        assert _action(f"google_sheets.{x}")["kind"] == "search"
     assert "google_sheets.write" not in {e["id"] for e in node_catalog()["entries"]}
 
 
@@ -282,6 +301,9 @@ EXPECTED_BRANDS = {
     "google_sheets.read": "sheets", "google_sheets.append": "sheets", "google_sheets.append_top": "sheets",
     "google_sheets.update_row": "sheets", "google_sheets.lookup_row": "sheets",
     "google_sheets.find_or_create_row": "sheets",
+    "google_sheets.lookup_rows": "sheets", "google_sheets.get_rows": "sheets", "google_sheets.get_row": "sheets",
+    "google_sheets.find_spreadsheet": "sheets", "google_sheets.find_worksheet": "sheets",
+    "google_sheets.get_spreadsheet": "sheets",
     "google_calendar.create": "google", "google_calendar.find": "google",
     "google_calendar.update": "google", "google_calendar.delete": "google", "google_drive.read": "google",
     "google_drive.upload": "google",
