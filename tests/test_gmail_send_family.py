@@ -1,5 +1,5 @@
 """Gmail 답장·답장 초안·초안·전달·찾고 없으면 보내기(spec 2026-11-10 gmail-forms-9 §3). HTTP는 목으로 대신한다."""
-import asyncio, base64, email, email.policy, json
+import asyncio, base64, email, email.policy, json, time
 from email.message import EmailMessage
 from unittest.mock import AsyncMock, patch
 
@@ -278,24 +278,31 @@ def _original(subject: str = "회의", attachments: bool = True) -> EmailMessage
     return msg
 
 
-def _fwd_get(original: EmailMessage, size: int | None = None, sleep: float = 0) -> AsyncMock:
+def _fwd_get(original: EmailMessage | bytes, size: int | None = None, sleep: float = 0) -> AsyncMock:
     """메일 m1 GET — params format(minimal → 크기, raw → 원본)으로 나눈다."""
+    data = original if isinstance(original, bytes) else original.as_bytes()
+
     async def get(url, **kwargs):
         if url == f"{API}/settings/sendAs":
             return _make_mock_response(200, SEND_AS)
         assert url == f"{API}/messages/m1", url
         if kwargs["params"]["format"] == "minimal":
-            return _make_mock_response(200, {"id": "m1", "sizeEstimate": size or len(original.as_bytes())})
+            return _make_mock_response(200, {"id": "m1", "sizeEstimate": size or len(data)})
         assert kwargs["params"] == {"format": "raw"}
         if sleep:
             await asyncio.sleep(sleep)
-        return _make_mock_response(200, {"id": "m1", "raw": _b64(original.as_bytes())})
+        return _make_mock_response(200, {"id": "m1", "raw": _b64(data)})
     return AsyncMock(side_effect=get)
 
 
-def _fwd_post(modify=None) -> AsyncMock:
+def _fwd_post(modify=None, sleep: float = 0, block: float = 0) -> AsyncMock:
+    """sleep = 업로드 응답 전 await 지연(마감에 걸린다), block = 루프를 막는 지연(마감이 끊지 못한다)."""
     async def post(url, **kwargs):
         if url == UPLOAD:
+            if sleep:
+                await asyncio.sleep(sleep)
+            if block:
+                time.sleep(block)
             return _make_mock_response(200, {"id": "m-1", "threadId": "t-9", "labelIds": ["SENT"]})
         if url == f"{API}/messages/m-1/modify":
             if isinstance(modify, Exception):
@@ -402,6 +409,34 @@ async def test_전달은_첨부된_메일을_통째로_인라인_이미지까지
     forwarded = parts[0].get_payload(0)
     assert forwarded.get_body(preferencelist=("plain",)).get_content().strip() == "안쪽 본문"
     assert [a.get_filename() for a in forwarded.iter_attachments()] == ["inner.txt"]
+    assert parts[1]["Content-ID"] == "<logo@x>"   # 원본 HTML의 cid: 참조가 이어지게
+
+
+@pytest.mark.asyncio
+async def test_text_첨부는_원본_charset을_유지한다():
+    data = "한글 메모".encode("euc-kr")
+    original = _original(attachments=False)
+    original.add_attachment(data, "text", "plain", filename="k.txt", params={"charset": "euc-kr"})
+    post = _fwd_post()
+    await _forward(_client(get=_fwd_get(original), post=post))
+    part = next(_uploaded(post)[1].iter_attachments())
+    assert part.get_content_charset() == "euc-kr" and part.get_payload(decode=True) == data
+
+
+@pytest.mark.asyncio
+async def test_첨부_파일명의_줄바꿈은_정리해서_전달한다():
+    raw = ("From: a@b.c\r\nTo: me@gmail.com\r\nSubject: s\r\nMIME-Version: 1.0\r\n"
+           'Content-Type: multipart/mixed; boundary="B"\r\n\r\n'
+           "--B\r\nContent-Type: text/plain\r\n\r\nbody\r\n"
+           "--B\r\nContent-Type: application/pdf\r\n"
+           "Content-Disposition: attachment; filename*=utf-8''a.pdf%0D%0ABcc%3A%20evil%40x.com\r\n"
+           "Content-Transfer-Encoding: base64\r\n\r\nJVBERg==\r\n--B--\r\n").encode()
+    post = _fwd_post()
+    result = await _forward(_client(get=_fwd_get(raw), post=post))
+    assert result["success"] is True
+    msg = _uploaded(post)[1]
+    assert [a.get_filename() for a in msg.iter_attachments()] == ["a.pdf Bcc: evil@x.com"]
+    assert msg["Bcc"] is None
 
 
 @pytest.mark.asyncio
@@ -437,6 +472,33 @@ async def test_150초_마감을_넘으면_보내지_않고_실패한다(monkeypa
     post = AsyncMock()
     result = await _forward(_client(get=_fwd_get(_original(), sleep=1), post=post))
     assert "시간" in result["error"] and post.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_업로드_POST도_150초_마감_안에_있다(monkeypatch):
+    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 0.05)
+    post = _fwd_post(sleep=1)
+    result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
+    assert "시간" in result["error"]
+    assert [c.args[0] for c in post.await_args_list] == [UPLOAD]   # 라벨도 붙이지 않는다
+
+
+@pytest.mark.asyncio
+async def test_전달_라벨은_마감까지_남은_시간_안에서_붙인다(monkeypatch):   # BE→agent 180초를 넘지 않게
+    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 5.0)
+    post = _fwd_post()
+    await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
+    modify = post.await_args_list[-1]
+    assert modify.args[0].endswith("/modify") and 0 < modify.kwargs["timeout"] <= 5.0
+
+
+@pytest.mark.asyncio
+async def test_마감이_다_되면_라벨은_건너뛰고_성공이다(monkeypatch):
+    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 0.3)
+    post = _fwd_post(block=0.4)   # 업로드가 루프를 막아 마감이 끊지 못한 채 2xx — 메일은 이미 나갔다
+    result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
+    assert result == {"success": True, "messageId": "m-1", "threadId": "t-9"}
+    assert [c.args[0] for c in post.await_args_list] == [UPLOAD]
 
 
 @pytest.mark.asyncio
@@ -503,6 +565,14 @@ async def test_없으면_보내고_created_true_보낸_값으로():
     assert (result["messageId"], result["threadId"], result["to"], result["subject"], result["bodyText"],
             result["snippet"], result["from"]) == ("m-1", "t-1", "a@x.com", "보고", "안녕", "", "")
     assert result["receivedAt"].endswith("Z") and result["labels"] == ["SENT"]
+
+
+@pytest.mark.asyncio
+async def test_보낸_경로_출력도_헤더를_1000자로_자른다():   # 찾은 경로(_normalize)와 같다
+    to = ", ".join(f"user{i}@example.com" for i in range(100))
+    result = await _find_or_send(_client(get=_find_get(found=False), post=_posts()), to=to, subject="가" * 1500)
+    assert len(result["to"]) == 1000 and result["to"] == to[:1000]
+    assert result["subject"] == "가" * 1000
 
 
 @pytest.mark.asyncio

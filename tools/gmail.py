@@ -325,11 +325,13 @@ def _raw(msg: EmailMessage) -> str:
 
 
 async def _deliver(client, headers: dict, msg: EmailMessage, *, thread_id: Optional[str] = None,
-                   upload: bool = False, timeout: float = _TIMEOUT):
-    """발송 한 번. 2xx면 {messageId, threadId, labelIds}, 아니면 error JSON. 네트워크 예외는 올린다."""
+                   upload: bool = False, timeout: float = _TIMEOUT, content: Optional[bytes] = None):
+    """발송 한 번. 2xx면 {messageId, threadId, labelIds}, 아니면 error JSON. 네트워크 예외는 올린다.
+    content = 이미 만든 MIME 바이트(업로드 경로, 다시 직렬화하지 않는다)."""
     if upload:
         response = await client.post(_UPLOAD_SEND, headers={**headers, "Content-Type": "message/rfc822"},
-                                     params={"uploadType": "media"}, content=msg.as_bytes(), timeout=timeout)
+                                     params={"uploadType": "media"},
+                                     content=msg.as_bytes() if content is None else content, timeout=timeout)
     else:
         body = {"raw": _raw(msg)}
         if thread_id:
@@ -346,13 +348,13 @@ async def _deliver(client, headers: dict, msg: EmailMessage, *, thread_id: Optio
         return {"messageId": "", "threadId": "", "labelIds": None}
 
 
-async def _label_after_send(client, headers: dict, message_id, labels: list):
+async def _label_after_send(client, headers: dict, message_id, labels: list, timeout: float = _TIMEOUT):
     """보낸 메일에 라벨. 성공이면 modify 응답 labelIds, 그 밖은 None(경고만)."""
     if not (labels and message_id):
         return None
     try:
         response = await client.post(f"{_GMAIL_API}/messages/{message_id}/modify", headers=headers,
-                                     json={"addLabelIds": labels}, timeout=_TIMEOUT)
+                                     json={"addLabelIds": labels}, timeout=timeout)
         if not response.is_success:
             logger.warning("Gmail 라벨 붙이기 실패 messageId=%s status=%s", message_id, response.status_code)
             return None
@@ -619,6 +621,33 @@ def _forward_tail(original, as_html: bool) -> str:
     return "\n\n" + "\n".join(lines) + "\n\n" + content
 
 
+def _parse_original(raw: str, as_html: bool):
+    """원본 파싱 + 전달 블록(동기 CPU — 스레드에서 돈다). (원본, 원본 제목, 전달 블록)."""
+    original = email.message_from_bytes(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)),
+                                        policy=email.policy.default)
+    return original, str(original["Subject"] or ""), _forward_tail(original, as_html)
+
+
+def _attach_and_serialize(msg: EmailMessage, original) -> bytes:
+    """원본 첨부를 다시 붙이고 MIME 바이트를 한 번 만든다(동기 CPU — 스레드에서 돈다).
+    파일명·Content-ID는 _header로 줄바꿈을 지운다 — 줄바꿈 든 파일명도 전달되고 새 헤더를 만들지 못한다."""
+    for part in _attachments(original):
+        filename = part.get_filename()
+        options = {"filename": _header(filename) if filename else None,
+                   "disposition": part.get_content_disposition() or "attachment"}
+        if part["Content-ID"]:
+            options["cid"] = _header(part["Content-ID"])  # 원본 HTML의 cid: 참조가 이어지게
+        if part.get_content_type() == "message/rfc822":
+            options["filename"] = options["filename"] or "message.eml"
+            msg.add_attachment(part.get_payload(0), **options)
+            continue
+        if part.get_content_maintype() == "text" and part.get_content_charset():
+            options["params"] = {"charset": part.get_content_charset()}
+        msg.add_attachment(part.get_payload(decode=True) or b"", part.get_content_maintype(),
+                           part.get_content_subtype(), **options)
+    return msg.as_bytes()
+
+
 async def gmail_forward(
     access_token: str,
     *,
@@ -662,10 +691,12 @@ async def gmail_forward(
     if isinstance(inputs, str):
         return inputs
     limit = f"{_GMAIL_MAX / 1_000_000:g}MB"
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _FORWARD_DEADLINE
     try:
         client = get_http_client()
         headers = _headers(access_token)
-        async with asyncio.timeout(_FORWARD_DEADLINE):
+        async with asyncio.timeout_at(deadline):
             url = f"{_GMAIL_API}/messages/{message}"
             response = await client.get(url, headers=headers, params={"format": "minimal"}, timeout=_FORWARD_TIMEOUT)
             if not response.is_success:
@@ -677,32 +708,29 @@ async def gmail_forward(
             if not response.is_success:
                 return _api_error(response)
             raw = str(response.json().get("raw") or "")
-            original = email.message_from_bytes(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)),
-                                                policy=email.policy.default)
-            subject = str(original["Subject"] or "")
+            # 수십 MB 파싱·조립·직렬화는 수 초 CPU — 스레드로 빼야 다른 요청이 멈추지 않고 마감도 끊을 수 있다
+            original, subject, tail = await asyncio.to_thread(_parse_original, raw, body_format == "text/html")
             msg = await _mime(tool, client, headers, inputs, reply_to=reply_to,
                               subject=subject if subject.lower().startswith("fwd:") else f"Fwd: {subject}",
-                              body_format=body_format, body="" if body is None else str(body),
-                              tail=_forward_tail(original, body_format == "text/html"))
+                              body_format=body_format, body="" if body is None else str(body), tail=tail)
             if isinstance(msg, str):
                 return msg
-            for part in _attachments(original):
-                if part.get_content_type() == "message/rfc822":
-                    msg.add_attachment(part.get_payload(0), filename=part.get_filename() or "message.eml")
-                else:
-                    msg.add_attachment(part.get_payload(decode=True) or b"", part.get_content_maintype(),
-                                       part.get_content_subtype(), filename=part.get_filename())
-            total = len(msg.as_bytes())
-            if total > _GMAIL_MAX:
-                return _fail(tool, f"전달할 메일이 원본 첨부까지 {_mb(total)}라 Gmail 상한 {limit}를 넘어 보낼 수 없어요")
-            sent = await _deliver(client, headers, msg, upload=True, timeout=_FORWARD_TIMEOUT)
+            data = await asyncio.to_thread(_attach_and_serialize, msg, original)
+            if len(data) > _GMAIL_MAX:
+                return _fail(tool, f"전달할 메일이 원본 첨부까지 {_mb(len(data))}라 Gmail 상한 {limit}를 넘어 보낼 수 없어요")
+            sent = await _deliver(client, headers, msg, upload=True, timeout=_FORWARD_TIMEOUT, content=data)
             if isinstance(sent, str):
                 return sent
     except TimeoutError:
         return _fail(tool, f"원본 받기·보내기가 제한 시간 {_FORWARD_DEADLINE:g}초 안에 끝나지 않았어요")
     except Exception as e:
         return _fail(tool, str(e))
-    await _label_after_send(client, headers, sent["messageId"], labels)
+    # 라벨은 마감 밖(실패해도 성공)이지만 남은 시간 안에서만 — BE→agent 180초를 넘기면 BE 재시도가 두 번 보낸다
+    remaining = deadline - loop.time()
+    if labels and remaining <= 0:
+        logger.warning("Gmail 전달 라벨 건너뜀(마감 지남) messageId=%s", sent["messageId"])
+    else:
+        await _label_after_send(client, headers, sent["messageId"], labels, timeout=min(_TIMEOUT, remaining))
     return _ok(messageId=sent["messageId"], threadId=sent["threadId"])
 
 
@@ -782,9 +810,9 @@ async def gmail_find_or_send(
         "created": True,
         "messageId": sent["messageId"],
         "threadId": sent["threadId"],
-        "from": str(msg["From"] or ""),
-        "to": str(msg["To"] or ""),
-        "subject": str(msg["Subject"] or ""),
+        "from": str(msg["From"] or "")[:_HEADER_MAX],
+        "to": str(msg["To"] or "")[:_HEADER_MAX],
+        "subject": str(msg["Subject"] or "")[:_HEADER_MAX],
         "snippet": "",
         "bodyText": text[:_BODY_TEXT_MAX],
         "receivedAt": _received_at(int(datetime.now(timezone.utc).timestamp() * 1000)),
