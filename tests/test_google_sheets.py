@@ -11,7 +11,8 @@ from core import template_registry as tr
 from tests.action_outputs import assert_matches_outputs
 from tools import _TOOL_MAP, get_tools_for_request
 from tools.google_sheets import (
-    _Invalid, _batch_update, _col, _find_spreadsheets, _header_range, _resolve, _row, _row_number,
+    _Invalid, _batch_update, _cell_format, _col, _find_spreadsheets, _header_range, _resolve, _rgb, _row,
+    _row_number, _tri,
     google_sheets_append, google_sheets_append_top, google_sheets_find_or_create_row,
     google_sheets_find_spreadsheet, google_sheets_find_worksheet, google_sheets_get_row, google_sheets_get_rows,
     google_sheets_get_spreadsheet,
@@ -1058,3 +1059,64 @@ async def test_그리드_한도가_아닌_400은_그대로_오류():
     fake = _Sheets(GRID, values_by_range={"'Sales'!4:4": _resp(400, {"error": {"message": "Unable to parse range"}})})
     result = await _call(fake, google_sheets_get_row, sheet_id="0", row_number=4)
     assert "Unable to parse range" in result["error"]
+
+
+# --- 공용 서식 헬퍼 ---
+@pytest.mark.parametrize("value, expected", [
+    ("#FFF2CC", {"red": 1.0, "green": 242 / 255, "blue": 204 / 255}),
+    ("#ff0000", {"red": 1.0, "green": 0.0, "blue": 0.0}),
+    (" #000000 ", {"red": 0.0, "green": 0.0, "blue": 0.0}),
+])
+def test_rgb는_샵_6자리_16진수를_0에서_1로(value, expected):
+    assert _rgb(value, "배경색") == expected
+
+
+@pytest.mark.parametrize("value", ["FFF2CC", "#FFF", "#GGGGGG", "#FFF2CC0", "", None, 123])
+def test_rgb_형식이_틀리면_칸_이름을_담아_실패(value):
+    with pytest.raises(ValueError) as e:
+        _rgb(value, "배경색")
+    assert "배경색" in str(e.value)
+
+
+@pytest.mark.parametrize("value, expected", [
+    (None, None), ("", None), ("  ", None), (True, True), ("true", True), ("TRUE", True),
+    (False, False), ("false", False), (" False ", False),
+])
+def test_tri는_비움_참_거짓_세_상태(value, expected):
+    assert _tri(value) is expected
+
+
+@pytest.mark.parametrize("value", [1, 0, "yes", "켜기", "1", []])
+def test_tri_그_밖_값은_실패(value):
+    with pytest.raises(ValueError):
+        _tri(value)
+
+
+def test_cell_format은_채운_칸만_싣는다():
+    assert _cell_format(background_color="#FFF2CC", bold=False) == (
+        {"backgroundColorStyle": {"rgbColor": {"red": 1.0, "green": 242 / 255, "blue": 204 / 255}},
+         "textFormat": {"bold": False}},
+        ["userEnteredFormat.backgroundColorStyle", "userEnteredFormat.textFormat.bold"])
+
+
+def test_cell_format_다섯_칸_전부():
+    assert _cell_format(background_color="#000000", text_color="#0000FF", bold="true", italic=False,
+                        strikethrough=True) == (
+        {"backgroundColorStyle": {"rgbColor": {"red": 0.0, "green": 0.0, "blue": 0.0}},
+         "textFormat": {"foregroundColorStyle": {"rgbColor": {"red": 0.0, "green": 0.0, "blue": 1.0}},
+                        "bold": True, "italic": False, "strikethrough": True}},
+        ["userEnteredFormat.backgroundColorStyle", "userEnteredFormat.textFormat.foregroundColorStyle",
+         "userEnteredFormat.textFormat.bold", "userEnteredFormat.textFormat.italic",
+         "userEnteredFormat.textFormat.strikethrough"])
+
+
+def test_cell_format_비면_빈_값():
+    assert _cell_format() == ({}, [])
+    assert _cell_format(background_color="", text_color=None, bold="", italic=None, strikethrough="  ") == ({}, [])
+
+
+@pytest.mark.parametrize("kwargs, name", [({"text_color": "red"}, "글자색"), ({"italic": "maybe"}, "기울임")])
+def test_cell_format_잘못된_값은_칸_이름을_담아_실패(kwargs, name):
+    with pytest.raises(ValueError) as e:
+        _cell_format(**kwargs)
+    assert name in str(e.value)

@@ -304,6 +304,54 @@ async def _batch_update(client, access_token, spreadsheet_id, requests: dict | l
     return _ok(response)
 
 
+_HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
+
+
+def _rgb(value: str, name: str) -> dict:
+    """'#RRGGBB'(# 필수)를 Sheets rgbColor(0~1)로. 틀리면 칸 이름을 담아 실패한다."""
+    h = str(value).strip() if isinstance(value, str) else ""
+    if not _HEX_COLOR.fullmatch(h):
+        raise _Invalid(f"{name}은(는) #RRGGBB 형식이어야 해요(예: #FFF2CC): {value!r}")
+    return {"red": int(h[1:3], 16) / 255, "green": int(h[3:5], 16) / 255, "blue": int(h[5:7], 16) / 255}
+
+
+def _tri(value) -> bool | None:
+    """3상태 토글: 비움(미해결 참조 포함) = None(그대로), true = 켜기, false = 끄기."""
+    if _blank(value):
+        return None
+    text = value.strip().lower() if isinstance(value, str) else None
+    if value is True or text == "true":
+        return True
+    if value is False or text == "false":
+        return False
+    raise _Invalid(f"참·거짓 또는 빈 값만 돼요: {value!r}")
+
+
+def _cell_format(*, background_color=None, text_color=None, bold=None, italic=None,
+                 strikethrough=None) -> tuple[dict, list[str]]:
+    """repeatCell cell.userEnteredFormat용 CellFormat과 fields 마스크. 채운 칸만 실어 다른 서식을 지우지 않는다.
+    아무것도 없으면 ({}, []) — '바꿀 서식 없음' 판정은 호출자 몫."""
+    fmt, mask, text = {}, [], {}
+    if not _blank(background_color):
+        fmt["backgroundColorStyle"] = {"rgbColor": _rgb(background_color, "배경색")}
+        mask.append("userEnteredFormat.backgroundColorStyle")
+    if not _blank(text_color):
+        text["foregroundColorStyle"] = {"rgbColor": _rgb(text_color, "글자색")}
+        mask.append("userEnteredFormat.textFormat.foregroundColorStyle")
+    for key, value, label in (("bold", bold, "굵게"), ("italic", italic, "기울임"),
+                              ("strikethrough", strikethrough, "취소선")):
+        try:
+            on = _tri(value)
+        except _Invalid as e:
+            raise _Invalid(f"{label}: {e}") from None
+        if on is not None:
+            text[key] = on
+            mask.append(f"userEnteredFormat.textFormat.{key}")
+    if text:
+        fmt["textFormat"] = text
+    return fmt, mask
+
+
 async def _append(client, access_token, spreadsheet_id, title: str, row: list, value_input_option: str) -> dict:
     a1_range = _a1_range("A1", title)
     response = await client.post(
