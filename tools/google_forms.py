@@ -166,7 +166,7 @@ async def google_forms_get_form(access_token: str, form_id: str) -> str:
     questions = _questions(form.get("items"))
     item = {
         "formId": form.get("formId", fid),
-        "title": info.get("title", "")[:_MAX_TITLE],
+        "title": (info.get("title") or info.get("documentTitle") or "")[:_MAX_TITLE],  # 응답자용 제목이 빈 폼이 있다
         "description": info.get("description", "")[:_MAX_DESCRIPTION],
         "responderUrl": form.get("responderUri", ""),
         "isPublished": state[0],

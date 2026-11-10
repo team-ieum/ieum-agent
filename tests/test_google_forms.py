@@ -286,3 +286,12 @@ async def test_긴_제목과_설명은_자른다():
 
     assert len(item["title"]) == 1000 and len(item["description"]) == 10000
     assert len(item["questions"][0]["title"]) == 1000
+
+
+@pytest.mark.asyncio
+async def test_응답자용_제목이_비면_파일_이름을_제목으로():
+    # dev e2e(2026-11-10): info.title이 빈 폼이 있다 — Drive 파일 이름(documentTitle)으로 채운다.
+    client, _ = _forms((200, {"formId": "F1", "info": {"title": "", "documentTitle": "현직자 업무 자동화 인터뷰"},
+                              "items": []}))
+    result = await _get(client)
+    assert result["items"][0]["title"] == "현직자 업무 자동화 인터뷰"
