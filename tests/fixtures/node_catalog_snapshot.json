@@ -109,8 +109,32 @@
               "name": "시트에 행 추가"
             },
             {
+              "id": "builtin:google_sheets_find_spreadsheet",
+              "name": "스프레드시트 찾기"
+            },
+            {
+              "id": "builtin:google_sheets_find_worksheet",
+              "name": "워크시트 찾기"
+            },
+            {
+              "id": "builtin:google_sheets_get_row",
+              "name": "행 번호로 행 가져오기"
+            },
+            {
+              "id": "builtin:google_sheets_get_rows",
+              "name": "시트에서 여러 행 가져오기"
+            },
+            {
+              "id": "builtin:google_sheets_get_spreadsheet",
+              "name": "ID로 스프레드시트 가져오기"
+            },
+            {
               "id": "builtin:google_sheets_lookup_row",
               "name": "시트에서 행 찾기"
+            },
+            {
+              "id": "builtin:google_sheets_lookup_rows",
+              "name": "시트에서 여러 행 찾기"
             },
             {
               "id": "builtin:google_sheets_read",
@@ -7837,6 +7861,559 @@
     {
       "app": "google_sheets",
       "appTitle": "Google Sheets",
+      "description": "이름으로 스프레드시트를 찾아요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.find_spreadsheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.find_spreadsheet",
+      "inputFields": [
+        {
+          "description": "찾을 스프레드시트 이름",
+          "key": "name",
+          "path": "config.name",
+          "required": true,
+          "title": "이름",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "exact",
+              "name": "정확히 일치"
+            },
+            {
+              "id": "prefix",
+              "name": "앞부분 일치"
+            }
+          ],
+          "default": "exact",
+          "description": "정확히 같은 이름만 찾을지, 이름이 이것으로 시작하는 것도 찾을지",
+          "key": "match",
+          "path": "config.match",
+          "ref": false,
+          "title": "일치 방식",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "맞는 스프레드시트가 있는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "id",
+              "title": "ID",
+              "type": "string"
+            },
+            {
+              "key": "name",
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "url",
+              "title": "링크",
+              "type": "string"
+            },
+            {
+              "key": "modified_time",
+              "title": "수정 시각",
+              "type": "datetime"
+            },
+            {
+              "key": "owned_by_me",
+              "title": "내 파일",
+              "type": "boolean"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "스프레드시트",
+          "type": "object"
+        },
+        {
+          "description": "결과가 커서 일부만 담았으면 참",
+          "key": "truncated",
+          "title": "잘림",
+          "type": "boolean"
+        }
+      ],
+      "provider": "google",
+      "title": "스프레드시트 찾기",
+      "toolKey": "builtin:google_sheets_find_spreadsheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "제목으로 스프레드시트 안의 시트를 찾아요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.find_worksheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.find_worksheet",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대소문자 구분 정확히 일치",
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "시트 제목",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "맞는 시트가 있는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "sheet_id",
+              "title": "시트 ID",
+              "type": "string"
+            },
+            {
+              "key": "title",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "index",
+              "title": "순서",
+              "type": "integer"
+            },
+            {
+              "key": "row_count",
+              "title": "행 수",
+              "type": "integer"
+            },
+            {
+              "key": "column_count",
+              "title": "열 수",
+              "type": "integer"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "시트",
+          "type": "object"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "sheet_id",
+          "title": "시트 ID",
+          "type": "string"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "워크시트 찾기",
+      "toolKey": "builtin:google_sheets_find_worksheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "행 번호로 한 행을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.get_row",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.get_row",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "가져올 행 번호(1 이상)",
+          "key": "row_number",
+          "path": "config.row_number",
+          "required": true,
+          "title": "행 번호",
+          "type": "integer"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "행에 값이 있는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "row_number",
+              "title": "행 번호",
+              "type": "integer"
+            },
+            {
+              "description": "열 문자로 꺼내요. 예: values.B",
+              "dynamic": true,
+              "key": "values",
+              "title": "값",
+              "type": "object"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "행",
+          "type": "object"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "row_number",
+          "title": "행 번호",
+          "type": "integer"
+        },
+        {
+          "description": "열 문자로 꺼내요. 예: values.B. 못 찾으면 빈 값",
+          "dynamic": true,
+          "key": "values",
+          "title": "값",
+          "type": "object"
+        }
+      ],
+      "provider": "google",
+      "title": "행 번호로 행 가져오기",
+      "toolKey": "builtin:google_sheets_get_row"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "시작 행부터 정한 수만큼 행을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.get_rows",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.get_rows",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "예: A:Z",
+          "key": "column_range",
+          "path": "config.column_range",
+          "required": true,
+          "title": "열 범위",
+          "type": "string"
+        },
+        {
+          "description": "1~1500",
+          "key": "row_count",
+          "path": "config.row_count",
+          "required": true,
+          "title": "가져올 행 수",
+          "type": "integer"
+        },
+        {
+          "default": 2,
+          "description": "1행은 머리글이라 기본은 2예요",
+          "key": "start_row",
+          "path": "config.start_row",
+          "title": "시작 행",
+          "type": "integer"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "가져온 행이 있는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "row_number",
+              "title": "행 번호",
+              "type": "integer"
+            },
+            {
+              "description": "열 문자로 꺼내요. 예: values.B",
+              "dynamic": true,
+              "key": "values",
+              "title": "값",
+              "type": "object"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "행",
+          "type": "object"
+        },
+        {
+          "description": "결과가 커서 일부만 담았으면 참",
+          "key": "truncated",
+          "title": "잘림",
+          "type": "boolean"
+        }
+      ],
+      "provider": "google",
+      "title": "시트에서 여러 행 가져오기",
+      "toolKey": "builtin:google_sheets_get_rows"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "스프레드시트 정보와 시트 목록을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.get_spreadsheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.get_spreadsheet",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "스프레드시트가 있는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "id",
+              "title": "ID",
+              "type": "string"
+            },
+            {
+              "key": "title",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "locale",
+              "title": "로캘",
+              "type": "string"
+            },
+            {
+              "key": "time_zone",
+              "title": "시간대",
+              "type": "string"
+            },
+            {
+              "key": "url",
+              "title": "링크",
+              "type": "string"
+            },
+            {
+              "children": [
+                {
+                  "key": "sheet_id",
+                  "title": "시트 ID",
+                  "type": "string"
+                },
+                {
+                  "key": "title",
+                  "title": "제목",
+                  "type": "string"
+                },
+                {
+                  "key": "index",
+                  "title": "순서",
+                  "type": "integer"
+                },
+                {
+                  "key": "row_count",
+                  "title": "행 수",
+                  "type": "integer"
+                },
+                {
+                  "key": "column_count",
+                  "title": "열 수",
+                  "type": "integer"
+                }
+              ],
+              "key": "sheets",
+              "list": true,
+              "title": "시트 목록",
+              "type": "object"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "스프레드시트",
+          "type": "object"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "url",
+          "title": "링크",
+          "type": "string"
+        },
+        {
+          "children": [
+            {
+              "key": "sheet_id",
+              "title": "시트 ID",
+              "type": "string"
+            },
+            {
+              "key": "title",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "index",
+              "title": "순서",
+              "type": "integer"
+            },
+            {
+              "key": "row_count",
+              "title": "행 수",
+              "type": "integer"
+            },
+            {
+              "key": "column_count",
+              "title": "열 수",
+              "type": "integer"
+            }
+          ],
+          "description": "못 찾으면 빈 값",
+          "key": "sheets",
+          "list": true,
+          "title": "시트 목록",
+          "type": "object"
+        }
+      ],
+      "provider": "google",
+      "title": "ID로 스프레드시트 가져오기",
+      "toolKey": "builtin:google_sheets_get_spreadsheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
       "description": "열 값으로 처음 맞는 행을 찾아요.",
       "fixed": {
         "config": {
@@ -7972,6 +8549,155 @@
       "provider": "google",
       "title": "시트에서 행 찾기",
       "toolKey": "builtin:google_sheets_lookup_row"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "열 값이 맞는 행을 모두 찾아요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.lookup_rows",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.lookup_rows",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "값을 찾을 열",
+          "key": "lookup_column",
+          "optionsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "optionsSource": "google.sheet_columns",
+          "path": "config.lookup_column",
+          "ref": false,
+          "required": true,
+          "title": "찾을 열",
+          "type": "string"
+        },
+        {
+          "description": "화면에 보이는 값과 정확히 같아야 해요(대소문자 구분)",
+          "key": "lookup_value",
+          "path": "config.lookup_value",
+          "required": true,
+          "title": "찾을 값",
+          "type": "string"
+        },
+        {
+          "description": "고르면 두 조건을 모두 만족하는 행을 찾아요",
+          "key": "lookup_column_2",
+          "optionsInputs": [
+            "spreadsheet_id",
+            "sheet_id"
+          ],
+          "optionsSource": "google.sheet_columns",
+          "path": "config.lookup_column_2",
+          "ref": false,
+          "title": "보조 열",
+          "type": "string"
+        },
+        {
+          "description": "보조 열에서 찾을 값",
+          "key": "lookup_value_2",
+          "path": "config.lookup_value_2",
+          "title": "보조 값",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "description": "켜면 가장 아래 행부터 찾아요",
+          "key": "from_bottom",
+          "path": "config.from_bottom",
+          "ref": false,
+          "title": "마지막 행부터 찾기",
+          "type": "boolean"
+        },
+        {
+          "default": 2,
+          "description": "이 행부터 찾아요. 1행은 머리글이라 2부터 봐요",
+          "key": "start_row",
+          "path": "config.start_row",
+          "title": "시작 행",
+          "type": "integer"
+        },
+        {
+          "default": 500,
+          "description": "돌려줄 행 수 상한(1~500)",
+          "key": "max_rows",
+          "path": "config.max_rows",
+          "title": "최대 개수",
+          "type": "integer"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "맞는 행이 있는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "row_number",
+              "title": "행 번호",
+              "type": "integer"
+            },
+            {
+              "description": "열 문자로 꺼내요. 예: values.B",
+              "dynamic": true,
+              "key": "values",
+              "title": "값",
+              "type": "object"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "행",
+          "type": "object"
+        },
+        {
+          "description": "결과가 커서 일부만 담았으면 참",
+          "key": "truncated",
+          "title": "잘림",
+          "type": "boolean"
+        }
+      ],
+      "provider": "google",
+      "title": "시트에서 여러 행 찾기",
+      "toolKey": "builtin:google_sheets_lookup_rows"
     },
     {
       "app": "google_sheets",
