@@ -79,6 +79,13 @@ from tools.google_sheets_ranges import (
     google_sheets_set_data_validation,
     google_sheets_sort_range,
 )
+from tools.google_sheets_sheets import (  # 시트·파일(레인 S)
+    google_sheets_delete_worksheet,
+    google_sheets_find_or_create_spreadsheet,
+    google_sheets_find_or_create_worksheet,
+    google_sheets_rename_worksheet,
+    google_sheets_update_worksheet,
+)
 
 # 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
 # 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증과 설정 폼에서 제외한다.
@@ -160,6 +167,12 @@ _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_sheets_format_range": google_sheets_format_range,
     "builtin:google_sheets_add_conditional_format": google_sheets_add_conditional_format,
     "builtin:google_sheets_set_data_validation": google_sheets_set_data_validation,
+    # 이미 있는 시트를 고치거나 지우는 일·찾고 없으면 만들기는 ACTION 전용(레인 확정 결정)
+    "builtin:google_sheets_rename_worksheet": google_sheets_rename_worksheet,
+    "builtin:google_sheets_update_worksheet": google_sheets_update_worksheet,
+    "builtin:google_sheets_delete_worksheet": google_sheets_delete_worksheet,
+    "builtin:google_sheets_find_or_create_spreadsheet": google_sheets_find_or_create_spreadsheet,
+    "builtin:google_sheets_find_or_create_worksheet": google_sheets_find_or_create_worksheet,
     # 폼 내용이 AI 프롬프트로 들어가는 경로를 막으려 조회(get_form)도 ACTION 전용(lane-forms 확정 결정 Q3)
     "builtin:google_forms_set_accepting_responses": google_forms_set_accepting_responses,
     "builtin:google_forms_get_form": google_forms_get_form,
