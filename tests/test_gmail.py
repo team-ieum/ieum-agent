@@ -403,6 +403,43 @@ async def test_빈_검색어는_HTTP_없이_실패한다(query):
     assert "error" in result and get.await_count == 0
 
 
+def _huge(mid: str) -> dict:
+    """이모지 본문 10,000자(40KB) + 받는 사람 100명 + 1,500자 제목."""
+    message = _msg(mid)
+    message["payload"] = {"mimeType": "text/plain", "body": {"data": _b64("😀" * 10_000)},
+                          "headers": [{"name": "To", "value": ", ".join(f"user{i}@example.com" for i in range(100))},
+                                      {"name": "Subject", "value": "가" * 1_500}]}
+    return message
+
+
+@pytest.mark.asyncio
+async def test_찾기_출력은_헤더_1000자_전체_2MB로_묶는다():   # 최종 리뷰 I1
+    ids = [f"m{i}" for i in range(100)]
+    get = _gets({f"{API}/messages": _make_mock_response(200, {"messages": [{"id": i} for i in ids]}),
+                 **{f"{API}/messages/{i}": _make_mock_response(200, _huge(i)) for i in ids}})
+    with patch("tools.gmail.get_http_client", return_value=_client(get=get)):
+        raw = await gmail_find_email(access_token="token", query="x", max_results=100)
+    assert len(raw.encode("utf-8")) < 4_194_304
+    result = json.loads(raw)
+    assert result["total"] == 100 and len(result["items"]) == 100
+    first, last = result["items"][0], result["items"][-1]
+    assert first["bodyText"] == "😀" * 10_000
+    assert len(first["subject"]) == 1_000 and len(first["to"]) == 1_000
+    assert len(last["bodyText"]) < 10_000 and set(last) == set(first)
+    assert_matches_outputs("gmail.find_email", raw)
+
+
+@pytest.mark.asyncio
+async def test_대화_출력도_2MB로_묶는다():
+    thread = {"id": "t1", "messages": [_huge(f"m{i}") for i in range(100)]}
+    get = _gets({f"{API}/threads/t1": _make_mock_response(200, thread)})
+    with patch("tools.gmail.get_http_client", return_value=_client(get=get)):
+        raw = await gmail_get_thread(access_token="token", thread_id="t1")
+    result = json.loads(raw)
+    assert len(raw.encode("utf-8")) < 4_194_304 and result["total"] == 100
+    assert result["items"][0]["bodyText"] == "😀" * 10_000
+
+
 @pytest.mark.parametrize("html", ["<style>" * 40_000, "<" * 80_000, "<script>" * 40_000 + "a" * 300_000],
                          ids=["unclosed-style", "lt-only", "unclosed-script"])
 def test_적대적_HTML_본문도_1초_안에_끝난다(html):   # 최종 리뷰 C1 — 제곱 정규식이 이벤트 루프를 멈췄다

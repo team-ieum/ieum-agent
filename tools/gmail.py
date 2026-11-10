@@ -26,6 +26,8 @@ _FIND_MAX = 100
 _LABEL_MAX = 100
 _BODY_TEXT_MAX = 10_000  # BE GmailMessageNormalizer.BODY_TEXT_MAX
 _HTML_MAX = 200_000  # 태그 제거 전 원문 HTML 상한 — 거대한 메일 한 통이 agent를 붙잡지 않게
+_HEADER_MAX = 1_000  # from·to·subject 자르기(받는 사람 수백 명·긴 제목)
+_OUTPUT_MAX = 2_000_000  # 찾기·대화 items 전체 UTF-8 바이트 예산(최종 리뷰 I1 사용자 결정)
 
 
 def _header(value) -> str:
@@ -172,9 +174,9 @@ def _normalize(message: dict) -> dict:
     return {
         "messageId": message.get("id", ""),
         "threadId": message.get("threadId", ""),
-        "from": headers.get("from", ""),
-        "to": headers.get("to", ""),
-        "subject": headers.get("subject", ""),
+        "from": headers.get("from", "")[:_HEADER_MAX],
+        "to": headers.get("to", "")[:_HEADER_MAX],
+        "subject": headers.get("subject", "")[:_HEADER_MAX],
         "snippet": message.get("snippet", ""),
         "bodyText": body[:_BODY_TEXT_MAX],
         "receivedAt": _received_at(message.get("internalDate")),
@@ -297,6 +299,24 @@ async def gmail_send_email(
     return json.dumps({"success": True, "messageId": message_id, "threadId": thread_id}, ensure_ascii=False)
 
 
+def _json_size(value) -> int:
+    return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+
+
+def _fit(items: list) -> list:
+    """items 누적 크기가 2MB를 넘으면 그 뒤 항목의 bodyText만 남은 예산만큼 자른다(항목 수·키 불변)."""
+    used = 0
+    for item in items:
+        size = _json_size(item)
+        if used + size > _OUTPUT_MAX:
+            room = _OUTPUT_MAX - used - (size - _json_size(item["bodyText"]))  # bodyText 말고 나머지는 그대로
+            body = item["bodyText"].encode("utf-8")[:max(room, 0)].decode("utf-8", errors="ignore")
+            item["bodyText"] = body if _json_size(body) <= room else ""  # 이스케이프로 커지면 비운다
+            size = _json_size(item)
+        used += size
+    return items
+
+
 def _ok(**fields) -> str:
     return json.dumps({"success": True, **fields}, ensure_ascii=False)
 
@@ -368,7 +388,7 @@ async def gmail_find_email(
             items.append(_normalize(response.json()))
     except Exception as e:
         return _fail(tool, str(e))
-    return _ok(found=bool(items), total=len(items), items=items)
+    return _ok(found=bool(items), total=len(items), items=_fit(items))
 
 
 async def gmail_get_thread(access_token: str, *, thread_id: str) -> str:
@@ -392,7 +412,7 @@ async def gmail_get_thread(access_token: str, *, thread_id: str) -> str:
         items = [_normalize(m) for m in response.json().get("messages") or []]
     except Exception as e:
         return _fail(tool, str(e))
-    return _ok(threadId=thread, total=len(items), items=items)
+    return _ok(threadId=thread, total=len(items), items=_fit(items))
 
 
 async def _post(tool: str, access_token: str, url: str, body: Optional[dict] = None):
