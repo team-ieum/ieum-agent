@@ -65,6 +65,12 @@ from tools.google_sheets import (
     google_sheets_find_or_create_row,
     google_sheets_update_row,
 )
+from tools.google_sheets_rows import (
+    google_sheets_clear_rows,
+    google_sheets_delete_rows,
+    google_sheets_format_rows,
+    google_sheets_update_rows,
+)
 
 # 실행 시 주입되는 파라미터 — 백엔드가 넘기는 자격증명/연결 값과 agent가 내부에서 바인딩하는 값.
 # 워크플로우 생성 단계에서는 빈 값이어도 정상이므로 "사용자 필수" 검증과 설정 폼에서 제외한다.
@@ -135,6 +141,10 @@ _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_sheets_append_top": google_sheets_append_top,
     "builtin:google_sheets_update_row": google_sheets_update_row,
     "builtin:google_sheets_find_or_create_row": google_sheets_find_or_create_row,
+    "builtin:google_sheets_update_rows": google_sheets_update_rows,
+    "builtin:google_sheets_clear_rows": google_sheets_clear_rows,
+    "builtin:google_sheets_delete_rows": google_sheets_delete_rows,
+    "builtin:google_sheets_format_rows": google_sheets_format_rows,
     # 폼 내용이 AI 프롬프트로 들어가는 경로를 막으려 조회(get_form)도 ACTION 전용(lane-forms 확정 결정 Q3)
     "builtin:google_forms_set_accepting_responses": google_forms_set_accepting_responses,
     "builtin:google_forms_get_form": google_forms_get_form,

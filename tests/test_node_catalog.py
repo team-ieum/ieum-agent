@@ -132,7 +132,8 @@ def test_option_source_fields_fixed_set():
         ("discord_bot.send_channel_message", "guild_id"), ("discord_bot.send_channel_message", "channel_id"),
         *[(f"google_sheets.{x}", k)
           for x in ("read", "append", "append_top", "update_row", "lookup_row", "find_or_create_row",
-                    "lookup_rows", "get_rows", "get_row")
+                    "lookup_rows", "get_rows", "get_row", "append_rows", "update_rows", "clear_rows",
+                    "delete_rows", "format_rows")
           for k in ("spreadsheet_id", "sheet_id")],
         *[(f"google_sheets.{x}", k) for x in ("lookup_row", "find_or_create_row", "lookup_rows")
           for k in ("lookup_column", "lookup_column_2")],
@@ -244,6 +245,13 @@ _SHEETS_FIELDS = {
     "google_sheets.find_spreadsheet": ["name", "match"],
     "google_sheets.find_worksheet": ["spreadsheet_id", "title"],
     "google_sheets.get_spreadsheet": ["spreadsheet_id"],
+    "google_sheets.append_rows": ["spreadsheet_id", "sheet_id", "rows", "column_map", "value_input_option"],
+    "google_sheets.update_rows": ["spreadsheet_id", "sheet_id", "rows", "column_map", "overwrite_all",
+                                  "value_input_option"],
+    "google_sheets.clear_rows": ["spreadsheet_id", "sheet_id", "row_numbers"],
+    "google_sheets.delete_rows": ["spreadsheet_id", "sheet_id", "row_numbers", "confirm_delete"],
+    "google_sheets.format_rows": ["spreadsheet_id", "sheet_id", "row_numbers", "background_color", "text_color",
+                                  "bold", "italic", "strikethrough"],
 }
 
 
@@ -269,7 +277,24 @@ def test_sheets_열별_칸_노드_계약(event, keys):
         assert (f["from_bottom"]["default"], f["from_bottom"]["ref"]) == (False, False)
     if "overwrite_all" in f:
         assert (f["overwrite_all"]["default"], f["overwrite_all"]["ref"]) == (False, False)
-        assert (f["row_number"]["type"], f["row_number"]["required"]) == ("integer", True)
+        if "row_number" in f:
+            assert (f["row_number"]["type"], f["row_number"]["required"]) == ("integer", True)
+    if "rows" in f:
+        assert (f["rows"]["type"], f["rows"]["required"]) == ("json", True)
+    if "column_map" in f:
+        c = f["column_map"]
+        assert (c["type"], c["ref"], c["fieldsSource"], c["fieldsInputs"]) == \
+            ("dict", False, "google.sheet_columns", ["spreadsheet_id", "sheet_id"])
+        assert "required" not in c  # _public_field가 기본값(required False)을 뺀다
+    if "row_numbers" in f:
+        assert (f["row_numbers"]["type"], f["row_numbers"]["required"]) == ("string", True)
+    if "confirm_delete" in f:
+        c = f["confirm_delete"]
+        assert (c["type"], c["required"], c["ref"]) == ("boolean", True, False) and "default" not in c
+    for k in ("bold", "italic", "strikethrough"):
+        if k in f:
+            assert (f[k]["type"], f[k]["ref"]) == ("boolean", False)
+            assert "required" not in f[k] and "default" not in f[k]
 
 
 def test_sheets_출력_칸():
@@ -287,6 +312,11 @@ def test_sheets_출력_칸():
     assert outs["google_sheets.get_spreadsheet"] == ["found", "total", "items", "title", "url", "sheets"]
     for x in ("lookup_rows", "get_rows", "get_row", "find_spreadsheet", "find_worksheet", "get_spreadsheet"):
         assert _action(f"google_sheets.{x}")["kind"] == "search"
+    assert outs["google_sheets.append_rows"] == ["updatedRange", "row_number", "row_count"]
+    for x in ("update_rows", "clear_rows", "delete_rows", "format_rows"):
+        assert outs[f"google_sheets.{x}"] == ["row_count", "row_numbers"]
+    for x in ("append_rows", "update_rows", "clear_rows", "delete_rows", "format_rows"):
+        assert _action(f"google_sheets.{x}")["kind"] == "action"
     assert "google_sheets.write" not in {e["id"] for e in node_catalog()["entries"]}
 
 
@@ -321,6 +351,8 @@ EXPECTED_BRANDS = {
     "google_sheets.lookup_rows": "sheets", "google_sheets.get_rows": "sheets", "google_sheets.get_row": "sheets",
     "google_sheets.find_spreadsheet": "sheets", "google_sheets.find_worksheet": "sheets",
     "google_sheets.get_spreadsheet": "sheets",
+    **{f"google_sheets.{x}": "sheets" for x in (
+        "append_rows", "update_rows", "clear_rows", "delete_rows", "format_rows")},
     "google_calendar.create": "google", "google_calendar.find": "google",
     "google_calendar.update": "google", "google_calendar.delete": "google", "google_drive.read": "google",
     "google_drive.upload": "google",

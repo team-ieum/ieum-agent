@@ -995,11 +995,12 @@ def test_AI_노드_도구_선택지의_Sheets는_쓰기_전용_셋을_뺀다():
     sheets = {c["id"] for c in tools["choices"] if c["id"].startswith("builtin:google_sheets_")}
     assert sheets == {f"builtin:google_sheets_{x}" for x in (
         "append", "lookup_row", "read", "lookup_rows", "get_rows", "get_row",
-        "find_spreadsheet", "find_worksheet", "get_spreadsheet")}
+        "find_spreadsheet", "find_worksheet", "get_spreadsheet", "append_rows")}
 
 
 def test_ACTION_전용_Sheets_도구는_AI_목록_밖에서만_풀린다():
-    for name in ("append_top", "update_row", "find_or_create_row"):
+    for name in ("append_top", "update_row", "find_or_create_row", "update_rows", "clear_rows", "delete_rows",
+                 "format_rows"):
         key = f"builtin:google_sheets_{name}"
         assert key not in _TOOL_MAP and key in _ACTION_ONLY_TOOLS and resolve_action_fn(key) is not None
     assert resolve_action_fn("builtin:google_sheets_write") is None
