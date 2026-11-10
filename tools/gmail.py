@@ -117,39 +117,49 @@ def _find_part(part: dict, mime_type: str) -> Optional[str]:
     return None
 
 
-class _HtmlText(HTMLParser):
-    """HTML 본문 → 텍스트(선형). 태그는 공백, script·style 안 글자는 버린다. 엔티티는 파서가 푼다."""
-
-    def __init__(self):
-        super().__init__()
-        self.parts: list[str] = []
-        self.skip = False
-
-    def handle_starttag(self, tag, attrs):
-        self.skip = tag in ("script", "style")
-        self.parts.append(" ")
-
-    def handle_endtag(self, tag):
-        self.skip = False
-        self.parts.append(" ")
-
-    def handle_startendtag(self, tag, attrs):
-        self.parts.append(" ")
-
-    def handle_comment(self, data):
-        self.parts.append(" ")
-
-    def handle_data(self, data):
-        if not self.skip:
-            self.parts.append(data)
+_SPACE = " \t\n\x0b\f\r"  # 공백류 — BE(Java \s)와 같은 ASCII 집합
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_ENTITIES = (("&nbsp;", " "), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&#39;", "'"), ("&amp;", "&"))
 
 
 def _strip_html(html: str) -> str:
-    # 정규식 태그 제거는 닫히지 않은 <style> 수만 개에 제곱으로 느려져 이벤트 루프를 멈췄다(최종 리뷰 C1)
-    parser = _HtmlText()
-    parser.feed(html[:_HTML_MAX])
-    parser.close()
-    return re.sub(r"\s+", " ", "".join(parser.parts)).strip()
+    """HTML 본문 → 텍스트. BE GmailMessageNormalizer와 같은 str.find 스캐너(orca-specs 2026-11-10-html-scanner-algo).
+    정규식은 제곱 시간, stdlib HTMLParser는 Python 3.11.13 미만에서 제곱·예외(CVE-2025-6069)라 쓰지 않는다.
+    검색은 앞으로만 간다 — 선형."""
+    html = html[:_HTML_MAX]
+    lower = html.translate(_ASCII_LOWER)  # str.lower()는 'İ'처럼 길이가 바뀌어 위치가 어긋난다
+    parts: list[str] = []
+    i, n = 0, len(html)
+    while i < n:
+        lt = html.find("<", i)
+        if lt < 0:
+            parts.append(html[i:])
+            break
+        parts.append(html[i:lt])
+        gt = html.find(">", lt + 1)
+        if gt < 0:  # 닫히지 않은 <는 끝까지 글자
+            parts.append(html[lt:])
+            break
+        if gt == lt + 1:
+            parts.append("<>")
+            i = gt + 1
+            continue
+        raw = next((name for name in ("script", "style")
+                    if lower.startswith(name, lt + 1)
+                    and (lower[lt + 1 + len(name)] in _SPACE + ">/")), None)
+        parts.append(" ")
+        if raw is None:
+            i = gt + 1
+            continue
+        close = lower.find("</" + raw, gt + 1)
+        end = -1 if close < 0 else html.find(">", close)
+        if end < 0:  # 닫는 태그가 없으면 나머지는 script·style 안이다
+            break
+        i = end + 1
+    text = "".join(parts)
+    for entity, char in _ENTITIES:
+        text = text.replace(entity, char)
+    return re.sub(f"[{re.escape(_SPACE)}]+", " ", text).strip(_SPACE)
 
 
 def _received_at(internal_date) -> str:
@@ -304,14 +314,20 @@ def _json_size(value) -> int:
 
 
 def _fit(items: list) -> list:
-    """items 누적 크기가 2MB를 넘으면 그 뒤 항목의 bodyText만 남은 예산만큼 자른다(항목 수·키 불변)."""
-    used = 0
+    """items 누적 크기가 2MB를 넘으면 그 항목의 bodyText를 남은 예산만큼 자르고, 그 뒤 항목은 bodyText를 비운다
+    (항목 수·키 불변, 앞 항목이 본문을 갖고 뒤 항목이 비는 순서가 뒤집히지 않는다)."""
+    used, full = 0, False
     for item in items:
+        if full:
+            item["bodyText"] = ""
+            continue
         size = _json_size(item)
         if used + size > _OUTPUT_MAX:
-            room = _OUTPUT_MAX - used - (size - _json_size(item["bodyText"]))  # bodyText 말고 나머지는 그대로
+            full = True
+            # 본문 JSON(따옴표 2바이트 포함)을 뺀 나머지는 그대로 — 원문은 room - 2바이트까지
+            room = _OUTPUT_MAX - used - (size - _json_size(item["bodyText"])) - 2
             body = item["bodyText"].encode("utf-8")[:max(room, 0)].decode("utf-8", errors="ignore")
-            item["bodyText"] = body if _json_size(body) <= room else ""  # 이스케이프로 커지면 비운다
+            item["bodyText"] = body if _json_size(body) - 2 <= room else ""  # 이스케이프로 커지면 비운다
             size = _json_size(item)
         used += size
     return items

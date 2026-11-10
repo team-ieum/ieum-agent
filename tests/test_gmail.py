@@ -9,7 +9,10 @@ from tests.action_outputs import assert_matches_outputs
 from tests.test_google_tools import _make_async_client, _make_mock_response
 from tools.gmail import (
     _SCOPE_HINT,
+    _OUTPUT_MAX,
+    _fit,
     _normalize,
+    _strip_html,
     gmail_add_label,
     gmail_archive,
     gmail_create_label,
@@ -440,9 +443,10 @@ async def test_대화_출력도_2MB로_묶는다():
     assert result["items"][0]["bodyText"] == "😀" * 10_000
 
 
-@pytest.mark.parametrize("html", ["<style>" * 40_000, "<" * 80_000, "<script>" * 40_000 + "a" * 300_000],
-                         ids=["unclosed-style", "lt-only", "unclosed-script"])
-def test_적대적_HTML_본문도_1초_안에_끝난다(html):   # 최종 리뷰 C1 — 제곱 정규식이 이벤트 루프를 멈췄다
+@pytest.mark.parametrize("html", ["<style>" * 40_000, "<a " * 66_667, "<!--" * 50_000, "a<b" * 66_667,
+                                  "<" * 80_000, "<script>" * 40_000 + "a" * 300_000],
+                         ids=["unclosed-style", "open-attr", "comment", "a-lt-b", "lt-only", "unclosed-script"])
+def test_적대적_HTML_본문도_1초_안에_끝난다(html):   # C1 + 재리뷰 — HTMLParser는 3.11.13 미만에서 제곱(CVE-2025-6069)
     import time
     message = {"payload": {"mimeType": "text/html", "body": {"data": _b64(html)}}}
     start = time.perf_counter()
@@ -450,10 +454,49 @@ def test_적대적_HTML_본문도_1초_안에_끝난다(html):   # 최종 리뷰
     assert time.perf_counter() - start < 1.0
 
 
+# BE GmailMessageNormalizer와 같은 입력·기대값(orca-specs 2026-11-10-html-scanner-algo.md)
+@pytest.mark.parametrize("html, text", [
+    ("<p>안녕</p><style>p{}</style>&amp;반가워", "안녕 &반가워"),
+    ("a<style>p{}</style >b", "a b"),
+    ("a<styles>b</styles>c", "a b c"),
+    ("a<STYLE>x</STYLE>b", "a b"),
+    ("a<script src=x>alert(1)</SCRIPT>b", "a b"),
+    ("a<style/>x</style>b", "a b"),
+    ("a<!--[if mso]>x<![endif]-->b", "a x b"),
+    ("a<![foo[x]]>b", "a b"),
+    ("a&rsquo;b", "a&rsquo;b"),
+    ("&amp;lt; &nbsp;&lt;&gt;&quot;&#39;", "&lt; <>\"'"),
+    ("a<>b", "a<>b"),
+    ("a<b", "a<b"),
+    ("a<style>끝없음", "a"),
+    ("a<style>x</style", "a"),
+])
+def test_HTML_스캐너는_BE와_같은_결과를_낸다(html, text):
+    assert _strip_html(html) == text
+
+
 def test_HTML_본문은_200000자까지만_읽는다():
-    html = "가" * 199_999 + "<b>끝</b>" + "나" * 50_000
-    body = _normalize({"payload": {"mimeType": "text/html", "body": {"data": _b64(html)}}})["bodyText"]
-    assert "끝" not in body and "나" not in body
+    text = _strip_html("가" * 200_000 + "나")
+    assert len(text) == 200_000 and "나" not in text
+
+
+def test_출력_예산을_1바이트_넘으면_마지막_본문만_1바이트_준다():   # 재리뷰 M — 따옴표 2바이트
+    item = _normalize({"id": "m1"})
+    rest = len(json.dumps(item, ensure_ascii=False).encode("utf-8"))   # bodyText ""
+    item["bodyText"] = "a" * (_OUTPUT_MAX + 1 - rest)
+    original = len(item["bodyText"])
+    assert len(_fit([item])[0]["bodyText"]) == original - 1
+
+
+def test_출력_예산을_넘으면_뒤쪽만_비고_순서가_뒤집히지_않는다():
+    items = [dict(_normalize({"id": f"m{i}"}), bodyText="가" * 10_000) for i in range(100)]
+    bodies = [len(i["bodyText"]) for i in _fit(items)]
+    full = bodies.index(next(b for b in bodies if b < 10_000))
+    assert all(b == 10_000 for b in bodies[:full])
+    assert all(b == 0 for b in bodies[full + 1:])          # 줄어든 항목 뒤에 본문 있는 항목이 없다
+    # 경계 항목까지가 예산 안(뒤 항목은 본문만 비고 헤더는 남는다)
+    used = sum(len(json.dumps(i, ensure_ascii=False).encode("utf-8")) for i in items[:full + 1])
+    assert _OUTPUT_MAX - 3 <= used <= _OUTPUT_MAX and bodies[full] > 0
 
 
 def test_정규화는_plain_우선_html_대체_본문_자르기_receivedAt():
