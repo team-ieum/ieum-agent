@@ -113,6 +113,18 @@
               "name": "시트에 여러 행 추가"
             },
             {
+              "id": "builtin:google_sheets_copy_worksheet",
+              "name": "워크시트 복사"
+            },
+            {
+              "id": "builtin:google_sheets_create_spreadsheet",
+              "name": "스프레드시트 만들기"
+            },
+            {
+              "id": "builtin:google_sheets_create_worksheet",
+              "name": "워크시트 만들기"
+            },
+            {
               "id": "builtin:google_sheets_find_spreadsheet",
               "name": "스프레드시트 찾기"
             },
@@ -9664,6 +9676,214 @@
     {
       "app": "google_sheets",
       "appTitle": "Google Sheets",
+      "description": "시트를 같은 파일이나 다른 스프레드시트로 복사해요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.copy_worksheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.copy_worksheet",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "비우면 같은 파일에 복사해요",
+          "key": "destination_spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.destination_spreadsheet_id",
+          "ref": false,
+          "title": "붙여넣을 스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "비우면 Google이 정한 이름(예: …의 사본)",
+          "key": "new_title",
+          "path": "config.new_title",
+          "title": "새 시트 이름",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "복사본이 있는 파일",
+          "key": "spreadsheet_id",
+          "title": "스프레드시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "sheet_id",
+          "title": "시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "워크시트 복사",
+      "toolKey": "builtin:google_sheets_copy_worksheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "새 스프레드시트를 만들거나 기존 파일을 복사해요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.create_spreadsheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.create_spreadsheet",
+      "inputFields": [
+        {
+          "description": "같은 이름 파일이 있어도 새로 만들어요",
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "이름",
+          "type": "string"
+        },
+        {
+          "description": "만들 폴더 (비우면 내 드라이브 최상위)",
+          "key": "folder_id",
+          "optionsSource": "google.folders",
+          "path": "config.folder_id",
+          "title": "폴더",
+          "type": "string"
+        },
+        {
+          "description": "고르면 이 파일을 복사해 만들어요",
+          "key": "copy_from",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.copy_from",
+          "ref": false,
+          "title": "복사할 스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "1행에 쓸 열 제목. 쉼표로 구분해요. 복사할 스프레드시트를 고르면 무시해요",
+          "key": "headers",
+          "path": "config.headers",
+          "title": "헤더",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "spreadsheet_id",
+          "title": "스프레드시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "이름",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "title": "링크",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "스프레드시트 만들기",
+      "toolKey": "builtin:google_sheets_create_spreadsheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "스프레드시트에 새 시트를 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.create_worksheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.create_worksheet",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "같은 이름 시트가 있으면 실패해요",
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "시트 제목",
+          "type": "string"
+        },
+        {
+          "description": "1행에 쓸 열 제목. 쉼표로 구분해요. 예: 이름,이메일,날짜",
+          "key": "headers",
+          "path": "config.headers",
+          "title": "헤더",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "spreadsheet_id",
+          "title": "스프레드시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "sheet_id",
+          "title": "시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "워크시트 만들기",
+      "toolKey": "builtin:google_sheets_create_worksheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
       "description": "행을 지우고 아래 행을 당겨요. 되돌릴 수 없어요.",
       "fixed": {
         "config": {
@@ -9733,6 +9953,75 @@
       "provider": "google",
       "title": "시트 행 삭제",
       "toolKey": "builtin:google_sheets_delete_rows"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "시트를 지워요. 되돌릴 수 없어요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.delete_worksheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.delete_worksheet",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "켜야 삭제돼요",
+          "key": "confirm_delete",
+          "path": "config.confirm_delete",
+          "ref": false,
+          "required": true,
+          "title": "삭제 확인",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "deleted",
+          "title": "삭제됨",
+          "type": "boolean"
+        },
+        {
+          "key": "sheet_id",
+          "title": "시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "지운 시트 이름",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "워크시트 삭제",
+      "toolKey": "builtin:google_sheets_delete_worksheet"
     },
     {
       "app": "google_sheets",
@@ -9880,6 +10169,144 @@
       "provider": "google",
       "title": "시트에서 행 찾기, 없으면 추가",
       "toolKey": "builtin:google_sheets_find_or_create_row"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "이름이 같은 스프레드시트를 찾고 없으면 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.find_or_create_spreadsheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.find_or_create_spreadsheet",
+      "inputFields": [
+        {
+          "description": "정확히 같은 이름을 찾아요. 폴더를 고르면 그 폴더 안에서만 찾아요",
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "이름",
+          "type": "string"
+        },
+        {
+          "description": "만들 폴더 (비우면 내 드라이브 최상위)",
+          "key": "folder_id",
+          "optionsSource": "google.folders",
+          "path": "config.folder_id",
+          "title": "폴더",
+          "type": "string"
+        },
+        {
+          "description": "고르면 이 파일을 복사해 만들어요",
+          "key": "copy_from",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.copy_from",
+          "ref": false,
+          "title": "복사할 스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "1행에 쓸 열 제목. 쉼표로 구분해요. 복사할 스프레드시트를 고르면 무시해요",
+          "key": "headers",
+          "path": "config.headers",
+          "title": "헤더",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "찾지 못해 새로 만들었는지",
+          "key": "created",
+          "title": "새로 만듦",
+          "type": "boolean"
+        },
+        {
+          "key": "spreadsheet_id",
+          "title": "스프레드시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "이름",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "title": "링크",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "스프레드시트 찾기, 없으면 만들기",
+      "toolKey": "builtin:google_sheets_find_or_create_spreadsheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "제목이 같은 시트를 찾고 없으면 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.find_or_create_worksheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.find_or_create_worksheet",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대소문자 구분 정확히 일치",
+          "key": "title",
+          "path": "config.title",
+          "required": true,
+          "title": "시트 제목",
+          "type": "string"
+        },
+        {
+          "description": "1행에 쓸 열 제목. 쉼표로 구분해요. 예: 이름,이메일,날짜",
+          "key": "headers",
+          "path": "config.headers",
+          "title": "헤더",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "찾지 못해 새로 만들었는지",
+          "key": "created",
+          "title": "새로 만듦",
+          "type": "boolean"
+        },
+        {
+          "key": "sheet_id",
+          "title": "시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "워크시트 찾기, 없으면 만들기",
+      "toolKey": "builtin:google_sheets_find_or_create_worksheet"
     },
     {
       "app": "google_sheets",
@@ -11098,6 +11525,73 @@
     {
       "app": "google_sheets",
       "appTitle": "Google Sheets",
+      "description": "시트 이름을 바꿔요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.rename_worksheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.rename_worksheet",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "key": "new_title",
+          "path": "config.new_title",
+          "required": true,
+          "title": "새 이름",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "sheet_id",
+          "title": "시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "새 이름",
+          "type": "string"
+        },
+        {
+          "key": "previous_title",
+          "title": "이전 이름",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "워크시트 이름 바꾸기",
+      "toolKey": "builtin:google_sheets_rename_worksheet"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
       "description": "범위에 입력 규칙을 걸어요. 범위에 있던 규칙은 이것으로 바뀌어요.",
       "fixed": {
         "config": {
@@ -11608,6 +12102,107 @@
       "provider": "google",
       "title": "시트 여러 행 수정",
       "toolKey": "builtin:google_sheets_update_rows"
+    },
+    {
+      "app": "google_sheets",
+      "appTitle": "Google Sheets",
+      "description": "고정 행·열, 위치, 숨기기를 바꿔요. 비운 칸은 그대로 둬요.",
+      "fixed": {
+        "config": {
+          "brand": "sheets"
+        },
+        "event": "google_sheets.update_worksheet",
+        "type": "ACTION"
+      },
+      "id": "google_sheets.update_worksheet",
+      "inputFields": [
+        {
+          "description": "대상 스프레드시트",
+          "key": "spreadsheet_id",
+          "optionsSource": "google.spreadsheets",
+          "path": "config.spreadsheet_id",
+          "ref": false,
+          "required": true,
+          "title": "스프레드시트",
+          "type": "string"
+        },
+        {
+          "description": "대상 워크시트(탭)",
+          "key": "sheet_id",
+          "optionsInputs": [
+            "spreadsheet_id"
+          ],
+          "optionsSource": "google.worksheets",
+          "path": "config.sheet_id",
+          "ref": false,
+          "required": true,
+          "title": "워크시트",
+          "type": "string"
+        },
+        {
+          "description": "0이면 고정 해제",
+          "key": "frozen_rows",
+          "path": "config.frozen_rows",
+          "title": "고정할 행 수",
+          "type": "integer"
+        },
+        {
+          "description": "0이면 고정 해제",
+          "key": "frozen_columns",
+          "path": "config.frozen_columns",
+          "title": "고정할 열 수",
+          "type": "integer"
+        },
+        {
+          "description": "1이 맨 앞",
+          "key": "position",
+          "path": "config.position",
+          "title": "시트 위치",
+          "type": "integer"
+        },
+        {
+          "choices": [
+            {
+              "id": "hide",
+              "name": "숨기기"
+            },
+            {
+              "id": "show",
+              "name": "보이기"
+            }
+          ],
+          "description": "비우면 그대로",
+          "key": "visibility",
+          "path": "config.visibility",
+          "ref": false,
+          "title": "보이기",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "sheet_id",
+          "title": "시트 ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "description": "frozen_rows·frozen_columns·position·visibility 중 바꾼 것",
+          "key": "updated",
+          "list": true,
+          "title": "바꾼 속성",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "워크시트 속성 바꾸기",
+      "toolKey": "builtin:google_sheets_update_worksheet"
     },
     {
       "app": "http",

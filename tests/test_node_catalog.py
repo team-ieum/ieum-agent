@@ -143,6 +143,15 @@ def test_option_source_fields_fixed_set():
                     "set_data_validation")
           for k in ("spreadsheet_id", "sheet_id")],
         ("google_sheets.add_column", "before_column"), ("google_sheets.sort_range", "sort_column"),
+        # 시트·파일(레인 S)
+        *[(f"google_sheets.{x}", "spreadsheet_id")
+          for x in ("create_worksheet", "copy_worksheet", "rename_worksheet", "update_worksheet", "delete_worksheet",
+                    "find_or_create_worksheet")],
+        *[(f"google_sheets.{x}", "sheet_id")
+          for x in ("copy_worksheet", "rename_worksheet", "update_worksheet", "delete_worksheet")],
+        ("google_sheets.copy_worksheet", "destination_spreadsheet_id"),
+        *[(f"google_sheets.{x}", k) for x in ("create_spreadsheet", "find_or_create_spreadsheet")
+          for k in ("folder_id", "copy_from")],
         ("google_calendar.create", "calendar_id"), ("google_calendar.find", "calendar_id"),
         ("google_calendar.update", "calendar_id"), ("google_calendar.update", "event_id"),
         ("google_calendar.delete", "calendar_id"), ("google_calendar.delete", "event_id"),
@@ -269,6 +278,16 @@ _SHEETS_FIELDS = {
                                              "italic", "strikethrough"],
     "google_sheets.set_data_validation": ["spreadsheet_id", "sheet_id", "cell_range", "condition", "value_1",
                                           "value_2", "values", "input_message", "strict", "show_dropdown"],
+    # 시트·파일(레인 S)
+    "google_sheets.create_worksheet": ["spreadsheet_id", "title", "headers"],
+    "google_sheets.copy_worksheet": ["spreadsheet_id", "sheet_id", "destination_spreadsheet_id", "new_title"],
+    "google_sheets.rename_worksheet": ["spreadsheet_id", "sheet_id", "new_title"],
+    "google_sheets.update_worksheet": ["spreadsheet_id", "sheet_id", "frozen_rows", "frozen_columns", "position",
+                                       "visibility"],
+    "google_sheets.delete_worksheet": ["spreadsheet_id", "sheet_id", "confirm_delete"],
+    "google_sheets.create_spreadsheet": ["title", "folder_id", "copy_from", "headers"],
+    "google_sheets.find_or_create_spreadsheet": ["title", "folder_id", "copy_from", "headers"],
+    "google_sheets.find_or_create_worksheet": ["spreadsheet_id", "title", "headers"],
 }
 
 _RANGE_TOOLS = ("add_column", "copy_range", "sort_range", "format_range", "add_conditional_format",
@@ -344,6 +363,20 @@ def test_sheets_출력_칸():
         assert outs[f"google_sheets.{x}"] == ["range"]
     for x in _RANGE_TOOLS:
         assert _action(f"google_sheets.{x}")["kind"] == "action"
+    # 시트·파일(레인 S)
+    assert outs["google_sheets.create_worksheet"] == outs["google_sheets.copy_worksheet"] == \
+        ["spreadsheet_id", "sheet_id", "title"]
+    assert outs["google_sheets.rename_worksheet"] == ["sheet_id", "title", "previous_title"]
+    assert outs["google_sheets.update_worksheet"] == ["sheet_id", "title", "updated"]
+    assert outs["google_sheets.delete_worksheet"] == ["deleted", "sheet_id", "title"]
+    assert outs["google_sheets.create_spreadsheet"] == ["spreadsheet_id", "title", "url"]
+    assert outs["google_sheets.find_or_create_spreadsheet"] == ["created", "spreadsheet_id", "title", "url"]
+    assert outs["google_sheets.find_or_create_worksheet"] == ["created", "sheet_id", "title"]
+    for x in ("create_worksheet", "copy_worksheet", "rename_worksheet", "update_worksheet", "delete_worksheet",
+              "create_spreadsheet", "find_or_create_spreadsheet", "find_or_create_worksheet"):
+        assert _action(f"google_sheets.{x}")["kind"] == "action"
+    confirm = _field("google_sheets.delete_worksheet", "confirm_delete")
+    assert (confirm["type"], confirm["required"], confirm["ref"]) == ("boolean", True, False)
 
 
 def test_event_id는_뒤의_calendar_id를_가리킨다():
@@ -380,6 +413,9 @@ EXPECTED_BRANDS = {
     **{f"google_sheets.{x}": "sheets" for x in (
         "append_rows", "update_rows", "clear_rows", "delete_rows", "format_rows")},
     **{f"google_sheets.{x}": "sheets" for x in _RANGE_TOOLS},
+    **{f"google_sheets.{x}": "sheets" for x in (  # 시트·파일(레인 S)
+        "create_worksheet", "copy_worksheet", "rename_worksheet", "update_worksheet", "delete_worksheet",
+        "create_spreadsheet", "find_or_create_spreadsheet", "find_or_create_worksheet")},
     "google_calendar.create": "google", "google_calendar.find": "google",
     "google_calendar.update": "google", "google_calendar.delete": "google", "google_drive.read": "google",
     "google_drive.upload": "google",

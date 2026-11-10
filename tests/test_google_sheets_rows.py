@@ -5,8 +5,11 @@ from urllib.parse import unquote
 import pytest
 
 from tests.action_outputs import assert_matches_outputs
-from tools.google_sheets import _Invalid, _cell_format
-from tools.google_sheets_rows import (_parse_row_numbers, google_sheets_append_rows, google_sheets_clear_rows,
+from tools.google_sheets import _Invalid, _cell_format, _rgb
+from tools.google_sheets_ranges import _choice, _grid_range
+from tools.google_sheets_sheets import _drive_id
+from tools.google_sheets_rows import (_parse_row_numbers, _parse_rows, google_sheets_append_rows,
+                                      google_sheets_clear_rows,
                                       google_sheets_delete_rows, google_sheets_format_rows, google_sheets_update_rows)
 
 pytestmark = pytest.mark.asyncio
@@ -355,6 +358,45 @@ async def test_구글_오류는_그대로():
     fake = _Fake(GRID, fail={"batch": _resp(400, {"error": {"message": message}})})
     _, result = await _run(google_sheets_delete_rows, fake, row_numbers="2-4", confirm_delete=True)
     assert message in result["error"]
+
+
+@pytest.mark.parametrize("status", [400, 403])
+async def test_행_비우기_구글_오류는_실패(status):
+    message = "Requested entity was not found or no permission."
+    fake = _Fake(GRID, fail={"clear": _resp(status, {"error": {"message": message}})})
+    _, result = await _run(google_sheets_clear_rows, fake, row_numbers="2-4")
+    assert "success" not in result and message in result["error"]
+
+
+@pytest.mark.parametrize("row_numbers, limit", [("1," * 2_000_000 + "1", "20,000"),
+                                                ("[" + "1," * 2_000_000 + "1]", "2,000,000")], ids=["쉼표", "JSON"])
+async def test_큰_행_번호_문자열은_파싱_전에_거절(row_numbers, limit):
+    with patch("tools.google_sheets_rows._span") as span:
+        error = await _no_google(google_sheets_clear_rows, row_numbers=row_numbers)
+    assert limit in error
+    span.assert_not_called()
+
+
+async def test_큰_행_목록은_파싱_전에_거절():
+    rows = "[" + "1," * 1_500_000 + "1]"
+    with patch("tools.google_sheets_rows.json.loads") as loads, pytest.raises(_Invalid, match="2,000,000"):
+        _parse_rows(rows, 1000)
+    loads.assert_not_called()
+    assert "2,000,000" in await _no_google(google_sheets_append_rows, rows=rows)
+
+
+@pytest.mark.parametrize("call", [
+    lambda v: _parse_row_numbers(v),
+    lambda v: _parse_row_numbers("[" + v),
+    lambda v: _choice(v, ("A",), "정렬"),
+    lambda v: _grid_range(v, 0),
+    lambda v: _rgb(v, "배경색"),
+    lambda v: _drive_id(v, "폴더 ID가 올바르지 않아요"),
+], ids=["span", "row_numbers_json", "choice", "grid_range", "rgb", "drive_id"])
+async def test_오류_문구는_입력_앞부분만(call):
+    with pytest.raises(_Invalid) as e:
+        call("x" * 10_000)
+    assert len(str(e.value)) < 300 and "…" in str(e.value)
 
 
 # --- C8 format_rows ---

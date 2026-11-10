@@ -3,14 +3,18 @@ import json
 import re
 
 from tools.http_client import get_http_client
-from tools.google_sheets import (_Invalid, _a1_range, _batch_update, _blank, _cell_format, _check, _col, _fail,
-                                 _find_sheet,
+from tools.google_sheets import (_Invalid, _a1_range, _batch_update, _blank, _brief, _cell_format, _check, _col,
+                                 _fail, _find_sheet,
                                  _flag, _headers, _ok, _open, _row, _row_index, _row_number, _spreadsheet_url,
-                                 _values_url, _TIMEOUT)
+                                 _values_url, _OUTPUT_BUDGET, _TIMEOUT)
 
 _APPEND_LIMIT = 1000
 _UPDATE_LIMIT = 500
 _SPAN_LIMIT = 1000
+# 파싱 전 글자 수 상한 — json.loads·split·sort가 단일 워커 이벤트 루프를 막지 않게. JSON(찾기 결과 항목·행 목록)은
+# 출력 예산과 같은 2MB, 쉼표 목록은 1,000행 × 넉넉한 항목 길이.
+_JSON_CHARS = _OUTPUT_BUDGET
+_ROW_NUMBER_CHARS = 20_000
 _CODE_FENCE = re.compile(r"```[A-Za-z]*")
 _SCALAR = (str, int, float, bool)
 
@@ -22,6 +26,8 @@ def _parse_rows(rows, limit: int) -> list:
     elif _blank(rows):
         raise _Invalid("행 목록이 비어 있어요")
     elif isinstance(rows, str):
+        if len(rows) > _JSON_CHARS:
+            raise _Invalid(f"행 목록은 {_JSON_CHARS:,}자까지예요")
         # RecursionError: `[`를 깊게 중첩한 입력.
         try:
             items = json.loads(rows)
@@ -233,7 +239,7 @@ def _span(token) -> tuple[int, int]:
         elif m := _SPAN.fullmatch(token):
             s, e = int(m.group(1)), int(m.group(2))
     if s is None or s < 1 or s > e:
-        raise _Invalid(f"행 번호가 올바르지 않아요: {token!r}")
+        raise _Invalid(f"행 번호가 올바르지 않아요: {_brief(token)}")
     return s, e
 
 
@@ -243,10 +249,14 @@ def _parse_row_numbers(value, limit: int = _SPAN_LIMIT) -> list[tuple[int, int]]
     if _blank(value):
         raise _Invalid("행 번호가 비어 있어요")
     if isinstance(value, str) and value.strip().startswith("["):
+        if len(value) > _JSON_CHARS:
+            raise _Invalid(f"행 번호 목록은 {_JSON_CHARS:,}자까지예요")
         try:
             value = json.loads(value)
         except (json.JSONDecodeError, RecursionError):
-            raise _Invalid(f"행 번호가 올바르지 않아요: {value!r}") from None
+            raise _Invalid(f"행 번호가 올바르지 않아요: {_brief(value)}") from None
+    elif isinstance(value, str) and len(value) > _ROW_NUMBER_CHARS:
+        raise _Invalid(f"행 번호는 {_ROW_NUMBER_CHARS:,}자까지예요")
     if isinstance(value, list):
         tokens = value
     elif isinstance(value, str):
