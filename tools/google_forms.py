@@ -9,6 +9,13 @@ _FORM_ID = re.compile(r"[A-Za-z0-9_-]+", re.ASCII)
 _SCOPE_HINT = "Google 연결에서 Drive 권한을 켜 주세요"
 _NOT_FOUND = "폼을 찾을 수 없어요. 편집 화면 주소(/forms/d/<ID>/edit)의 ID인지, 편집 권한이 있는 폼인지 확인해 주세요"
 _LEGACY = "예전 형식의 폼이라 바꿀 수 없어요. Google Forms에서 직접 바꿔 주세요"
+# S3 출력 상한 — 큰 폼이 다음 노드·로그로 수 MB를 흘리지 않게(최종 리뷰 M1). 받는 칸도 필요한 것만
+_GET_FIELDS = ("formId,info,responderUri,linkedSheetId,publishSettings,"
+               "items(title,questionItem/question,questionGroupItem/questions)")
+_MAX_QUESTIONS = 500
+_MAX_TITLE = 1000
+_MAX_DESCRIPTION = 10000
+_TRUNCATED = f"질문이 많아 앞 {_MAX_QUESTIONS}개만 담았어요"
 
 # Forms API 질문 종류 키 → 출력 kind. 표에 없는 종류는 "other"로 남긴다(조용히 빼지 않는다)
 _KINDS = {
@@ -72,12 +79,12 @@ def _questions(items) -> list[dict]:
         if "questionItem" in item:
             q = item["questionItem"].get("question", {})
             kind = next((v for k, v in _KINDS.items() if k in q), "other")
-            out.append({"questionId": q.get("questionId", ""), "title": title,
+            out.append({"questionId": q.get("questionId", ""), "title": title[:_MAX_TITLE],
                         "kind": kind, "required": bool(q.get("required", False))})
         elif "questionGroupItem" in item:
             for q in item["questionGroupItem"].get("questions", []):
                 row = (q.get("rowQuestion") or {}).get("title", "")
-                out.append({"questionId": q.get("questionId", ""), "title": f"{title} - {row}",
+                out.append({"questionId": q.get("questionId", ""), "title": f"{title} - {row}"[:_MAX_TITLE],
                             "kind": "row", "required": bool(q.get("required", False))})
         # pageBreak·text·image·video 항목은 질문이 아니라 건너뛴다
     return out
@@ -143,8 +150,8 @@ async def google_forms_get_form(access_token: str, form_id: str) -> str:
         return _bad_form_id()
 
     try:
-        response = await get_http_client().get(f"{_FORMS_API}/{fid}", headers=_headers(access_token),
-                                               timeout=_TIMEOUT)
+        response = await get_http_client().get(f"{_FORMS_API}/{fid}", params={"fields": _GET_FIELDS},
+                                               headers=_headers(access_token), timeout=_TIMEOUT)
         if response.status_code == 404:
             return json.dumps({"success": True, "found": False, "total": 0, "items": [], "message": _NOT_FOUND},
                               ensure_ascii=False)
@@ -156,15 +163,17 @@ async def google_forms_get_form(access_token: str, form_id: str) -> str:
 
     info = form.get("info") or {}
     state = _publish_state(form) or (None, None)
+    questions = _questions(form.get("items"))
     item = {
         "formId": form.get("formId", fid),
-        "title": info.get("title", ""),
-        "description": info.get("description", ""),
+        "title": info.get("title", "")[:_MAX_TITLE],
+        "description": info.get("description", "")[:_MAX_DESCRIPTION],
         "responderUrl": form.get("responderUri", ""),
         "isPublished": state[0],
         "isAcceptingResponses": state[1],
         "linkedSheetId": form.get("linkedSheetId", ""),
-        "questions": _questions(form.get("items")),
+        "questions": questions[:_MAX_QUESTIONS],
     }
-    return json.dumps({"success": True, "found": True, "total": 1, "items": [item], "message": ""},
+    message = _TRUNCATED if len(questions) > _MAX_QUESTIONS else ""
+    return json.dumps({"success": True, "found": True, "total": 1, "items": [item], "message": message},
                       ensure_ascii=False)

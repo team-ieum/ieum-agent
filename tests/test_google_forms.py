@@ -9,6 +9,8 @@ from tests.action_outputs import assert_matches_outputs
 from tools.google_forms import google_forms_get_form, google_forms_set_accepting_responses
 
 API = "https://forms.googleapis.com/v1/forms"
+FIELDS = ("formId,info,responderUri,linkedSheetId,publishSettings,"
+          "items(title,questionItem/question,questionGroupItem/questions)")
 
 
 def _forms(*responses):
@@ -172,8 +174,12 @@ async def test_폼_정보_가져오기():
 
     result = await _get(client)
 
-    assert seen == [("GET", f"{API}/F1", None)]
+    [(method, url, body)] = seen
+    url = httpx.URL(url)
+    assert (method, str(url.copy_with(query=None)), body) == ("GET", f"{API}/F1", None)
+    assert url.params["fields"] == FIELDS
     assert result["found"] is True and result["total"] == 1
+    assert result["message"] == ""
     item = result["items"][0]
     assert item == {
         "formId": "F1", "title": "고객 설문", "description": "",
@@ -255,3 +261,28 @@ async def test_예전_폼_정보는_게시_상태가_null():
     assert item["linkedSheetId"] == ""
     assert item["questions"] == []
     assert_matches_outputs("google_forms.get_form", result)
+
+
+@pytest.mark.asyncio
+async def test_질문이_500개를_넘으면_앞_500개만_담고_안내():
+    items = [{"title": f"q{i}", "questionItem": {"question": _q("textQuestion", qid=f"q{i}")}} for i in range(501)]
+    client, _ = _forms((200, {"formId": "F1", "info": {"title": "t"}, "items": items}))
+
+    result = await _get(client)
+
+    questions = result["items"][0]["questions"]
+    assert len(questions) == 500 and questions[-1]["questionId"] == "q499"
+    assert "앞 500개" in result["message"]
+    assert_matches_outputs("google_forms.get_form", result)
+
+
+@pytest.mark.asyncio
+async def test_긴_제목과_설명은_자른다():
+    items = [{"title": "가" * 1500, "questionItem": {"question": _q("textQuestion")}}]
+    client, _ = _forms((200, {"formId": "F1", "info": {"title": "제" * 1500, "description": "설" * 20000},
+                              "items": items}))
+
+    item = (await _get(client))["items"][0]
+
+    assert len(item["title"]) == 1000 and len(item["description"]) == 10000
+    assert len(item["questions"][0]["title"]) == 1000
