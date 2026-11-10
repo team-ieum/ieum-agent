@@ -642,7 +642,7 @@ def _attach_and_serialize(msg: EmailMessage, original) -> bytes:
             msg.add_attachment(part.get_payload(0), **options)
             continue
         if part.get_content_maintype() == "text" and part.get_content_charset():
-            options["params"] = {"charset": part.get_content_charset()}
+            options["params"] = {"charset": _header(part.get_content_charset())}
         msg.add_attachment(part.get_payload(decode=True) or b"", part.get_content_maintype(),
                            part.get_content_subtype(), **options)
     return msg.as_bytes()
@@ -730,7 +730,12 @@ async def gmail_forward(
     if labels and remaining <= 0:
         logger.warning("Gmail 전달 라벨 건너뜀(마감 지남) messageId=%s", sent["messageId"])
     else:
-        await _label_after_send(client, headers, sent["messageId"], labels, timeout=min(_TIMEOUT, remaining))
+        try:
+            async with asyncio.timeout_at(deadline):  # httpx timeout은 단계별이라 전체 상한이 아니다
+                await _label_after_send(client, headers, sent["messageId"], labels,
+                                        timeout=min(_TIMEOUT, remaining))
+        except TimeoutError:
+            logger.warning("Gmail 전달 라벨 붙이기 마감 초과 messageId=%s", sent["messageId"])
     return _ok(messageId=sent["messageId"], threadId=sent["threadId"])
 
 

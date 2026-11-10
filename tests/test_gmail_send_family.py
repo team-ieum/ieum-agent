@@ -307,7 +307,11 @@ def _fwd_post(modify=None, sleep: float = 0, block: float = 0) -> AsyncMock:
         if url == f"{API}/messages/m-1/modify":
             if isinstance(modify, Exception):
                 raise modify
-            return modify or _make_mock_response(200, {"id": "m-1", "labelIds": ["SENT", "L1"]})
+            labeled = _make_mock_response(200, {"id": "m-1", "labelIds": ["SENT", "L1"]})
+            if isinstance(modify, (int, float)):   # httpx timeout을 무시하고 늦게 오는 응답
+                await asyncio.sleep(modify)
+                return labeled
+            return modify or labeled
         raise AssertionError(f"예상 못 한 POST {url}")
     return AsyncMock(side_effect=post)
 
@@ -440,6 +444,21 @@ async def test_첨부_파일명의_줄바꿈은_정리해서_전달한다():
 
 
 @pytest.mark.asyncio
+async def test_첨부_charset의_줄바꿈도_정리해서_전달한다():
+    raw = ("From: a@b.c\r\nTo: me@gmail.com\r\nSubject: s\r\nMIME-Version: 1.0\r\n"
+           'Content-Type: multipart/mixed; boundary="B"\r\n\r\n'
+           "--B\r\nContent-Type: text/plain\r\n\r\nbody\r\n"
+           "--B\r\nContent-Type: text/plain; charset*=us-ascii''utf-8%0D%0ABcc%3A%20evil%40x.com\r\n"
+           "Content-Disposition: attachment; filename=n.txt\r\n\r\nmemo\r\n--B--\r\n").encode()
+    post = _fwd_post()
+    result = await _forward(_client(get=_fwd_get(raw), post=post))
+    assert result["success"] is True
+    msg = _uploaded(post)[1]
+    assert [a.get_filename() for a in msg.iter_attachments()] == ["n.txt"]
+    assert msg["Bcc"] is None
+
+
+@pytest.mark.asyncio
 async def test_원본이_35MB를_넘으면_받지_않고_실패한다():   # Review Focus 3
     get, post = _fwd_get(_original(), size=36_000_000), AsyncMock()
     result = await _forward(_client(get=get, post=post))
@@ -499,6 +518,16 @@ async def test_마감이_다_되면_라벨은_건너뛰고_성공이다(monkeypa
     result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
     assert result == {"success": True, "messageId": "m-1", "threadId": "t-9"}
     assert [c.args[0] for c in post.await_args_list] == [UPLOAD]
+
+
+@pytest.mark.asyncio
+async def test_라벨_요청도_마감에서_끊고_성공이다(monkeypatch):   # httpx timeout은 단계별이라 전체 상한이 아니다
+    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 0.3)
+    post = _fwd_post(modify=2)
+    started = time.monotonic()
+    result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
+    assert result == {"success": True, "messageId": "m-1", "threadId": "t-9"}
+    assert time.monotonic() - started < 1.0
 
 
 @pytest.mark.asyncio
