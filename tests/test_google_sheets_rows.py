@@ -5,9 +5,9 @@ from urllib.parse import unquote
 import pytest
 
 from tests.action_outputs import assert_matches_outputs
-from tools.google_sheets import _Invalid
+from tools.google_sheets import _Invalid, _cell_format
 from tools.google_sheets_rows import (_parse_row_numbers, google_sheets_append_rows, google_sheets_clear_rows,
-                                      google_sheets_delete_rows, google_sheets_update_rows)
+                                      google_sheets_delete_rows, google_sheets_format_rows, google_sheets_update_rows)
 
 pytestmark = pytest.mark.asyncio
 
@@ -355,3 +355,50 @@ async def test_구글_오류는_그대로():
     fake = _Fake(GRID, fail={"batch": _resp(400, {"error": {"message": message}})})
     _, result = await _run(google_sheets_delete_rows, fake, row_numbers="2-4", confirm_delete=True)
     assert message in result["error"]
+
+
+# --- C8 format_rows ---
+
+async def test_행_서식은_채운_칸만_마스크():
+    fake, result = await _run(google_sheets_format_rows, row_numbers="2,4", background_color="#FFF2CC", bold=False)
+    (_, url, kw), = fake.of("batch")
+    assert url.endswith("/spreadsheets/s1:batchUpdate")
+    fmt, mask = _cell_format(background_color="#FFF2CC", bold=False)
+    requests = kw["json"]["requests"]
+    assert len(requests) == 2
+    first = requests[0]["repeatCell"]
+    assert first["range"] == {"sheetId": 0, "startRowIndex": 1, "endRowIndex": 2}
+    assert requests[1]["repeatCell"]["range"] == {"sheetId": 0, "startRowIndex": 3, "endRowIndex": 4}
+    assert first["cell"] == {"userEnteredFormat": fmt}
+    fields = first["fields"]
+    assert fields == ",".join(mask)
+    assert "backgroundColor" in fields and "bold" in fields
+    assert "italic" not in fields and "strikethrough" not in fields
+    assert result == {"success": True, "row_count": 2, "row_numbers": [2, 4]}
+    assert_matches_outputs("google_sheets.format_rows", result)
+
+
+async def test_문자열_참거짓():
+    fake, _ = await _run(google_sheets_format_rows, row_numbers="2", italic="true")
+    (_, _, kw), = fake.of("batch")
+    assert "italic" in kw["json"]["requests"][0]["repeatCell"]["fields"]
+
+
+@pytest.mark.parametrize("kwargs, word", [
+    ({}, "바꿀 서식"), ({"background_color": "", "text_color": "", "bold": "", "italic": None}, "바꿀 서식"),
+    ({"background_color": "FFF2CC"}, "배경색"), ({"background_color": "#FFF"}, "배경색"),
+    ({"background_color": "#GGGGGG"}, "배경색"), ({"background_color": "red"}, "배경색"),
+    ({"bold": "maybe"}, "굵게"),
+])
+async def test_서식_거절은_Google을_부르지_않는다(kwargs, word):
+    assert word in await _no_google(google_sheets_format_rows, row_numbers="2", **kwargs)
+
+
+async def test_서식_빈_행_번호():
+    await _no_google(google_sheets_format_rows, row_numbers="", bold=True)
+
+
+async def test_서식_빈_배열은_0행_성공():
+    fake, result = await _run(google_sheets_format_rows, row_numbers="[]", bold=True)
+    assert result == {"success": True, "row_count": 0, "row_numbers": []}
+    assert fake.calls == []

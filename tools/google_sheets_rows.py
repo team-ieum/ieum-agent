@@ -3,7 +3,8 @@ import json
 import re
 
 from tools.http_client import get_http_client
-from tools.google_sheets import (_Invalid, _a1_range, _batch_update, _blank, _check, _col, _fail, _find_sheet,
+from tools.google_sheets import (_Invalid, _a1_range, _batch_update, _blank, _cell_format, _check, _col, _fail,
+                                 _find_sheet,
                                  _flag, _headers, _ok, _open, _row, _row_index, _row_number, _spreadsheet_url,
                                  _values_url, _TIMEOUT)
 
@@ -329,6 +330,46 @@ async def google_sheets_delete_rows(access_token: str, spreadsheet_id: str, shee
             {"deleteDimension": {"range": {"sheetId": sheet_num, "dimension": "ROWS", "startIndex": s - 1,
                                            "endIndex": e}}}
             for s, e in reversed(spans)])
+        return _done(spans)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_format_rows(access_token: str, spreadsheet_id: str, sheet_id: str, row_numbers: str,
+                                    background_color: str | None = None, text_color: str | None = None,
+                                    bold: bool | None = None, italic: bool | None = None,
+                                    strikethrough: bool | None = None) -> str:
+    """
+    Google Sheets 워크시트 행의 배경색·글자색·굵게·기울임·취소선을 바꿉니다. 비운 칸은 그대로 둡니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        row_numbers: 행 번호(예: 5 / 5,7 / 5-9 또는 찾기 결과 목록)
+        background_color: 배경색 #RRGGBB
+        text_color: 글자색 #RRGGBB
+        bold: 참이면 켜기, 거짓이면 끄기, 비우면 그대로
+        italic: 참이면 켜기, 거짓이면 끄기, 비우면 그대로
+        strikethrough: 참이면 켜기, 거짓이면 끄기, 비우면 그대로
+    """
+    tool = "google_sheets_format_rows"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        fmt, mask = _cell_format(background_color=background_color, text_color=text_color, bold=bold,
+                                 italic=italic, strikethrough=strikethrough)
+        if not mask:
+            raise _Invalid("바꿀 서식이 없어요")
+        spans = _parse_row_numbers(row_numbers)
+        if not spans:
+            return _done(spans)
+        client = get_http_client()
+        sheet_num, _, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        fields = ",".join(mask)  # 채운 칸만 — 다른 서식을 지우지 않는다
+        await _batch_update(client, access_token, spreadsheet_id, [
+            {"repeatCell": {"range": {"sheetId": sheet_num, "startRowIndex": s - 1, "endRowIndex": e},
+                            "cell": {"userEnteredFormat": fmt}, "fields": fields}}
+            for s, e in spans])
         return _done(spans)
     except Exception as e:
         return _fail(tool, str(e))
