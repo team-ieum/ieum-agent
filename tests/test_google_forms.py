@@ -79,6 +79,16 @@ async def test_이미_같은_상태면_쓰기_호출이_없다():
 
 
 @pytest.mark.asyncio
+async def test_publishState가_비어도_새_형식_폼이면_켤_수_있다():
+    client, seen = _forms((200, {"publishSettings": {}}), (200, _state(True, True)))
+
+    result = await _set(client, accepting=True)
+
+    assert seen[1][2]["publishSettings"]["publishState"] == {"isPublished": True, "isAcceptingResponses": True}
+    assert result == {"success": True, "isPublished": True, "isAcceptingResponses": True}
+
+
+@pytest.mark.asyncio
 async def test_예전_폼은_바꾸지_않고_오류():
     client, seen = _forms((200, {}))
 

@@ -59,9 +59,9 @@ def _bad_form_id() -> str:
 
 def _publish_state(form: dict):
     """(isPublished, isAcceptingResponses). 예전 형식 폼(publishSettings 없음)이면 None."""
-    state = (form.get("publishSettings") or {}).get("publishState")
-    if state is None:
+    if "publishSettings" not in form:
         return None
+    state = (form["publishSettings"] or {}).get("publishState") or {}
     return bool(state.get("isPublished", False)), bool(state.get("isAcceptingResponses", False))
 
 
