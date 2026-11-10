@@ -138,6 +138,11 @@ def test_option_source_fields_fixed_set():
         *[(f"google_sheets.{x}", k) for x in ("lookup_row", "find_or_create_row", "lookup_rows")
           for k in ("lookup_column", "lookup_column_2")],
         ("google_sheets.find_worksheet", "spreadsheet_id"), ("google_sheets.get_spreadsheet", "spreadsheet_id"),
+        *[(f"google_sheets.{x}", k)
+          for x in ("add_column", "copy_range", "sort_range", "format_range", "add_conditional_format",
+                    "set_data_validation")
+          for k in ("spreadsheet_id", "sheet_id")],
+        ("google_sheets.add_column", "before_column"), ("google_sheets.sort_range", "sort_column"),
         ("google_calendar.create", "calendar_id"), ("google_calendar.find", "calendar_id"),
         ("google_calendar.update", "calendar_id"), ("google_calendar.update", "event_id"),
         ("google_calendar.delete", "calendar_id"), ("google_calendar.delete", "event_id"),
@@ -252,7 +257,22 @@ _SHEETS_FIELDS = {
     "google_sheets.delete_rows": ["spreadsheet_id", "sheet_id", "row_numbers", "confirm_delete"],
     "google_sheets.format_rows": ["spreadsheet_id", "sheet_id", "row_numbers", "background_color", "text_color",
                                   "bold", "italic", "strikethrough"],
+    "google_sheets.add_column": ["spreadsheet_id", "sheet_id", "title", "before_column"],
+    "google_sheets.copy_range": ["spreadsheet_id", "sheet_id", "source_range", "destination_range", "paste_type",
+                                 "paste_orientation"],
+    "google_sheets.sort_range": ["spreadsheet_id", "sheet_id", "sort_column", "sort_order", "cell_range"],
+    "google_sheets.format_range": ["spreadsheet_id", "sheet_id", "cell_range", "number_format", "number_pattern",
+                                   "background_color", "text_color", "bold", "italic", "strikethrough",
+                                   "horizontal_alignment", "vertical_alignment", "wrap_strategy"],
+    "google_sheets.add_conditional_format": ["spreadsheet_id", "sheet_id", "cell_range", "condition", "value_1",
+                                             "value_2", "relative_date", "background_color", "text_color", "bold",
+                                             "italic", "strikethrough"],
+    "google_sheets.set_data_validation": ["spreadsheet_id", "sheet_id", "cell_range", "condition", "value_1",
+                                          "value_2", "values", "input_message", "strict", "show_dropdown"],
 }
+
+_RANGE_TOOLS = ("add_column", "copy_range", "sort_range", "format_range", "add_conditional_format",
+                "set_data_validation")
 
 
 @pytest.mark.parametrize("event, keys", _SHEETS_FIELDS.items())
@@ -318,6 +338,12 @@ def test_sheets_출력_칸():
     for x in ("append_rows", "update_rows", "clear_rows", "delete_rows", "format_rows"):
         assert _action(f"google_sheets.{x}")["kind"] == "action"
     assert "google_sheets.write" not in {e["id"] for e in node_catalog()["entries"]}
+    assert outs["google_sheets.add_column"] == ["column", "title"]
+    assert outs["google_sheets.copy_range"] == ["source", "destination"]
+    for x in ("sort_range", "format_range", "add_conditional_format", "set_data_validation"):
+        assert outs[f"google_sheets.{x}"] == ["range"]
+    for x in _RANGE_TOOLS:
+        assert _action(f"google_sheets.{x}")["kind"] == "action"
 
 
 def test_event_id는_뒤의_calendar_id를_가리킨다():
@@ -353,6 +379,7 @@ EXPECTED_BRANDS = {
     "google_sheets.get_spreadsheet": "sheets",
     **{f"google_sheets.{x}": "sheets" for x in (
         "append_rows", "update_rows", "clear_rows", "delete_rows", "format_rows")},
+    **{f"google_sheets.{x}": "sheets" for x in _RANGE_TOOLS},
     "google_calendar.create": "google", "google_calendar.find": "google",
     "google_calendar.update": "google", "google_calendar.delete": "google", "google_drive.read": "google",
     "google_drive.upload": "google",
