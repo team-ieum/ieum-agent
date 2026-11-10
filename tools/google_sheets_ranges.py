@@ -3,8 +3,8 @@ import json
 import re
 
 from tools.google_sheets import (
-    _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _check, _col, _col_index, _fail, _find_sheet,
-    _header_range, _headers, _ok, _put, _resolve, _values_url,
+    _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _cell_format, _check, _col, _col_index, _fail,
+    _find_sheet, _header_range, _headers, _ok, _put, _resolve, _values_url,
 )
 from tools.http_client import get_http_client
 
@@ -12,6 +12,10 @@ _PASTE_TYPES = ("PASTE_NORMAL", "PASTE_VALUES", "PASTE_FORMAT", "PASTE_NO_BORDER
                 "PASTE_DATA_VALIDATION", "PASTE_CONDITIONAL_FORMATTING")
 _PASTE_ORIENTATIONS = ("NORMAL", "TRANSPOSE")
 _SORT_ORDERS = ("ASCENDING", "DESCENDING")
+_NUMBER_FORMATS = ("TEXT", "NUMBER", "PERCENT", "CURRENCY", "DATE", "TIME", "DATE_TIME", "SCIENTIFIC")
+_H_ALIGNS = ("LEFT", "CENTER", "RIGHT")
+_V_ALIGNS = ("TOP", "MIDDLE", "BOTTOM")
+_WRAPS = ("OVERFLOW_CELL", "CLIP", "WRAP")
 
 _A1_PART = re.compile(r"([A-Z]{1,3})?([0-9]{1,7})?")
 
@@ -188,5 +192,68 @@ async def google_sheets_add_column(access_token: str, spreadsheet_id: str, sheet
                 raise _Invalid(f"{e} — 빈 열이 남았을 수 있어요") from e
             raise
         return json.dumps({"success": True, "column": _col(index), "title": title}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_format_range(access_token: str, spreadsheet_id: str, sheet_id: str, cell_range: str,
+                                     number_format: str | None = None, number_pattern: str | None = None,
+                                     background_color: str | None = None, text_color: str | None = None,
+                                     bold: bool | None = None, italic: bool | None = None,
+                                     strikethrough: bool | None = None, horizontal_alignment: str | None = None,
+                                     vertical_alignment: str | None = None, wrap_strategy: str | None = None) -> str:
+    """
+    Google Sheets 범위의 숫자 형식·색·글자 모양·정렬을 바꿉니다. 채운 칸만 바꾸고 나머지 서식은 그대로 둡니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        cell_range: 범위(A1 표기, 예: A1:C10, A:A, 2:10)
+        number_format: 숫자 형식(TEXT·NUMBER·PERCENT·CURRENCY·DATE·TIME·DATE_TIME·SCIENTIFIC). 비우면 그대로
+        number_pattern: 숫자 형식 패턴(예: yyyy-mm-dd, #,##0). 숫자 형식을 고를 때만
+        background_color: 배경색 #RRGGBB. 비우면 그대로
+        text_color: 글자색 #RRGGBB. 비우면 그대로
+        bold: 굵게(비움=그대로, true=켜기, false=끄기)
+        italic: 기울임(비움=그대로, true=켜기, false=끄기)
+        strikethrough: 취소선(비움=그대로, true=켜기, false=끄기)
+        horizontal_alignment: 가로 정렬(LEFT·CENTER·RIGHT)
+        vertical_alignment: 세로 정렬(TOP·MIDDLE·BOTTOM)
+        wrap_strategy: 줄바꿈(OVERFLOW_CELL·CLIP·WRAP)
+
+    Returns:
+        range(서식을 바꾼 범위)를 포함한 JSON 문자열
+    """
+    tool = "google_sheets_format_range"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        number_format = _choice(number_format, _NUMBER_FORMATS, "숫자 형식")
+        aligns = {"horizontalAlignment": _choice(horizontal_alignment, _H_ALIGNS, "가로 정렬"),
+                  "verticalAlignment": _choice(vertical_alignment, _V_ALIGNS, "세로 정렬"),
+                  "wrapStrategy": _choice(wrap_strategy, _WRAPS, "줄바꿈")}
+        if not _blank(number_pattern):
+            if number_format is None:
+                raise _Invalid("형식 패턴은 숫자 형식을 고를 때만 써요")
+            if len(str(number_pattern).strip()) > 200:
+                raise _Invalid("형식 패턴은 200자까지예요")
+        fmt, mask = _cell_format(background_color=background_color, text_color=text_color, bold=bold,
+                                 italic=italic, strikethrough=strikethrough)
+        if number_format:
+            fmt["numberFormat"] = {"type": number_format}
+            if not _blank(number_pattern):
+                fmt["numberFormat"]["pattern"] = str(number_pattern).strip()
+            mask.append("userEnteredFormat.numberFormat")
+        for key, value in aligns.items():
+            if value:
+                fmt[key] = value
+                mask.append(f"userEnteredFormat.{key}")
+        if not mask:
+            raise _Invalid("바꿀 서식이 없어요")
+        _grid_range(cell_range, 0)
+        client = get_http_client()
+        sid, title, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        await _batch_update(client, access_token, spreadsheet_id, [{"repeatCell": {
+            "range": _grid_range(cell_range, sid), "cell": {"userEnteredFormat": fmt}, "fields": ",".join(mask)}}])
+        return json.dumps({"success": True, "range": _a1_range(str(cell_range).strip(), title)}, ensure_ascii=False)
     except Exception as e:
         return _fail(tool, str(e))

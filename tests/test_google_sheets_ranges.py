@@ -6,9 +6,10 @@ import pytest
 from common.error_code import ToolErrorCode
 from tests.action_outputs import assert_matches_outputs
 from tests.test_google_sheets import GRID, _Sheets, _range, _resp
-from tools.google_sheets import _Invalid
+from tools.google_sheets import _Invalid, _cell_format
 from tools.google_sheets_ranges import (
-    _grid_range, google_sheets_add_column, google_sheets_copy_range, google_sheets_sort_range,
+    _grid_range, google_sheets_add_column, google_sheets_copy_range, google_sheets_format_range,
+    google_sheets_sort_range,
 )
 
 
@@ -227,3 +228,54 @@ async def test_없는_머리글_이름_위치는_거절():
     result = await _call(fake, google_sheets_add_column, sheet_id="0", title="t", before_column="없는열")
     assert "error" in result
     assert fake.of("POST") == []
+
+
+# --- C12 format_range ---
+
+@pytest.mark.asyncio
+async def test_서식_마스크는_채운_칸만():
+    fake = _Sheets(GRID)
+    result = await _call(fake, google_sheets_format_range, sheet_id="0", cell_range="A1:B2", number_format="DATE",
+                         number_pattern="yyyy-mm-dd", background_color="#FFF2CC", horizontal_alignment="CENTER")
+    assert len(fake.of("POST")) == 1
+    fmt0, mask0 = _cell_format(background_color="#FFF2CC")
+    [req] = _requests(fake)
+    assert req["repeatCell"]["range"] == {"sheetId": 0, "startRowIndex": 0, "endRowIndex": 2, "startColumnIndex": 0,
+                                          "endColumnIndex": 2}
+    assert req["repeatCell"]["cell"]["userEnteredFormat"] == {
+        **fmt0, "numberFormat": {"type": "DATE", "pattern": "yyyy-mm-dd"}, "horizontalAlignment": "CENTER"}
+    fields = req["repeatCell"]["fields"].split(",")
+    assert set(fields) == set(mask0) | {"userEnteredFormat.numberFormat", "userEnteredFormat.horizontalAlignment"}
+    assert "userEnteredFormat" not in fields
+    assert result["range"] == "'Sales'!A1:B2"
+    assert_matches_outputs("google_sheets.format_range", result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bold", [False, "false"])
+async def test_굵게_끄기도_마스크에_들어간다(bold):
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_format_range, sheet_id="0", cell_range="A1", bold=bold)
+    fields = _requests(fake)[0]["repeatCell"]["fields"]
+    assert fields == ",".join(_cell_format(bold=False)[1])
+    assert "userEnteredFormat.textFormat.bold" in fields
+
+
+@pytest.mark.asyncio
+async def test_정렬과_줄바꿈():
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_format_range, sheet_id="0", cell_range="A1", vertical_alignment="MIDDLE",
+                wrap_strategy="WRAP")
+    assert set(_requests(fake)[0]["repeatCell"]["fields"].split(",")) == {
+        "userEnteredFormat.verticalAlignment", "userEnteredFormat.wrapStrategy"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("override", [
+    {}, {"number_pattern": "#,##0"}, {"number_format": "MONEY"}, {"number_format": "NUMBER", "number_pattern": "0" * 201},
+    {"background_color": "FFF2CC"}, {"text_color": "#GGGGGG"}, {"bold": "maybe"},
+    {"horizontal_alignment": "JUSTIFY"}, {"wrap_strategy": "LEGACY_WRAP"}, {"cell_range": "", "bold": True},
+])
+async def test_서식_거절은_Google을_부르지_않는다(override):
+    await _no_google(google_sheets_format_range, **{"spreadsheet_id": "s1", "sheet_id": "0", "cell_range": "A1",
+                                                    **override})
