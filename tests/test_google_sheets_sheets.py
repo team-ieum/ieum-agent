@@ -328,6 +328,24 @@ async def test_복사_되돌리기도_실패하면_남은_시트를_알린다():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("body", [{}, {"sheetId": "103", "title": "Copy of Sales"}])
+async def test_copyTo_응답에_시트_ID가_없으면_멈춘다(body):
+    fake = _Fake(fail={"copyTo": _resp(200, body)})
+    result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        destination_spreadsheet_id="dst", new_title="받은 시트")
+    assert "복사본 시트 ID를 받지 못했어요" in result["error"]
+    assert fake.of("updateSheetProperties") == [] and fake.of("deleteSheet") == []
+
+
+@pytest.mark.asyncio
+async def test_duplicateSheet_응답에_시트_ID가_없으면_멈춘다():
+    reply = {"replies": [{"duplicateSheet": {"properties": {"title": "복사본"}}}]}
+    fake = _Fake(fail={"duplicateSheet": _resp(200, reply)})
+    result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0", new_title="복사본")
+    assert "복사본 시트 ID를 받지 못했어요" in result["error"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("kwargs", [
     {"spreadsheet_id": "", "sheet_id": "0"},
     {"spreadsheet_id": "abc", "sheet_id": ""},

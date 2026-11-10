@@ -134,6 +134,14 @@ async def google_sheets_rename_worksheet(access_token: str, spreadsheet_id: str,
         return _fail(tool, str(e))
 
 
+def _copied_id(props: dict) -> int:
+    # 기본값 0을 쓰면 되돌리기 deleteSheet가 대상 파일의 기존 시트 0을 지울 수 있다.
+    sheet_id = props.get("sheetId")
+    if not isinstance(sheet_id, int) or isinstance(sheet_id, bool):
+        raise _Invalid("복사본 시트 ID를 받지 못했어요. 대상 파일에 복사본이 생겼는지 확인해 주세요")
+    return sheet_id
+
+
 async def google_sheets_copy_worksheet(access_token: str, spreadsheet_id: str, sheet_id: str,
                                        destination_spreadsheet_id: str | None = None,
                                        new_title: str | None = None) -> str:
@@ -161,7 +169,7 @@ async def google_sheets_copy_worksheet(access_token: str, spreadsheet_id: str, s
             data = await _batch_update(client, access_token, sid, {"duplicateSheet": {
                 "sourceSheetId": src_id, **({"newSheetName": name} if name else {})}})
             props = data["replies"][0]["duplicateSheet"]["properties"]
-            return json.dumps({"success": True, "spreadsheet_id": dest, "sheet_id": str(props.get("sheetId", 0)),
+            return json.dumps({"success": True, "spreadsheet_id": dest, "sheet_id": str(_copied_id(props)),
                                "title": props.get("title", "")}, ensure_ascii=False)
         response = await client.post(
             f"{_spreadsheet_url(sid)}/sheets/{src_id}:copyTo",
@@ -170,7 +178,7 @@ async def google_sheets_copy_worksheet(access_token: str, spreadsheet_id: str, s
             timeout=_TIMEOUT,
         )
         props = _ok(response)
-        new_id, title = props.get("sheetId", 0), props.get("title", "")
+        new_id, title = _copied_id(props), props.get("title", "")
         if name:
             try:
                 await _batch_update(client, access_token, dest, {"updateSheetProperties": {
