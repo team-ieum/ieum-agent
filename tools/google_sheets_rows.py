@@ -3,8 +3,9 @@ import json
 import re
 
 from tools.http_client import get_http_client
-from tools.google_sheets import (_Invalid, _a1_range, _blank, _check, _col, _fail, _flag, _headers, _ok, _open,
-                                 _row, _row_index, _row_number, _spreadsheet_url, _values_url, _TIMEOUT)
+from tools.google_sheets import (_Invalid, _a1_range, _batch_update, _blank, _check, _col, _fail, _find_sheet,
+                                 _flag, _headers, _ok, _open, _row, _row_index, _row_number, _spreadsheet_url,
+                                 _values_url, _TIMEOUT)
 
 _APPEND_LIMIT = 1000
 _UPDATE_LIMIT = 500
@@ -210,5 +211,124 @@ async def google_sheets_update_rows(access_token: str, spreadsheet_id: str, shee
         )
         return json.dumps({"success": True, "row_count": _ok(response).get("totalUpdatedRows", len(data)),
                            "row_numbers": sorted(seen)}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+# ASCII 숫자만 — \d는 전각 숫자를 받는다.
+_ONE = re.compile(r"\s*([0-9]+)\s*")
+_SPAN = re.compile(r"\s*([0-9]+)\s*-\s*([0-9]+)\s*")
+
+
+def _span(token) -> tuple[int, int]:
+    s = e = None
+    if isinstance(token, dict) and "row_number" in token:  # '시트에서 여러 행 찾기' 결과 항목
+        return _span(token["row_number"])
+    if isinstance(token, int) and not isinstance(token, bool):
+        s = e = token
+    elif isinstance(token, str):
+        if m := _ONE.fullmatch(token):
+            s = e = int(m.group(1))
+        elif m := _SPAN.fullmatch(token):
+            s, e = int(m.group(1)), int(m.group(2))
+    if s is None or s < 1 or s > e:
+        raise _Invalid(f"행 번호가 올바르지 않아요: {token!r}")
+    return s, e
+
+
+def _parse_row_numbers(value, limit: int = _SPAN_LIMIT) -> list[tuple[int, int]]:
+    """'5' / '5,7' / '5-9' / JSON 배열(숫자·'5-9'·찾기 결과 항목) → 병합한 구간(1부터, 끝 포함, 오름차순).
+    상한은 구간 길이 합으로 잰다 — '2-99999999'를 펼치지 않는다."""
+    if _blank(value):
+        raise _Invalid("행 번호가 비어 있어요")
+    if isinstance(value, str) and value.strip().startswith("["):
+        try:
+            value = json.loads(value)
+        except (json.JSONDecodeError, RecursionError):
+            raise _Invalid(f"행 번호가 올바르지 않아요: {value!r}") from None
+    if isinstance(value, list):
+        tokens = value
+    elif isinstance(value, str):
+        tokens = value.split(",")
+    else:
+        tokens = [value]
+    merged = []
+    for s, e in sorted(_span(t) for t in tokens):
+        if merged and merged[-1][1] + 1 >= s:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+    if sum(e - s + 1 for s, e in merged) > limit:
+        raise _Invalid(f"행은 한 번에 {limit}개까지예요")
+    return merged
+
+
+def _expand(spans) -> list[int]:
+    return [n for s, e in spans for n in range(s, e + 1)]
+
+
+def _done(spans) -> str:
+    rows = _expand(spans)
+    return json.dumps({"success": True, "row_count": len(rows), "row_numbers": rows}, ensure_ascii=False)
+
+
+async def google_sheets_clear_rows(access_token: str, spreadsheet_id: str, sheet_id: str, row_numbers: str) -> str:
+    """
+    Google Sheets 워크시트 행의 값만 지웁니다. 서식과 행은 남습니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        row_numbers: 행 번호(예: 5 / 5,7 / 5-9 또는 찾기 결과 목록)
+    """
+    tool = "google_sheets_clear_rows"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        spans = _parse_row_numbers(row_numbers)
+        if not spans:
+            return _done(spans)
+        client = get_http_client()
+        _, title, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        response = await client.post(
+            f"{_spreadsheet_url(spreadsheet_id)}/values:batchClear",
+            headers=_headers(access_token),
+            json={"ranges": [_a1_range(f"{s}:{e}", title) for s, e in spans]},
+            timeout=_TIMEOUT,
+        )
+        _ok(response)
+        return _done(spans)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_delete_rows(access_token: str, spreadsheet_id: str, sheet_id: str, row_numbers: str,
+                                    confirm_delete: bool) -> str:
+    """
+    Google Sheets 워크시트 행을 지우고 아래 행을 당깁니다. 되돌릴 수 없습니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        row_numbers: 행 번호(예: 5 / 5,7 / 5-9 또는 찾기 결과 목록)
+        confirm_delete: 참이어야 실행한다
+    """
+    tool = "google_sheets_delete_rows"
+    try:
+        if not _flag(confirm_delete):
+            raise _Invalid("삭제 확인을 켜야 행을 지워요")
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        spans = _parse_row_numbers(row_numbers)
+        if not spans:
+            return _done(spans)
+        client = get_http_client()
+        sheet_num, _, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        # 아래 구간부터 지워야 앞 구간의 행 번호가 밀리지 않는다.
+        await _batch_update(client, access_token, spreadsheet_id, [
+            {"deleteDimension": {"range": {"sheetId": sheet_num, "dimension": "ROWS", "startIndex": s - 1,
+                                           "endIndex": e}}}
+            for s, e in reversed(spans)])
+        return _done(spans)
     except Exception as e:
         return _fail(tool, str(e))

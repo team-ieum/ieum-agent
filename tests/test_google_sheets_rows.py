@@ -5,7 +5,9 @@ from urllib.parse import unquote
 import pytest
 
 from tests.action_outputs import assert_matches_outputs
-from tools.google_sheets_rows import google_sheets_append_rows, google_sheets_update_rows
+from tools.google_sheets import _Invalid
+from tools.google_sheets_rows import (_parse_row_numbers, google_sheets_append_rows, google_sheets_clear_rows,
+                                      google_sheets_delete_rows, google_sheets_update_rows)
 
 pytestmark = pytest.mark.asyncio
 
@@ -257,3 +259,99 @@ async def test_수정_상한():
     await _no_google(google_sheets_update_rows,
                      rows=json.dumps([{"row_number": n, "A": "q"} for n in range(2, 503)]))
     assert len(await _updated(rows=json.dumps([{"row_number": n, "A": "q"} for n in range(2, 502)]))) == 500
+
+
+# --- 행 번호 파서, C6 clear_rows, C7 delete_rows ---
+
+@pytest.mark.parametrize("value, spans", [
+    ("5", [(5, 5)]), ("5,7", [(5, 5), (7, 7)]), (" 5 - 9 ", [(5, 9)]), ("5,6,7-9", [(5, 9)]),
+    ("9,5,5", [(5, 5), (9, 9)]), ("1", [(1, 1)]), ('[{"row_number":4},{"row_number":2}]', [(2, 2), (4, 4)]),
+    ('[3,"5-6"]', [(3, 3), (5, 6)]), ([2, "3"], [(2, 3)]), ("[]", []), ("1-1000", [(1, 1000)]),
+])
+async def test_행_번호_파서(value, spans):
+    assert _parse_row_numbers(value) == spans
+
+
+@pytest.mark.parametrize("value", ["", "  ", None, "9-5", "0", "-1", "5,,7", "２", "a", "5-", "[true]",
+                                   '[{"x":1}]', "[0]", "1-1001", "2-99999999"])
+async def test_행_번호_파서_거절(value):
+    with pytest.raises(_Invalid):
+        _parse_row_numbers(value)
+
+
+async def test_큰_범위는_펼치지_않는다():
+    with patch("tools.google_sheets_rows._expand") as expand:
+        error = await _no_google(google_sheets_clear_rows, row_numbers="2-99999999")
+    assert "1000개까지" in error
+    expand.assert_not_called()
+
+
+async def test_행_비우기는_batchClear_한_번():
+    fake, result = await _run(google_sheets_clear_rows, row_numbers="5,7-9")
+    (_, url, kw), = fake.of("clear")
+    assert url.endswith("/spreadsheets/s1/values:batchClear")
+    assert kw["json"] == {"ranges": ["'Sales'!5:5", "'Sales'!7:9"]}
+    assert result == {"success": True, "row_count": 4, "row_numbers": [5, 7, 8, 9]}
+    assert_matches_outputs("google_sheets.clear_rows", result)
+
+
+def _deletes(fake):
+    (_, url, kw), = fake.of("batch")
+    assert url.endswith("/spreadsheets/s1:batchUpdate")
+    return kw["json"]["requests"]
+
+
+async def test_행_삭제는_아래부터():
+    fake, result = await _run(google_sheets_delete_rows, row_numbers="5,7-9", confirm_delete=True)
+    assert _deletes(fake) == [
+        {"deleteDimension": {"range": {"sheetId": 0, "dimension": "ROWS", "startIndex": 6, "endIndex": 9}}},
+        {"deleteDimension": {"range": {"sheetId": 0, "dimension": "ROWS", "startIndex": 4, "endIndex": 5}}},
+    ]
+    assert result == {"success": True, "row_count": 4, "row_numbers": [5, 7, 8, 9]}
+    assert_matches_outputs("google_sheets.delete_rows", result)
+
+
+async def test_찾기_결과로_삭제():
+    rows = json.dumps([{"row_number": 2, "values": {}}, {"row_number": 4, "values": {}}])
+    fake, _ = await _run(google_sheets_delete_rows, row_numbers=rows, confirm_delete=True)
+    assert [r["deleteDimension"]["range"]["startIndex"] for r in _deletes(fake)] == [3, 1]
+
+
+@pytest.mark.parametrize("confirm_delete", [False, None, "", "false", 0])
+async def test_삭제_확인이_없으면_Google을_부르지_않는다(confirm_delete):
+    error = await _no_google(google_sheets_delete_rows, row_numbers="5", confirm_delete=confirm_delete)
+    assert "삭제 확인" in error
+
+
+async def test_삭제_확인_문자열_참():
+    fake, result = await _run(google_sheets_delete_rows, row_numbers="5", confirm_delete="true")
+    assert result["row_numbers"] == [5] and len(fake.of("batch")) == 1
+
+
+async def test_시트_id로_삭제():
+    fake, _ = await _run(google_sheets_delete_rows, _Fake(GRID, sheets=(("Sales", 0, 26), ("B", 5, 26))),
+                         sheet_id="5", row_numbers="2", confirm_delete=True)
+    assert _deletes(fake)[0]["deleteDimension"]["range"]["sheetId"] == 5
+
+
+@pytest.mark.parametrize("kwargs, word", [({"spreadsheet_id": ""}, "spreadsheet_id"), ({"sheet_id": ""}, "sheet_id"),
+                                          ({"row_numbers": ""}, "행 번호")])
+async def test_비우기_삭제_빈_대상(kwargs, word):
+    args = {"row_numbers": "5", **kwargs}
+    assert word in await _no_google(google_sheets_clear_rows, **args)
+    error = await _no_google(google_sheets_delete_rows, confirm_delete=True, **args)
+    assert word in error and "삭제 확인" not in error
+
+
+async def test_빈_배열은_0행_성공():
+    for tool, extra in ((google_sheets_clear_rows, {}), (google_sheets_delete_rows, {"confirm_delete": True})):
+        fake, result = await _run(tool, row_numbers="[]", **extra)
+        assert result == {"success": True, "row_count": 0, "row_numbers": []}
+        assert fake.calls == []
+
+
+async def test_구글_오류는_그대로():
+    message = "Sorry, it is not possible to delete all non-frozen rows."
+    fake = _Fake(GRID, fail={"batch": _resp(400, {"error": {"message": message}})})
+    _, result = await _run(google_sheets_delete_rows, fake, row_numbers="2-4", confirm_delete=True)
+    assert message in result["error"]
