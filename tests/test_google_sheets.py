@@ -13,7 +13,9 @@ from tools import _TOOL_MAP, get_tools_for_request
 from tools.google_sheets import (
     _Invalid, _col, _header_range, _resolve, _row, _row_number,
     google_sheets_append, google_sheets_append_top, google_sheets_find_or_create_row,
-    google_sheets_lookup_row, google_sheets_read, google_sheets_update_row,
+    google_sheets_find_spreadsheet, google_sheets_find_worksheet, google_sheets_get_row, google_sheets_get_rows,
+    google_sheets_get_spreadsheet,
+    google_sheets_lookup_row, google_sheets_lookup_rows, google_sheets_read, google_sheets_update_row,
 )
 from tools.registry import _ACTION_ONLY_TOOLS, resolve_action_fn
 
@@ -39,8 +41,11 @@ class _Sheets:
     fail: {"append"|"update"|"insert"|"delete"|"get_values": MagicMock 응답 또는 던질 예외}."""
 
     def __init__(self, grid, sheets=(("Sales", 0, 26),), fail=None, updated_range=None, omit_sheet_id=False,
-                 omit_column_count=False):
+                 omit_column_count=False, values_by_range=None, sheet_types=None, drive_files=()):
         self.grid = grid
+        self.sheet_types = sheet_types or {}  # {제목: sheetType}, 없으면 GRID
+        self.drive_files = list(drive_files)
+        self.values_by_range = values_by_range or {}  # {A1 범위: 행 목록 또는 None(values 키 없음)}
         self.sheets = sheets
         self.fail = fail or {}
         self.updated_range = updated_range
@@ -66,16 +71,25 @@ class _Sheets:
 
     async def get(self, url, **kwargs):
         self.calls.append(("GET", url, kwargs))
+        if url.startswith("https://www.googleapis.com/drive/v3/files"):
+            return _resp(200, {"files": self.drive_files})
         if "/values/" not in url:
             props = []
-            for title, sid, count in self.sheets:
-                p = {"sheetId": sid, "title": title, "gridProperties": {"columnCount": count}}
+            for index, (title, sid, count) in enumerate(self.sheets):
+                p = {"sheetId": sid, "title": title, "index": index, "sheetType": self.sheet_types.get(title, "GRID"),
+                     "gridProperties": {"rowCount": 1000, "columnCount": count}}
                 if self.omit_sheet_id and sid == 0:
                     del p["sheetId"]
                 if self.omit_column_count:
                     del p["gridProperties"]["columnCount"]
                 props.append({"properties": p})
-            return _resp(200, {"sheets": props})
+            sid = url.rsplit("/", 1)[1]
+            return self._answer("get_spreadsheet", {
+                "spreadsheetId": sid, "spreadsheetUrl": f"https://docs.google.com/spreadsheets/d/{sid}/edit",
+                "properties": {"title": "예산", "locale": "ko_KR", "timeZone": "Asia/Seoul"}, "sheets": props})
+        if _range(url) in self.values_by_range:
+            rows = self.values_by_range[_range(url)]
+            return self._answer("get_values", {} if rows is None else {"values": rows})
         values = self.grid[:1] if _range(url).endswith("!1:1") else self.grid
         return self._answer("get_values", {"values": values})
 
@@ -159,11 +173,15 @@ _TOOL_ARGS = {
     "lookup_row": (google_sheets_lookup_row, {"lookup_column": "A", "lookup_value": "a"}),
     "find_or_create_row": (google_sheets_find_or_create_row,
                            {"lookup_column": "A", "lookup_value": "a", "columns": {"A": "x"}}),
+    "lookup_rows": (google_sheets_lookup_rows, {"lookup_column": "A", "lookup_value": "a"}),
+    "get_rows": (google_sheets_get_rows, {"column_range": "A:B", "row_count": 1}),
+    "get_row": (google_sheets_get_row, {"row_number": 2}),
 }
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("tool", ["append", "read", "append_top", "update_row", "lookup_row", "find_or_create_row"])
+@pytest.mark.parametrize("tool", ["append", "read", "append_top", "update_row", "lookup_row", "find_or_create_row",
+                                  "lookup_rows", "get_rows", "get_row"])
 @pytest.mark.parametrize("spreadsheet_id, sheet_id", [
     ("", "0"), ("  ", "0"), ("..", "0"), ("a/b", "0"), ("s1", ""), ("s1", "  "), ("s1", None)])
 async def test_빈_대상은_Google을_부르지_않는다(tool, spreadsheet_id, sheet_id):
@@ -363,6 +381,7 @@ async def test_모든_열_덮어쓰기는_머리글_끝까지_빈_문자열():
 @pytest.mark.parametrize("row", ["0", 0, -1, "abc", 1.5, "", None, True])
 async def test_행_번호가_잘못되면_Google을_부르지_않는다(row):
     await _no_google(google_sheets_update_row, spreadsheet_id="s1", sheet_id="0", row_number=row, columns={"A": "x"})
+    await _no_google(google_sheets_get_row, spreadsheet_id="s1", sheet_id="0", row_number=row)
 
 
 @pytest.mark.asyncio
@@ -449,7 +468,8 @@ async def test_못_찾으면_빈_결과로_성공한다():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("tool", [google_sheets_lookup_row, google_sheets_find_or_create_row])
+@pytest.mark.parametrize("tool", [google_sheets_lookup_row, google_sheets_find_or_create_row,
+                                  google_sheets_lookup_rows])
 @pytest.mark.parametrize("kwargs", [
     {"lookup_value": ""}, {"lookup_value": "   "}, {"lookup_value": None},
     {"lookup_value": "a", "lookup_column_2": "D", "lookup_value_2": ""},
@@ -460,6 +480,249 @@ async def test_찾을_값이_비면_Google을_부르지_않는다(tool, kwargs):
     if tool is google_sheets_find_or_create_row:
         kwargs["columns"] = {"A": "x"}
     await _no_google(tool, spreadsheet_id="s1", sheet_id="0", **kwargs)
+
+
+# --- S2 값으로 여러 행 찾기 ---
+async def _lookup_rows(**kwargs):
+    fake = _Sheets(GRID)
+    result = await _call(fake, google_sheets_lookup_rows, sheet_id="0", lookup_column="A", **kwargs)
+    return fake, result
+
+
+@pytest.mark.asyncio
+async def test_여러_행_찾기는_일치_행을_전부_돌려준다():
+    fake, result = await _lookup_rows(lookup_value="a")
+    assert (result["found"], result["total"]) == (True, 2)
+    assert [i["row_number"] for i in result["items"]] == [2, 4]
+    assert result["items"][0]["values"] == {"A": "a", "B": "x@x", "C": "", "D": "1"}
+    gets = [c for c in fake.calls if "/values/" in c[1]]
+    assert len(gets) == 1 and _range(gets[0][1]) == "'Sales'"
+    assert_matches_outputs("google_sheets.lookup_rows", result)
+
+
+@pytest.mark.asyncio
+async def test_여러_행_찾기_마지막부터와_최대_개수():
+    _, result = await _lookup_rows(lookup_value="a", from_bottom=True, max_rows=1)
+    assert [i["row_number"] for i in result["items"]] == [4]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("start_row, rows", [(3, [4]), ("1", [2, 4]), (0, [2, 4]), ("", [2, 4])])
+async def test_여러_행_찾기_시작_행(start_row, rows):
+    _, result = await _lookup_rows(lookup_value="a", start_row=start_row)
+    assert [i["row_number"] for i in result["items"]] == rows
+
+
+@pytest.mark.asyncio
+async def test_여러_행_찾기_0건은_성공():
+    _, result = await _lookup_rows(lookup_value="zzz")
+    assert result == {"success": True, "found": False, "total": 0, "items": []}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_rows", [0, 501, "abc", True])
+async def test_최대_개수_범위_밖은_Google을_부르지_않는다(max_rows):
+    await _no_google(google_sheets_lookup_rows, spreadsheet_id="s1", sheet_id="0", lookup_column="A",
+                     lookup_value="a", max_rows=max_rows)
+
+
+# --- S4 여러 행 가져오기 · S5 행 번호로 가져오기 ---
+def _value_gets(fake):
+    return [_range(c[1]) for c in fake.calls if "/values/" in c[1]]
+
+
+@pytest.mark.asyncio
+async def test_여러_행_가져오기는_범위를_조립한다():
+    fake = _Sheets(GRID, values_by_range={"'Sales'!A2:D4": GRID[1:]})
+    result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:D", row_count=3)
+    assert _value_gets(fake) == ["'Sales'!A2:D4"]
+    assert fake.of("GET")[-1][2]["params"] == {"valueRenderOption": "FORMATTED_VALUE"}
+    assert (result["found"], result["total"]) == (True, 3)
+    assert [i["row_number"] for i in result["items"]] == [2, 3, 4]
+    assert result["items"][1]["values"] == {"A": "b", "B": "y@y", "C": "", "D": ""}
+    assert_matches_outputs("google_sheets.get_rows", result)
+
+
+@pytest.mark.asyncio
+async def test_중간_빈_행은_빈_값으로_넣는다():
+    fake = _Sheets(GRID, values_by_range={"'Sales'!A2:B4": [["a"], [], ["c"]]})
+    result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:B", row_count=3)
+    assert result["total"] == 3 and result["items"][1]["values"] == {"A": "", "B": ""}
+
+
+@pytest.mark.asyncio
+async def test_데이터_밖_범위는_0건():
+    fake = _Sheets(GRID, values_by_range={"'Sales'!A100:B101": None})
+    result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:B", row_count=2, start_row=100)
+    assert result == {"success": True, "found": False, "total": 0, "items": []}
+
+
+@pytest.mark.asyncio
+async def test_여러_행_가져오기는_시트_제목도_받는다():
+    fake = _Sheets(GRID, sheets=(("Sales", 5, 26),), values_by_range={"'Sales'!A2:B2": [["a", "b"]]})
+    result = await _call(fake, google_sheets_get_rows, sheet_id="Sales", column_range="A:B", row_count=1)
+    assert _value_gets(fake) == ["'Sales'!A2:B2"] and result["found"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("column_range", ["", "a:z", "A", "A:", "AAAA:B", "D:A", "A1:B2"])
+async def test_열_범위가_잘못되면_Google을_부르지_않는다(column_range):
+    await _no_google(google_sheets_get_rows, spreadsheet_id="s1", sheet_id="0", column_range=column_range,
+                     row_count=1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row_count", [0, 1501, "", None, "x"])
+async def test_가져올_행_수_범위_밖(row_count):
+    await _no_google(google_sheets_get_rows, spreadsheet_id="s1", sheet_id="0", column_range="A:D",
+                     row_count=row_count)
+
+
+@pytest.mark.asyncio
+async def test_가져올_행_수_1500은_된다():
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:D", row_count="1500")
+    assert _value_gets(fake) == ["'Sales'!A2:D1501"]
+
+
+@pytest.mark.asyncio
+async def test_행_번호로_가져오기():
+    fake = _Sheets(GRID, values_by_range={"'Sales'!4:4": [GRID[3]]})
+    result = await _call(fake, google_sheets_get_row, sheet_id="0", row_number="4")
+    assert _value_gets(fake) == ["'Sales'!1:1", "'Sales'!4:4"]
+    values = {"A": "a", "B": "z@z", "C": "", "D": "2"}
+    assert result == {"success": True, "found": True, "total": 1, "items": [{"row_number": 4, "values": values}],
+                      "row_number": 4, "values": values}
+    assert_matches_outputs("google_sheets.get_row", result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rows", [None, [["", ""]]])
+async def test_빈_행이나_데이터_밖_행은_못_찾음(rows):
+    fake = _Sheets(GRID, values_by_range={"'Sales'!9:9": rows})
+    result = await _call(fake, google_sheets_get_row, sheet_id="0", row_number=9)
+    assert result == {"success": True, "found": False, "total": 0, "items": [], "row_number": None, "values": {}}
+
+
+# --- S6 스프레드시트 찾기 · S7 워크시트 찾기 · S8 ID로 스프레드시트 가져오기 ---
+_FILE = {"id": "f1", "name": "예산", "webViewLink": "https://docs.google.com/spreadsheets/d/f1/edit",
+         "modifiedTime": "2026-11-01T00:00:00.000Z"}
+_SPREADSHEET_Q = "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and "
+
+
+async def _find_spreadsheet(files=(_FILE,), **kwargs):
+    fake = _Sheets(GRID, drive_files=files)
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        result = json.loads(await google_sheets_find_spreadsheet(access_token="t", **kwargs))
+    return fake, result
+
+
+@pytest.mark.asyncio
+async def test_스프레드시트_찾기_정확히():
+    fake, result = await _find_spreadsheet(name="예산")
+    [(_, url, kwargs)] = fake.calls
+    assert url == "https://www.googleapis.com/drive/v3/files"
+    assert kwargs["params"] == {"q": _SPREADSHEET_Q + "name = '예산'", "fields": "files(id,name,webViewLink,modifiedTime)",
+                                "orderBy": "modifiedTime desc", "pageSize": 50, "supportsAllDrives": "true",
+                                "includeItemsFromAllDrives": "true"}
+    assert result == {"success": True, "found": True, "total": 1, "items": [
+        {"id": "f1", "name": "예산", "url": _FILE["webViewLink"], "modified_time": _FILE["modifiedTime"]}]}
+    assert_matches_outputs("google_sheets.find_spreadsheet", result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("match, expected", [("prefix", "name contains '예산'"), ("", "name = '예산'"),
+                                             (None, "name = '예산'")])
+async def test_스프레드시트_찾기_앞부분(match, expected):
+    fake, _ = await _find_spreadsheet(name="예산", match=match)
+    assert fake.calls[0][2]["params"]["q"] == _SPREADSHEET_Q + expected
+
+
+@pytest.mark.asyncio
+async def test_검색식_이스케이프():
+    fake, _ = await _find_spreadsheet(name="Bob's \\ x")
+    assert fake.calls[0][2]["params"]["q"].endswith("name = 'Bob\\'s \\\\ x'")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [{"name": ""}, {"name": "  "}, {"name": None}, {"name": "a", "match": "regex"}])
+async def test_스프레드시트_찾기_거절(kwargs):
+    await _no_google(google_sheets_find_spreadsheet, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_스프레드시트_0건():
+    _, result = await _find_spreadsheet(files=[], name="없음")
+    assert result == {"success": True, "found": False, "total": 0, "items": []}
+
+
+_TWO_SHEETS = (("Sales", 0, 26), ("요약", 7, 5))
+
+
+@pytest.mark.asyncio
+async def test_워크시트_찾기():
+    fake = _Sheets(GRID, sheets=_TWO_SHEETS)
+    result = await _call(fake, google_sheets_find_worksheet, title="요약")
+    item = {"sheet_id": "7", "title": "요약", "index": 1, "row_count": 1000, "column_count": 5}
+    assert result == {"success": True, "found": True, "total": 1, "items": [item], "sheet_id": "7", "title": "요약"}
+    assert "sheetType" in fake.calls[0][2]["params"]["fields"]
+    assert_matches_outputs("google_sheets.find_worksheet", result)
+
+
+@pytest.mark.asyncio
+async def test_워크시트_찾기는_대소문자_구분():
+    result = await _call(_Sheets(GRID, sheets=_TWO_SHEETS), google_sheets_find_worksheet, title="sales")
+    assert result == {"success": True, "found": False, "total": 0, "items": [], "sheet_id": None, "title": None}
+
+
+@pytest.mark.asyncio
+async def test_GRID가_아닌_시트는_찾지_않는다():
+    fake = _Sheets(GRID, sheet_types={"Sales": "OBJECT"})
+    result = await _call(fake, google_sheets_find_worksheet, title="Sales")
+    assert result["found"] is False
+
+
+@pytest.mark.asyncio
+async def test_스프레드시트_가져오기():
+    fake = _Sheets(GRID, sheets=_TWO_SHEETS + (("차트", 9, 1),), sheet_types={"차트": "OBJECT"})
+    result = await _call(fake, google_sheets_get_spreadsheet)
+    sheets = [{"sheet_id": "0", "title": "Sales", "index": 0, "row_count": 1000, "column_count": 26},
+              {"sheet_id": "7", "title": "요약", "index": 1, "row_count": 1000, "column_count": 5}]
+    url = "https://docs.google.com/spreadsheets/d/s1/edit"
+    assert result == {"success": True, "found": True, "total": 1,
+                      "items": [{"id": "s1", "title": "예산", "locale": "ko_KR", "time_zone": "Asia/Seoul",
+                                 "url": url, "sheets": sheets}],
+                      "title": "예산", "url": url, "sheets": sheets}
+    assert "includeGridData" not in fake.calls[0][2]["params"]["fields"]
+    assert_matches_outputs("google_sheets.get_spreadsheet", result)
+
+
+@pytest.mark.asyncio
+async def test_없는_스프레드시트는_못_찾음():
+    fake = _Sheets(GRID, fail={"get_spreadsheet": _resp(404, {"error": {"message": "not found"}})})
+    result = await _call(fake, google_sheets_get_spreadsheet)
+    assert result == {"success": True, "found": False, "total": 0, "items": [], "title": None, "url": None,
+                      "sheets": []}
+
+
+@pytest.mark.asyncio
+async def test_스프레드시트_403은_실패():
+    fake = _Sheets(GRID, fail={"get_spreadsheet": _resp(403, {"error": {"message": "denied"}})})
+    result = await _call(fake, google_sheets_get_spreadsheet)
+    assert ToolErrorCode.EXECUTION_FAILED.message in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("spreadsheet_id", ["", "..", "a/b"])
+async def test_스프레드시트_대상이_잘못되면_Google을_부르지_않는다(spreadsheet_id):
+    await _no_google(google_sheets_get_spreadsheet, spreadsheet_id=spreadsheet_id)
+    await _no_google(google_sheets_find_worksheet, spreadsheet_id=spreadsheet_id, title="Sales")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("title", ["", None])
+async def test_워크시트_제목이_비면_Google을_부르지_않는다(title):
+    await _no_google(google_sheets_find_worksheet, spreadsheet_id="s1", title=title)
 
 
 # --- S11 ---
@@ -581,10 +844,12 @@ async def test_AI_노드는_시트를_고정하고_열을_이름으로_넘긴다
     assert "/spreadsheets/abc/" in url and kwargs["json"]["values"] == [["", "a@x"]]
 
 
-def test_AI_노드_도구_선택지의_Sheets는_행_추가·행_찾기·읽기뿐():
+def test_AI_노드_도구_선택지의_Sheets는_쓰기_전용_셋을_뺀다():
     tools = next(f for f in tr.get_template("ai.agent")["inputFields"] if f["key"] == "tools")
     sheets = {c["id"] for c in tools["choices"] if c["id"].startswith("builtin:google_sheets_")}
-    assert sheets == {"builtin:google_sheets_append", "builtin:google_sheets_lookup_row", "builtin:google_sheets_read"}
+    assert sheets == {f"builtin:google_sheets_{x}" for x in (
+        "append", "lookup_row", "read", "lookup_rows", "get_rows", "get_row",
+        "find_spreadsheet", "find_worksheet", "get_spreadsheet")}
 
 
 def test_ACTION_전용_Sheets_도구는_AI_목록_밖에서만_풀린다():

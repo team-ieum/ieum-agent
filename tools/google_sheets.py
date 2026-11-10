@@ -9,6 +9,7 @@ from common.error_code import ToolErrorCode
 from tools.http_client import get_http_client
 
 _SHEETS_API_BASE = "https://sheets.googleapis.com/v4"
+_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
 _TIMEOUT = 30.0
 
 
@@ -87,11 +88,16 @@ def _check(spreadsheet_id, sheet_id, *, columns=_UNSET, value_input_option=_UNSE
             raise _Invalid("찾을 값이 비어 있어요")
         if not _blank(column_2) and _blank(value_2):
             raise _Invalid("보조 찾을 값이 비어 있어요")
+    sid = _sid(spreadsheet_id)
+    if _blank(sheet_id):  # "0"·0은 첫 시트의 정상 id다
+        raise _Invalid("sheet_id가 비어 있어요")
+    return sid
+
+
+def _sid(spreadsheet_id) -> str:
     sid = "" if spreadsheet_id is None else str(spreadsheet_id).strip()
     if not _SPREADSHEET_ID.fullmatch(sid):
         raise _Invalid(f"spreadsheet_id가 올바르지 않아요: {spreadsheet_id!r}")
-    if _blank(sheet_id):  # "0"·0은 첫 시트의 정상 id다
-        raise _Invalid("sheet_id가 비어 있어요")
     return sid
 
 
@@ -107,6 +113,20 @@ def _row_index(row_number) -> int:
     if n is None or n < 1:
         raise _Invalid(f"행 번호가 올바르지 않아요: {row_number!r}")
     return n
+
+
+def _int(value, default: int | None, name: str) -> int:
+    """빈 값이면 default(None이면 실패). bool 거절·문자열 숫자 허용, 범위 판정은 호출자 몫."""
+    if _blank(value):
+        if default is None:
+            raise _Invalid(f"{name}이(가) 비어 있어요")
+        return default
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    s = value.strip() if isinstance(value, str) else ""
+    if s.isascii() and s.lstrip("-").isdigit():
+        return int(s)
+    raise _Invalid(f"{name}이(가) 올바르지 않아요: {value!r}")
 
 
 def _ok(response) -> dict:
@@ -266,8 +286,10 @@ async def _append(client, access_token, spreadsheet_id, title: str, row: list, v
 
 
 async def _lookup(client, access_token, spreadsheet_id, sheet_id, lookup_column, lookup_value,
-                  lookup_column_2, lookup_value_2, from_bottom) -> tuple[_Sheet, int | None, dict]:
-    """(시트, 찾은 행 번호 또는 None, {열 문자: 값}). 시트 전체를 한 번 읽고 첫 행을 머리글로 쓴다."""
+                  lookup_column_2, lookup_value_2, from_bottom, *, start_row: int = 2,
+                  limit: int = 1) -> tuple[_Sheet, list[tuple[int, dict]]]:
+    """(시트, [(행 번호, {열 문자: 값})]). 시트 전체를 한 번 읽고 첫 행을 머리글로 쓴다.
+    행 번호 >= start_row인 일치 행을 최대 limit개, from_bottom이면 아래부터."""
     sid, title, column_count = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
     response = await client.get(
         _values_url(spreadsheet_id, _a1_range("", title)),
@@ -284,13 +306,12 @@ async def _lookup(client, access_token, spreadsheet_id, sheet_id, lookup_column,
     def cell(row, i):
         return str(row[i]) if i < len(row) else ""
 
-    numbered = list(enumerate(rows[1:], start=2))
+    numbered = [(n, row) for n, row in enumerate(rows[1:], start=2) if n >= start_row]
     if _flag(from_bottom):
         numbered.reverse()
-    for n, row in numbered:
-        if all(cell(row, i) == value for i, value in conditions):
-            return sheet, n, {_col(i): cell(row, i) for i in range(len(sheet.headers))}
-    return sheet, None, {}
+    matches = [(n, {_col(i): cell(row, i) for i in range(len(sheet.headers))})
+               for n, row in numbered if all(cell(row, i) == value for i, value in conditions)]
+    return sheet, matches[:limit]
 
 
 async def google_sheets_read(access_token: str, spreadsheet_id: str, sheet_id: str, cell_range: str) -> str:
@@ -449,11 +470,261 @@ async def google_sheets_lookup_row(access_token: str, spreadsheet_id: str, sheet
         spreadsheet_id = _check(spreadsheet_id, sheet_id,
                                 lookup=(lookup_column, lookup_value, lookup_column_2, lookup_value_2))
         client = get_http_client()
-        _, n, values = await _lookup(client, access_token, spreadsheet_id, sheet_id, lookup_column, lookup_value,
-                                     lookup_column_2, lookup_value_2, from_bottom)
-        items = [] if n is None else [{"row_number": n, "values": values}]
+        _, matches = await _lookup(client, access_token, spreadsheet_id, sheet_id, lookup_column, lookup_value,
+                                   lookup_column_2, lookup_value_2, from_bottom)
+        n, values = matches[0] if matches else (None, {})
+        items = [{"row_number": n, "values": values} for n, values in matches]
         return json.dumps({"success": True, "found": n is not None, "total": len(items), "items": items,
                            "row_number": n, "values": values}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_lookup_rows(access_token: str, spreadsheet_id: str, sheet_id: str, lookup_column: str,
+                                    lookup_value: str, lookup_column_2: str | None = None,
+                                    lookup_value_2: str | None = None, from_bottom: bool = False,
+                                    start_row: int = 2, max_rows: int = 500) -> str:
+    """
+    Google Sheets 워크시트에서 열 값이 정확히 일치하는(대소문자 구분) 행을 모두 찾습니다. 1행(머리글)은 찾지 않습니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        lookup_column: 찾을 열(머리글 이름 또는 열 문자)
+        lookup_value: 찾을 값
+        lookup_column_2: 보조로 함께 맞춰 볼 열(머리글 이름 또는 열 문자)
+        lookup_value_2: 보조 열에서 찾을 값
+        from_bottom: 참이면 마지막 행부터 찾는다
+        start_row: 이 행부터 찾는다(기본 2, 1 이하는 2)
+        max_rows: 최대 개수(1~500, 기본 500)
+
+    Returns:
+        found, total, items([{row_number, values({열 문자: 값})}])를 포함한 JSON 문자열
+    """
+    tool = "google_sheets_lookup_rows"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id,
+                                lookup=(lookup_column, lookup_value, lookup_column_2, lookup_value_2))
+        limit = _int(max_rows, 500, "최대 개수")
+        if not 1 <= limit <= 500:
+            raise _Invalid(f"최대 개수는 1~500이어야 해요: {max_rows!r}")
+        start = max(_int(start_row, 2, "시작 행"), 2)
+        client = get_http_client()
+        _, matches = await _lookup(client, access_token, spreadsheet_id, sheet_id, lookup_column, lookup_value,
+                                   lookup_column_2, lookup_value_2, from_bottom, start_row=start, limit=limit)
+        items = [{"row_number": n, "values": values} for n, values in matches]
+        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items},
+                          ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_get_rows(access_token: str, spreadsheet_id: str, sheet_id: str, column_range: str,
+                                 row_count: int, start_row: int = 2) -> str:
+    """
+    Google Sheets 워크시트에서 시작 행부터 정한 수만큼 행을 가져옵니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        column_range: 열 범위(예: "A:Z")
+        row_count: 가져올 행 수(1~1500)
+        start_row: 시작 행(기본 2, 1행은 머리글이라 1 이하는 2)
+
+    Returns:
+        found, total, items([{row_number, values({열 문자: 값})}])를 포함한 JSON 문자열
+    """
+    tool = "google_sheets_get_rows"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        m = re.fullmatch(r"([A-Z]{1,3}):([A-Z]{1,3})", str(column_range or "").strip())
+        if not m or _col_index(m[1]) > _col_index(m[2]):
+            raise _Invalid(f"열 범위가 올바르지 않아요(예: A:Z): {column_range!r}")
+        count = _int(row_count, None, "가져올 행 수")
+        if not 1 <= count <= 1500:
+            raise _Invalid(f"가져올 행 수는 1~1500이어야 해요: {row_count!r}")
+        start = max(_int(start_row, 2, "시작 행"), 2)
+        client = get_http_client()
+        _, title, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        response = await client.get(
+            _values_url(spreadsheet_id, _a1_range(f"{m[1]}{start}:{m[2]}{start + count - 1}", title)),
+            headers=_headers(access_token),
+            params={"valueRenderOption": "FORMATTED_VALUE"},
+            timeout=_TIMEOUT,
+        )
+        rows = _ok(response).get("values") or []
+        first = _col_index(m[1])
+        width = _col_index(m[2]) - first + 1
+        items = [{"row_number": start + k,
+                  "values": {_col(first + i): str(row[i]) if i < len(row) else "" for i in range(width)}}
+                 for k, row in enumerate(rows)]
+        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items},
+                          ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_get_row(access_token: str, spreadsheet_id: str, sheet_id: str, row_number: int) -> str:
+    """
+    Google Sheets 워크시트에서 행 번호로 한 행을 가져옵니다. 열은 머리글 범위까지입니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        row_number: 가져올 행 번호(1부터)
+
+    Returns:
+        found, total, items, row_number, values({열 문자: 값})를 포함한 JSON 문자열
+    """
+    tool = "google_sheets_get_row"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        n = _row_index(row_number)
+        client = get_http_client()
+        sheet = await _open(client, access_token, spreadsheet_id, sheet_id)
+        response = await client.get(
+            _values_url(spreadsheet_id, _a1_range(f"{n}:{n}", sheet.title)),
+            headers=_headers(access_token),
+            params={"valueRenderOption": "FORMATTED_VALUE"},
+            timeout=_TIMEOUT,
+        )
+        row = (_ok(response).get("values") or [[]])[0]
+        values = {_col(i): str(row[i]) if i < len(row) else "" for i in range(len(sheet.headers))}
+        if not any(values.values()):
+            return json.dumps({"success": True, "found": False, "total": 0, "items": [], "row_number": None,
+                               "values": {}}, ensure_ascii=False)
+        return json.dumps({"success": True, "found": True, "total": 1,
+                           "items": [{"row_number": n, "values": values}], "row_number": n, "values": values},
+                          ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+def _drive_quote(value: str) -> str:
+    # Drive 검색식 주입 방지: 역슬래시를 먼저, 그다음 작은따옴표.
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+_SHEET_PROPS = "sheets.properties(sheetId,title,index,sheetType,gridProperties(rowCount,columnCount))"
+
+
+def _grid_sheets(data: dict) -> list[dict]:
+    """GRID 시트만(드롭다운과 같게). 생략된 sheetId는 0, 생략된 sheetType은 GRID."""
+    sheets = []
+    for s in data.get("sheets", []):
+        p = s.get("properties", {})
+        if p.get("sheetType", "GRID") != "GRID":
+            continue
+        grid = p.get("gridProperties", {})
+        sheets.append({"sheet_id": str(p.get("sheetId", 0)), "title": p.get("title", ""), "index": p.get("index", 0),
+                       "row_count": grid.get("rowCount", 0), "column_count": grid.get("columnCount", 0)})
+    return sheets
+
+
+async def google_sheets_find_spreadsheet(access_token: str, name: str, match: str = "exact") -> str:
+    """
+    이름으로 Google Sheets 스프레드시트를 찾습니다(최근 수정 순, 최대 50개).
+
+    Args:
+        access_token: Google OAuth Access Token
+        name: 스프레드시트 이름
+        match: exact(정확히 일치) 또는 prefix(이름이 이것으로 시작)
+
+    Returns:
+        found, total, items([{id, name, url, modified_time}])를 포함한 JSON 문자열
+    """
+    tool = "google_sheets_find_spreadsheet"
+    try:
+        match = match or "exact"  # 빈 칸 = 카탈로그 기본값
+        if match not in ("exact", "prefix"):
+            raise _Invalid(f"일치 방식은 exact 또는 prefix만 돼요: {match!r}")
+        if _blank(name):
+            raise _Invalid("이름이 비어 있어요")
+        op = "=" if match == "exact" else "contains"
+        q = (f"mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and "
+             f"name {op} '{_drive_quote(str(name))}'")
+        client = get_http_client()
+        response = await client.get(
+            _DRIVE_FILES_URL,
+            headers=_headers(access_token),
+            params={"q": q, "fields": "files(id,name,webViewLink,modifiedTime)", "orderBy": "modifiedTime desc",
+                    "pageSize": 50, "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"},
+            timeout=_TIMEOUT,
+        )
+        items = [{"id": f.get("id", ""), "name": f.get("name", ""), "url": f.get("webViewLink", ""),
+                  "modified_time": f.get("modifiedTime", "")} for f in _ok(response).get("files", [])]
+        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items},
+                          ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_find_worksheet(access_token: str, spreadsheet_id: str, title: str) -> str:
+    """
+    제목으로 스프레드시트 안의 워크시트를 찾습니다(대소문자 구분 정확히 일치).
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        title: 시트 제목
+
+    Returns:
+        found, total, items([{sheet_id, title, index, row_count, column_count}]), sheet_id, title을 포함한 JSON 문자열
+    """
+    tool = "google_sheets_find_worksheet"
+    try:
+        spreadsheet_id = _sid(spreadsheet_id)
+        if _blank(title):
+            raise _Invalid("시트 제목이 비어 있어요")
+        client = get_http_client()
+        response = await client.get(
+            _spreadsheet_url(spreadsheet_id),
+            headers=_headers(access_token),
+            params={"fields": _SHEET_PROPS},
+            timeout=_TIMEOUT,
+        )
+        items = [s for s in _grid_sheets(_ok(response)) if s["title"] == str(title)][:1]
+        first = items[0] if items else {}
+        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items,
+                           "sheet_id": first.get("sheet_id"), "title": first.get("title")}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_get_spreadsheet(access_token: str, spreadsheet_id: str) -> str:
+    """
+    ID로 스프레드시트 정보와 시트 목록을 가져옵니다. 없는 ID면 found가 거짓입니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+
+    Returns:
+        found, total, items, title, url, sheets([{sheet_id, title, index, row_count, column_count}])를 포함한 JSON 문자열
+    """
+    tool = "google_sheets_get_spreadsheet"
+    try:
+        spreadsheet_id = _sid(spreadsheet_id)
+        client = get_http_client()
+        response = await client.get(
+            _spreadsheet_url(spreadsheet_id),
+            headers=_headers(access_token),
+            params={"fields": "spreadsheetId,spreadsheetUrl,properties(title,locale,timeZone)," + _SHEET_PROPS},
+            timeout=_TIMEOUT,
+        )
+        if response.status_code == 404:
+            return json.dumps({"success": True, "found": False, "total": 0, "items": [], "title": None, "url": None,
+                               "sheets": []}, ensure_ascii=False)
+        data = _ok(response)
+        props = data.get("properties", {})
+        item = {"id": data.get("spreadsheetId", spreadsheet_id), "title": props.get("title", ""),
+                "locale": props.get("locale", ""), "time_zone": props.get("timeZone", ""),
+                "url": data.get("spreadsheetUrl", ""), "sheets": _grid_sheets(data)}
+        return json.dumps({"success": True, "found": True, "total": 1, "items": [item], "title": item["title"],
+                           "url": item["url"], "sheets": item["sheets"]}, ensure_ascii=False)
     except Exception as e:
         return _fail(tool, str(e))
 
@@ -485,9 +756,10 @@ async def google_sheets_find_or_create_row(access_token: str, spreadsheet_id: st
         spreadsheet_id = _check(spreadsheet_id, sheet_id, columns=columns, value_input_option=value_input_option,
                                 lookup=(lookup_column, lookup_value, lookup_column_2, lookup_value_2))
         client = get_http_client()
-        sheet, n, values = await _lookup(client, access_token, spreadsheet_id, sheet_id, lookup_column,
-                                         lookup_value, lookup_column_2, lookup_value_2, from_bottom)
-        if n is not None:
+        sheet, matches = await _lookup(client, access_token, spreadsheet_id, sheet_id, lookup_column,
+                                       lookup_value, lookup_column_2, lookup_value_2, from_bottom)
+        if matches:
+            n, values = matches[0]
             return json.dumps({"success": True, "created": False, "row_number": n, "values": values},
                               ensure_ascii=False)
         row = _row(columns, sheet.headers, blank="")
