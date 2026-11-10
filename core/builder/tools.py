@@ -18,7 +18,7 @@ from core.builder.hitl import (ASK_FINISH, ASK_SKIP_ONLY, ASK_TEST, FINISH, fini
 from core.builder.model_pick import NO_KEY_MESSAGE, ask_text, load_choices
 from core.builder.state import DONE_STATUSES, node_hash, node_status, workflow_hash
 from core.provider_config import resolve_model
-from core.template_registry import CATALOG_DIR, _get_by_path, _read_json, builder_entries, event_entry
+from core.template_registry import CATALOG_DIR, _get_by_path, _read_json, builder_entries, event_entry, match_entry
 from core.validators.static_validator import _declared_outputs, condition_branches, validate_workflow
 from tools.registry import apply_service_brand
 
@@ -300,7 +300,7 @@ def rename_node(turn: Turn, node_id: str, label: str) -> dict:
 _GOOGLE_SCOPE = {"spreadsheets": "Sheets", "worksheets": "Sheets", "files": "Drive", "folders": "Drive",
                  "calendars": "Calendar", "writable_calendars": "Calendar", "events": "Calendar",
                  "gmail_send_as": "Gmail", "gmail_labels": "Gmail", "gmail_messages": "Gmail", "gmail_threads": "Gmail",
-                 "sheet_columns": "Sheets", "forms": "Drive"}
+                 "sheet_columns": "Sheets", "forms": "Drive", "form_questions": "Drive", "form_responses": "Drive"}
 # test_node는 노드 event(google_calendar.update)를 넘긴다 — 앱으로 정한다
 _GOOGLE_APP = {"gmail": "Gmail", "google_sheets": "Sheets", "google_drive": "Drive", "google_calendar": "Calendar",
                "google_forms": "Drive"}
@@ -329,13 +329,46 @@ def _ancestors(turn: Turn, node_id: str) -> list[str]:
     return seen
 
 
+def _dynamic_outputs(node: dict) -> dict[str, dict]:
+    """노드의 최상위 출력 중 안쪽 칸을 공급원으로 조회하는 것 {key: 칸}. 목록 안 칸(items[].answers)은 펼치지 않는다."""
+    entry = match_entry(node)
+    return {f["key"]: f for f in (entry or {}).get("outputFields") or [] if f.get("fieldsSource")}
+
+
+def _loaded(node: dict, state) -> dict[str, list]:
+    """조회해 둔 출력 동적 칸 {key: [{name, title, type}]}. 조회 뒤 입력(폼 등)이 바뀌었으면 쓰지 않는다."""
+    seen = state.get("dynamic_outputs") or {}
+    out = {}
+    for key, f in _dynamic_outputs(node).items():
+        record = seen.get(f"{node['id']}|{key}")
+        if record and _inputs(node, f"config.{key}", f.get("fieldsInputs"))[0] == record["inputs"]:
+            out[key] = record["fields"]
+    return out
+
+
 def _outputs(node: dict, state) -> list[str] | None:
-    """참조식에 쓸 출력 이름 — 테스트 샘플의 키, 없으면 카탈로그(outputFields·outputsFrom). 알 수 없으면 None."""
+    """참조식에 쓸 출력 이름 — 테스트 샘플의 키, 없으면 카탈로그(outputFields·outputsFrom). 알 수 없으면 None.
+    조회해 둔 출력 동적 칸의 안쪽 이름(answers.<질문 ID>)은 끝에 붙인다."""
     test = (state.get("tests") or {}).get(node["id"])
     if test and test.get("fields"):
-        return list(test["fields"])
-    declared = _declared_outputs(node)
-    return sorted(declared) if declared is not None else None
+        names = list(test["fields"])
+    else:
+        declared = _declared_outputs(node)
+        if declared is None:
+            return None
+        names = sorted(declared)
+    return names + [f["name"] for fields in _loaded(node, state).values() for f in fields]
+
+
+def _upstream(node: dict, state) -> dict:
+    item = {"node_id": node["id"], "label": clean(node.get("label") or ""), "outputs": _outputs(node, state)}
+    loaded = _loaded(node, state)
+    dynamic = [f"output.{k}" for k in _dynamic_outputs(node) if k not in loaded]
+    if dynamic:
+        item["dynamic"] = dynamic
+    if loaded:
+        item["titles"] = {f["name"]: f["title"] for fields in loaded.values() for f in fields}
+    return item
 
 
 def _shown(value):
@@ -385,8 +418,7 @@ def get_fields(turn: Turn, state, node_id: str) -> dict:
         if value not in (None, "", [], {}):
             item["value"] = _shown(value)
         out.append(item)
-    upstream = [{"node_id": a, "label": clean(turn.node(a).get("label") or ""),
-                 "outputs": _outputs(turn.node(a), state)} for a in _ancestors(turn, node_id)]
+    upstream = [_upstream(turn.node(a), state) for a in _ancestors(turn, node_id)]
     return {"node_id": node_id, "event": node.get("event"), "fields": out, "upstream": upstream,
             "errors": _brief(node_errors(turn.nodes, turn.edges, node_id))}
 
@@ -463,8 +495,41 @@ async def list_options(turn: Turn, state, node_id: str, field_path: str, q: str 
     return {"items": picked, "more": bool(data.get("nextCursor")) or len(items) > MAX_CANDIDATES}
 
 
+async def _load_dynamic_output(turn: Turn, state, node: dict, key: str) -> dict:
+    """앞 노드 출력 동적 칸(폼 답 answers 등)의 안쪽 이름을 조회해 state에 둔다 — get_fields upstream이 펼친다."""
+    f = _dynamic_outputs(node).get(key)
+    if f is None:
+        return _err("동적 출력 칸이 아니에요(get_fields upstream의 dynamic 경로만).")
+    params, reason = _inputs(node, f"config.{key}", f.get("fieldsInputs"))
+    if reason:
+        return _err(reason)
+    reason = _spend_lookup(turn)
+    if reason:
+        return _err(reason)
+    r = await turn.backend.fields(f["fieldsSource"], params)
+    if "error" in r:
+        return {"error": _explain(r["error"], f["fieldsSource"])}
+    out = []
+    fields = (r["data"] or {}).get("fields") or []
+    for inner in fields[:50]:  # 입력 동적 칸과 같은 50개 상한
+        if not isinstance(inner, dict) or not isinstance(inner.get("key"), str) or not _OUTPUT_KEY.fullmatch(inner["key"]):
+            continue  # 질문 ID는 외부 값 — 참조식 글자만
+        # list: 체크박스·파일 답은 글 목록 — 단일 값 칸에 묶지 않게(BE /fields의 list)
+        out.append({"name": f"{key}.{inner['key']}", "title": clean(inner.get("title") or inner["key"]),
+                    "type": inner.get("type"), "list": bool(inner.get("list"))})
+    seen = dict(state.get("dynamic_outputs") or {})
+    seen[f"{node['id']}|{key}"] = {"inputs": params, "fields": out}
+    state["dynamic_outputs"] = seen
+    result = {"fields": out, "how": f"{{{{nodes.{node['id']}.output.<name>}}}}처럼 name을 그대로 써요."}
+    if len(fields) > 50:
+        result["more"] = True  # 51번째부터는 안 보인다 — "그런 질문이 없다"고 단정하지 않게
+    return result
+
+
 async def load_dynamic_fields(turn: Turn, state, node_id: str, field_path: str) -> dict:
     node = turn.node(node_id)
+    if node is not None and isinstance(field_path, str) and field_path.startswith("output."):
+        return await _load_dynamic_output(turn, state, node, field_path.removeprefix("output."))
     f = writable_fields(node).get(field_path) if node else None
     if f is None or not f.get("fieldsSource"):
         return _err("동적 칸이 아니에요(get_fields의 dynamic 칸만).")
@@ -568,7 +633,8 @@ async def test_node(turn: Turn, state, node_id: str) -> dict:
                   for k, v in output.items() if isinstance(k, str) and _OUTPUT_KEY.fullmatch(k)][:MAX_CANDIDATES]
         _record(state, node_id, "success", h, [f["key"] for f in fields])
         turn.notes.append(f"{label}: {sample_summary(output)}")
-        return {"status": "success", "fields": fields}
+        dynamic = [f"output.{k}" for k in _dynamic_outputs(node)]
+        return {"status": "success", "fields": fields, **({"dynamic": dynamic} if dynamic else {})}
     _record(state, node_id, "failed", h)
     turn.notes.append(f"{label}: 테스트 실패 — {clean(data.get('error') or '원인 미상', 120)}")
     if kind == "app_trigger":
@@ -631,7 +697,8 @@ def make_tools(turn: Turn) -> list:
         return await list_options(turn, tool_context.state, node_id, field_path, q)
 
     async def load_dynamic_fields_(tool_context: ToolContext, node_id: str, field_path: str) -> dict:
-        """동적 칸(dynamic, 예: Notion DB 속성)의 안쪽 칸 목록을 조회한다. 값은 set_fields로 {키: 값} 객체를 넣는다."""
+        """동적 칸(dynamic, 예: Notion DB 속성)의 안쪽 칸 목록을 조회한다. 값은 set_fields로 {키: 값} 객체를 넣는다.
+        앞 노드 출력의 dynamic 경로(get_fields upstream의 'output.answers' 등)는 node_id=그 앞 노드로 불러 참조할 이름(name)과 제목을 받는다."""
         return await load_dynamic_fields(turn, tool_context.state, node_id, field_path)
 
     def set_fields_(tool_context: ToolContext, node_id: str, values: dict) -> dict:

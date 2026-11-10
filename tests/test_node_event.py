@@ -14,6 +14,8 @@ def test_event_entry():
 def test_trigger_type_of은_event만_본다():
     assert trigger_type_of({"event": "schedule.every", "config": {}}) == "SCHEDULE"
     assert trigger_type_of({"event": "gmail.new_email", "config": {}}) == "GMAIL_NEW_EMAIL"
+    assert trigger_type_of({"event": "google_forms.new_response", "config": {}}) == "FORMS_NEW_RESPONSE"
+    assert trigger_type_of({"event": "google_forms.new_or_updated_response", "config": {}}) == "FORMS_ANY_RESPONSE"
     # 옛 config.triggerType은 읽지 않는다
     assert trigger_type_of({"event": "schedule.every", "config": {"triggerType": "MANUAL"}}) == "SCHEDULE"
     assert trigger_type_of({"config": {"triggerType": "WEBHOOK"}}) is None

@@ -105,7 +105,8 @@ def test_gmail_send_email은_ACTION_전용이다():
 
 
 @pytest.mark.parametrize("action", ["find_email", "get_thread", "add_label", "remove_label", "remove_thread_label",
-                                    "archive", "trash", "create_label"])
+                                    "archive", "trash", "create_label", "reply", "forward", "create_draft",
+                                    "create_reply_draft", "find_or_send"])
 def test_gmail_정리_노드는_ACTION_전용이다(action):
     """spec 2026-11-10 확정 결정 Q1 — _TOOL_MAP 밖, resolve_action_fn만 푼다."""
     import tools.gmail
@@ -120,11 +121,16 @@ def test_gmail_정리_노드는_ACTION_전용이다(action):
 def test_forms_도구는_ACTION_전용이다():
     """폼 내용이 AI 프롬프트로 들어가는 경로를 막는다(lane-forms 확정 결정 Q3) — 조회도 _TOOL_MAP 밖."""
     from tools import _TOOL_MAP, get_tools_for_request
-    from tools.google_forms import google_forms_get_form, google_forms_set_accepting_responses
+    from tools.google_forms import (
+        google_forms_get_form, google_forms_get_response, google_forms_list_responses,
+        google_forms_set_accepting_responses,
+    )
     from tools.registry import SERVICE_BRAND, _service_of
 
     for key, fn in (("builtin:google_forms_set_accepting_responses", google_forms_set_accepting_responses),
-                    ("builtin:google_forms_get_form", google_forms_get_form)):
+                    ("builtin:google_forms_get_form", google_forms_get_form),
+                    ("builtin:google_forms_list_responses", google_forms_list_responses),
+                    ("builtin:google_forms_get_response", google_forms_get_response)):
         assert resolve_action_fn(key) is fn
         assert key not in _TOOL_MAP
         assert get_tools_for_request([{"name": key}]) == []

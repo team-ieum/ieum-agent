@@ -40,16 +40,26 @@ from tools.github import (
 from tools.gmail import (
     gmail_add_label,
     gmail_archive,
+    gmail_create_draft,
     gmail_create_label,
+    gmail_create_reply_draft,
     gmail_find_email,
+    gmail_find_or_send,
+    gmail_forward,
     gmail_get_thread,
     gmail_remove_label,
     gmail_remove_thread_label,
+    gmail_reply,
     gmail_send_email,
     gmail_trash,
 )
 from tools.google_calendar import google_calendar_delete
-from tools.google_forms import google_forms_get_form, google_forms_set_accepting_responses
+from tools.google_forms import (
+    google_forms_get_form,
+    google_forms_get_response,
+    google_forms_list_responses,
+    google_forms_set_accepting_responses,
+)
 from tools.google_sheets import (
     google_sheets_append_top,
     google_sheets_find_or_create_row,
@@ -116,12 +126,20 @@ _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_gmail_archive": gmail_archive,
     "builtin:google_gmail_trash": gmail_trash,
     "builtin:google_gmail_create_label": gmail_create_label,
+    # 메일·대화 내용 프롬프트 인젝션 차단 — ACTION 전용(spec 2026-11-10 gmail-forms-9 §2)
+    "builtin:google_gmail_reply": gmail_reply,
+    "builtin:google_gmail_forward": gmail_forward,
+    "builtin:google_gmail_create_draft": gmail_create_draft,
+    "builtin:google_gmail_create_reply_draft": gmail_create_reply_draft,
+    "builtin:google_gmail_find_or_send": gmail_find_or_send,
     "builtin:google_sheets_append_top": google_sheets_append_top,
     "builtin:google_sheets_update_row": google_sheets_update_row,
     "builtin:google_sheets_find_or_create_row": google_sheets_find_or_create_row,
     # 폼 내용이 AI 프롬프트로 들어가는 경로를 막으려 조회(get_form)도 ACTION 전용(lane-forms 확정 결정 Q3)
     "builtin:google_forms_set_accepting_responses": google_forms_set_accepting_responses,
     "builtin:google_forms_get_form": google_forms_get_form,
+    "builtin:google_forms_list_responses": google_forms_list_responses,
+    "builtin:google_forms_get_response": google_forms_get_response,
 }
 
 

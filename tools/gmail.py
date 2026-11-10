@@ -1,5 +1,9 @@
+import asyncio
 import base64
 import binascii
+import email
+import email.policy
+import html
 import json
 import logging
 import re
@@ -228,85 +232,613 @@ async def gmail_send_email(
         성공 {"success": true, "messageId", "threadId"}, 실패 {"error"}
     """
     tool = "gmail_send_email"
-    to_list, cc_list, bcc_list = ([] if _blank(v) else _emails(v) for v in (to, cc, bcc))
     labels = [] if _blank(label_ids) else _emails(label_ids)
-    signed = _flag(include_signature)
-    if signed is None:
-        return _fail(tool, "include_signature는 true 또는 false여야 합니다")
-    from_email = None if _blank(from_email) else str(from_email).strip()
-    from_name = None if _blank(from_name) else str(from_name).strip()
-    if not (to_list or cc_list or bcc_list):
-        return _fail(tool, "받는 사람(to·cc·bcc)이 하나는 있어야 합니다")
-
+    inputs = _send_inputs(tool, to=to, cc=cc, bcc=bcc, from_email=from_email, from_name=from_name,
+                          include_signature=include_signature)
+    if isinstance(inputs, str):
+        return inputs
     try:
         client = get_http_client()
         headers = _headers(access_token)
-
-        sender = None
-        if from_email or from_name or signed:
-            response = await client.get(f"{_GMAIL_API}/settings/sendAs", headers=headers, timeout=_TIMEOUT)
-            if not response.is_success:
-                return _api_error(response)
-            aliases = response.json().get("sendAs", [])
-            if from_email:
-                wanted = from_email.casefold()
-                sender = next((a for a in aliases
-                               if str(a.get("sendAsEmail", "")).strip().casefold() == wanted
-                               and a.get("verificationStatus") != "pending"), None)
-                if sender is None:
-                    return _fail(tool, _ALIAS_MISSING)
-            else:
-                sender = next((a for a in aliases if a.get("isDefault")), None)
-
-        signature = sender.get("signature") if signed and sender else None
-        if body_format == "text/html":
-            if (signature or "").strip():  # 이미지만 있는 서명도 HTML엔 붙인다
-                body = f"{body}<br>-- <br>{signature}"
-        elif signature_text := (_signature_text(signature) if signature else ""):
-            body = f"{body}\n-- \n{signature_text}"
-
-        msg = EmailMessage()
-        if to_list:
-            msg["To"] = _header(", ".join(to_list))
-        if cc_list:
-            msg["Cc"] = _header(", ".join(cc_list))
-        if bcc_list:
-            msg["Bcc"] = _header(", ".join(bcc_list))
-        # 보낸 사람 이름만 줬으면 기본 주소, 둘 다 비우면 From 없이(Gmail이 기본 주소로 채운다)
-        if sender and (from_email or from_name):
-            msg["From"] = Address(display_name=_header(from_name or sender.get("displayName") or ""),
-                                  addr_spec=_header(str(sender["sendAsEmail"]).strip()))
-        if not _blank(reply_to):
-            msg["Reply-To"] = _header(reply_to)
-        msg["Subject"] = _header(subject)
-        msg.set_content(body, subtype="html" if body_format == "text/html" else "plain")
-        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-
-        response = await client.post(f"{_GMAIL_API}/messages/send", headers=headers,
-                                     json={"raw": raw}, timeout=_TIMEOUT)
-        if not response.is_success:
-            return _api_error(response)
+        msg = await _mime(tool, client, headers, inputs, reply_to=reply_to, subject=subject,
+                          body_format=body_format, body=body)
+        if isinstance(msg, str):
+            return msg
+        sent = await _deliver(client, headers, msg)
+        if isinstance(sent, str):
+            return sent
     except Exception as e:
         return _fail(tool, str(e))
+    await _label_after_send(client, headers, sent["messageId"], labels)
+    return json.dumps({"success": True, "messageId": sent["messageId"], "threadId": sent["threadId"]},
+                      ensure_ascii=False)
 
+
+# ── 보내기 계열 공유 헬퍼(보내기·답장·전달·초안·찾고 없으면 보내기) ─────────────
+
+_UPLOAD_SEND = "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send"
+
+
+def _send_inputs(tool: str, *, to, cc, bcc, from_email, from_name, include_signature,
+                 need_recipient: bool = True):
+    """보내기 칸 검사·정리(HTTP 없음). 성공 dict, 실패 error JSON."""
+    to_list, cc_list, bcc_list = ([] if _blank(v) else _emails(v) for v in (to, cc, bcc))
+    signed = _flag(include_signature)
+    if signed is None:
+        return _fail(tool, "include_signature는 true 또는 false여야 합니다")
+    if need_recipient and not (to_list or cc_list or bcc_list):
+        return _fail(tool, "받는 사람(to·cc·bcc)이 하나는 있어야 합니다")
+    return {"to": to_list, "cc": cc_list, "bcc": bcc_list,
+            "from_email": None if _blank(from_email) else str(from_email).strip(),
+            "from_name": None if _blank(from_name) else str(from_name).strip(),
+            "signed": signed}
+
+
+async def _mime(tool: str, client, headers: dict, inputs: dict, *, reply_to, subject, body_format: str,
+                body: str, tail: str = ""):
+    """별칭·서명을 골라 메일을 만든다. 본문은 body + 서명 + tail. 실패면 error JSON."""
+    from_email, from_name, signed = inputs["from_email"], inputs["from_name"], inputs["signed"]
+    sender = None
+    if from_email or from_name or signed:
+        response = await client.get(f"{_GMAIL_API}/settings/sendAs", headers=headers, timeout=_TIMEOUT)
+        if not response.is_success:
+            return _api_error(response)
+        aliases = response.json().get("sendAs", [])
+        if from_email:
+            wanted = from_email.casefold()
+            sender = next((a for a in aliases
+                           if str(a.get("sendAsEmail", "")).strip().casefold() == wanted
+                           and a.get("verificationStatus") != "pending"), None)
+            if sender is None:
+                return _fail(tool, _ALIAS_MISSING)
+        else:
+            sender = next((a for a in aliases if a.get("isDefault")), None)
+
+    signature = sender.get("signature") if signed and sender else None
+    if body_format == "text/html":
+        if (signature or "").strip():  # 이미지만 있는 서명도 HTML엔 붙인다
+            body = f"{body}<br>-- <br>{signature}"
+    elif signature_text := (_signature_text(signature) if signature else ""):
+        body = f"{body}\n-- \n{signature_text}"
+
+    msg = EmailMessage()
+    if inputs["to"]:
+        msg["To"] = _header(", ".join(inputs["to"]))
+    if inputs["cc"]:
+        msg["Cc"] = _header(", ".join(inputs["cc"]))
+    if inputs["bcc"]:
+        msg["Bcc"] = _header(", ".join(inputs["bcc"]))
+    # 보낸 사람 이름만 줬으면 기본 주소, 둘 다 비우면 From 없이(Gmail이 기본 주소로 채운다)
+    if sender and (from_email or from_name):
+        msg["From"] = Address(display_name=_header(from_name or sender.get("displayName") or ""),
+                              addr_spec=_header(str(sender["sendAsEmail"]).strip()))
+    if not _blank(reply_to):
+        msg["Reply-To"] = _header(reply_to)
+    if not _blank(subject):
+        msg["Subject"] = _header(subject)
+    msg.set_content(body + tail, subtype="html" if body_format == "text/html" else "plain")
+    return msg
+
+
+def _raw(msg: EmailMessage) -> str:
+    return base64.urlsafe_b64encode(msg.as_bytes()).decode()
+
+
+async def _deliver(client, headers: dict, msg: EmailMessage, *, thread_id: Optional[str] = None,
+                   upload: bool = False, timeout: float = _TIMEOUT, content: Optional[bytes] = None):
+    """발송 한 번. 2xx면 {messageId, threadId, labelIds}, 아니면 error JSON. 네트워크 예외는 올린다.
+    content = 이미 만든 MIME 바이트(업로드 경로, 다시 직렬화하지 않는다)."""
+    if upload:
+        response = await client.post(_UPLOAD_SEND, headers={**headers, "Content-Type": "message/rfc822"},
+                                     params={"uploadType": "media"},
+                                     content=msg.as_bytes() if content is None else content, timeout=timeout)
+    else:
+        body = {"raw": _raw(msg)}
+        if thread_id:
+            body["threadId"] = thread_id
+        response = await client.post(f"{_GMAIL_API}/messages/send", headers=headers, json=body, timeout=timeout)
+    if not response.is_success:
+        return _api_error(response)
     # 2xx면 메일은 이미 나갔다 — 이 뒤의 실패를 실패로 돌리면 재시도가 메일을 두 번 보낸다. 경고만 남기고 성공으로 둔다
     try:
         sent = response.json()
-        message_id, thread_id = sent.get("id"), sent.get("threadId")
+        return {"messageId": sent.get("id"), "threadId": sent.get("threadId"), "labelIds": sent.get("labelIds")}
     except Exception as e:
         logger.warning("Gmail 발송 응답 파싱 실패 error=%s", e)
-        message_id = thread_id = ""
+        return {"messageId": "", "threadId": "", "labelIds": None}
 
-    if labels and message_id:
-        try:
-            response = await client.post(f"{_GMAIL_API}/messages/{message_id}/modify", headers=headers,
-                                         json={"addLabelIds": labels}, timeout=_TIMEOUT)
+
+async def _label_after_send(client, headers: dict, message_id, labels: list, timeout: float = _TIMEOUT):
+    """보낸 메일에 라벨. 성공이면 modify 응답 labelIds, 그 밖은 None(경고만)."""
+    if not (labels and message_id):
+        return None
+    try:
+        response = await client.post(f"{_GMAIL_API}/messages/{message_id}/modify", headers=headers,
+                                     json={"addLabelIds": labels}, timeout=timeout)
+        if not response.is_success:
+            logger.warning("Gmail 라벨 붙이기 실패 messageId=%s status=%s", message_id, response.status_code)
+            return None
+        return response.json().get("labelIds")
+    except Exception as e:
+        logger.warning("Gmail 라벨 붙이기 실패 messageId=%s error=%s", message_id, e)
+        return None
+
+
+_REPLY_HEADERS = ["Message-ID", "References", "Subject", "Reply-To", "From", "To", "Cc"]
+_SKIP_REPLY_LABELS = {"DRAFT", "TRASH", "SPAM"}
+
+
+async def _reply_target(tool: str, client, headers: dict, thread: str):
+    """답장 대상 = 초안을 뺀 메일 중 내가 보낸 것(SENT)이 아닌 마지막 메일, 없으면 마지막 메일(Gmail UI 답장 기본)."""
+    response = await client.get(f"{_GMAIL_API}/threads/{thread}", headers=headers,
+                                params={"format": "metadata", "metadataHeaders": _REPLY_HEADERS}, timeout=_TIMEOUT)
+    if not response.is_success:
+        return _api_error(response)
+    # threads.get은 대화 안의 내 초안·휴지통·스팸도 돌려준다 — Gmail 대화 화면처럼 빼야 엉뚱한 메일에 답하지 않는다
+    messages = [m for m in response.json().get("messages") or []
+                if not _SKIP_REPLY_LABELS & set(m.get("labelIds") or [])]
+    if not messages:
+        return _fail(tool, "답장할 메일이 대화에 없어요")
+    target = next((m for m in reversed(messages) if "SENT" not in (m.get("labelIds") or [])), messages[-1])
+    values: dict = {}
+    for h in (target.get("payload") or {}).get("headers") or []:
+        values.setdefault(str(h.get("name", "")).lower(), str(h.get("value") or ""))
+    return {"message_id": values.get("message-id", ""), "references": values.get("references", ""),
+            "subject": values.get("subject", ""), "reply_to": values.get("reply-to") or values.get("from", ""),
+            "sent": "SENT" in (target.get("labelIds") or []), "to": values.get("to", ""), "cc": values.get("cc", "")}
+
+
+def _reply_headers(msg: EmailMessage, target: dict) -> None:
+    message_id = target["message_id"].strip()
+    if message_id:
+        msg["In-Reply-To"] = _header(message_id)
+        msg["References"] = _header(f"{target['references']} {message_id}".strip())
+
+
+def _re_subject(subject: str) -> str:
+    return subject if subject.lower().startswith("re:") else f"Re: {subject}"
+
+
+async def _reply_mime(tool: str, access_token: str, *, thread_id, to, cc, bcc, from_email, from_name, reply_to,
+                      body_format: str, body: str, include_signature):
+    """답장·답장 초안 공통 — (client, headers, thread, msg) 또는 error JSON."""
+    thread = _path_id(thread_id)
+    if thread is None:
+        return _fail(tool, _BAD_THREAD_ID)
+    inputs = _send_inputs(tool, to=to, cc=cc, bcc=bcc, from_email=from_email, from_name=from_name,
+                          include_signature=include_signature, need_recipient=False)
+    if isinstance(inputs, str):
+        return inputs
+    client = get_http_client()
+    headers = _headers(access_token)
+    target = await _reply_target(tool, client, headers, thread)
+    if isinstance(target, str):
+        return target
+    if not (inputs["to"] or inputs["cc"] or inputs["bcc"]):
+        # 내 메일에 답장하면 그 메일의 원래 받는 사람에게(Gmail 화면과 같음, 2026-11-10 사용자 결정)
+        if target["sent"]:
+            inputs["to"], inputs["cc"] = ([] if _blank(v) else [v] for v in (target["to"], target["cc"]))
+        elif not _blank(target["reply_to"]):
+            inputs["to"] = [target["reply_to"]]
+        if not (inputs["to"] or inputs["cc"]):
+            return _fail(tool, "답장 받을 주소를 원래 메일에서 찾지 못했어요")
+    msg = await _mime(tool, client, headers, inputs, reply_to=reply_to, subject=_re_subject(target["subject"]),
+                      body_format=body_format, body=body)
+    if isinstance(msg, str):
+        return msg
+    _reply_headers(msg, target)
+    return client, headers, thread, msg
+
+
+async def _save_draft(client, headers: dict, msg: EmailMessage, thread: Optional[str] = None) -> str:
+    message = {"raw": _raw(msg)}
+    if thread:
+        message["threadId"] = thread
+    response = await client.post(f"{_GMAIL_API}/drafts", headers=headers, json={"message": message}, timeout=_TIMEOUT)
+    if not response.is_success:
+        return _api_error(response)
+    data = response.json()
+    saved = data.get("message") or {}
+    return _ok(draftId=data.get("id", ""), messageId=saved.get("id", ""), threadId=saved.get("threadId", ""))
+
+
+async def gmail_reply(
+    access_token: str,
+    *,
+    thread_id: str,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    body_format: str = "text/plain",
+    body: str,
+    include_signature: bool = False,
+    label_ids: Optional[list[str]] = None,
+) -> str:
+    """Gmail 대화에 답장한다(같은 대화로 묶인다).
+
+    Args:
+        thread_id: 대화 ID
+        to: 받는 사람. 셋 다 비우면 원래 메일의 답장 주소
+        cc: 참조
+        bcc: 숨은 참조
+        from_email: 보낸 사람 주소(Gmail 별칭). 비우면 기본 주소
+        from_name: 보낸 사람 이름
+        reply_to: 답장 받을 주소
+        body_format: "text/plain" 또는 "text/html"
+        body: 본문
+        include_signature: Gmail 서명 붙이기
+        label_ids: 보낸 메일에 붙일 라벨 ID 목록
+
+    Returns:
+        성공 {"success": true, "messageId", "threadId"}, 실패 {"error"}
+    """
+    tool = "gmail_reply"
+    labels = [] if _blank(label_ids) else _emails(label_ids)
+    try:
+        built = await _reply_mime(tool, access_token, thread_id=thread_id, to=to, cc=cc, bcc=bcc,
+                                  from_email=from_email, from_name=from_name, reply_to=reply_to,
+                                  body_format=body_format, body=body, include_signature=include_signature)
+        if isinstance(built, str):
+            return built
+        client, headers, thread, msg = built
+        sent = await _deliver(client, headers, msg, thread_id=thread)
+        if isinstance(sent, str):
+            return sent
+    except Exception as e:
+        return _fail(tool, str(e))
+    await _label_after_send(client, headers, sent["messageId"], labels)
+    return _ok(messageId=sent["messageId"], threadId=sent["threadId"])
+
+
+async def gmail_create_reply_draft(
+    access_token: str,
+    *,
+    thread_id: str,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    body_format: str = "text/plain",
+    body: str,
+    include_signature: bool = False,
+) -> str:
+    """Gmail 대화에 답장 초안을 만든다(보내지 않는다).
+
+    Args:
+        thread_id: 대화 ID
+        to: 받는 사람. 셋 다 비우면 원래 메일의 답장 주소
+        cc: 참조
+        bcc: 숨은 참조
+        from_email: 보낸 사람 주소(Gmail 별칭). 비우면 기본 주소
+        from_name: 보낸 사람 이름
+        reply_to: 답장 받을 주소
+        body_format: "text/plain" 또는 "text/html"
+        body: 본문
+        include_signature: Gmail 서명 붙이기
+
+    Returns:
+        성공 {"success": true, "draftId", "messageId", "threadId"}, 실패 {"error"}
+    """
+    tool = "gmail_create_reply_draft"
+    try:
+        built = await _reply_mime(tool, access_token, thread_id=thread_id, to=to, cc=cc, bcc=bcc,
+                                  from_email=from_email, from_name=from_name, reply_to=reply_to,
+                                  body_format=body_format, body=body, include_signature=include_signature)
+        if isinstance(built, str):
+            return built
+        client, headers, thread, msg = built
+        return await _save_draft(client, headers, msg, thread)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def gmail_create_draft(
+    access_token: str,
+    *,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    subject: Optional[str] = None,
+    body_format: str = "text/plain",
+    body: Optional[str] = None,
+    include_signature: bool = False,
+) -> str:
+    """Gmail에 새 초안을 만든다(보내지 않는다. 받는 사람·제목·본문 모두 비워도 된다).
+
+    Args:
+        to: 받는 사람(쉼표 구분 또는 목록)
+        cc: 참조
+        bcc: 숨은 참조
+        from_email: 보낸 사람 주소(Gmail 별칭). 비우면 기본 주소
+        from_name: 보낸 사람 이름
+        reply_to: 답장 받을 주소
+        subject: 제목
+        body_format: "text/plain" 또는 "text/html"
+        body: 본문
+        include_signature: Gmail 서명 붙이기
+
+    Returns:
+        성공 {"success": true, "draftId", "messageId", "threadId"}, 실패 {"error"}
+    """
+    tool = "gmail_create_draft"
+    inputs = _send_inputs(tool, to=to, cc=cc, bcc=bcc, from_email=from_email, from_name=from_name,
+                          include_signature=include_signature, need_recipient=False)
+    if isinstance(inputs, str):
+        return inputs
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        msg = await _mime(tool, client, headers, inputs, reply_to=reply_to, subject=subject,
+                          body_format=body_format, body="" if body is None else str(body))
+        if isinstance(msg, str):
+            return msg
+        return await _save_draft(client, headers, msg)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+_GMAIL_MAX = 35_000_000  # Gmail 메일 크기 상한(업로드 경로)
+# 마감은 실행기 한도(settings.AGENT_TIMEOUT_SECONDS)에서 뺀다 — 실행기가 먼저 끊으면 재시도 가능한 AGENT_TIMEOUT이
+# 되어 이미 나간 메일을 다시 보낼 수 있다(spec 3절 C3 시간 예산, 2026-11-10 사용자 결정)
+_FORWARD_MARGIN = 30.0  # 원본 받기~발송 마감 = 실행기 한도 − 30초
+_LABEL_MARGIN = 5.0  # 발송 뒤 라벨 마감 = 실행기 한도 − 5초
+_FORWARD_TIMEOUT = 120.0  # 전달의 요청 하나
+_FORWARDED = "---------- Forwarded message ---------"
+
+
+def _mb(n: float) -> str:
+    return f"{n / 1_000_000:.1f}MB"
+
+
+def _attachments(part) -> list:
+    """message/rfc822는 통째로 하나(안으로 내려가지 않는다), multipart는 자식으로, 그 밖은 파일명이 있을 때만."""
+    if part.get_content_type() == "message/rfc822":
+        return [part]
+    if part.is_multipart():
+        return [a for child in part.iter_parts() for a in _attachments(child)]
+    return [part] if part.get_filename() else []
+
+
+def _part_text(part) -> str:
+    """파트 본문. charset을 모르면(unknown-8bit 등) 전달 전체가 실패하지 않게 UTF-8로 읽는다."""
+    try:
+        return part.get_content()
+    except LookupError:
+        return (part.get_payload(decode=True) or b"").decode("utf-8", "replace")
+
+
+def _forward_tail(original, as_html: bool) -> str:
+    """전달 블록(보낸 사람·날짜·제목·받는 사람) + 원본 본문."""
+    html_part = original.get_body(preferencelist=("html",))
+    plain_part = original.get_body(preferencelist=("plain",))
+    lines = [_FORWARDED] + [f"{name}: {original[name] or ''}" for name in ("From", "Date", "Subject", "To")]
+    if as_html:
+        head = "<br>".join(html.escape(line) for line in lines)
+        if html_part is not None:
+            content = _part_text(html_part)
+        else:
+            content = html.escape(_part_text(plain_part) if plain_part is not None else "").replace("\n", "<br>")
+        return f"<br><br>{head}<br><br>{content}"
+    if plain_part is not None:
+        content = _part_text(plain_part)
+    else:
+        content = _strip_html(_part_text(html_part)) if html_part is not None else ""
+    return "\n\n" + "\n".join(lines) + "\n\n" + content
+
+
+def _parse_original(raw: str, as_html: bool):
+    """원본 파싱 + 전달 블록(동기 CPU — 스레드에서 돈다). (원본, 원본 제목, 전달 블록)."""
+    original = email.message_from_bytes(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)),
+                                        policy=email.policy.default)
+    return original, str(original["Subject"] or ""), _forward_tail(original, as_html)
+
+
+def _attach_and_serialize(msg: EmailMessage, original) -> bytes:
+    """원본 첨부를 다시 붙이고 MIME 바이트를 한 번 만든다(동기 CPU — 스레드에서 돈다).
+    파일명·Content-ID는 _header로 줄바꿈을 지운다 — 줄바꿈 든 파일명도 전달되고 새 헤더를 만들지 못한다."""
+    for part in _attachments(original):
+        filename = part.get_filename()
+        options = {"filename": _header(filename) if filename else None,
+                   "disposition": part.get_content_disposition() or "attachment"}
+        if part["Content-ID"]:
+            options["cid"] = _header(part["Content-ID"])  # 원본 HTML의 cid: 참조가 이어지게
+        if part.get_content_type() == "message/rfc822":
+            options["filename"] = options["filename"] or "message.eml"
+            msg.add_attachment(part.get_payload(0), **options)
+            continue
+        if part.get_content_maintype() == "text" and part.get_content_charset():
+            options["params"] = {"charset": _header(part.get_content_charset())}
+        msg.add_attachment(part.get_payload(decode=True) or b"", part.get_content_maintype(),
+                           part.get_content_subtype(), **options)
+    return msg.as_bytes()
+
+
+async def gmail_forward(
+    access_token: str,
+    *,
+    message_id: str,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    body_format: str = "text/plain",
+    body: Optional[str] = None,
+    include_signature: bool = False,
+    label_ids: Optional[list[str]] = None,
+) -> str:
+    """Gmail 메일을 원본 첨부까지 전달한다(새 대화).
+
+    Args:
+        message_id: 전달할 메일 ID
+        to: 받는 사람(쉼표 구분 또는 목록)
+        cc: 참조
+        bcc: 숨은 참조
+        from_email: 보낸 사람 주소(Gmail 별칭). 비우면 기본 주소
+        from_name: 보낸 사람 이름
+        reply_to: 답장 받을 주소
+        body_format: "text/plain" 또는 "text/html"
+        body: 전달 블록 위에 덧붙일 말
+        include_signature: Gmail 서명 붙이기
+        label_ids: 보낸 메일에 붙일 라벨 ID 목록
+
+    Returns:
+        성공 {"success": true, "messageId", "threadId"}, 실패 {"error"}
+    """
+    tool = "gmail_forward"
+    message = _path_id(message_id)
+    if message is None:
+        return _fail(tool, _BAD_MESSAGE_ID)
+    labels = [] if _blank(label_ids) else _emails(label_ids)
+    inputs = _send_inputs(tool, to=to, cc=cc, bcc=bcc, from_email=from_email, from_name=from_name,
+                          include_signature=include_signature)
+    if isinstance(inputs, str):
+        return inputs
+    limit = f"{_GMAIL_MAX / 1_000_000:g}MB"
+    from core.config import settings  # 함수 안 — gmail 모듈 import가 Settings(MONGODB_URL)를 요구하지 않게
+
+    loop = asyncio.get_running_loop()
+    started, budget = loop.time(), settings.AGENT_TIMEOUT_SECONDS - _FORWARD_MARGIN
+    deadline, label_deadline = started + budget, started + settings.AGENT_TIMEOUT_SECONDS - _LABEL_MARGIN
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        async with asyncio.timeout_at(deadline):
+            url = f"{_GMAIL_API}/messages/{message}"
+            response = await client.get(url, headers=headers, params={"format": "minimal"}, timeout=_FORWARD_TIMEOUT)
             if not response.is_success:
-                logger.warning("Gmail 라벨 붙이기 실패 messageId=%s status=%s", message_id, response.status_code)
-        except Exception as e:
-            logger.warning("Gmail 라벨 붙이기 실패 messageId=%s error=%s", message_id, e)
+                return _api_error(response)
+            size = int(response.json().get("sizeEstimate") or 0)
+            if size > _GMAIL_MAX:
+                return _fail(tool, f"원본 메일이 {_mb(size)}라 Gmail 상한 {limit}를 넘어 전달할 수 없어요")
+            response = await client.get(url, headers=headers, params={"format": "raw"}, timeout=_FORWARD_TIMEOUT)
+            if not response.is_success:
+                return _api_error(response)
+            raw = str(response.json().get("raw") or "")
+            # 수십 MB 파싱·조립·직렬화는 수 초 CPU — 스레드로 빼야 다른 요청이 멈추지 않고 마감도 끊을 수 있다
+            original, subject, tail = await asyncio.to_thread(_parse_original, raw, body_format == "text/html")
+            msg = await _mime(tool, client, headers, inputs, reply_to=reply_to,
+                              subject=subject if subject.lower().startswith("fwd:") else f"Fwd: {subject}",
+                              body_format=body_format, body="" if body is None else str(body), tail=tail)
+            if isinstance(msg, str):
+                return msg
+            data = await asyncio.to_thread(_attach_and_serialize, msg, original)
+            if len(data) > _GMAIL_MAX:
+                return _fail(tool, f"전달할 메일이 원본 첨부까지 {_mb(len(data))}라 Gmail 상한 {limit}를 넘어 보낼 수 없어요")
+            sent = await _deliver(client, headers, msg, upload=True, timeout=_FORWARD_TIMEOUT, content=data)
+            if isinstance(sent, str):
+                return sent
+    except TimeoutError:
+        return _fail(tool, f"원본 받기·보내기가 제한 시간 {budget:g}초 안에 끝나지 않았어요")
+    except Exception as e:
+        return _fail(tool, str(e))
+    # 라벨은 발송 마감 밖(실패해도 성공)이지만 실행기 한도 − 5초 안에서만 — 실행기가 먼저 끊으면 재시도가 두 번 보낸다
+    remaining = label_deadline - loop.time()
+    if labels and remaining <= 0:
+        logger.warning("Gmail 전달 라벨 건너뜀(마감 지남) messageId=%s", sent["messageId"])
+    else:
+        try:
+            async with asyncio.timeout_at(label_deadline):  # httpx timeout은 단계별이라 전체 상한이 아니다
+                await _label_after_send(client, headers, sent["messageId"], labels,
+                                        timeout=min(_TIMEOUT, remaining))
+        except TimeoutError:
+            logger.warning("Gmail 전달 라벨 붙이기 마감 초과 messageId=%s", sent["messageId"])
+    return _ok(messageId=sent["messageId"], threadId=sent["threadId"])
 
-    return json.dumps({"success": True, "messageId": message_id, "threadId": thread_id}, ensure_ascii=False)
+
+async def gmail_find_or_send(
+    access_token: str,
+    *,
+    query: str,
+    search_label_ids: Optional[list[str]] = None,
+    include_spam_trash: bool = False,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    subject: str,
+    body_format: str = "text/plain",
+    body: str,
+    include_signature: bool = False,
+    label_ids: Optional[list[str]] = None,
+) -> str:
+    """Gmail에서 검색어에 맞는 메일을 찾고, 없으면 메일을 보낸다.
+
+    Args:
+        query: Gmail 검색창 문법의 검색어
+        search_label_ids: 찾을 때 이 라벨을 모두 가진 메일만(라벨 ID 목록)
+        include_spam_trash: 찾을 때 스팸·휴지통도 보기
+        to: 받는 사람(쉼표 구분 또는 목록)
+        cc: 참조
+        bcc: 숨은 참조
+        from_email: 보낸 사람 주소(Gmail 별칭). 비우면 기본 주소
+        from_name: 보낸 사람 이름
+        reply_to: 답장 받을 주소
+        subject: 제목
+        body_format: "text/plain" 또는 "text/html"
+        body: 본문
+        include_signature: Gmail 서명 붙이기
+        label_ids: 보낸 메일에 붙일 라벨 ID 목록
+
+    Returns:
+        성공 {"success", "created", 메일 9키}(찾았으면 created false), 실패 {"error"}
+    """
+    tool = "gmail_find_or_send"
+    if _blank(query):
+        return _fail(tool, "검색어를 입력하세요")
+    labels = [] if _blank(label_ids) else _emails(label_ids)
+    inputs = _send_inputs(tool, to=to, cc=cc, bcc=bcc, from_email=from_email, from_name=from_name,
+                          include_signature=include_signature)
+    if isinstance(inputs, str):
+        return inputs
+    # 1건만 본다 — 찾기 100건은 Google 호출 101회
+    found = await gmail_find_email(access_token, query=query, label_ids=search_label_ids,
+                                   include_spam_trash=include_spam_trash, max_results=1)
+    data = json.loads(found)
+    if "error" in data:
+        return found
+    if data["items"]:
+        return _ok(created=False, **data["items"][0])
+
+    body = "" if body is None else str(body)
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        msg = await _mime(tool, client, headers, inputs, reply_to=reply_to, subject=subject,
+                          body_format=body_format, body=body)
+        if isinstance(msg, str):
+            return msg
+        sent = await _deliver(client, headers, msg)
+        if isinstance(sent, str):
+            return sent
+    except Exception as e:
+        return _fail(tool, str(e))
+    applied = await _label_after_send(client, headers, sent["messageId"], labels)
+    # 보낸 메일을 다시 조회하지 않고 보낸 값으로 채운다(호출 1회 절약)
+    text = _strip_html(body) if body_format == "text/html" else body
+    return _ok(**{
+        "created": True,
+        "messageId": sent["messageId"],
+        "threadId": sent["threadId"],
+        "from": str(msg["From"] or "")[:_HEADER_MAX],
+        "to": str(msg["To"] or "")[:_HEADER_MAX],
+        "subject": str(msg["Subject"] or "")[:_HEADER_MAX],
+        "snippet": "",
+        "bodyText": text[:_BODY_TEXT_MAX],
+        "receivedAt": _received_at(int(datetime.now(timezone.utc).timestamp() * 1000)),
+        "labels": applied or sent["labelIds"] or [],
+    })
 
 
 def _json_size(value) -> int:

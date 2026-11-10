@@ -113,7 +113,8 @@ def test_forms_도구는_ai_agent_도구_선택지에_없다():
     """lane-forms 확정 결정 Q3 — 두 Forms 도구는 ACTION 전용."""
     tools = next(f for f in tr.load_templates(force=True)["ai.agent"]["inputFields"] if f["key"] == "tools")
     ids = {c["id"] for c in tools["choices"]}
-    assert not ids & {"builtin:google_forms_set_accepting_responses", "builtin:google_forms_get_form"}
+    assert not ids & {"builtin:google_forms_set_accepting_responses", "builtin:google_forms_get_form",
+                      "builtin:google_forms_list_responses", "builtin:google_forms_get_response"}
 
 
 def test_agent_tool_choices_skip_builder_hidden_actions(tmp_path, monkeypatch):
@@ -186,7 +187,8 @@ def test_gmail_send_email은_빌더에_있고_AI_도구_선택지에_없다():
 
 
 _GMAIL_ACTION_ONLY = ("find_email", "get_thread", "add_label", "remove_label", "remove_thread_label", "archive",
-                      "trash", "create_label")
+                      "trash", "create_label", "reply", "forward", "create_draft", "create_reply_draft",
+                      "find_or_send")
 
 
 def test_gmail_정리_노드는_AI_도구_선택지에_없다():
