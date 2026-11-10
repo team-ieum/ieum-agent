@@ -49,7 +49,12 @@ from tools.gmail import (
     gmail_trash,
 )
 from tools.google_calendar import google_calendar_delete
-from tools.google_forms import google_forms_get_form, google_forms_set_accepting_responses
+from tools.google_forms import (
+    google_forms_get_form,
+    google_forms_get_response,
+    google_forms_list_responses,
+    google_forms_set_accepting_responses,
+)
 from tools.google_sheets import (
     google_sheets_append_top,
     google_sheets_find_or_create_row,
@@ -122,6 +127,8 @@ _ACTION_ONLY_TOOLS: dict = {
     # 폼 내용이 AI 프롬프트로 들어가는 경로를 막으려 조회(get_form)도 ACTION 전용(lane-forms 확정 결정 Q3)
     "builtin:google_forms_set_accepting_responses": google_forms_set_accepting_responses,
     "builtin:google_forms_get_form": google_forms_get_form,
+    "builtin:google_forms_list_responses": google_forms_list_responses,
+    "builtin:google_forms_get_response": google_forms_get_response,
 }
 
 

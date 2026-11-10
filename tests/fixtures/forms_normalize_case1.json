@@ -1,0 +1,58 @@
+{
+  "form": {"items": [
+    {"title": "이름", "questionItem": {"question": {"questionId": "1a2b3c4d", "textQuestion": {}}}},
+    {"title": "관심 분야", "questionItem": {"question": {"questionId": "2b3c4d5e", "choiceQuestion": {"type": "CHECKBOX"}}}},
+    {"title": "만족도", "questionItem": {"question": {"questionId": "3c4d5e6f", "scaleQuestion": {"low": 1, "high": 5}}}},
+    {"title": "섹션 2", "pageBreakItem": {}},
+    {"title": "시간대", "questionGroupItem": {
+      "questions": [{"questionId": "4d5e6f70", "rowQuestion": {"title": "오전"}},
+                    {"questionId": "5e6f7081", "rowQuestion": {"title": "오후"}}],
+      "grid": {"columns": {"type": "CHECKBOX"}}}},
+    {"title": "첨부", "questionItem": {"question": {"questionId": "6f708192", "fileUploadQuestion": {"folderId": "f"}}}},
+    {"title": "성별", "questionItem": {"question": {"questionId": "708192a3", "choiceQuestion": {"type": "RADIO"}}}},
+    {"title": "별점", "questionItem": {"question": {"questionId": "8192a3b4", "ratingQuestion": {"ratingScaleLevel": 5}}}},
+    {"title": "메모", "questionItem": {"question": {"questionId": "ab-12", "textQuestion": {}}}}
+  ]},
+  "response": {
+    "responseId": "ACYDBNj1",
+    "createTime": "2026-11-10T01:00:00.123Z",
+    "lastSubmittedTime": "2026-11-10T01:00:00.123Z",
+    "respondentEmail": "kim@example.com",
+    "answers": {
+      "1a2b3c4d": {"questionId": "1a2b3c4d", "textAnswers": {"answers": [{"value": "김이음"}]}},
+      "2b3c4d5e": {"questionId": "2b3c4d5e", "textAnswers": {"answers": [{"value": "AI"}, {"value": "자동화"}]}},
+      "3c4d5e6f": {"questionId": "3c4d5e6f", "textAnswers": {"answers": [{"value": "4"}]}},
+      "4d5e6f70": {"questionId": "4d5e6f70", "textAnswers": {"answers": [{"value": "월"}, {"value": "수"}]}},
+      "6f708192": {"questionId": "6f708192", "fileUploadAnswers": {"answers": [{"fileId": "1AbC", "fileName": "이력서.pdf", "mimeType": "application/pdf"}]}},
+      "8192a3b4": {"questionId": "8192a3b4", "textAnswers": {"answers": [{"value": "5"}]}},
+      "ab-12": {"questionId": "ab-12", "textAnswers": {"answers": [{"value": "메모 답"}]}},
+      "deadbeef": {"questionId": "deadbeef", "textAnswers": {"answers": [{"value": "지운 질문 답"}]}}
+    }
+  },
+  "expected": {
+    "responseId": "ACYDBNj1",
+    "submittedAt": "2026-11-10T01:00:00.123Z",
+    "createdAt": "2026-11-10T01:00:00.123Z",
+    "respondentEmail": "kim@example.com",
+    "answers": {
+      "1a2b3c4d": "김이음",
+      "2b3c4d5e": ["AI", "자동화"],
+      "3c4d5e6f": 4,
+      "4d5e6f70": ["월", "수"],
+      "6f708192": [{"fileId": "1AbC", "fileName": "이력서.pdf", "mimeType": "application/pdf"}],
+      "8192a3b4": 5,
+      "deadbeef": "지운 질문 답"
+    },
+    "answerList": [
+      {"questionId": "1a2b3c4d", "question": "이름", "answer": "김이음"},
+      {"questionId": "2b3c4d5e", "question": "관심 분야", "answer": ["AI", "자동화"]},
+      {"questionId": "3c4d5e6f", "question": "만족도", "answer": 4},
+      {"questionId": "4d5e6f70", "question": "시간대 - 오전", "answer": ["월", "수"]},
+      {"questionId": "6f708192", "question": "첨부", "answer": [{"fileId": "1AbC", "fileName": "이력서.pdf", "mimeType": "application/pdf"}]},
+      {"questionId": "8192a3b4", "question": "별점", "answer": 5},
+      {"questionId": "ab-12", "question": "메모", "answer": "메모 답"},
+      {"questionId": "deadbeef", "question": "", "answer": "지운 질문 답"}
+    ],
+    "totalScore": null
+  }
+}
