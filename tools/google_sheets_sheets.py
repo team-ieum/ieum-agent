@@ -3,7 +3,7 @@ import json
 from urllib.parse import quote
 
 from tools.google_sheets import (
-    _DRIVE_FILES_URL, _SHEET_PROPS, _SPREADSHEET_ID, _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _check,
+    _DRIVE_FILES_URL, _SHEET_PROPS, _SPREADSHEET_ID, _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _brief, _check,
     _fail, _find_sheet, _find_spreadsheets, _flag, _grid_sheets, _headers, _int, _ok, _put, _sid, _spreadsheet_url,
 )
 from tools.http_client import get_http_client
@@ -327,7 +327,7 @@ def _drive_id(value, message: str) -> str | None:
         return None
     v = str(value).strip()
     if not _SPREADSHEET_ID.fullmatch(v):
-        raise _Invalid(f"{message}: {value!r}")
+        raise _Invalid(f"{message}: {_brief(value)}")
     return v
 
 

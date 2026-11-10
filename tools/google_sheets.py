@@ -307,11 +307,17 @@ async def _batch_update(client, access_token, spreadsheet_id, requests: dict | l
 _HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
 
 
+def _brief(value) -> str:
+    """오류 문구용 repr — 큰 입력(참조식으로 받은 앞 단계 값)이 문구를 부풀리지 않게 앞 80자만."""
+    r = repr(value)
+    return r if len(r) <= 80 else r[:80] + "…"
+
+
 def _rgb(value: str, name: str) -> dict:
     """'#RRGGBB'(# 필수)를 Sheets rgbColor(0~1)로. 틀리면 칸 이름을 담아 실패한다."""
     h = str(value).strip() if isinstance(value, str) else ""
     if not _HEX_COLOR.fullmatch(h):
-        raise _Invalid(f"{name}은(는) #RRGGBB 형식이어야 해요(예: #FFF2CC): {value!r}")
+        raise _Invalid(f"{name}은(는) #RRGGBB 형식이어야 해요(예: #FFF2CC): {_brief(value)}")
     return {"red": int(h[1:3], 16) / 255, "green": int(h[3:5], 16) / 255, "blue": int(h[5:7], 16) / 255}
 
 

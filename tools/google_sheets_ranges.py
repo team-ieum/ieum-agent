@@ -3,7 +3,7 @@ import json
 import re
 
 from tools.google_sheets import (
-    _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _cell_format, _check, _col, _col_index, _fail,
+    _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _brief, _cell_format, _check, _col, _col_index, _fail,
     _find_sheet, _header_range, _headers, _ok, _put, _resolve, _tri, _values_url,
 )
 from tools.http_client import get_http_client
@@ -38,13 +38,13 @@ def _choice(value, allowed, name: str, default: str | None = None) -> str | None
         return default
     v = str(value).strip()
     if v not in allowed:
-        raise _Invalid(f"{name} 값이 올바르지 않아요: {value!r}")
+        raise _Invalid(f"{name} 값이 올바르지 않아요: {_brief(value)}")
     return v
 
 
 def _grid_range(cell_range, sheet_id: int) -> dict:
     """A1 범위(시트 부분은 버림) → batchUpdate GridRange. 끝 제외·0부터, 생략한 방향은 키를 빼 '끝까지'."""
-    bad = _Invalid(f"범위가 올바르지 않아요: {cell_range!r}. 예: A1:C10, A:A, 2:10")
+    bad = _Invalid(f"범위가 올바르지 않아요: {_brief(cell_range)}. 예: A1:C10, A:A, 2:10")
     if _blank(cell_range):
         raise bad
     pieces = str(cell_range).rpartition("!")[2].strip().upper().replace("$", "").split(":")
