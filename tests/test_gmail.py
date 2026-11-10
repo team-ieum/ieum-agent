@@ -403,6 +403,22 @@ async def test_빈_검색어는_HTTP_없이_실패한다(query):
     assert "error" in result and get.await_count == 0
 
 
+@pytest.mark.parametrize("html", ["<style>" * 40_000, "<" * 80_000, "<script>" * 40_000 + "a" * 300_000],
+                         ids=["unclosed-style", "lt-only", "unclosed-script"])
+def test_적대적_HTML_본문도_1초_안에_끝난다(html):   # 최종 리뷰 C1 — 제곱 정규식이 이벤트 루프를 멈췄다
+    import time
+    message = {"payload": {"mimeType": "text/html", "body": {"data": _b64(html)}}}
+    start = time.perf_counter()
+    _normalize(message)
+    assert time.perf_counter() - start < 1.0
+
+
+def test_HTML_본문은_200000자까지만_읽는다():
+    html = "가" * 199_999 + "<b>끝</b>" + "나" * 50_000
+    body = _normalize({"payload": {"mimeType": "text/html", "body": {"data": _b64(html)}}})["bodyText"]
+    assert "끝" not in body and "나" not in body
+
+
 def test_정규화는_plain_우선_html_대체_본문_자르기_receivedAt():
     html = {"mimeType": "text/html", "body": {"data": _b64(
         "<style>p{}</style><p>안녕&nbsp;&amp;\n  <b>반가워</b></p><SCRIPT>x()</SCRIPT>")}}

@@ -25,6 +25,7 @@ _FIND_DEFAULT = 20
 _FIND_MAX = 100
 _LABEL_MAX = 100
 _BODY_TEXT_MAX = 10_000  # BE GmailMessageNormalizer.BODY_TEXT_MAX
+_HTML_MAX = 200_000  # 태그 제거 전 원문 HTML 상한 — 거대한 메일 한 통이 agent를 붙잡지 않게
 
 
 def _header(value) -> str:
@@ -114,12 +115,39 @@ def _find_part(part: dict, mime_type: str) -> Optional[str]:
     return None
 
 
+class _HtmlText(HTMLParser):
+    """HTML 본문 → 텍스트(선형). 태그는 공백, script·style 안 글자는 버린다. 엔티티는 파서가 푼다."""
+
+    def __init__(self):
+        super().__init__()
+        self.parts: list[str] = []
+        self.skip = False
+
+    def handle_starttag(self, tag, attrs):
+        self.skip = tag in ("script", "style")
+        self.parts.append(" ")
+
+    def handle_endtag(self, tag):
+        self.skip = False
+        self.parts.append(" ")
+
+    def handle_startendtag(self, tag, attrs):
+        self.parts.append(" ")
+
+    def handle_comment(self, data):
+        self.parts.append(" ")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.parts.append(data)
+
+
 def _strip_html(html: str) -> str:
-    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
-    text = re.sub(r"<[^>]+>", " ", text)
-    for entity, char in (("&nbsp;", " "), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&#39;", "'"), ("&amp;", "&")):
-        text = text.replace(entity, char)
-    return re.sub(r"\s+", " ", text).strip()
+    # 정규식 태그 제거는 닫히지 않은 <style> 수만 개에 제곱으로 느려져 이벤트 루프를 멈췄다(최종 리뷰 C1)
+    parser = _HtmlText()
+    parser.feed(html[:_HTML_MAX])
+    parser.close()
+    return re.sub(r"\s+", " ", "".join(parser.parts)).strip()
 
 
 def _received_at(internal_date) -> str:
