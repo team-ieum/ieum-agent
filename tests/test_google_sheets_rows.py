@@ -5,7 +5,7 @@ from urllib.parse import unquote
 import pytest
 
 from tests.action_outputs import assert_matches_outputs
-from tools.google_sheets_rows import google_sheets_append_rows
+from tools.google_sheets_rows import google_sheets_append_rows, google_sheets_update_rows
 
 pytestmark = pytest.mark.asyncio
 
@@ -191,3 +191,69 @@ async def test_시트_제목도_받는다():
     fake, _ = await _run(google_sheets_append_rows, rows='[{"A":"p"}]', sheet_id="Sales")
     (_, url, _), = fake.of("append")
     assert _range(url) == "'Sales'!A1"
+
+
+# --- C5 update_rows ---
+
+async def _updated(**kwargs):
+    fake, result = await _run(google_sheets_update_rows, **kwargs)
+    assert "error" not in result, result
+    (_, _, kw), = fake.of("values_batch")
+    return [d["values"] for d in kw["json"]["data"]]
+
+
+async def test_여러_행_수정은_values_batchUpdate_한_번():
+    fake, result = await _run(google_sheets_update_rows,
+                              rows=json.dumps([{"row_number": 4, "B": "n@n"}, {"row_number": 2, "values": {"D": "9"}}]))
+    (_, url, kw), = fake.of("values_batch")
+    assert url.endswith("/spreadsheets/s1/values:batchUpdate")
+    assert kw["json"] == {"valueInputOption": "USER_ENTERED", "data": [
+        {"range": "'Sales'!A4", "majorDimension": "ROWS", "values": [[None, "n@n"]]},
+        {"range": "'Sales'!A2", "majorDimension": "ROWS", "values": [[None, None, None, "9"]]},
+    ]}
+    assert result == {"success": True, "row_count": 2, "row_numbers": [2, 4]}
+    assert_matches_outputs("google_sheets.update_rows", result)
+
+
+@pytest.mark.parametrize("overwrite_all", [True, "true"])
+async def test_모든_열_덮어쓰기(overwrite_all):
+    values = await _updated(rows='[{"row_number":3,"A":"q"}]', overwrite_all=overwrite_all)
+    assert values == [[["q", "", "", ""]]]
+
+
+async def test_매핑으로_수정():
+    rows = json.dumps([{"row_number": 3, "mail": "m@m", "x": "무시"}])
+    assert await _updated(rows=rows, column_map={"B": "mail"}) == [[[None, "m@m"]]]
+
+
+async def test_같은_행이_두_번이면_거절():
+    fake, result = await _run(google_sheets_update_rows,
+                              rows=json.dumps([{"row_number": 3, "A": "q"}, {"row_number": "3", "B": "r"}]))
+    assert "2번째 행:" in result["error"]
+    assert fake.of("values_batch") == []
+
+
+@pytest.mark.parametrize("item", [{"A": "q"}, {"row_number": 0, "A": "q"}, {"row_number": "", "A": "q"},
+                                  {"row_number": True, "A": "q"}, ["q"]])
+async def test_행_번호가_없거나_틀리면_거절(item):
+    error = await _no_google(google_sheets_update_rows, rows=json.dumps([item]))
+    assert "1번째 행:" in error
+
+
+async def test_수정_한_행이_틀리면_쓰지_않는다():
+    fake, result = await _run(google_sheets_update_rows,
+                              rows=json.dumps([{"row_number": 2, "A": "q"}, {"row_number": 3, "없는열": "r"}]))
+    assert "error" in result
+    assert fake.of("values_batch") == []
+
+
+async def test_수정_빈_목록은_0행_성공():
+    fake, result = await _run(google_sheets_update_rows, rows="[]")
+    assert result == {"success": True, "row_count": 0, "row_numbers": []}
+    assert fake.calls == []
+
+
+async def test_수정_상한():
+    await _no_google(google_sheets_update_rows,
+                     rows=json.dumps([{"row_number": n, "A": "q"} for n in range(2, 503)]))
+    assert len(await _updated(rows=json.dumps([{"row_number": n, "A": "q"} for n in range(2, 502)]))) == 500

@@ -3,8 +3,8 @@ import json
 import re
 
 from tools.http_client import get_http_client
-from tools.google_sheets import (_Invalid, _a1_range, _blank, _check, _col, _fail, _headers, _ok, _open, _row,
-                                 _row_number, _values_url, _TIMEOUT)
+from tools.google_sheets import (_Invalid, _a1_range, _blank, _check, _col, _fail, _flag, _headers, _ok, _open,
+                                 _row, _row_index, _row_number, _spreadsheet_url, _values_url, _TIMEOUT)
 
 _APPEND_LIMIT = 1000
 _UPDATE_LIMIT = 500
@@ -141,5 +141,74 @@ async def google_sheets_append_rows(access_token: str, spreadsheet_id: str, shee
         updated = updates.get("updatedRange")
         return json.dumps({"success": True, "updatedRange": updated, "row_number": _row_number(updated),
                            "row_count": updates.get("updatedRows", len(values))}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+def _numbered(item, mapping: dict) -> tuple[int, dict]:
+    """수정 항목 → (행 번호, {열 키: 값}). 행 번호는 항목 최상위 row_number(매핑 유무 무관)."""
+    if not isinstance(item, dict) or "row_number" not in item:
+        raise _Invalid("row_number가 필요해요")
+    n = _row_index(item["row_number"])
+    if not mapping and not isinstance(item.get("values"), dict):
+        item = {k: v for k, v in item.items() if k != "row_number"}  # 평평한 객체의 row_number는 열 값이 아니다
+    return n, _item_columns(item, mapping)
+
+
+async def google_sheets_update_rows(access_token: str, spreadsheet_id: str, sheet_id: str, rows: str,
+                                    column_map: dict | None = None, overwrite_all: bool = False,
+                                    value_input_option: str = "USER_ENTERED") -> str:
+    """
+    Google Sheets 워크시트의 여러 행을 행 번호마다 한 번에 고칩니다. 안 채운 열은 기존 값을 그대로 둡니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        rows: 행 목록(JSON 배열). 항목마다 row_number와 바꿀 {열: 값}
+        column_map: {열: 항목 키 이름}. 있으면 매핑한 열만 항목에서 꺼내 쓴다
+        overwrite_all: 참이면 안 채운 열을 머리글 끝까지 비운다
+        value_input_option: USER_ENTERED(수식·숫자 해석) 또는 RAW(그대로)
+    """
+    tool = "google_sheets_update_rows"
+    value_input_option = value_input_option or "USER_ENTERED"  # 빈 칸 = 카탈로그 기본값
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id, value_input_option=value_input_option)
+        mapping = _mapping(column_map)
+        items = _parse_rows(rows, _UPDATE_LIMIT)
+        seen = set()
+
+        def numbered(item):
+            n, cols = _numbered(item, mapping)
+            if n in seen:
+                raise _Invalid(f"{n}행이 두 번 왔어요")
+            seen.add(n)
+            return n, cols
+
+        targets = _each(items, numbered)
+        if not targets:
+            return json.dumps({"success": True, "row_count": 0, "row_numbers": []}, ensure_ascii=False)
+        client = get_http_client()
+        sheet = await _open(client, access_token, spreadsheet_id, sheet_id)
+        overwrite = _flag(overwrite_all)
+
+        def row(target):
+            n, cols = target
+            if overwrite:
+                values = _row(cols, sheet.headers, blank="")
+                values += [""] * (len(sheet.headers) - len(values))
+            else:
+                values = _row(cols, sheet.headers, blank=None)  # None = 셀 유지
+            return {"range": _a1_range(f"A{n}", sheet.title), "majorDimension": "ROWS", "values": [values]}
+
+        data = _each(targets, row)
+        response = await client.post(
+            f"{_spreadsheet_url(spreadsheet_id)}/values:batchUpdate",
+            headers=_headers(access_token),
+            json={"valueInputOption": value_input_option, "data": data},
+            timeout=_TIMEOUT,
+        )
+        return json.dumps({"success": True, "row_count": _ok(response).get("totalUpdatedRows", len(data)),
+                           "row_numbers": sorted(seen)}, ensure_ascii=False)
     except Exception as e:
         return _fail(tool, str(e))
