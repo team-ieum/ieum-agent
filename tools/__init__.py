@@ -20,7 +20,11 @@ from tools.notion import (
     notion_query_database,
 )
 from tools.notion_rows import notion_create_row, notion_update_row
-from tools.google_sheets import google_sheets_read, google_sheets_append, google_sheets_lookup_row
+from tools.google_sheets import (
+    google_sheets_read, google_sheets_append, google_sheets_lookup_row, google_sheets_lookup_rows,
+    google_sheets_get_rows, google_sheets_get_row, google_sheets_find_spreadsheet, google_sheets_find_worksheet,
+    google_sheets_get_spreadsheet,
+)
 from tools.google_calendar import google_calendar_create, google_calendar_find, google_calendar_update
 from tools.google_drive import google_drive_read, google_drive_upload
 from tools.workflow_context import workflow_context
@@ -86,6 +90,12 @@ _TOOL_MAP: dict = {
     "builtin:google_sheets_read": google_sheets_read,
     "builtin:google_sheets_append": google_sheets_append,
     "builtin:google_sheets_lookup_row": google_sheets_lookup_row,
+    "builtin:google_sheets_lookup_rows": google_sheets_lookup_rows,
+    "builtin:google_sheets_get_rows": google_sheets_get_rows,
+    "builtin:google_sheets_get_row": google_sheets_get_row,
+    "builtin:google_sheets_find_spreadsheet": google_sheets_find_spreadsheet,
+    "builtin:google_sheets_find_worksheet": google_sheets_find_worksheet,
+    "builtin:google_sheets_get_spreadsheet": google_sheets_get_spreadsheet,
     "builtin:google_calendar_create": google_calendar_create,
     "builtin:google_calendar_find": google_calendar_find,
     "builtin:google_calendar_update": google_calendar_update,
