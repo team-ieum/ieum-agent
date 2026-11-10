@@ -5339,6 +5339,1237 @@
     {
       "app": "gmail",
       "appTitle": "Gmail",
+      "description": "메일에 라벨을 붙여요. 별표는 '별표' 라벨을 붙이면 돼요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.add_label",
+        "type": "ACTION"
+      },
+      "id": "gmail.add_label",
+      "inputFields": [
+        {
+          "key": "message_id",
+          "optionsSource": "google.gmail_messages",
+          "path": "config.message_id",
+          "required": true,
+          "title": "메일",
+          "type": "string"
+        },
+        {
+          "key": "label_ids",
+          "list": true,
+          "optionsSource": "google.gmail_labels",
+          "path": "config.label_ids",
+          "ref": false,
+          "required": true,
+          "title": "라벨",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        },
+        {
+          "key": "labels",
+          "list": true,
+          "title": "라벨",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 라벨 붙이기",
+      "toolKey": "builtin:google_gmail_add_label"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "받은편지함에서 빼서 보관해요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.archive",
+        "type": "ACTION"
+      },
+      "id": "gmail.archive",
+      "inputFields": [
+        {
+          "key": "message_id",
+          "optionsSource": "google.gmail_messages",
+          "path": "config.message_id",
+          "required": true,
+          "title": "메일",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        },
+        {
+          "key": "labels",
+          "list": true,
+          "title": "라벨",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 메일 보관",
+      "toolKey": "builtin:google_gmail_archive"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "새 라벨을 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.create_label",
+        "type": "ACTION"
+      },
+      "id": "gmail.create_label",
+      "inputFields": [
+        {
+          "description": "'상위/하위'로 쓰면 하위 라벨",
+          "key": "name",
+          "path": "config.name",
+          "required": true,
+          "title": "라벨 이름",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "labelShow",
+              "name": "표시"
+            },
+            {
+              "id": "labelShowIfUnread",
+              "name": "읽지 않은 메일이 있을 때만"
+            },
+            {
+              "id": "labelHide",
+              "name": "숨김"
+            }
+          ],
+          "key": "label_list_visibility",
+          "path": "config.label_list_visibility",
+          "ref": false,
+          "title": "라벨 목록에 표시",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "show",
+              "name": "표시"
+            },
+            {
+              "id": "hide",
+              "name": "숨김"
+            }
+          ],
+          "key": "message_list_visibility",
+          "path": "config.message_list_visibility",
+          "ref": false,
+          "title": "메일 목록에 표시",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "#000000",
+              "name": "#000000"
+            },
+            {
+              "id": "#434343",
+              "name": "#434343"
+            },
+            {
+              "id": "#666666",
+              "name": "#666666"
+            },
+            {
+              "id": "#999999",
+              "name": "#999999"
+            },
+            {
+              "id": "#cccccc",
+              "name": "#cccccc"
+            },
+            {
+              "id": "#efefef",
+              "name": "#efefef"
+            },
+            {
+              "id": "#f3f3f3",
+              "name": "#f3f3f3"
+            },
+            {
+              "id": "#ffffff",
+              "name": "#ffffff"
+            },
+            {
+              "id": "#fb4c2f",
+              "name": "#fb4c2f"
+            },
+            {
+              "id": "#ffad47",
+              "name": "#ffad47"
+            },
+            {
+              "id": "#fad165",
+              "name": "#fad165"
+            },
+            {
+              "id": "#16a766",
+              "name": "#16a766"
+            },
+            {
+              "id": "#43d692",
+              "name": "#43d692"
+            },
+            {
+              "id": "#4a86e8",
+              "name": "#4a86e8"
+            },
+            {
+              "id": "#a479e2",
+              "name": "#a479e2"
+            },
+            {
+              "id": "#f691b3",
+              "name": "#f691b3"
+            },
+            {
+              "id": "#f6c5be",
+              "name": "#f6c5be"
+            },
+            {
+              "id": "#ffe6c7",
+              "name": "#ffe6c7"
+            },
+            {
+              "id": "#fef1d1",
+              "name": "#fef1d1"
+            },
+            {
+              "id": "#b9e4d0",
+              "name": "#b9e4d0"
+            },
+            {
+              "id": "#c6f3de",
+              "name": "#c6f3de"
+            },
+            {
+              "id": "#c9daf8",
+              "name": "#c9daf8"
+            },
+            {
+              "id": "#e4d7f5",
+              "name": "#e4d7f5"
+            },
+            {
+              "id": "#fcdee8",
+              "name": "#fcdee8"
+            },
+            {
+              "id": "#efa093",
+              "name": "#efa093"
+            },
+            {
+              "id": "#ffd6a2",
+              "name": "#ffd6a2"
+            },
+            {
+              "id": "#fce8b3",
+              "name": "#fce8b3"
+            },
+            {
+              "id": "#89d3b2",
+              "name": "#89d3b2"
+            },
+            {
+              "id": "#a0eac9",
+              "name": "#a0eac9"
+            },
+            {
+              "id": "#a4c2f4",
+              "name": "#a4c2f4"
+            },
+            {
+              "id": "#d0bcf1",
+              "name": "#d0bcf1"
+            },
+            {
+              "id": "#fbc8d9",
+              "name": "#fbc8d9"
+            },
+            {
+              "id": "#e66550",
+              "name": "#e66550"
+            },
+            {
+              "id": "#ffbc6b",
+              "name": "#ffbc6b"
+            },
+            {
+              "id": "#fcda83",
+              "name": "#fcda83"
+            },
+            {
+              "id": "#44b984",
+              "name": "#44b984"
+            },
+            {
+              "id": "#68dfa9",
+              "name": "#68dfa9"
+            },
+            {
+              "id": "#6d9eeb",
+              "name": "#6d9eeb"
+            },
+            {
+              "id": "#b694e8",
+              "name": "#b694e8"
+            },
+            {
+              "id": "#f7a7c0",
+              "name": "#f7a7c0"
+            },
+            {
+              "id": "#cc3a21",
+              "name": "#cc3a21"
+            },
+            {
+              "id": "#eaa041",
+              "name": "#eaa041"
+            },
+            {
+              "id": "#f2c960",
+              "name": "#f2c960"
+            },
+            {
+              "id": "#149e60",
+              "name": "#149e60"
+            },
+            {
+              "id": "#3dc789",
+              "name": "#3dc789"
+            },
+            {
+              "id": "#3c78d8",
+              "name": "#3c78d8"
+            },
+            {
+              "id": "#8e63ce",
+              "name": "#8e63ce"
+            },
+            {
+              "id": "#e07798",
+              "name": "#e07798"
+            },
+            {
+              "id": "#ac2b16",
+              "name": "#ac2b16"
+            },
+            {
+              "id": "#cf8933",
+              "name": "#cf8933"
+            },
+            {
+              "id": "#d5ae49",
+              "name": "#d5ae49"
+            },
+            {
+              "id": "#0b804b",
+              "name": "#0b804b"
+            },
+            {
+              "id": "#2a9c68",
+              "name": "#2a9c68"
+            },
+            {
+              "id": "#285bac",
+              "name": "#285bac"
+            },
+            {
+              "id": "#653e9b",
+              "name": "#653e9b"
+            },
+            {
+              "id": "#b65775",
+              "name": "#b65775"
+            },
+            {
+              "id": "#822111",
+              "name": "#822111"
+            },
+            {
+              "id": "#a46a21",
+              "name": "#a46a21"
+            },
+            {
+              "id": "#aa8831",
+              "name": "#aa8831"
+            },
+            {
+              "id": "#076239",
+              "name": "#076239"
+            },
+            {
+              "id": "#1a764d",
+              "name": "#1a764d"
+            },
+            {
+              "id": "#1c4587",
+              "name": "#1c4587"
+            },
+            {
+              "id": "#41236d",
+              "name": "#41236d"
+            },
+            {
+              "id": "#83334c",
+              "name": "#83334c"
+            },
+            {
+              "id": "#464646",
+              "name": "#464646"
+            },
+            {
+              "id": "#e7e7e7",
+              "name": "#e7e7e7"
+            },
+            {
+              "id": "#0d3472",
+              "name": "#0d3472"
+            },
+            {
+              "id": "#b6cff5",
+              "name": "#b6cff5"
+            },
+            {
+              "id": "#0d3b44",
+              "name": "#0d3b44"
+            },
+            {
+              "id": "#98d7e4",
+              "name": "#98d7e4"
+            },
+            {
+              "id": "#3d188e",
+              "name": "#3d188e"
+            },
+            {
+              "id": "#e3d7ff",
+              "name": "#e3d7ff"
+            },
+            {
+              "id": "#711a36",
+              "name": "#711a36"
+            },
+            {
+              "id": "#fbd3e0",
+              "name": "#fbd3e0"
+            },
+            {
+              "id": "#8a1c0a",
+              "name": "#8a1c0a"
+            },
+            {
+              "id": "#f2b2a8",
+              "name": "#f2b2a8"
+            },
+            {
+              "id": "#7a2e0b",
+              "name": "#7a2e0b"
+            },
+            {
+              "id": "#ffc8af",
+              "name": "#ffc8af"
+            },
+            {
+              "id": "#7a4706",
+              "name": "#7a4706"
+            },
+            {
+              "id": "#ffdeb5",
+              "name": "#ffdeb5"
+            },
+            {
+              "id": "#594c05",
+              "name": "#594c05"
+            },
+            {
+              "id": "#fbe983",
+              "name": "#fbe983"
+            },
+            {
+              "id": "#684e07",
+              "name": "#684e07"
+            },
+            {
+              "id": "#fdedc1",
+              "name": "#fdedc1"
+            },
+            {
+              "id": "#0b4f30",
+              "name": "#0b4f30"
+            },
+            {
+              "id": "#b3efd3",
+              "name": "#b3efd3"
+            },
+            {
+              "id": "#04502e",
+              "name": "#04502e"
+            },
+            {
+              "id": "#a2dcc1",
+              "name": "#a2dcc1"
+            },
+            {
+              "id": "#c2c2c2",
+              "name": "#c2c2c2"
+            },
+            {
+              "id": "#4986e7",
+              "name": "#4986e7"
+            },
+            {
+              "id": "#2da2bb",
+              "name": "#2da2bb"
+            },
+            {
+              "id": "#b99aff",
+              "name": "#b99aff"
+            },
+            {
+              "id": "#994a64",
+              "name": "#994a64"
+            },
+            {
+              "id": "#f691b2",
+              "name": "#f691b2"
+            },
+            {
+              "id": "#ff7537",
+              "name": "#ff7537"
+            },
+            {
+              "id": "#ffad46",
+              "name": "#ffad46"
+            },
+            {
+              "id": "#662e37",
+              "name": "#662e37"
+            },
+            {
+              "id": "#ebdbde",
+              "name": "#ebdbde"
+            },
+            {
+              "id": "#cca6ac",
+              "name": "#cca6ac"
+            },
+            {
+              "id": "#094228",
+              "name": "#094228"
+            },
+            {
+              "id": "#42d692",
+              "name": "#42d692"
+            },
+            {
+              "id": "#16a765",
+              "name": "#16a765"
+            }
+          ],
+          "description": "둘 다 고르거나 둘 다 비워요",
+          "key": "text_color",
+          "path": "config.text_color",
+          "ref": false,
+          "title": "글자색",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "#000000",
+              "name": "#000000"
+            },
+            {
+              "id": "#434343",
+              "name": "#434343"
+            },
+            {
+              "id": "#666666",
+              "name": "#666666"
+            },
+            {
+              "id": "#999999",
+              "name": "#999999"
+            },
+            {
+              "id": "#cccccc",
+              "name": "#cccccc"
+            },
+            {
+              "id": "#efefef",
+              "name": "#efefef"
+            },
+            {
+              "id": "#f3f3f3",
+              "name": "#f3f3f3"
+            },
+            {
+              "id": "#ffffff",
+              "name": "#ffffff"
+            },
+            {
+              "id": "#fb4c2f",
+              "name": "#fb4c2f"
+            },
+            {
+              "id": "#ffad47",
+              "name": "#ffad47"
+            },
+            {
+              "id": "#fad165",
+              "name": "#fad165"
+            },
+            {
+              "id": "#16a766",
+              "name": "#16a766"
+            },
+            {
+              "id": "#43d692",
+              "name": "#43d692"
+            },
+            {
+              "id": "#4a86e8",
+              "name": "#4a86e8"
+            },
+            {
+              "id": "#a479e2",
+              "name": "#a479e2"
+            },
+            {
+              "id": "#f691b3",
+              "name": "#f691b3"
+            },
+            {
+              "id": "#f6c5be",
+              "name": "#f6c5be"
+            },
+            {
+              "id": "#ffe6c7",
+              "name": "#ffe6c7"
+            },
+            {
+              "id": "#fef1d1",
+              "name": "#fef1d1"
+            },
+            {
+              "id": "#b9e4d0",
+              "name": "#b9e4d0"
+            },
+            {
+              "id": "#c6f3de",
+              "name": "#c6f3de"
+            },
+            {
+              "id": "#c9daf8",
+              "name": "#c9daf8"
+            },
+            {
+              "id": "#e4d7f5",
+              "name": "#e4d7f5"
+            },
+            {
+              "id": "#fcdee8",
+              "name": "#fcdee8"
+            },
+            {
+              "id": "#efa093",
+              "name": "#efa093"
+            },
+            {
+              "id": "#ffd6a2",
+              "name": "#ffd6a2"
+            },
+            {
+              "id": "#fce8b3",
+              "name": "#fce8b3"
+            },
+            {
+              "id": "#89d3b2",
+              "name": "#89d3b2"
+            },
+            {
+              "id": "#a0eac9",
+              "name": "#a0eac9"
+            },
+            {
+              "id": "#a4c2f4",
+              "name": "#a4c2f4"
+            },
+            {
+              "id": "#d0bcf1",
+              "name": "#d0bcf1"
+            },
+            {
+              "id": "#fbc8d9",
+              "name": "#fbc8d9"
+            },
+            {
+              "id": "#e66550",
+              "name": "#e66550"
+            },
+            {
+              "id": "#ffbc6b",
+              "name": "#ffbc6b"
+            },
+            {
+              "id": "#fcda83",
+              "name": "#fcda83"
+            },
+            {
+              "id": "#44b984",
+              "name": "#44b984"
+            },
+            {
+              "id": "#68dfa9",
+              "name": "#68dfa9"
+            },
+            {
+              "id": "#6d9eeb",
+              "name": "#6d9eeb"
+            },
+            {
+              "id": "#b694e8",
+              "name": "#b694e8"
+            },
+            {
+              "id": "#f7a7c0",
+              "name": "#f7a7c0"
+            },
+            {
+              "id": "#cc3a21",
+              "name": "#cc3a21"
+            },
+            {
+              "id": "#eaa041",
+              "name": "#eaa041"
+            },
+            {
+              "id": "#f2c960",
+              "name": "#f2c960"
+            },
+            {
+              "id": "#149e60",
+              "name": "#149e60"
+            },
+            {
+              "id": "#3dc789",
+              "name": "#3dc789"
+            },
+            {
+              "id": "#3c78d8",
+              "name": "#3c78d8"
+            },
+            {
+              "id": "#8e63ce",
+              "name": "#8e63ce"
+            },
+            {
+              "id": "#e07798",
+              "name": "#e07798"
+            },
+            {
+              "id": "#ac2b16",
+              "name": "#ac2b16"
+            },
+            {
+              "id": "#cf8933",
+              "name": "#cf8933"
+            },
+            {
+              "id": "#d5ae49",
+              "name": "#d5ae49"
+            },
+            {
+              "id": "#0b804b",
+              "name": "#0b804b"
+            },
+            {
+              "id": "#2a9c68",
+              "name": "#2a9c68"
+            },
+            {
+              "id": "#285bac",
+              "name": "#285bac"
+            },
+            {
+              "id": "#653e9b",
+              "name": "#653e9b"
+            },
+            {
+              "id": "#b65775",
+              "name": "#b65775"
+            },
+            {
+              "id": "#822111",
+              "name": "#822111"
+            },
+            {
+              "id": "#a46a21",
+              "name": "#a46a21"
+            },
+            {
+              "id": "#aa8831",
+              "name": "#aa8831"
+            },
+            {
+              "id": "#076239",
+              "name": "#076239"
+            },
+            {
+              "id": "#1a764d",
+              "name": "#1a764d"
+            },
+            {
+              "id": "#1c4587",
+              "name": "#1c4587"
+            },
+            {
+              "id": "#41236d",
+              "name": "#41236d"
+            },
+            {
+              "id": "#83334c",
+              "name": "#83334c"
+            },
+            {
+              "id": "#464646",
+              "name": "#464646"
+            },
+            {
+              "id": "#e7e7e7",
+              "name": "#e7e7e7"
+            },
+            {
+              "id": "#0d3472",
+              "name": "#0d3472"
+            },
+            {
+              "id": "#b6cff5",
+              "name": "#b6cff5"
+            },
+            {
+              "id": "#0d3b44",
+              "name": "#0d3b44"
+            },
+            {
+              "id": "#98d7e4",
+              "name": "#98d7e4"
+            },
+            {
+              "id": "#3d188e",
+              "name": "#3d188e"
+            },
+            {
+              "id": "#e3d7ff",
+              "name": "#e3d7ff"
+            },
+            {
+              "id": "#711a36",
+              "name": "#711a36"
+            },
+            {
+              "id": "#fbd3e0",
+              "name": "#fbd3e0"
+            },
+            {
+              "id": "#8a1c0a",
+              "name": "#8a1c0a"
+            },
+            {
+              "id": "#f2b2a8",
+              "name": "#f2b2a8"
+            },
+            {
+              "id": "#7a2e0b",
+              "name": "#7a2e0b"
+            },
+            {
+              "id": "#ffc8af",
+              "name": "#ffc8af"
+            },
+            {
+              "id": "#7a4706",
+              "name": "#7a4706"
+            },
+            {
+              "id": "#ffdeb5",
+              "name": "#ffdeb5"
+            },
+            {
+              "id": "#594c05",
+              "name": "#594c05"
+            },
+            {
+              "id": "#fbe983",
+              "name": "#fbe983"
+            },
+            {
+              "id": "#684e07",
+              "name": "#684e07"
+            },
+            {
+              "id": "#fdedc1",
+              "name": "#fdedc1"
+            },
+            {
+              "id": "#0b4f30",
+              "name": "#0b4f30"
+            },
+            {
+              "id": "#b3efd3",
+              "name": "#b3efd3"
+            },
+            {
+              "id": "#04502e",
+              "name": "#04502e"
+            },
+            {
+              "id": "#a2dcc1",
+              "name": "#a2dcc1"
+            },
+            {
+              "id": "#c2c2c2",
+              "name": "#c2c2c2"
+            },
+            {
+              "id": "#4986e7",
+              "name": "#4986e7"
+            },
+            {
+              "id": "#2da2bb",
+              "name": "#2da2bb"
+            },
+            {
+              "id": "#b99aff",
+              "name": "#b99aff"
+            },
+            {
+              "id": "#994a64",
+              "name": "#994a64"
+            },
+            {
+              "id": "#f691b2",
+              "name": "#f691b2"
+            },
+            {
+              "id": "#ff7537",
+              "name": "#ff7537"
+            },
+            {
+              "id": "#ffad46",
+              "name": "#ffad46"
+            },
+            {
+              "id": "#662e37",
+              "name": "#662e37"
+            },
+            {
+              "id": "#ebdbde",
+              "name": "#ebdbde"
+            },
+            {
+              "id": "#cca6ac",
+              "name": "#cca6ac"
+            },
+            {
+              "id": "#094228",
+              "name": "#094228"
+            },
+            {
+              "id": "#42d692",
+              "name": "#42d692"
+            },
+            {
+              "id": "#16a765",
+              "name": "#16a765"
+            }
+          ],
+          "description": "둘 다 고르거나 둘 다 비워요",
+          "key": "background_color",
+          "path": "config.background_color",
+          "ref": false,
+          "title": "배경색",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "labelId",
+          "title": "라벨 ID",
+          "type": "string"
+        },
+        {
+          "key": "name",
+          "title": "라벨 이름",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 라벨 만들기",
+      "toolKey": "builtin:google_gmail_create_label"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "검색어에 맞는 메일을 최근 순으로 찾아요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.find_email",
+        "type": "ACTION"
+      },
+      "id": "gmail.find_email",
+      "inputFields": [
+        {
+          "description": "Gmail 검색창과 같은 문법. 날짜는 PST 자정 기준 — 정확히 하려면 after:<epoch초>",
+          "key": "query",
+          "path": "config.query",
+          "required": true,
+          "title": "검색어",
+          "type": "string"
+        },
+        {
+          "description": "고른 라벨을 모두 가진 메일",
+          "key": "label_ids",
+          "list": true,
+          "optionsSource": "google.gmail_labels",
+          "path": "config.label_ids",
+          "ref": false,
+          "title": "라벨",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "key": "include_spam_trash",
+          "path": "config.include_spam_trash",
+          "ref": false,
+          "title": "스팸·휴지통 포함",
+          "type": "boolean"
+        },
+        {
+          "default": 20,
+          "description": "기본 20, 최대 100",
+          "key": "max_results",
+          "path": "config.max_results",
+          "title": "최대 개수",
+          "type": "integer"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "한 건 이상 찾았는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "messageId",
+              "title": "메일 ID",
+              "type": "string"
+            },
+            {
+              "key": "threadId",
+              "title": "스레드 ID",
+              "type": "string"
+            },
+            {
+              "key": "from",
+              "title": "보낸 사람",
+              "type": "string"
+            },
+            {
+              "key": "to",
+              "title": "받는 사람",
+              "type": "string"
+            },
+            {
+              "key": "subject",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "snippet",
+              "title": "미리보기",
+              "type": "text"
+            },
+            {
+              "key": "bodyText",
+              "title": "본문",
+              "type": "text"
+            },
+            {
+              "key": "receivedAt",
+              "title": "받은 시각",
+              "type": "datetime"
+            },
+            {
+              "key": "labels",
+              "list": true,
+              "title": "라벨 ID",
+              "type": "string"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "메일",
+          "type": "object"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 메일 찾기",
+      "toolKey": "builtin:google_gmail_find_email"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "대화의 메일을 모두 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.get_thread",
+        "type": "ACTION"
+      },
+      "id": "gmail.get_thread",
+      "inputFields": [
+        {
+          "key": "thread_id",
+          "optionsSource": "google.gmail_threads",
+          "path": "config.thread_id",
+          "required": true,
+          "title": "대화",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "messageId",
+              "title": "메일 ID",
+              "type": "string"
+            },
+            {
+              "key": "threadId",
+              "title": "스레드 ID",
+              "type": "string"
+            },
+            {
+              "key": "from",
+              "title": "보낸 사람",
+              "type": "string"
+            },
+            {
+              "key": "to",
+              "title": "받는 사람",
+              "type": "string"
+            },
+            {
+              "key": "subject",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "snippet",
+              "title": "미리보기",
+              "type": "text"
+            },
+            {
+              "key": "bodyText",
+              "title": "본문",
+              "type": "text"
+            },
+            {
+              "key": "receivedAt",
+              "title": "받은 시각",
+              "type": "datetime"
+            },
+            {
+              "key": "labels",
+              "list": true,
+              "title": "라벨 ID",
+              "type": "string"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "메일",
+          "type": "object"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 대화 가져오기",
+      "toolKey": "builtin:google_gmail_get_thread"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
       "description": "받은편지함에 새 메일이 오면 시작해요.",
       "fixed": {
         "config": {
@@ -5410,6 +6641,107 @@
       ],
       "provider": "google",
       "title": "새 Gmail 메일"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "메일에서 라벨을 떼요. 읽음 처리는 '읽지 않음'을 떼면 돼요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.remove_label",
+        "type": "ACTION"
+      },
+      "id": "gmail.remove_label",
+      "inputFields": [
+        {
+          "key": "message_id",
+          "optionsSource": "google.gmail_messages",
+          "path": "config.message_id",
+          "required": true,
+          "title": "메일",
+          "type": "string"
+        },
+        {
+          "key": "label_ids",
+          "list": true,
+          "optionsSource": "google.gmail_labels",
+          "path": "config.label_ids",
+          "ref": false,
+          "required": true,
+          "title": "라벨",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        },
+        {
+          "key": "labels",
+          "list": true,
+          "title": "라벨",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 라벨 떼기",
+      "toolKey": "builtin:google_gmail_remove_label"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "대화의 모든 메일에서 라벨을 떼요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.remove_thread_label",
+        "type": "ACTION"
+      },
+      "id": "gmail.remove_thread_label",
+      "inputFields": [
+        {
+          "key": "thread_id",
+          "optionsSource": "google.gmail_threads",
+          "path": "config.thread_id",
+          "required": true,
+          "title": "대화",
+          "type": "string"
+        },
+        {
+          "key": "label_ids",
+          "list": true,
+          "optionsSource": "google.gmail_labels",
+          "path": "config.label_ids",
+          "ref": false,
+          "required": true,
+          "title": "라벨",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 대화에서 라벨 떼기",
+      "toolKey": "builtin:google_gmail_remove_thread_label"
     },
     {
       "app": "gmail",
@@ -5535,6 +6867,46 @@
       "provider": "google",
       "title": "Gmail 메일 보내기",
       "toolKey": "builtin:google_gmail_send_email"
+    },
+    {
+      "app": "gmail",
+      "appTitle": "Gmail",
+      "description": "메일을 휴지통으로 옮겨요. 30일 안에는 되돌릴 수 있어요.",
+      "fixed": {
+        "config": {
+          "brand": "gmail"
+        },
+        "event": "gmail.trash",
+        "type": "ACTION"
+      },
+      "id": "gmail.trash",
+      "inputFields": [
+        {
+          "key": "message_id",
+          "optionsSource": "google.gmail_messages",
+          "path": "config.message_id",
+          "required": true,
+          "title": "메일",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "messageId",
+          "title": "메일 ID",
+          "type": "string"
+        },
+        {
+          "key": "threadId",
+          "title": "대화 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "Gmail 휴지통으로 이동",
+      "toolKey": "builtin:google_gmail_trash"
     },
     {
       "app": "google_calendar",
