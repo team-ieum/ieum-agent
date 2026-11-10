@@ -1,3 +1,4 @@
+import itertools
 import json
 import re
 from typing import NamedTuple
@@ -309,9 +310,11 @@ async def _lookup(client, access_token, spreadsheet_id, sheet_id, lookup_column,
     numbered = [(n, row) for n, row in enumerate(rows[1:], start=2) if n >= start_row]
     if _flag(from_bottom):
         numbered.reverse()
-    matches = [(n, {_col(i): cell(row, i) for i in range(len(sheet.headers))})
-               for n, row in numbered if all(cell(row, i) == value for i, value in conditions)]
-    return sheet, matches[:limit]
+    # 상한에 닿으면 바로 멈춘다 — 일치 행 전부의 {열: 값}을 만들지 않는다.
+    matches = itertools.islice(((n, {_col(i): cell(row, i) for i in range(len(sheet.headers))})
+                                for n, row in numbered if all(cell(row, i) == value for i, value in conditions)),
+                               limit)
+    return sheet, list(matches)
 
 
 async def google_sheets_read(access_token: str, spreadsheet_id: str, sheet_id: str, cell_range: str) -> str:
@@ -547,7 +550,7 @@ async def google_sheets_get_rows(access_token: str, spreadsheet_id: str, sheet_i
             raise _Invalid(f"가져올 행 수는 1~1500이어야 해요: {row_count!r}")
         start = max(_int(start_row, 2, "시작 행"), 2)
         client = get_http_client()
-        _, title, col_count = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        _, title, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
         response = await client.get(
             _values_url(spreadsheet_id, _a1_range(f"{m[1]}{start}:{m[2]}{start + count - 1}", title)),
             headers=_headers(access_token),
@@ -556,8 +559,9 @@ async def google_sheets_get_rows(access_token: str, spreadsheet_id: str, sheet_i
         )
         rows = _ok(response).get("values") or []
         first = _col_index(m[1])
-        # A:ZZZ처럼 넓게 적어도 시트에 실제로 있는 열까지만 채운다 — 행당 18,278키 × 1,500행 폭증 방지.
-        width = max(min(_col_index(m[2]), col_count - 1) - first + 1, 0)
+        # 받은 데이터 폭(가장 긴 행)까지만 채운다 — 그리드만 넓은 시트에서 빈 키 폭증(BE 4MB 한도) 방지.
+        # 한 결과 안 모든 항목의 키는 같다.
+        width = min(_col_index(m[2]) - first + 1, max((len(r) for r in rows), default=0))
         items = [{"row_number": start + k,
                   "values": {_col(first + i): str(row[i]) if i < len(row) else "" for i in range(width)}}
                  for k, row in enumerate(rows)]

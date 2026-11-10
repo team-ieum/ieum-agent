@@ -547,7 +547,15 @@ async def test_여러_행_가져오기는_범위를_조립한다():
 async def test_중간_빈_행은_빈_값으로_넣는다():
     fake = _Sheets(GRID, values_by_range={"'Sales'!A2:B4": [["a"], [], ["c"]]})
     result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:B", row_count=3)
-    assert result["total"] == 3 and result["items"][1]["values"] == {"A": "", "B": ""}
+    # 받은 데이터 폭(가장 긴 행 = 1열)까지만 키를 만든다. B는 어느 행에도 값이 없어 빠진다.
+    assert result["total"] == 3 and result["items"][1]["values"] == {"A": ""}
+
+
+@pytest.mark.asyncio
+async def test_한_결과의_항목은_가장_긴_행_폭으로_키가_같다():
+    fake = _Sheets(GRID, values_by_range={"'Sales'!A2:D3": [["a"], ["b", "c", "d"]]})
+    result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:D", row_count=2)
+    assert [i["values"] for i in result["items"]] == [{"A": "a", "B": "", "C": ""}, {"A": "b", "B": "c", "C": "d"}]
 
 
 @pytest.mark.asyncio
@@ -867,7 +875,24 @@ async def test_행_수가_마이너스_두_개면_친절한_오류():
 
 
 @pytest.mark.asyncio
-async def test_넓은_열_범위는_시트_열_수까지만_값을_채운다():
+async def test_넓은_열_범위는_받은_데이터_폭까지만_값을_채운다():
+    # 시트 열 수(그리드)로만 줄이면 데이터가 몇 열뿐인 넓은 그리드에서 빈 키가 폭증해 BE 4MB 응답 한도를 넘는다.
     fake = _Sheets(GRID, sheets=(("Sales", 0, 4),), values_by_range={"'Sales'!A2:ZZZ2": [["a", "b"]]})
     result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:ZZZ", row_count=1)
-    assert result["items"][0]["values"] == {"A": "a", "B": "b", "C": "", "D": ""}
+    assert result["items"][0]["values"] == {"A": "a", "B": "b"}
+
+
+@pytest.mark.asyncio
+async def test_그리드가_넓어도_데이터_3열이면_키_3개():
+    fake = _Sheets(GRID, sheets=(("Sales", 0, 1000),), values_by_range={"'Sales'!A2:ALL3": [["a", "b", "c"]] * 2})
+    result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:ALL", row_count=2)
+    assert all(list(i["values"]) == ["A", "B", "C"] for i in result["items"])
+
+
+@pytest.mark.asyncio
+async def test_행_찾기는_상한에_닿으면_더_만들지_않는다():
+    # 일치 행이 많아도 limit=1이면 {열: 값}은 한 번만 만든다(첫 일치에서 멈춤). _col 호출 = 머리글 4열 × 1행.
+    grid = [GRID[0]] + [["a", "x", "", "1"]] * 100
+    with patch("tools.google_sheets._col", wraps=_col) as col:
+        _, result = await _lookup(grid, lookup_column="A", lookup_value="a")
+    assert result["row_number"] == 2 and col.call_count == 4
