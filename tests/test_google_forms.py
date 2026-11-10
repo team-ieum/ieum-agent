@@ -406,6 +406,16 @@ def test_긴_답은_만자에서_자른다():
     assert len(out["answers"]["q1"]) == 10_000
 
 
+def test_응답이_예산을_넘으면_글_상한을_천자로_낮춰_다시_만든다():
+    # BE budgetRecutsTo1000과 짝 — 예산만 작게 바꿔 재생성 경로를 탄다
+    resp = {**RESP, "answers": {"q1": _text("가" * 5_000), "q2": _text("나" * 3_000, "다")}}
+    with patch("tools.google_forms._OUTPUT_MAX", 5_000):
+        out = _normalize_response(resp, FORM)
+    assert out["answers"]["q1"] == "가" * 1_000
+    assert out["answers"]["q2"] == ["나" * 1_000, "다"]
+    assert out["answerList"][0]["answer"] == "가" * 1_000
+
+
 @pytest.mark.asyncio
 async def test_없는_응답은_found_false():
     client, seen = _forms((404, {"error": {"message": "Requested entity was not found."}}))
@@ -466,7 +476,7 @@ async def test_직접_입력_시작_시각(since):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("since", ["", "어제"])
+@pytest.mark.parametrize("since", ["", "어제", "0001-01-01T00:00:00"])  # 마지막은 UTC 변환 OverflowError
 async def test_직접_입력인데_시작_시각이_없거나_틀리면_거절(since):
     client, seen = _forms()
     r = await _list(client, period="custom", since=since)

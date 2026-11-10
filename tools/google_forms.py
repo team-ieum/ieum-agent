@@ -300,9 +300,10 @@ def _since(period, since):
         return _now() - timedelta(days=_PERIOD_DAYS[period]), None
     try:
         start = datetime.fromisoformat(str(since or "").strip())
-    except ValueError:
+        # 0001-01-01처럼 UTC로 옮기면 범위를 벗어나는 값은 OverflowError — 밖으로 새지 않게 여기서 변환까지
+        return (start if start.tzinfo else start.replace(tzinfo=_KST)).astimezone(timezone.utc), None
+    except (ValueError, OverflowError):
         return None, _BAD_SINCE
-    return (start if start.tzinfo else start.replace(tzinfo=_KST)), None
 
 
 async def _get_form_questions(client, fid: str, headers: dict):
@@ -370,8 +371,9 @@ async def google_forms_list_responses(access_token: str, form_id: str, period: s
     except Exception as e:
         return _error(f"Google Forms 요청 실패: {e}")
 
-    items = sorted((_normalize_response(r, form) for r in raw), key=lambda i: _ts_key(i["submittedAt"]),
-                   reverse=True)[:limit]
+    # 정렬은 원본 제출 시각(= submittedAt)으로 먼저 — 남길 앞쪽만 정규화한다
+    newest = sorted(raw, key=lambda r: _ts_key(r.get("lastSubmittedTime")), reverse=True)[:limit]
+    items = [_normalize_response(r, form) for r in newest]
     kept, used = [], 0
     for item in items:
         used += _json_size(item)
