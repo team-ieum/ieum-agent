@@ -373,14 +373,16 @@ async def google_forms_list_responses(access_token: str, form_id: str, period: s
 
     # 정렬은 원본 제출 시각(= submittedAt)으로 먼저 — 남길 앞쪽만 정규화한다
     newest = sorted(raw, key=lambda r: _ts_key(r.get("lastSubmittedTime")), reverse=True)[:limit]
-    items = [_normalize_response(r, form) for r in newest]
     kept, used = [], 0
-    for item in items:
+    for r in newest:  # 하나씩 만들어 담는다 — 넘친 뒤의 응답은 정규화하지 않는다
+        item = _normalize_response(r, form)
         used += _json_size(item)
         if used > _OUTPUT_MAX:  # 최신부터 담고 넘치면 오래된 것을 뺀다
             truncated = True
             break
         kept.append(item)
+    if not kept:  # 응답이 있는데 "0건"으로 보이지 않게
+        return _error("응답 하나가 2MB를 넘어 담을 수 없어요")
     return json.dumps({"success": True, "found": bool(kept), "total": len(kept), "items": kept,
                        "truncated": truncated}, ensure_ascii=False)
 

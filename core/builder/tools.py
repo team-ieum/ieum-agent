@@ -510,15 +510,20 @@ async def _load_dynamic_output(turn: Turn, state, node: dict, key: str) -> dict:
     if "error" in r:
         return {"error": _explain(r["error"], f["fieldsSource"])}
     out = []
-    for inner in ((r["data"] or {}).get("fields") or [])[:50]:  # 입력 동적 칸과 같은 50개 상한
+    fields = (r["data"] or {}).get("fields") or []
+    for inner in fields[:50]:  # 입력 동적 칸과 같은 50개 상한
         if not isinstance(inner, dict) or not isinstance(inner.get("key"), str) or not _OUTPUT_KEY.fullmatch(inner["key"]):
             continue  # 질문 ID는 외부 값 — 참조식 글자만
+        # list: 체크박스·파일 답은 글 목록 — 단일 값 칸에 묶지 않게(BE /fields의 list)
         out.append({"name": f"{key}.{inner['key']}", "title": clean(inner.get("title") or inner["key"]),
-                    "type": inner.get("type")})
+                    "type": inner.get("type"), "list": bool(inner.get("list"))})
     seen = dict(state.get("dynamic_outputs") or {})
     seen[f"{node['id']}|{key}"] = {"inputs": params, "fields": out}
     state["dynamic_outputs"] = seen
-    return {"fields": out, "how": f"{{{{nodes.{node['id']}.output.<name>}}}}처럼 name을 그대로 써요."}
+    result = {"fields": out, "how": f"{{{{nodes.{node['id']}.output.<name>}}}}처럼 name을 그대로 써요."}
+    if len(fields) > 50:
+        result["more"] = True  # 51번째부터는 안 보인다 — "그런 질문이 없다"고 단정하지 않게
+    return result
 
 
 async def load_dynamic_fields(turn: Turn, state, node_id: str, field_path: str) -> dict:

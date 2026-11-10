@@ -88,7 +88,7 @@ def target_summary(node: dict, options_seen: dict) -> str:
         if not (f.get("optionsSource") or is_email):
             continue
         value = _get_by_path(node, path)
-        if value in (None, ""):
+        if value in (None, "", []):  # 도구는 빈 목록도 빈 칸으로 본다
             continue
         if is_email:
             parts.append(f"{clean(f.get('title') or f['key'], 30)}: {clean(value, 200)}")
@@ -101,11 +101,12 @@ def target_summary(node: dict, options_seen: dict) -> str:
         parts.append(f"{clean(f.get('title') or f['key'], 30)}: {shown}")
     # 받는 사람을 비운 답장은 도구가 원래 보낸 사람을 고른다 — 빌더 단계에선 Gmail을 조회하지 않고 대화만 보인다(spec 3절)
     if node.get("event") in ("gmail.reply", "gmail.create_reply_draft") \
-            and all(config.get(k) in (None, "") for k in ("to", "cc", "bcc")):
+            and all(config.get(k) in (None, "", []) for k in ("to", "cc", "bcc")):
         thread_id = config.get("thread_id")
         name = ((options_seen or {}).get(f"{node['id']}|config.thread_id") or {}).get(thread_id) \
             if isinstance(thread_id, str) else None
-        parts.append(f"받는 사람: 대화 {clean(name or thread_id)}의 원래 보낸 사람에게 답장")
+        thread = "대화(미정)" if thread_id in (None, "") else f"대화 {clean(name or thread_id)}"
+        parts.append(f"받는 사람: {thread}의 원래 보낸 사람에게 답장")
     # 제목만으로 켜는지 끄는지 안 보이는 노드 — 이 칸만 방향을 붙인다(공용 boolean 일반화는 다른 확인 문구를 바꾼다)
     accepting = config.get("accepting")
     if node.get("event") == "google_forms.set_accepting_responses" and isinstance(accepting, bool):

@@ -72,6 +72,18 @@ def test_답장_받는_사람을_비우면_원래_보낸_사람에게_답장으�
     assert "대화 T1의 원래 보낸 사람에게 답장" in target_summary(node, {})
 
 
+def test_답장_받는_사람이_빈_목록이면_원래_보낸_사람에게_답장으로_보인다():
+    node = {"id": "r", "event": "gmail.reply", "label": "답장", "config": {"thread_id": "T1", "body": "x", "to": []}}
+    summary = target_summary(node, {})
+    assert "받는 사람: []" not in summary and "대화 T1의 원래 보낸 사람에게 답장" in summary
+
+
+def test_답장_대화가_비면_미정으로_보인다():
+    node = {"id": "r", "event": "gmail.reply", "label": "답장", "config": {"body": "x"}}
+    summary = target_summary(node, {})
+    assert "대화(미정)의 원래 보낸 사람에게 답장" in summary and "None" not in summary
+
+
 def test_답장_받는_사람을_주면_주소를_보인다():
     node = {"id": "r", "event": "gmail.reply", "label": "답장",
             "config": {"thread_id": "T1", "body": "x", "to": "kim@ieum.io"}}

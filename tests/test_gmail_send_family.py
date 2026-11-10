@@ -449,6 +449,18 @@ async def test_첨부_파일명의_줄바꿈은_정리해서_전달한다():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("body_format", ["text/plain", "text/html"])
+async def test_원본_본문_charset을_몰라도_UTF8로_읽어_전달한다(body_format):
+    raw = ("From: a@b.c\r\nTo: me@gmail.com\r\nSubject: s\r\nMIME-Version: 1.0\r\n"
+           'Content-Type: text/plain; charset="x-unknown-cs"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n'
+           "hello 원본\r\n").encode()
+    post = _fwd_post()
+    result = await _forward(_client(get=_fwd_get(raw), post=post), body_format=body_format)
+    assert result["success"] is True
+    assert "hello 원본" in _uploaded(post)[1].get_content()
+
+
+@pytest.mark.asyncio
 async def test_첨부_charset의_줄바꿈도_정리해서_전달한다():
     raw = ("From: a@b.c\r\nTo: me@gmail.com\r\nSubject: s\r\nMIME-Version: 1.0\r\n"
            'Content-Type: multipart/mixed; boundary="B"\r\n\r\n'

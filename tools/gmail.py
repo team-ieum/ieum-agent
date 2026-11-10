@@ -602,6 +602,14 @@ def _attachments(part) -> list:
     return [part] if part.get_filename() else []
 
 
+def _part_text(part) -> str:
+    """파트 본문. charset을 모르면(unknown-8bit 등) 전달 전체가 실패하지 않게 UTF-8로 읽는다."""
+    try:
+        return part.get_content()
+    except LookupError:
+        return (part.get_payload(decode=True) or b"").decode("utf-8", "replace")
+
+
 def _forward_tail(original, as_html: bool) -> str:
     """전달 블록(보낸 사람·날짜·제목·받는 사람) + 원본 본문."""
     html_part = original.get_body(preferencelist=("html",))
@@ -610,14 +618,14 @@ def _forward_tail(original, as_html: bool) -> str:
     if as_html:
         head = "<br>".join(html.escape(line) for line in lines)
         if html_part is not None:
-            content = html_part.get_content()
+            content = _part_text(html_part)
         else:
-            content = html.escape(plain_part.get_content() if plain_part is not None else "").replace("\n", "<br>")
+            content = html.escape(_part_text(plain_part) if plain_part is not None else "").replace("\n", "<br>")
         return f"<br><br>{head}<br><br>{content}"
     if plain_part is not None:
-        content = plain_part.get_content()
+        content = _part_text(plain_part)
     else:
-        content = _strip_html(html_part.get_content()) if html_part is not None else ""
+        content = _strip_html(_part_text(html_part)) if html_part is not None else ""
     return "\n\n" + "\n".join(lines) + "\n\n" + content
 
 

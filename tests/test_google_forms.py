@@ -546,6 +546,28 @@ async def test_목록이_크면_오래된_응답부터_뺀다():
 
 
 @pytest.mark.asyncio
+async def test_최신_응답_하나가_예산을_넘으면_0건이_아니라_오류():
+    client, _ = _forms((200, {"responses": [_resp("R1", "2026-11-10T01:00:00Z")]}), (200, FORM))
+    with patch("tools.google_forms._OUTPUT_MAX", 10):
+        r = await _list(client)
+    assert "응답 하나가 2MB를 넘어 담을 수 없어요" in r["error"]
+
+
+@pytest.mark.asyncio
+async def test_예산이_넘치면_남은_응답은_정규화하지_않는다():
+    import tools.google_forms as gf
+    rs = [_resp(f"R{h}", f"2026-11-10T0{h}:00:00Z") for h in range(1, 6)]
+    client, _ = _forms((200, {"responses": rs}), (200, FORM))
+    one = _json_size((await _list(client))["items"][0])
+    client, _ = _forms((200, {"responses": rs}), (200, FORM))
+    with patch("tools.google_forms._OUTPUT_MAX", one), \
+            patch("tools.google_forms._normalize_response", wraps=gf._normalize_response) as normalize:
+        r = await _list(client)
+    assert r["total"] == 1 and r["truncated"] is True
+    assert normalize.call_count == 2   # 담은 1건 + 넘친 1건, 나머지 3건은 만들지 않는다
+
+
+@pytest.mark.asyncio
 async def test_목록_없는_폼은_오류():
     client, _ = _forms((404, {"error": {"message": "Requested entity was not found."}}))
     r = await _list(client)
