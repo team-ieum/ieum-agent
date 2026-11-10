@@ -637,6 +637,8 @@ FIXED_NODE_REQUIRED = {
     "google_calendar.update": ["config.event_id"],
     "google_drive.read": ["config.file_id"],
     "google_drive.upload": ["config.content", "config.name"],
+    "google_forms.get_form": ["config.form_id"],
+    "google_forms.set_accepting_responses": ["config.accepting", "config.form_id"],
     "google_sheets.append": ["config.columns", "config.sheet_id", "config.spreadsheet_id"],
     "google_sheets.append_top": ["config.columns", "config.sheet_id", "config.spreadsheet_id"],
     "google_sheets.update_row": ["config.columns", "config.row_number", "config.sheet_id", "config.spreadsheet_id"],

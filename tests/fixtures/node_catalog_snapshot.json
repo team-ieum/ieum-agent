@@ -7536,6 +7536,177 @@
       "toolKey": "builtin:google_drive_upload"
     },
     {
+      "app": "google_forms",
+      "appTitle": "Google Forms",
+      "description": "구글 폼의 제목·응답 링크·질문 목록을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_forms.get_form",
+        "type": "ACTION"
+      },
+      "id": "google_forms.get_form",
+      "inputFields": [
+        {
+          "description": "대상 폼(편집 화면 주소의 폼 ID도 돼요)",
+          "key": "form_id",
+          "optionsSource": "google.forms",
+          "path": "config.form_id",
+          "required": true,
+          "title": "폼",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "formId",
+              "title": "폼 ID",
+              "type": "string"
+            },
+            {
+              "key": "title",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "key": "description",
+              "title": "설명",
+              "type": "text"
+            },
+            {
+              "key": "responderUrl",
+              "title": "응답 링크",
+              "type": "string"
+            },
+            {
+              "description": "예전 형식의 폼은 비어 있어요",
+              "key": "isPublished",
+              "title": "게시됨",
+              "type": "boolean"
+            },
+            {
+              "description": "예전 형식의 폼은 비어 있어요",
+              "key": "isAcceptingResponses",
+              "title": "응답 받는 중",
+              "type": "boolean"
+            },
+            {
+              "description": "응답이 쌓이는 시트(없으면 빈 값)",
+              "key": "linkedSheetId",
+              "title": "연결된 시트 ID",
+              "type": "string"
+            },
+            {
+              "children": [
+                {
+                  "key": "questionId",
+                  "title": "질문 ID",
+                  "type": "string"
+                },
+                {
+                  "key": "title",
+                  "title": "질문",
+                  "type": "string"
+                },
+                {
+                  "description": "text·choice·scale·date·time·file_upload·rating·row·other",
+                  "key": "kind",
+                  "title": "종류",
+                  "type": "string"
+                },
+                {
+                  "key": "required",
+                  "title": "필수",
+                  "type": "boolean"
+                }
+              ],
+              "key": "questions",
+              "list": true,
+              "title": "질문",
+              "type": "object"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "폼",
+          "type": "object"
+        },
+        {
+          "key": "message",
+          "title": "결과가 없을 때 안내",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "폼 정보 가져오기",
+      "toolKey": "builtin:google_forms_get_form"
+    },
+    {
+      "app": "google_forms",
+      "appTitle": "Google Forms",
+      "description": "구글 폼이 응답을 받을지 켜거나 꺼요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_forms.set_accepting_responses",
+        "type": "ACTION"
+      },
+      "id": "google_forms.set_accepting_responses",
+      "inputFields": [
+        {
+          "description": "대상 폼(편집 화면 주소의 폼 ID도 돼요)",
+          "key": "form_id",
+          "optionsSource": "google.forms",
+          "path": "config.form_id",
+          "required": true,
+          "title": "폼",
+          "type": "string"
+        },
+        {
+          "description": "켜면 응답을 받아요(게시 안 된 폼은 게시도 함께). 끄면 게시는 그대로 두고 응답만 막아요",
+          "key": "accepting",
+          "path": "config.accepting",
+          "ref": false,
+          "required": true,
+          "title": "응답 받기",
+          "type": "boolean"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "isPublished",
+          "title": "게시됨",
+          "type": "boolean"
+        },
+        {
+          "key": "isAcceptingResponses",
+          "title": "응답 받는 중",
+          "type": "boolean"
+        }
+      ],
+      "provider": "google",
+      "title": "폼 응답 받기 켜기·끄기",
+      "toolKey": "builtin:google_forms_set_accepting_responses"
+    },
+    {
       "app": "google_sheets",
       "appTitle": "Google Sheets",
       "description": "표 끝에 한 행을 추가해요.",

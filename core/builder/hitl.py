@@ -99,6 +99,10 @@ def target_summary(node: dict, options_seen: dict) -> str:
         name = ((options_seen or {}).get(f"{node['id']}|{path}") or {}).get(value)
         shown = clean(name) if name else f"(목록에서 확인 안 됨, id={clean(value)})"
         parts.append(f"{clean(f.get('title') or f['key'], 30)}: {shown}")
+    # 제목만으로 켜는지 끄는지 안 보이는 노드 — 이 칸만 방향을 붙인다(공용 boolean 일반화는 다른 확인 문구를 바꾼다)
+    accepting = config.get("accepting")
+    if node.get("event") == "google_forms.set_accepting_responses" and isinstance(accepting, bool):
+        parts.append(f"응답 받기: {'켜기' if accepting else '끄기'}")
     return _named(" · ".join(parts), node)
 
 
