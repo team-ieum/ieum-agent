@@ -587,6 +587,18 @@ async def test_여러_행_가져오기는_2MB를_넘기_전에_멈춘다():
 
 
 @pytest.mark.asyncio
+async def test_예산보다_큰_첫_행만_있어도_찾은_것으로_본다():
+    # found가 거짓이면 '못 찾음 → 행 추가' 분기가 중복 행을 만든다.
+    grid = [["이름", "메모"]] + [["a", "가" * 700_000]]  # 한 행 ≈ 2.1MB
+    fake = _Sheets(grid)
+    with patch("tools.google_sheets.get_http_client", return_value=fake):
+        raw = await google_sheets_lookup_rows(access_token="t", spreadsheet_id="s1", sheet_id="0",
+                                              lookup_column="A", lookup_value="a")
+    result = json.loads(raw)
+    assert (result["found"], result["total"], result["items"], result["truncated"]) == (True, 0, [], True)
+
+
+@pytest.mark.asyncio
 async def test_여러_행_찾기는_2MB를_넘기_전에_멈춘다():
     grid = [["이름", "메모", "메모2"]] + [["a", _BIG, _BIG]] * 600  # 상한 500행 × 6KB ≈ 3MB
     fake = _Sheets(grid)

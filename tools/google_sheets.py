@@ -146,14 +146,16 @@ _OUTPUT_BUDGET = 2_000_000  # 출력 UTF-8 바이트 예산 — BE 응답 한도
 
 
 def _rows_result(items: list) -> str:
-    """앞에서부터 예산(2MB)을 넘기 직전까지 담는다. 넘쳐 뺀 행이 있으면 truncated 참."""
+    """앞에서부터 예산(2MB)을 넘기 직전까지 담는다. 넘쳐 뺀 행이 있으면 truncated 참.
+    found는 예산 적용 전 일치 여부 — 거대한 행 하나뿐이어도 '못 찾음'으로 보이면 찾고 없으면 추가가 중복을 만든다."""
+    # ponytail: 예산은 마스킹 전 바이트 — 토큰 모양 문자열로 채운 시트는 ACTION 마스킹 뒤 최대 약 3.7배로 불어 4MiB를 넘을 수 있다(노드 실패만, 데이터 손상 없음). 실제로 나오면 마스킹 후 크기로 잴 것.
     size, kept = 0, len(items)
     for k, item in enumerate(items):
         size += len(json.dumps(item, ensure_ascii=False).encode()) + 2  # 항목 구분자 ", "
         if size > _OUTPUT_BUDGET:
             kept = k
             break
-    return json.dumps({"success": True, "found": kept > 0, "total": kept, "items": items[:kept],
+    return json.dumps({"success": True, "found": bool(items), "total": kept, "items": items[:kept],
                        "truncated": kept < len(items)}, ensure_ascii=False)
 
 
