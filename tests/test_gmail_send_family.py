@@ -1,16 +1,20 @@
 """Gmail 답장·답장 초안·초안·전달·찾고 없으면 보내기(spec 2026-11-10 gmail-forms-9 §3). HTTP는 목으로 대신한다."""
-import base64, email, email.policy, json
+import asyncio, base64, email, email.policy, json
+from email.message import EmailMessage
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
-from tests.test_gmail import API, SEND_AS, _client, _posts, _sendas, _sent
+from tests.test_gmail import API, SEND_AS, _b64, _client, _posts, _sendas, _sent
 from tests.test_google_tools import _make_mock_response
 from tools.gmail import (
+    _FORWARDED,
     _SCOPE_HINT,
     _re_subject,
     gmail_create_draft,
     gmail_create_reply_draft,
+    gmail_forward,
     gmail_reply,
 )
 
@@ -244,3 +248,205 @@ async def test_대화가_404면_실패():
 async def test_대화에_메일이_없으면_실패():
     result = await _reply(_client(get=_get(_thread(_m("m3", ["DRAFT"])))))
     assert "답장할 메일이 대화에 없어요" in result["error"]
+
+
+# ── 전달(C3) ─────────────────────────────────────────────────────────────
+
+UPLOAD = "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send"
+PDF, PNG = b"%PDF-1.4 a", b"\x89PNG b"
+
+
+def _original(subject: str = "회의", attachments: bool = True) -> EmailMessage:
+    msg = EmailMessage()
+    msg["From"], msg["To"], msg["Subject"] = "홍길동 <a@b.c>", "me@gmail.com", subject
+    msg["Date"] = "Mon, 10 Nov 2026 09:00:00 +0900"
+    msg.set_content("원본 본문")
+    if attachments:
+        msg.add_attachment(PDF, "application", "pdf", filename="a.pdf")
+        msg.add_attachment(PNG, "image", "png", filename="b.png")
+    return msg
+
+
+def _fwd_get(original: EmailMessage, size: int | None = None, sleep: float = 0) -> AsyncMock:
+    """메일 m1 GET — params format(minimal → 크기, raw → 원본)으로 나눈다."""
+    async def get(url, **kwargs):
+        if url == f"{API}/settings/sendAs":
+            return _make_mock_response(200, SEND_AS)
+        assert url == f"{API}/messages/m1", url
+        if kwargs["params"]["format"] == "minimal":
+            return _make_mock_response(200, {"id": "m1", "sizeEstimate": size or len(original.as_bytes())})
+        assert kwargs["params"] == {"format": "raw"}
+        if sleep:
+            await asyncio.sleep(sleep)
+        return _make_mock_response(200, {"id": "m1", "raw": _b64(original.as_bytes())})
+    return AsyncMock(side_effect=get)
+
+
+def _fwd_post(modify=None) -> AsyncMock:
+    async def post(url, **kwargs):
+        if url == UPLOAD:
+            return _make_mock_response(200, {"id": "m-1", "threadId": "t-9", "labelIds": ["SENT"]})
+        if url == f"{API}/messages/m-1/modify":
+            if isinstance(modify, Exception):
+                raise modify
+            return modify or _make_mock_response(200, {"id": "m-1", "labelIds": ["SENT", "L1"]})
+        raise AssertionError(f"예상 못 한 POST {url}")
+    return AsyncMock(side_effect=post)
+
+
+def _uploaded(post: AsyncMock):
+    call = next(c for c in post.await_args_list if c.args[0] == UPLOAD)
+    return call, email.message_from_bytes(call.kwargs["content"], policy=email.policy.default)
+
+
+async def _forward(client, **kwargs) -> dict:
+    kwargs.setdefault("message_id", "m1")
+    kwargs.setdefault("to", "kim@x.com")
+    return await _call(gmail_forward, client, **kwargs)
+
+
+def _gets_by_format(get: AsyncMock, fmt: str) -> list:
+    return [c for c in get.await_args_list if (c.kwargs.get("params") or {}).get("format") == fmt]
+
+
+@pytest.mark.asyncio
+async def test_전달은_원본_첨부를_다시_붙여_업로드_경로로_보낸다():
+    get, post = _fwd_get(_original()), _fwd_post()
+    result = await _forward(_client(get=get, post=post))
+    assert result == {"success": True, "messageId": "m-1", "threadId": "t-9"}
+    call, msg = _uploaded(post)
+    assert call.kwargs["params"] == {"uploadType": "media"}
+    assert call.kwargs["headers"]["Content-Type"] == "message/rfc822"
+    assert "json" not in call.kwargs
+    assert msg["Subject"] == "Fwd: 회의" and msg["To"] == "kim@x.com"
+    files = [(a.get_filename(), a.get_content()) for a in msg.iter_attachments()]
+    assert files == [("a.pdf", PDF), ("b.png", PNG)]
+    text = msg.get_body(preferencelist=("plain",)).get_content()
+    marks = [text.index(m) for m in (_FORWARDED, "From: ", "Date: ", "Subject: ", "To: ", "원본 본문")]
+    assert marks == sorted(marks)
+
+
+@pytest.mark.asyncio
+async def test_덧붙일_말과_서명은_전달_블록_위에():
+    post = _fwd_post()
+    await _forward(_client(get=_fwd_get(_original()), post=post), body="참고하세요", include_signature=True)
+    text = _uploaded(post)[1].get_body(preferencelist=("plain",)).get_content()
+    assert text.index("참고하세요") < text.index("-- ") < text.index(_FORWARDED)
+
+
+@pytest.mark.asyncio
+async def test_이미_Fwd면_제목을_그대로():
+    post = _fwd_post()
+    await _forward(_client(get=_fwd_get(_original("FWD: 회의")), post=post))
+    assert _uploaded(post)[1]["Subject"] == "FWD: 회의"
+
+
+def _alternative(plain: bool = True) -> EmailMessage:
+    msg = _original(attachments=False)
+    if plain:
+        msg.add_alternative("<p>원본 <b>HTML</b></p>", subtype="html")
+    else:
+        msg.set_content("<p>원본 <b>HTML</b></p>", subtype="html")
+    return msg
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plain, body_format, content_type, expected", [
+    (True, "text/html", "text/html", "<b>HTML</b>"),
+    (True, "text/plain", "text/plain", "원본 본문"),
+    (False, "text/plain", "text/plain", "원본 HTML"),
+])
+async def test_HTML_형식이면_원본_HTML을_살린다(plain, body_format, content_type, expected):
+    post = _fwd_post()
+    await _forward(_client(get=_fwd_get(_alternative(plain)), post=post), body_format=body_format)
+    msg = _uploaded(post)[1]
+    assert msg.get_content_type() == content_type
+    assert expected in msg.get_content()
+
+
+@pytest.mark.asyncio
+async def test_원본이_텍스트뿐이면_HTML_전달에서_escape한다():
+    original = _original(attachments=False)
+    original.set_content("a < b")
+    post = _fwd_post()
+    await _forward(_client(get=_fwd_get(original), post=post), body_format="text/html")
+    assert "a &lt; b" in _uploaded(post)[1].get_content()
+
+
+@pytest.mark.asyncio
+async def test_전달은_첨부된_메일을_통째로_인라인_이미지까지_붙인다():   # Review Focus 2
+    inner = EmailMessage()
+    inner["Subject"] = "안쪽"
+    inner.set_content("안쪽 본문")
+    inner.add_attachment(b"inner", "text", "plain", filename="inner.txt")
+    original = _original(attachments=False)
+    original.add_attachment(inner, filename="fw.eml")
+    original.add_attachment(PNG, "image", "png", filename="logo.png", cid="<logo@x>", disposition="inline")
+    post = _fwd_post()
+    await _forward(_client(get=_fwd_get(original), post=post))
+    msg = _uploaded(post)[1]
+    parts = [p for p in msg.iter_parts() if p.get_filename()]
+    assert [(p.get_filename(), p.get_content_type()) for p in parts] == \
+        [("fw.eml", "message/rfc822"), ("logo.png", "image/png")]
+    forwarded = parts[0].get_payload(0)
+    assert forwarded.get_body(preferencelist=("plain",)).get_content().strip() == "안쪽 본문"
+    assert [a.get_filename() for a in forwarded.iter_attachments()] == ["inner.txt"]
+
+
+@pytest.mark.asyncio
+async def test_원본이_35MB를_넘으면_받지_않고_실패한다():   # Review Focus 3
+    get, post = _fwd_get(_original(), size=36_000_000), AsyncMock()
+    result = await _forward(_client(get=get, post=post))
+    assert "36.0MB" in result["error"] and "35MB" in result["error"]
+    assert _gets_by_format(get, "raw") == [] and post.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_완성_메일이_35MB를_넘으면_보내지_않는다(monkeypatch):   # Review Focus 3
+    monkeypatch.setattr("tools.gmail._GMAIL_MAX", 2_000)
+    original = _original(attachments=False)
+    original.add_attachment(b"x" * 1_000, "application", "octet-stream", filename="1.bin")
+    original.add_attachment(b"y" * 1_000, "application", "octet-stream", filename="2.bin")
+    post = AsyncMock()
+    result = await _forward(_client(get=_fwd_get(original, size=100), post=post))
+    assert "MB" in result["error"] and post.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_전달_요청은_C3_전용_타임아웃():
+    get, post = _fwd_get(_original()), _fwd_post()
+    await _forward(_client(get=get, post=post))
+    assert _gets_by_format(get, "raw")[0].kwargs["timeout"] == 120.0
+    assert _uploaded(post)[0].kwargs["timeout"] == 120.0
+
+
+@pytest.mark.asyncio
+async def test_150초_마감을_넘으면_보내지_않고_실패한다(monkeypatch):
+    monkeypatch.setattr("tools.gmail._FORWARD_DEADLINE", 0.01)
+    post = AsyncMock()
+    result = await _forward(_client(get=_fwd_get(_original(), sleep=1), post=post))
+    assert "시간" in result["error"] and post.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_전달_라벨_실패는_성공이다():   # Review Focus 4
+    post = _fwd_post(modify=httpx.ReadTimeout("slow"))
+    result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
+    assert result == {"success": True, "messageId": "m-1", "threadId": "t-9"}
+    modify = post.await_args_list[-1]
+    assert modify.args[0] == f"{API}/messages/m-1/modify" and modify.kwargs["timeout"] == 30.0
+
+
+@pytest.mark.asyncio
+async def test_받는_사람이_전부_비면_HTTP_없이_실패한다():
+    get, post = AsyncMock(), AsyncMock()
+    result = await _forward(_client(get=get, post=post), to=" , ", cc="", bcc=None)
+    assert "error" in result and get.await_count == post.await_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["../x", "<a@x>"])
+async def test_메일_ID_형식이_아니면_HTTP_없이_실패한다(bad):
+    get, post = AsyncMock(), AsyncMock()
+    result = await _forward(_client(get=get, post=post), message_id=bad)
+    assert "Gmail 메일 ID가 아니에요" in result["error"] and get.await_count == post.await_count == 0
