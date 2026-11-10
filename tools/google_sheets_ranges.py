@@ -3,7 +3,8 @@ import json
 import re
 
 from tools.google_sheets import (
-    _Invalid, _a1_range, _batch_update, _blank, _check, _col, _col_index, _fail, _find_sheet,
+    _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _check, _col, _col_index, _fail, _find_sheet,
+    _header_range, _headers, _ok, _put, _resolve, _values_url,
 )
 from tools.http_client import get_http_client
 
@@ -130,5 +131,62 @@ async def google_sheets_sort_range(access_token: str, spreadsheet_id: str, sheet
             "range": grid, "sortSpecs": [{"dimensionIndex": index, "sortOrder": sort_order}]}}])
         shown = str(cell_range).strip() if has_range else f"A2:{_col(column_count - 1)}"
         return json.dumps({"success": True, "range": _a1_range(shown, title)}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_add_column(access_token: str, spreadsheet_id: str, sheet_id: str, title: str,
+                                   before_column: str | None = None) -> str:
+    """
+    Google Sheets 워크시트에 1행 머리글을 쓴 새 열을 넣습니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        title: 1행에 쓸 머리글(입력한 글자 그대로 저장)
+        before_column: 이 열 앞에 넣는다(머리글 이름 또는 열 문자). 비우면 맨 끝
+
+    Returns:
+        column(넣은 열 문자), title을 포함한 JSON 문자열
+    """
+    tool = "google_sheets_add_column"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        if _blank(title):
+            raise _Invalid("열 제목이 비어 있어요")
+        if len(str(title)) > 50_000:
+            raise _Invalid("열 제목은 50,000자까지예요")
+        client = get_http_client()
+        sid, sheet_title, column_count = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        response = await client.get(
+            _values_url(spreadsheet_id, _a1_range("1:1", sheet_title)),
+            headers=_headers(access_token),
+            timeout=_TIMEOUT,
+        )
+        rows = _ok(response).get("values") or [[]]
+        headers = _header_range(rows[0], column_count)
+        if not _blank(before_column):
+            index = _resolve(before_column, headers)
+        elif all(h == "" for h in headers):
+            raise _Invalid("머리글이 없는 시트는 넣을 위치를 골라 주세요")
+        else:
+            index = len(headers)
+        dim = {"sheetId": sid, "dimension": "COLUMNS", "startIndex": index, "endIndex": index + 1}
+        if index < column_count:
+            request = {"insertDimension": {"range": dim, "inheritFromBefore": index > 0}}
+        else:
+            request = {"appendDimension": {"sheetId": sid, "dimension": "COLUMNS", "length": 1}}
+        await _batch_update(client, access_token, spreadsheet_id, [request])
+        try:
+            await _put(client, access_token, spreadsheet_id, _a1_range(f"{_col(index)}1", sheet_title), [title],
+                       "RAW")
+        except Exception as e:
+            try:  # 넣은 빈 열을 지워 되돌린다
+                await _batch_update(client, access_token, spreadsheet_id, [{"deleteDimension": {"range": dim}}])
+            except Exception:
+                raise _Invalid(f"{e} — 빈 열이 남았을 수 있어요") from e
+            raise
+        return json.dumps({"success": True, "column": _col(index), "title": title}, ensure_ascii=False)
     except Exception as e:
         return _fail(tool, str(e))

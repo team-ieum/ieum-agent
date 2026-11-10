@@ -5,9 +5,11 @@ import pytest
 
 from common.error_code import ToolErrorCode
 from tests.action_outputs import assert_matches_outputs
-from tests.test_google_sheets import GRID, _Sheets
+from tests.test_google_sheets import GRID, _Sheets, _range, _resp
 from tools.google_sheets import _Invalid
-from tools.google_sheets_ranges import _grid_range, google_sheets_copy_range, google_sheets_sort_range
+from tools.google_sheets_ranges import (
+    _grid_range, google_sheets_add_column, google_sheets_copy_range, google_sheets_sort_range,
+)
 
 
 async def _call(fake, tool, **kwargs):
@@ -147,3 +149,81 @@ async def test_범위_행_전체면_기준_열_검사_안_함():
     result = await _call(fake, google_sheets_sort_range, sheet_id="0", cell_range="2:10", sort_column="Z")
     assert result["success"] is True
     assert _requests(fake)[0]["sortRange"]["sortSpecs"][0]["dimensionIndex"] == 25
+
+
+# --- C9 add_column ---
+
+_E_COLUMN = {"sheetId": 0, "dimension": "COLUMNS", "startIndex": 4, "endIndex": 5}
+
+
+@pytest.mark.asyncio
+async def test_열_추가는_맨_끝에_넣고_머리글을_RAW로_쓴다():
+    fake = _Sheets(GRID)
+    result = await _call(fake, google_sheets_add_column, sheet_id="0", title="2026")
+    assert [fake._kind(c) for c in fake.of("POST")] == ["insert"]
+    assert _requests(fake) == [{"insertDimension": {"range": _E_COLUMN, "inheritFromBefore": True}}]
+    [(_, url, kwargs)] = fake.of("PUT")
+    assert _range(url) == "'Sales'!E1"
+    assert kwargs["params"] == {"valueInputOption": "RAW"}
+    assert kwargs["json"]["values"] == [["2026"]]
+    assert result == {"success": True, "column": "E", "title": "2026"}
+    assert_matches_outputs("google_sheets.add_column", result)
+
+
+@pytest.mark.asyncio
+async def test_머리글이_그리드를_채우면_appendDimension():
+    fake = _Sheets(GRID, sheets=(("Sales", 0, 4),))
+    await _call(fake, google_sheets_add_column, sheet_id="0", title="2026")
+    assert _requests(fake) == [{"appendDimension": {"sheetId": 0, "dimension": "COLUMNS", "length": 1}}]
+    assert _range(fake.of("PUT")[0][1]) == "'Sales'!E1"
+
+
+@pytest.mark.asyncio
+async def test_넣을_위치는_머리글_이름이나_열_문자():
+    fake = _Sheets(GRID)
+    result = await _call(fake, google_sheets_add_column, sheet_id="0", title="t", before_column="이메일")
+    req = _requests(fake)[0]["insertDimension"]
+    assert (req["range"]["startIndex"], req["inheritFromBefore"], result["column"]) == (1, True, "B")
+    fake = _Sheets(GRID)
+    await _call(fake, google_sheets_add_column, sheet_id="0", title="t", before_column="A")
+    req = _requests(fake)[0]["insertDimension"]
+    assert (req["range"]["startIndex"], req["inheritFromBefore"]) == (0, False)
+    assert _range(fake.of("PUT")[0][1]) == "'Sales'!A1"
+
+
+@pytest.mark.asyncio
+async def test_머리글_없는_시트는_위치가_필요():
+    fake = _Sheets([[]])
+    result = await _call(fake, google_sheets_add_column, sheet_id="0", title="t", before_column=None)
+    assert "머리글이 없는 시트" in result["error"]
+    assert fake.of("POST") == []
+
+
+@pytest.mark.asyncio
+async def test_머리글_쓰기_실패면_넣은_열을_지운다():
+    fake = _Sheets(GRID, fail={"update": _resp(400, {"error": {"message": "bad"}})})
+    result = await _call(fake, google_sheets_add_column, sheet_id="0", title="t")
+    assert "error" in result
+    assert [fake._kind(c) for c in fake.of("POST")] == ["insert", "delete"]
+    assert _requests(fake) == [{"deleteDimension": {"range": _E_COLUMN}}]
+
+
+@pytest.mark.asyncio
+async def test_보상_삭제도_실패하면_알린다():
+    fake = _Sheets(GRID, fail={"update": _resp(400, {"error": {"message": "bad"}}), "delete": _resp(500, {})})
+    result = await _call(fake, google_sheets_add_column, sheet_id="0", title="t")
+    assert "빈 열이 남았을 수 있어요" in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("title", ["", "  ", None, "x" * 50_001])
+async def test_열_제목_거절(title):
+    await _no_google(google_sheets_add_column, spreadsheet_id="s1", sheet_id="0", title=title)
+
+
+@pytest.mark.asyncio
+async def test_없는_머리글_이름_위치는_거절():
+    fake = _Sheets(GRID)
+    result = await _call(fake, google_sheets_add_column, sheet_id="0", title="t", before_column="없는열")
+    assert "error" in result
+    assert fake.of("POST") == []
