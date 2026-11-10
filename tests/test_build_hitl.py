@@ -68,6 +68,14 @@ def test_요약은_후보_이름을_id로_찾고_없으면_id만():
     assert "(목록에서 확인 안 됨, id=C1)" in summary and "가짜이름" not in summary
 
 
+@pytest.mark.parametrize("accepting, shown", [(True, "켜기"), (False, "끄기")])
+def test_폼_응답_받기_요약에_켜기_끄기를_보인다(accepting, shown):
+    node = {"id": "f", "event": "google_forms.set_accepting_responses", "label": "설문",
+            "config": {"form_id": "F1", "accepting": accepting}}
+    assert target_summary(node, {"f|config.form_id": {"F1": "고객 설문"}}) == \
+        f'폼 응답 받기 켜기·끄기 · 폼: 고객 설문 · 응답 받기: {shown} · 이름 "설문"'
+
+
 def test_요약에_참석자_메일을_보인다():
     node = {"id": "c", "event": "google_calendar.update", "label": "회의",
             "config": {"attendees": "kim@ieum.io, evil@x.com"}}
