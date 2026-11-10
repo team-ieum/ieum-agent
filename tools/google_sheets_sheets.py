@@ -2,8 +2,8 @@
 import json
 
 from tools.google_sheets import (
-    _SHEET_PROPS, _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _check, _fail, _find_sheet, _grid_sheets,
-    _headers, _ok, _put, _sid, _spreadsheet_url,
+    _SHEET_PROPS, _TIMEOUT, _Invalid, _a1_range, _batch_update, _blank, _check, _fail, _find_sheet, _flag,
+    _grid_sheets, _headers, _int, _ok, _put, _sid, _spreadsheet_url,
 )
 from tools.http_client import get_http_client
 
@@ -128,6 +128,179 @@ async def google_sheets_rename_worksheet(access_token: str, spreadsheet_id: str,
         await _batch_update(client, access_token, spreadsheet_id, {"updateSheetProperties": {
             "properties": {"sheetId": sid, "title": new_title}, "fields": "title"}})
         return json.dumps({"success": True, "sheet_id": str(sid), "title": new_title, "previous_title": old},
+                          ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_copy_worksheet(access_token: str, spreadsheet_id: str, sheet_id: str,
+                                       destination_spreadsheet_id: str | None = None,
+                                       new_title: str | None = None) -> str:
+    """
+    워크시트를 같은 파일이나 다른 스프레드시트로 복사합니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 원본 스프레드시트 ID
+        sheet_id: 복사할 워크시트 ID 또는 제목
+        destination_spreadsheet_id: 붙여넣을 스프레드시트 ID. 비우면 같은 파일에 복사
+        new_title: 복사본 시트 이름. 비우면 Google이 정한 이름
+
+    Returns:
+        spreadsheet_id(복사본이 있는 파일), sheet_id, title을 포함한 JSON 문자열
+    """
+    tool = "google_sheets_copy_worksheet"
+    try:
+        sid = _check(spreadsheet_id, sheet_id)
+        dest = sid if _blank(destination_spreadsheet_id) else _sid(destination_spreadsheet_id)
+        name = None if _blank(new_title) else str(new_title)
+        client = get_http_client()
+        src_id, _, _ = await _find_sheet(client, access_token, sid, sheet_id)
+        if dest == sid:
+            data = await _batch_update(client, access_token, sid, {"duplicateSheet": {
+                "sourceSheetId": src_id, **({"newSheetName": name} if name else {})}})
+            props = data["replies"][0]["duplicateSheet"]["properties"]
+            return json.dumps({"success": True, "spreadsheet_id": dest, "sheet_id": str(props.get("sheetId", 0)),
+                               "title": props.get("title", "")}, ensure_ascii=False)
+        response = await client.post(
+            f"{_spreadsheet_url(sid)}/sheets/{src_id}:copyTo",
+            headers=_headers(access_token),
+            json={"destinationSpreadsheetId": dest},
+            timeout=_TIMEOUT,
+        )
+        props = _ok(response)
+        new_id, title = props.get("sheetId", 0), props.get("title", "")
+        if name:
+            try:
+                await _batch_update(client, access_token, dest, {"updateSheetProperties": {
+                    "properties": {"sheetId": new_id, "title": name}, "fields": "title"}})
+            except Exception as e:
+                try:  # 대상 파일의 복사본을 지워 되돌린다
+                    await _batch_update(client, access_token, dest, {"deleteSheet": {"sheetId": new_id}})
+                except Exception:
+                    raise _Invalid(f"{e} — 대상 파일에 '{title}' 시트가 남았을 수 있어요") from e
+                raise
+            title = name
+        return json.dumps({"success": True, "spreadsheet_id": dest, "sheet_id": str(new_id), "title": title},
+                          ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def _sheet_props(client, access_token: str, spreadsheet_id: str, sheet_id) -> dict:
+    """_grid_sheets 항목 하나(index 포함). 규칙은 _find_sheet와 같다(숫자 id 먼저, 없으면 제목 정확히 일치)."""
+    response = await client.get(
+        _spreadsheet_url(spreadsheet_id),
+        headers=_headers(access_token),
+        params={"fields": _SHEET_PROPS},
+        timeout=_TIMEOUT,
+    )
+    sheets = _grid_sheets(_ok(response))
+    key = str(sheet_id).strip()
+    if key.isascii() and key.isdigit():
+        found = next((s for s in sheets if s["sheet_id"] == str(int(key))), None)
+        if found:
+            return found
+    found = next((s for s in sheets if s["title"] == str(sheet_id)), None)
+    if not found:
+        raise _Invalid(f"워크시트 '{sheet_id}'를 찾을 수 없어요")
+    return found
+
+
+def _count(value, name: str) -> int | None:
+    if _blank(value):
+        return None
+    n = _int(value, None, name)
+    if n < 0:
+        raise _Invalid(f"{name}은(는) 0 이상이어야 해요: {value!r}")
+    return n
+
+
+async def google_sheets_update_worksheet(access_token: str, spreadsheet_id: str, sheet_id: str,
+                                         frozen_rows: int | None = None, frozen_columns: int | None = None,
+                                         position: int | None = None, visibility: str | None = None) -> str:
+    """
+    워크시트의 고정 행·열, 위치, 숨기기를 바꿉니다. 비운 칸은 그대로 둡니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        frozen_rows: 고정할 행 수(0이면 고정 해제)
+        frozen_columns: 고정할 열 수(0이면 고정 해제)
+        position: 시트 위치(1이 맨 앞)
+        visibility: hide(숨기기) 또는 show(보이기)
+
+    Returns:
+        sheet_id, title, updated(바꾼 속성 목록)를 포함한 JSON 문자열
+    """
+    tool = "google_sheets_update_worksheet"
+    try:
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        rows = _count(frozen_rows, "고정할 행 수")
+        cols = _count(frozen_columns, "고정할 열 수")
+        pos = None if _blank(position) else _int(position, None, "시트 위치")
+        if pos is not None and pos < 1:
+            raise _Invalid(f"시트 위치는 1 이상이어야 해요: {position!r}")
+        hidden = None
+        if not _blank(visibility):
+            if visibility not in ("hide", "show"):
+                raise _Invalid("보이기는 hide 또는 show만 돼요")
+            hidden = visibility == "hide"
+        if rows is None and cols is None and pos is None and hidden is None:
+            raise _Invalid("바꿀 속성이 없어요")
+        client = get_http_client()
+        sheet = await _sheet_props(client, access_token, spreadsheet_id, sheet_id)
+        props, fields, updated = {"sheetId": int(sheet["sheet_id"])}, [], []
+        if rows is not None:
+            props.setdefault("gridProperties", {})["frozenRowCount"] = rows
+            fields.append("gridProperties.frozenRowCount")
+            updated.append("frozen_rows")
+        if cols is not None:
+            props.setdefault("gridProperties", {})["frozenColumnCount"] = cols
+            fields.append("gridProperties.frozenColumnCount")
+            updated.append("frozen_columns")
+        if pos is not None:
+            target = pos - 1
+            # Google index는 "옮기기 전" 기준 — 오른쪽으로 옮길 땐 자기 자리가 빠지므로 하나 더한다.
+            props["index"] = target + 1 if target > sheet["index"] else target
+            fields.append("index")
+            updated.append("position")
+        if hidden is not None:
+            props["hidden"] = hidden
+            fields.append("hidden")
+            updated.append("visibility")
+        await _batch_update(client, access_token, spreadsheet_id, {"updateSheetProperties": {
+            "properties": props, "fields": ",".join(fields)}})
+        return json.dumps({"success": True, "sheet_id": sheet["sheet_id"], "title": sheet["title"],
+                           "updated": updated}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_sheets_delete_worksheet(access_token: str, spreadsheet_id: str, sheet_id: str,
+                                         confirm_delete: bool) -> str:
+    """
+    워크시트를 지웁니다. 되돌릴 수 없으며 confirm_delete가 참일 때만 지웁니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        spreadsheet_id: 스프레드시트 ID
+        sheet_id: 워크시트 ID 또는 제목
+        confirm_delete: 삭제 확인. 참이어야 삭제
+
+    Returns:
+        deleted, sheet_id, title(지운 시트 이름)을 포함한 JSON 문자열
+    """
+    tool = "google_sheets_delete_worksheet"
+    try:
+        if not _flag(confirm_delete):
+            raise _Invalid("삭제 확인을 켜야 삭제돼요")
+        spreadsheet_id = _check(spreadsheet_id, sheet_id)
+        client = get_http_client()
+        sid, title, _ = await _find_sheet(client, access_token, spreadsheet_id, sheet_id)
+        await _batch_update(client, access_token, spreadsheet_id, {"deleteSheet": {"sheetId": sid}})
+        return json.dumps({"success": True, "deleted": True, "sheet_id": str(sid), "title": title},
                           ensure_ascii=False)
     except Exception as e:
         return _fail(tool, str(e))

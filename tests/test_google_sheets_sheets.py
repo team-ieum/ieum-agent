@@ -8,7 +8,8 @@ from tests.action_outputs import assert_matches_outputs
 from tests.test_google_sheets import _resp
 from tools.google_sheets import _DRIVE_FILES_URL, _SHEET_PROPS
 from tools.google_sheets_sheets import (
-    google_sheets_create_worksheet, google_sheets_find_or_create_worksheet, google_sheets_rename_worksheet,
+    google_sheets_copy_worksheet, google_sheets_create_worksheet, google_sheets_delete_worksheet,
+    google_sheets_find_or_create_worksheet, google_sheets_rename_worksheet, google_sheets_update_worksheet,
 )
 
 
@@ -256,3 +257,187 @@ async def test_이름_바꾸기_시트_제목도_받는다():
 ])
 async def test_이름_바꾸기_입력_거절(kwargs):
     await _no_google(google_sheets_rename_worksheet, spreadsheet_id="abc", **kwargs)
+
+
+# --- C16 copy_worksheet ---
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dest", [None, "", "abc"])
+async def test_같은_파일_복사는_duplicateSheet_1회(dest):
+    fake = _Fake()
+    result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        destination_spreadsheet_id=dest, new_title="복사본")
+    [dup] = [c for c in fake.calls if c[1].endswith(":batchUpdate")]
+    assert _req(dup) == {"duplicateSheet": {"sourceSheetId": 0, "newSheetName": "복사본"}}
+    assert fake.of("copyTo") == []
+    assert result == {"success": True, "spreadsheet_id": "abc", "sheet_id": "102", "title": "복사본"}
+    assert_matches_outputs("google_sheets.copy_worksheet", result)
+
+
+@pytest.mark.asyncio
+async def test_같은_파일_복사_이름_비우면_newSheetName_없음():
+    fake = _Fake()
+    result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0", new_title="")
+    assert "newSheetName" not in _req(fake.of("duplicateSheet")[0])["duplicateSheet"]
+    assert result["title"] == "Sales의 사본"
+
+
+@pytest.mark.asyncio
+async def test_다른_파일_복사는_copyTo_뒤_이름_변경():
+    fake = _Fake()
+    result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        destination_spreadsheet_id="dst", new_title="받은 시트")
+    [copy] = fake.of("copyTo")
+    assert copy[1].endswith("/spreadsheets/abc/sheets/0:copyTo")
+    assert copy[2]["json"] == {"destinationSpreadsheetId": "dst"}
+    [upd] = fake.of("updateSheetProperties")
+    assert upd[1].endswith("/spreadsheets/dst:batchUpdate")
+    assert _req(upd) == {"updateSheetProperties": {"properties": {"sheetId": 103, "title": "받은 시트"},
+                                                   "fields": "title"}}
+    assert result == {"success": True, "spreadsheet_id": "dst", "sheet_id": "103", "title": "받은 시트"}
+    assert_matches_outputs("google_sheets.copy_worksheet", result)
+
+
+@pytest.mark.asyncio
+async def test_다른_파일_복사_이름_없으면_변경_안함():
+    fake = _Fake()
+    result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        destination_spreadsheet_id="dst")
+    assert [c for c in fake.calls if c[1].endswith(":batchUpdate")] == []
+    assert result["title"] == "Copy of Sales"
+
+
+@pytest.mark.asyncio
+async def test_이름_변경_실패하면_대상에서_복사본을_지운다():
+    fake = _Fake(fail={"updateSheetProperties": _err("boom")})
+    result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        destination_spreadsheet_id="dst", new_title="받은 시트")
+    [delete] = fake.of("deleteSheet")
+    assert delete[1].endswith("/spreadsheets/dst:batchUpdate")
+    assert _req(delete) == {"deleteSheet": {"sheetId": 103}}
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_복사_되돌리기도_실패하면_남은_시트를_알린다():
+    fake = _Fake(fail={"updateSheetProperties": _err("boom"), "deleteSheet": _err("nope")})
+    result = await _run(fake, google_sheets_copy_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        destination_spreadsheet_id="dst", new_title="받은 시트")
+    assert "대상 파일에 'Copy of Sales' 시트가 남았을 수 있어요" in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [
+    {"spreadsheet_id": "", "sheet_id": "0"},
+    {"spreadsheet_id": "abc", "sheet_id": ""},
+    {"spreadsheet_id": "abc", "sheet_id": "0", "destination_spreadsheet_id": "a/b"},
+])
+async def test_복사_입력_거절(kwargs):
+    await _no_google(google_sheets_copy_worksheet, **kwargs)
+
+
+# --- C18 update_worksheet ---
+
+@pytest.mark.asyncio
+async def test_속성_바꾸기_마스크는_채운_칸만():
+    fake = _Fake()
+    result = await _run(fake, google_sheets_update_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        frozen_rows="1", visibility="hide")
+    [upd] = fake.of("updateSheetProperties")
+    assert _req(upd) == {"updateSheetProperties": {
+        "properties": {"sheetId": 0, "gridProperties": {"frozenRowCount": 1}, "hidden": True},
+        "fields": "gridProperties.frozenRowCount,hidden"}}
+    assert result == {"success": True, "sheet_id": "0", "title": "Sales", "updated": ["frozen_rows", "visibility"]}
+    assert_matches_outputs("google_sheets.update_worksheet", result)
+
+
+@pytest.mark.asyncio
+async def test_속성_바꾸기_고정_해제는_0():
+    fake = _Fake()
+    await _run(fake, google_sheets_update_worksheet, spreadsheet_id="abc", sheet_id="0", frozen_columns=0)
+    req = _req(fake.of("updateSheetProperties")[0])["updateSheetProperties"]
+    assert req["properties"]["gridProperties"] == {"frozenColumnCount": 0}
+    assert req["fields"] == "gridProperties.frozenColumnCount"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blank", [None, ""])
+async def test_속성이_전부_비면_Google을_부르지_않는다(blank):
+    result = await _no_google(google_sheets_update_worksheet, spreadsheet_id="abc", sheet_id="0", frozen_rows=blank,
+                              frozen_columns=blank, position=blank, visibility=blank)
+    assert "바꿀 속성이 없어요" in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [
+    {"frozen_rows": -1}, {"position": 0}, {"position": "x"}, {"visibility": "hidden"}, {"frozen_rows": True},
+])
+async def test_속성_값_거절(kwargs):
+    await _no_google(google_sheets_update_worksheet, spreadsheet_id="abc", sheet_id="0", **kwargs)
+
+
+_ABC = (("A", 0, 0), ("B", 1, 1), ("C", 2, 2))
+
+
+async def _index(sheet_id, position):
+    fake = _Fake(sheets=_ABC)
+    result = await _run(fake, google_sheets_update_worksheet, spreadsheet_id="abc", sheet_id=sheet_id,
+                        position=position)
+    assert result["updated"] == ["position"]
+    req = _req(fake.of("updateSheetProperties")[0])["updateSheetProperties"]
+    assert req["fields"] == "index"
+    return req["properties"]["index"]
+
+
+@pytest.mark.asyncio
+async def test_오른쪽으로_옮기면_index는_position():
+    assert await _index("0", 3) == 3
+
+
+@pytest.mark.asyncio
+async def test_왼쪽으로_옮기면_index는_position_빼기_1():
+    assert await _index("2", 1) == 0
+
+
+@pytest.mark.asyncio
+async def test_제자리면_index_그대로():
+    assert await _index("1", 2) == 1
+
+
+@pytest.mark.asyncio
+async def test_속성_바꾸기_시트_제목도_받는다():
+    fake = _Fake(sheets=_ABC)
+    result = await _run(fake, google_sheets_update_worksheet, spreadsheet_id="abc", sheet_id="B", visibility="show")
+    req = _req(fake.of("updateSheetProperties")[0])["updateSheetProperties"]
+    assert req["properties"] == {"sheetId": 1, "hidden": False}
+    assert result["sheet_id"] == "1" and result["title"] == "B"
+
+
+# --- C19 delete_worksheet ---
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("confirm", [True, "true"])
+async def test_시트_삭제(confirm):
+    fake = _Fake()
+    result = await _run(fake, google_sheets_delete_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        confirm_delete=confirm)
+    [delete] = [c for c in fake.calls if c[1].endswith(":batchUpdate")]
+    assert _req(delete) == {"deleteSheet": {"sheetId": 0}}
+    assert result == {"success": True, "deleted": True, "sheet_id": "0", "title": "Sales"}
+    assert_matches_outputs("google_sheets.delete_worksheet", result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("confirm", [False, "false", "", None, "yes"])
+async def test_삭제_확인이_꺼져_있으면_Google을_부르지_않는다(confirm):
+    result = await _no_google(google_sheets_delete_worksheet, spreadsheet_id="abc", sheet_id="0",
+                              confirm_delete=confirm)
+    assert "삭제 확인을 켜야 삭제돼요" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_마지막_시트_삭제는_Google_오류를_그대로():
+    fake = _Fake(fail={"deleteSheet": _err("You can't remove all the sheets in a document.")})
+    result = await _run(fake, google_sheets_delete_worksheet, spreadsheet_id="abc", sheet_id="0",
+                        confirm_delete=True)
+    assert "You can't remove all the sheets in a document." in result["error"]
