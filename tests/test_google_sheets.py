@@ -93,6 +93,8 @@ class _Sheets:
                 "properties": {"title": "예산", "locale": "ko_KR", "timeZone": "Asia/Seoul"}, "sheets": props})
         if _range(url) in self.values_by_range:
             rows = self.values_by_range[_range(url)]
+            if isinstance(rows, MagicMock):  # 그 범위만 오류 응답
+                return rows
             return self._answer("get_values", {} if rows is None else {"values": rows})
         values = self.grid[:1] if _range(url).endswith("!1:1") else self.grid
         return self._answer("get_values", {"values": values})
@@ -967,3 +969,28 @@ async def test_행_찾기는_상한에_닿으면_더_만들지_않는다():
     with patch("tools.google_sheets._col", wraps=_col) as col:
         _, result = await _lookup(grid, lookup_column="A", lookup_value="a")
     assert result["row_number"] == 2 and col.call_count == 4
+
+
+_GRID_LIMIT = {"error": {"code": 400, "message": "Range ('Sales'!5000) exceeds grid limits. Max rows: 1006, max columns: 26"}}
+
+
+@pytest.mark.asyncio
+async def test_시트_밖_행_번호는_0건():
+    # dev e2e(2026-11-10): Google은 그리드 밖 범위를 400으로 거절한다 — 찾기 약속대로 found:false로 이어 간다.
+    fake = _Sheets(GRID, values_by_range={"'Sales'!5000:5000": _resp(400, _GRID_LIMIT)})
+    result = await _call(fake, google_sheets_get_row, sheet_id="0", row_number=5000)
+    assert result == {"success": True, "found": False, "total": 0, "items": [], "row_number": None, "values": {}}
+
+
+@pytest.mark.asyncio
+async def test_시트_밖_시작_행이면_여러_행도_0건():
+    fake = _Sheets(GRID, values_by_range={"'Sales'!A5000:B5001": _resp(400, _GRID_LIMIT)})
+    result = await _call(fake, google_sheets_get_rows, sheet_id="0", column_range="A:B", row_count=2, start_row=5000)
+    assert (result["found"], result["total"], result["items"]) == (False, 0, [])
+
+
+@pytest.mark.asyncio
+async def test_그리드_한도가_아닌_400은_그대로_오류():
+    fake = _Sheets(GRID, values_by_range={"'Sales'!4:4": _resp(400, {"error": {"message": "Unable to parse range"}})})
+    result = await _call(fake, google_sheets_get_row, sheet_id="0", row_number=4)
+    assert "Unable to parse range" in result["error"]

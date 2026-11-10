@@ -142,6 +142,18 @@ def _ok(response, api: str = "Google Sheets API") -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _values(response) -> list:
+    """값 조회 응답의 행 목록. 그리드 밖 범위(400 'exceeds grid limits')는 빈 목록 — 찾기 약속대로 0건으로 이어 간다."""
+    if response.status_code == 400:
+        try:
+            message = str(((response.json() or {}).get("error") or {}).get("message", ""))
+        except Exception:
+            message = ""
+        if "exceeds grid limits" in message:
+            return []
+    return _ok(response).get("values") or []
+
+
 _OUTPUT_BUDGET = 2_000_000  # 출력 UTF-8 바이트 예산 — BE 응답 한도(4MB)·AI 컨텍스트 보호
 
 
@@ -572,7 +584,7 @@ async def google_sheets_get_rows(access_token: str, spreadsheet_id: str, sheet_i
             params={"valueRenderOption": "FORMATTED_VALUE"},
             timeout=_TIMEOUT,
         )
-        rows = _ok(response).get("values") or []
+        rows = _values(response)
         first = _col_index(m[1])
         # 받은 데이터 폭(가장 긴 행)까지만 채운다 — 그리드만 넓은 시트에서 빈 키 폭증(BE 4MB 한도) 방지.
         # 한 결과 안 모든 항목의 키는 같다.
@@ -610,7 +622,7 @@ async def google_sheets_get_row(access_token: str, spreadsheet_id: str, sheet_id
             params={"valueRenderOption": "FORMATTED_VALUE"},
             timeout=_TIMEOUT,
         )
-        row = (_ok(response).get("values") or [[]])[0]
+        row = (_values(response) or [[]])[0]
         values = {_col(i): str(row[i]) if i < len(row) else "" for i in range(len(sheet.headers))}
         if not any(values.values()):
             return json.dumps({"success": True, "found": False, "total": 0, "items": [], "row_number": None,
