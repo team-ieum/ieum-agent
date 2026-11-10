@@ -6,14 +6,16 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from tests.test_gmail import API, SEND_AS, _b64, _client, _posts, _sendas, _sent
+from tests.test_gmail import API, SEND_AS, _b64, _client, _msg, _posts, _sendas, _sent
 from tests.test_google_tools import _make_mock_response
 from tools.gmail import (
     _FORWARDED,
     _SCOPE_HINT,
+    _normalize,
     _re_subject,
     gmail_create_draft,
     gmail_create_reply_draft,
+    gmail_find_or_send,
     gmail_forward,
     gmail_reply,
 )
@@ -161,6 +163,15 @@ async def test_원본_헤더의_줄바꿈은_새_헤더를_만들지_못한다(s
     msg = _sent(post)
     assert msg["Bcc"] is None
     assert msg["Subject"].startswith("Re: 회의")
+
+
+@pytest.mark.asyncio
+async def test_내_메일의_원래_받는_사람_줄바꿈도_새_헤더를_만들지_못한다():
+    m1 = _m("m1", ["SENT"], {"Message-ID": "<a@x>", "To": "a@x.com\r\nBcc: x@y", "Cc": "c@x.com\r\nBcc: z@y"})
+    post = _posts()
+    await _reply(_client(get=_get(_thread(m1)), post=post))
+    msg = _sent(post)
+    assert msg["Bcc"] is None and msg["To"].startswith("a@x.com")
 
 
 @pytest.mark.asyncio
@@ -450,3 +461,93 @@ async def test_메일_ID_형식이_아니면_HTTP_없이_실패한다(bad):
     get, post = AsyncMock(), AsyncMock()
     result = await _forward(_client(get=get, post=post), message_id=bad)
     assert "Gmail 메일 ID가 아니에요" in result["error"] and get.await_count == post.await_count == 0
+
+
+# ── 찾고 없으면 보내기(S4) ───────────────────────────────────────────────
+
+def _find_get(found: bool = True, status: int = 200) -> AsyncMock:
+    async def get(url, **kwargs):
+        if url == f"{API}/messages":
+            body = {"messages": [{"id": "f1"}]} if found else {}
+            return _make_mock_response(status, body if status == 200 else {"error": {"message": "insufficient"}})
+        if url == f"{API}/messages/f1":
+            return _make_mock_response(200, _msg("f1"))
+        raise AssertionError(f"예상 못 한 GET {url}")
+    return AsyncMock(side_effect=get)
+
+
+async def _find_or_send(client, **kwargs) -> dict:
+    kwargs.setdefault("query", "from:boss")
+    kwargs.setdefault("to", "a@x.com")
+    kwargs.setdefault("subject", "보고")
+    kwargs.setdefault("body", "안녕")
+    return await _call(gmail_find_or_send, client, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_찾으면_보내지_않고_created_false():
+    get, post = _find_get(), AsyncMock()
+    result = await _find_or_send(_client(get=get, post=post), search_label_ids=["L_S"], label_ids=["L_X"])
+    assert post.await_count == 0
+    assert get.await_args_list[0].kwargs["params"] == {"q": "from:boss", "maxResults": 1, "labelIds": ["L_S"]}
+    assert result == {"success": True, "created": False, **_normalize(_msg("f1"))}
+
+
+@pytest.mark.asyncio
+async def test_없으면_보내고_created_true_보낸_값으로():
+    get, post = _find_get(found=False), _posts()
+    result = await _find_or_send(_client(get=get, post=post))
+    assert [c.args[0] for c in post.await_args_list] == [f"{API}/messages/send"]
+    assert [c.args[0] for c in get.await_args_list] == [f"{API}/messages"]
+    assert result["created"] is True
+    assert (result["messageId"], result["threadId"], result["to"], result["subject"], result["bodyText"],
+            result["snippet"], result["from"]) == ("m-1", "t-1", "a@x.com", "보고", "안녕", "", "")
+    assert result["receivedAt"].endswith("Z") and result["labels"] == ["SENT"]
+
+
+@pytest.mark.asyncio
+async def test_보낸_HTML_본문은_bodyText에서_태그를_뺀다():
+    result = await _find_or_send(_client(get=_find_get(found=False), post=_posts()),
+                                 body_format="text/html", body="<p>안녕 <b>하세요</b></p>")
+    assert result["bodyText"] == "안녕 하세요"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("found", [True, False])
+async def test_찾기_라벨과_보낸_뒤_라벨은_섞이지_않는다(found):
+    get, post = _find_get(found=found), _posts()
+    result = await _find_or_send(_client(get=get, post=post), search_label_ids=["L_S"], label_ids=["L_X"])
+    assert get.await_args_list[0].kwargs["params"]["labelIds"] == ["L_S"]
+    modify = [c for c in post.await_args_list if c.args[0].endswith("/modify")]
+    assert [c.kwargs["json"] for c in modify] == ([] if found else [{"addLabelIds": ["L_X"]}])
+    if not found:
+        assert result["labels"] == ["SENT"]   # SENT 목은 modify 응답도 labelIds ["SENT"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [{"to": " , ", "cc": "", "bcc": None}, {"include_signature": "yes"}])
+async def test_보내기_칸_검사는_찾기_전에(kwargs):
+    get, post = AsyncMock(), AsyncMock()
+    result = await _find_or_send(_client(get=get, post=post), **kwargs)
+    assert "error" in result and get.await_count == post.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_검색어가_비면_HTTP_없이_실패():
+    get, post = AsyncMock(), AsyncMock()
+    result = await _find_or_send(_client(get=get, post=post), query="  ")
+    assert "error" in result and get.await_count == post.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_보내기_라벨_실패도_created_true():   # Review Focus 4
+    post = _posts(modify=_make_mock_response(400, {"error": {"message": "bad"}}))
+    result = await _find_or_send(_client(get=_find_get(found=False), post=post), label_ids=["L_X"])
+    assert result["success"] is True and result["created"] is True and result["labels"] == ["SENT"]
+
+
+@pytest.mark.asyncio
+async def test_찾기_403은_Gmail_권한_안내():
+    post = AsyncMock()
+    result = await _find_or_send(_client(get=_find_get(status=403), post=post))
+    assert _SCOPE_HINT in result["error"] and post.await_count == 0

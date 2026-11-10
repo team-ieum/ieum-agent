@@ -706,6 +706,92 @@ async def gmail_forward(
     return _ok(messageId=sent["messageId"], threadId=sent["threadId"])
 
 
+async def gmail_find_or_send(
+    access_token: str,
+    *,
+    query: str,
+    search_label_ids: Optional[list[str]] = None,
+    include_spam_trash: bool = False,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    subject: str,
+    body_format: str = "text/plain",
+    body: str,
+    include_signature: bool = False,
+    label_ids: Optional[list[str]] = None,
+) -> str:
+    """Gmail에서 검색어에 맞는 메일을 찾고, 없으면 메일을 보낸다.
+
+    Args:
+        query: Gmail 검색창 문법의 검색어
+        search_label_ids: 찾을 때 이 라벨을 모두 가진 메일만(라벨 ID 목록)
+        include_spam_trash: 찾을 때 스팸·휴지통도 보기
+        to: 받는 사람(쉼표 구분 또는 목록)
+        cc: 참조
+        bcc: 숨은 참조
+        from_email: 보낸 사람 주소(Gmail 별칭). 비우면 기본 주소
+        from_name: 보낸 사람 이름
+        reply_to: 답장 받을 주소
+        subject: 제목
+        body_format: "text/plain" 또는 "text/html"
+        body: 본문
+        include_signature: Gmail 서명 붙이기
+        label_ids: 보낸 메일에 붙일 라벨 ID 목록
+
+    Returns:
+        성공 {"success", "created", 메일 9키}(찾았으면 created false), 실패 {"error"}
+    """
+    tool = "gmail_find_or_send"
+    if _blank(query):
+        return _fail(tool, "검색어를 입력하세요")
+    labels = [] if _blank(label_ids) else _emails(label_ids)
+    inputs = _send_inputs(tool, to=to, cc=cc, bcc=bcc, from_email=from_email, from_name=from_name,
+                          include_signature=include_signature)
+    if isinstance(inputs, str):
+        return inputs
+    # 1건만 본다 — 찾기 100건은 Google 호출 101회
+    found = await gmail_find_email(access_token, query=query, label_ids=search_label_ids,
+                                   include_spam_trash=include_spam_trash, max_results=1)
+    data = json.loads(found)
+    if "error" in data:
+        return found
+    if data["items"]:
+        return _ok(created=False, **data["items"][0])
+
+    body = "" if body is None else str(body)
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        msg = await _mime(tool, client, headers, inputs, reply_to=reply_to, subject=subject,
+                          body_format=body_format, body=body)
+        if isinstance(msg, str):
+            return msg
+        sent = await _deliver(client, headers, msg)
+        if isinstance(sent, str):
+            return sent
+    except Exception as e:
+        return _fail(tool, str(e))
+    applied = await _label_after_send(client, headers, sent["messageId"], labels)
+    # 보낸 메일을 다시 조회하지 않고 보낸 값으로 채운다(호출 1회 절약)
+    text = _strip_html(body) if body_format == "text/html" else body
+    return _ok(**{
+        "created": True,
+        "messageId": sent["messageId"],
+        "threadId": sent["threadId"],
+        "from": str(msg["From"] or ""),
+        "to": str(msg["To"] or ""),
+        "subject": str(msg["Subject"] or ""),
+        "snippet": "",
+        "bodyText": text[:_BODY_TEXT_MAX],
+        "receivedAt": _received_at(int(datetime.now(timezone.utc).timestamp() * 1000)),
+        "labels": applied or sent["labelIds"] or [],
+    })
+
+
 def _json_size(value) -> int:
     return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 
