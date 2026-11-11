@@ -124,4 +124,9 @@ python3 -m unittest discover -s scripts/bluegreen -p 'test_*.py'
 ```
 
 합성 JSON·가짜 controller와 임시 파일만 사용한다. 실제 Docker·DB·GitHub Secrets·운영 서버에는 접근하지
-않는다. workflow Test 단계에서도 이 검증을 pytest 전에 실행한다. Main/AWS workflow는 변경하지 않았다.
+않는다. workflow Test 단계에서도 이 검증을 pytest 전에 실행한다. Main의 별도 계약은 [Main 블루그린 설정](main-bluegreen-secrets.md)을 따른다. DEV 수집·배포 계약은 유지한다.
+
+## Main 환경과의 분리
+
+수집기의 `--environment dev`는 기존 기본값이며 DEV 동작을 유지한다. `--environment main`은
+`MAIN_COM_`만 선택한다. Main 적용은 별도 [Main 블루그린 설정](main-bluegreen-secrets.md)을 따른다.

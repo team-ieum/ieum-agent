@@ -240,3 +240,4 @@ graphify-out/
 !/docs/operations/
 /docs/operations/*
 !/docs/operations/bluegreen-secrets.md
+!/docs/operations/main-bluegreen-secrets.md

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a private deployment candidate from DEV_COM_ Actions secrets.
+"""Build a private DEV_COM_ or MAIN_COM_ deployment candidate from Actions secrets.
 
 This module never reads a server .env file, expands shell expressions, or prints
 configuration values. The controller owns the final per-color runtime snapshots.
@@ -17,6 +17,8 @@ import sys
 MAX_ENV_BYTES = 48 * 1024
 MAX_JSON_BYTES = 96 * 1024
 SECRET_PREFIX = 'DEV_COM_'
+ENVIRONMENT_PREFIXES = {'dev': SECRET_PREFIX, 'main': 'MAIN_COM_'}
+MAIN_BUILD_KEYS = ('AGENT_PYTHON_VERSION', 'AGENT_IMAGE_NAME', 'PYTHON_VERSION', 'IMAGE_NAME')
 SECRETS_VARIABLE = 'IEUM_AGENT_SECRETS_JSON'
 FORBIDDEN_CHARACTERS = '\x00\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029'
 
@@ -78,8 +80,11 @@ def invalid_json_constant(_value):
     raise AgentEnvironmentError('invalid_json')
 
 
-def build_environment(payload):
+def build_environment(payload, environment='dev'):
     """Select the prefix from JSON and rebuild a complete literal environment."""
+    if environment not in ENVIRONMENT_PREFIXES:
+        raise AgentEnvironmentError('invalid_environment')
+    prefix = ENVIRONMENT_PREFIXES[environment]
     if not isinstance(payload, str) or not payload:
         raise AgentEnvironmentError('missing_configuration')
     try:
@@ -89,24 +94,26 @@ def build_environment(payload):
     if len(encoded) > MAX_JSON_BYTES:
         raise AgentEnvironmentError('secrets_payload_too_large')
     try:
-        environment = json.loads(payload, object_pairs_hook=unique_object,
+        source = json.loads(payload, object_pairs_hook=unique_object,
                                  parse_constant=invalid_json_constant)
     except (json.JSONDecodeError, RecursionError):
         raise AgentEnvironmentError('invalid_json') from None
-    if not isinstance(environment, dict):
+    if not isinstance(source, dict):
         raise AgentEnvironmentError('invalid_json')
     values = {}
     seen = set()
-    for secret_name, value in environment.items():
+    for secret_name, value in source.items():
         normalized_name = secret_name.upper()
-        if not normalized_name.startswith(SECRET_PREFIX):
+        if not normalized_name.startswith(prefix):
             continue
         if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', secret_name) is None:
             raise AgentEnvironmentError('invalid_secret_name')
-        suffix = normalized_name[len(SECRET_PREFIX):]
+        suffix = normalized_name[len(prefix):]
         if re.fullmatch(r'[A-Z_][A-Z0-9_]*', suffix) is None:
             raise AgentEnvironmentError('invalid_secret_name')
         if canonical_key(suffix) in EXCLUDED_CANONICAL_KEYS:
+            continue
+        if environment == 'main' and canonical_key(suffix) in {canonical_key(k) for k in MAIN_BUILD_KEYS}:
             continue
         key = ALIASES.get(suffix, suffix)
         canonical = canonical_key(key)
@@ -121,7 +128,8 @@ def build_environment(payload):
         if any(character in value for character in FORBIDDEN_CHARACTERS):
             raise AgentEnvironmentError('unsupported_control_character')
         values[key] = value
-    for key in REQUIRED_KEYS:
+    required = REQUIRED_KEYS + (('AGENT_INTERNAL_TOKEN',) if environment == 'main' else ())
+    for key in required:
         if not values.get(key) or values[key].isspace():
             raise AgentEnvironmentError('missing_required_configuration')
     # The installed controller and Docker health endpoint use port 8000.
@@ -143,9 +151,9 @@ def build_environment(payload):
     return result
 
 
-def write_candidate(destination, payload):
+def write_candidate(destination, payload, environment='dev'):
     """Populate only an empty, owned, private regular file created by mktemp."""
-    content = build_environment(payload)
+    content = build_environment(payload, environment)
     descriptor = None
     try:
         descriptor = os.open(Path(destination), os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
@@ -177,9 +185,10 @@ def write_candidate(destination, payload):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('candidate', type=Path)
+    parser.add_argument('--environment', choices=tuple(ENVIRONMENT_PREFIXES), default='dev')
     arguments = parser.parse_args(argv)
     try:
-        write_candidate(arguments.candidate, os.environ.get(SECRETS_VARIABLE))
+        write_candidate(arguments.candidate, os.environ.get(SECRETS_VARIABLE), arguments.environment)
     except AgentEnvironmentError as failure:
         print('Agent environment rejected: ' + failure.code, file=sys.stderr)
         return 1
