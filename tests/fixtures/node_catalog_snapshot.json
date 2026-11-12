@@ -93,6 +93,26 @@
               "name": "캘린더 일정 찾기"
             },
             {
+              "id": "builtin:google_calendar_find_busy",
+              "name": "캘린더 바쁜 시간 찾기"
+            },
+            {
+              "id": "builtin:google_calendar_find_or_create",
+              "name": "캘린더 일정 찾기, 없으면 만들기"
+            },
+            {
+              "id": "builtin:google_calendar_get_calendar",
+              "name": "캘린더 정보"
+            },
+            {
+              "id": "builtin:google_calendar_get_event",
+              "name": "ID로 캘린더 일정 가져오기"
+            },
+            {
+              "id": "builtin:google_calendar_list_calendars",
+              "name": "캘린더 목록"
+            },
+            {
               "id": "builtin:google_calendar_update",
               "name": "캘린더 일정 수정"
             },
@@ -7968,6 +7988,636 @@
       "provider": "google",
       "title": "캘린더 일정 찾기",
       "toolKey": "builtin:google_calendar_find"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
+      "description": "기간 안에서 일정이 잡힌 시간대를 찾아요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.find_busy",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.find_busy",
+      "inputFields": [
+        {
+          "description": "캘린더 ID나 이메일을 쉼표로 구분해요(최대 50개). 내 목록에 없는 동료 이메일도 돼요",
+          "key": "calendar_ids",
+          "path": "config.calendar_ids",
+          "required": true,
+          "title": "캘린더",
+          "type": "string"
+        },
+        {
+          "key": "time_min",
+          "path": "config.time_min",
+          "required": true,
+          "title": "시작 시각",
+          "type": "datetime"
+        },
+        {
+          "key": "time_max",
+          "path": "config.time_max",
+          "required": true,
+          "title": "종료 시각",
+          "type": "datetime"
+        },
+        {
+          "default": "",
+          "description": "IANA 이름(예: Asia/Seoul). 오프셋 없는 시각을 이 시간대로 읽고 결과도 이 시간대로 줘요. 비우면 UTC",
+          "key": "time_zone",
+          "path": "config.time_zone",
+          "title": "시간대",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "바쁜 시간이 하나라도 있는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "calendarId",
+              "title": "캘린더",
+              "type": "string"
+            },
+            {
+              "key": "start",
+              "title": "시작",
+              "type": "datetime"
+            },
+            {
+              "key": "end",
+              "title": "종료",
+              "type": "datetime"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "바쁜 시간",
+          "type": "object"
+        },
+        {
+          "children": [
+            {
+              "key": "calendarId",
+              "title": "캘린더",
+              "type": "string"
+            },
+            {
+              "description": "notFound(없는 캘린더)·notReturned(응답에 없음 — 없는 캘린더이거나 같은 캘린더를 두 번 넣음) 등",
+              "key": "reason",
+              "title": "이유",
+              "type": "string"
+            }
+          ],
+          "description": "권한이 없거나 없는 캘린더 — 여기 있는 캘린더의 바쁜 시간은 결과에 없어요",
+          "key": "errors",
+          "list": true,
+          "title": "읽지 못한 캘린더",
+          "type": "object"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 바쁜 시간 찾기",
+      "toolKey": "builtin:google_calendar_find_busy"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
+      "description": "검색어에 맞는 일정을 찾고 없으면 새로 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.find_or_create",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.find_or_create",
+      "inputFields": [
+        {
+          "key": "summary",
+          "path": "config.summary",
+          "required": true,
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "key": "start_datetime",
+          "path": "config.start_datetime",
+          "required": true,
+          "title": "시작",
+          "type": "datetime"
+        },
+        {
+          "key": "end_datetime",
+          "path": "config.end_datetime",
+          "required": true,
+          "title": "종료",
+          "type": "datetime"
+        },
+        {
+          "default": "",
+          "key": "description",
+          "path": "config.description",
+          "title": "설명",
+          "type": "text"
+        },
+        {
+          "default": "primary",
+          "description": "찾고 만들 캘린더 (비우면 기본 캘린더, 쓰기 권한이 있는 캘린더만)",
+          "key": "calendar_id",
+          "optionsSource": "google.writable_calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "제목·설명·장소·참석자에서 찾아요. 비우면 제목으로 찾아요",
+          "key": "query",
+          "path": "config.query",
+          "title": "검색어",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "today",
+              "name": "오늘"
+            },
+            {
+              "id": "tomorrow",
+              "name": "내일"
+            },
+            {
+              "id": "this_week",
+              "name": "이번 주(월~일)"
+            },
+            {
+              "id": "next_7_days",
+              "name": "앞으로 7일"
+            }
+          ],
+          "default": "",
+          "description": "'오늘 일정'처럼 실행한 날 기준이면 골라요(캘린더 시간대). 고르면 시작·종료 시각은 쓰지 않아요",
+          "key": "period",
+          "path": "config.period",
+          "title": "기간",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "이 시각 이후에 끝나는 일정만 찾아요 (비우면 지금부터)",
+          "key": "time_min",
+          "path": "config.time_min",
+          "title": "찾을 시작 시각",
+          "type": "datetime"
+        },
+        {
+          "default": "",
+          "description": "이 시각 전에 시작하는 일정만 찾아요 (비우면 제한 없음)",
+          "key": "time_max",
+          "path": "config.time_max",
+          "title": "찾을 종료 시각",
+          "type": "datetime"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "찾지 못해 새로 만들었는지",
+          "key": "created",
+          "title": "새로 만듦",
+          "type": "boolean"
+        },
+        {
+          "key": "eventId",
+          "title": "일정 ID",
+          "type": "string"
+        },
+        {
+          "key": "htmlLink",
+          "title": "일정 링크",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 일정 찾기, 없으면 만들기",
+      "toolKey": "builtin:google_calendar_find_or_create"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
+      "description": "캘린더의 시간대·내 권한·기본 알림 같은 정보를 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.get_calendar",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.get_calendar",
+      "inputFields": [
+        {
+          "default": "primary",
+          "description": "정보를 볼 캘린더 (비우면 기본 캘린더, 내 캘린더 목록에 있는 캘린더만)",
+          "key": "calendar_id",
+          "optionsSource": "google.calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "캘린더가 있는지 (없거나 권한이 없으면 false)",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "id",
+              "title": "ID",
+              "type": "string"
+            },
+            {
+              "key": "summary",
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "description",
+              "title": "설명",
+              "type": "text"
+            },
+            {
+              "key": "timeZone",
+              "title": "시간대",
+              "type": "string"
+            },
+            {
+              "description": "owner·writer·reader 등",
+              "key": "accessRole",
+              "title": "내 권한",
+              "type": "string"
+            },
+            {
+              "key": "primary",
+              "title": "기본 캘린더",
+              "type": "boolean"
+            },
+            {
+              "children": [
+                {
+                  "description": "email·popup",
+                  "key": "method",
+                  "title": "방식",
+                  "type": "string"
+                },
+                {
+                  "key": "minutes",
+                  "title": "몇 분 전",
+                  "type": "integer"
+                }
+              ],
+              "key": "defaultReminders",
+              "list": true,
+              "title": "기본 알림",
+              "type": "object"
+            },
+            {
+              "description": "이 캘린더 일정에 Meet 회의를 붙일 수 있는지",
+              "key": "meetSupported",
+              "title": "Meet 지원",
+              "type": "boolean"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "캘린더",
+          "type": "object"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "summary",
+          "title": "이름",
+          "type": "string"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "timeZone",
+          "title": "시간대",
+          "type": "string"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "accessRole",
+          "title": "내 권한",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 정보",
+      "toolKey": "builtin:google_calendar_get_calendar"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
+      "description": "일정 ID로 일정 하나를 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.get_event",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.get_event",
+      "inputFields": [
+        {
+          "description": "가져올 일정. 목록엔 앞으로의 일정만 나와요 — 지난 일정은 ID를 직접 넣거나 앞 노드 값을 참조해요",
+          "key": "event_id",
+          "optionsInputs": [
+            "calendar_id"
+          ],
+          "optionsSource": "google.events",
+          "path": "config.event_id",
+          "required": true,
+          "title": "일정",
+          "type": "string"
+        },
+        {
+          "default": "primary",
+          "description": "읽을 캘린더 (비우면 기본 캘린더, 공휴일 캘린더 포함)",
+          "key": "calendar_id",
+          "optionsSource": "google.calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "일정이 있는지 (지워졌거나 없으면 false)",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "id",
+              "title": "ID",
+              "type": "string"
+            },
+            {
+              "key": "summary",
+              "title": "제목",
+              "type": "string"
+            },
+            {
+              "description": "종일 일정은 날짜(YYYY-MM-DD)",
+              "key": "start",
+              "title": "시작",
+              "type": "datetime"
+            },
+            {
+              "description": "종일 일정은 날짜이고, Google 규칙대로 끝나는 날의 다음 날이에요",
+              "key": "end",
+              "title": "종료",
+              "type": "datetime"
+            },
+            {
+              "key": "allDay",
+              "title": "종일",
+              "type": "boolean"
+            },
+            {
+              "key": "location",
+              "title": "장소",
+              "type": "string"
+            },
+            {
+              "key": "description",
+              "title": "설명",
+              "type": "text"
+            },
+            {
+              "key": "htmlLink",
+              "title": "일정 링크",
+              "type": "string"
+            },
+            {
+              "description": "반복 일정의 회차면 원본 일정 ID, 아니면 빈 값",
+              "key": "recurringEventId",
+              "title": "반복 일정 ID",
+              "type": "string"
+            },
+            {
+              "key": "status",
+              "title": "상태",
+              "type": "string"
+            },
+            {
+              "description": "참석자 이메일 목록",
+              "key": "attendees",
+              "list": true,
+              "title": "참석자",
+              "type": "string"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "일정",
+          "type": "object"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "summary",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "start",
+          "title": "시작",
+          "type": "datetime"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "end",
+          "title": "종료",
+          "type": "datetime"
+        },
+        {
+          "description": "못 찾으면 빈 값",
+          "key": "htmlLink",
+          "title": "일정 링크",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "ID로 캘린더 일정 가져오기",
+      "toolKey": "builtin:google_calendar_get_event"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
+      "description": "내 캘린더 목록을 가져와요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.list_calendars",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.list_calendars",
+      "inputFields": [
+        {
+          "choices": [
+            {
+              "id": "freeBusyReader",
+              "name": "바쁨 여부만 보기"
+            },
+            {
+              "id": "reader",
+              "name": "읽기"
+            },
+            {
+              "id": "writerWithoutPrivateAccess",
+              "name": "쓰기(비공개 일정 제외)"
+            },
+            {
+              "id": "writer",
+              "name": "쓰기"
+            },
+            {
+              "id": "owner",
+              "name": "소유자"
+            }
+          ],
+          "default": "",
+          "description": "이 권한 이상인 캘린더만 가져와요. 비우면 전부",
+          "key": "min_access_role",
+          "path": "config.min_access_role",
+          "ref": false,
+          "title": "최소 권한",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "key": "show_hidden",
+          "path": "config.show_hidden",
+          "ref": false,
+          "title": "숨긴 캘린더 포함",
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "key": "show_deleted",
+          "path": "config.show_deleted",
+          "ref": false,
+          "title": "삭제된 캘린더 포함",
+          "type": "boolean"
+        }
+      ],
+      "kind": "search",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "캘린더가 하나라도 있는지",
+          "key": "found",
+          "title": "찾음",
+          "type": "boolean"
+        },
+        {
+          "key": "total",
+          "title": "개수",
+          "type": "integer"
+        },
+        {
+          "children": [
+            {
+              "key": "id",
+              "title": "ID",
+              "type": "string"
+            },
+            {
+              "key": "summary",
+              "title": "이름",
+              "type": "string"
+            },
+            {
+              "key": "description",
+              "title": "설명",
+              "type": "text"
+            },
+            {
+              "key": "timeZone",
+              "title": "시간대",
+              "type": "string"
+            },
+            {
+              "description": "owner·writer·reader 등",
+              "key": "accessRole",
+              "title": "권한",
+              "type": "string"
+            },
+            {
+              "key": "primary",
+              "title": "기본 캘린더",
+              "type": "boolean"
+            },
+            {
+              "key": "hidden",
+              "title": "숨김",
+              "type": "boolean"
+            },
+            {
+              "key": "deleted",
+              "title": "삭제됨",
+              "type": "boolean"
+            }
+          ],
+          "key": "items",
+          "list": true,
+          "title": "캘린더",
+          "type": "object"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 목록",
+      "toolKey": "builtin:google_calendar_list_calendars"
     },
     {
       "app": "google_calendar",
