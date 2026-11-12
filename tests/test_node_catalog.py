@@ -155,6 +155,8 @@ def test_option_source_fields_fixed_set():
         ("google_calendar.create", "calendar_id"), ("google_calendar.find", "calendar_id"),
         ("google_calendar.update", "calendar_id"), ("google_calendar.update", "event_id"),
         ("google_calendar.delete", "calendar_id"), ("google_calendar.delete", "event_id"),
+        ("google_calendar.get_event", "calendar_id"), ("google_calendar.get_event", "event_id"),
+        ("google_calendar.get_calendar", "calendar_id"), ("google_calendar.find_or_create", "calendar_id"),
         ("google_drive.read", "file_id"), ("google_drive.upload", "folder_id"),
         ("notion.create_page", "parent_page_id"), ("notion.read_page", "page_id"),
         ("notion.update_page", "page_id"), ("notion.append_block", "page_id"),
@@ -418,6 +420,9 @@ EXPECTED_BRANDS = {
         "create_spreadsheet", "find_or_create_spreadsheet", "find_or_create_worksheet")},
     "google_calendar.create": "google", "google_calendar.find": "google",
     "google_calendar.update": "google", "google_calendar.delete": "google", "google_drive.read": "google",
+    "google_calendar.get_event": "google", "google_calendar.find_busy": "google",
+    "google_calendar.list_calendars": "google", "google_calendar.get_calendar": "google",
+    "google_calendar.find_or_create": "google",
     "google_drive.upload": "google",
     "google_forms.set_accepting_responses": "google", "google_forms.get_form": "google",
     **{f"google_forms.{x}": "google" for x in (
@@ -528,7 +533,10 @@ def test_calendar_id_공급원은_찾기만_전체_캘린더다():
     assert got == {"google_calendar.find": "google.calendars",
                    "google_calendar.create": "google.writable_calendars",
                    "google_calendar.update": "google.writable_calendars",
-                   "google_calendar.delete": "google.writable_calendars"}
+                   "google_calendar.delete": "google.writable_calendars",
+                   "google_calendar.get_event": "google.calendars",
+                   "google_calendar.get_calendar": "google.calendars",
+                   "google_calendar.find_or_create": "google.writable_calendars"}
 
 
 @pytest.mark.parametrize("entry, key", [
