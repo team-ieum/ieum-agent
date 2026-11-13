@@ -39,14 +39,17 @@ classic Docker의 config ID와 containerd의 manifest/index ID를 구분해 참�
 검증 단계가 출력한 서버의 실제 `sha256:...` image ID를 컨트롤러에 전달한다.
 앱 환경설정 파일·Secrets JSON은 artifact에 포함하지 않는다.
 
-앱 Secrets는 배포 직전에만 `toJSON(secrets)`로 받고, 수집기가 `MAIN_COM_`만 선택한다.
-권한 0600인 새 후보 파일에 기록한 후 원본 JSON을 unset하고 컨트롤러를 호출한다.
+앱 Secrets는 배포 직전 단계의 `env`에서 필요한 `secrets.MAIN_COM_*`를 각각 명시해 전달한다.
+MAIN workflow는 전체 Secrets JSON을 읽지 않는다. 수집기는 명시된 이름만 읽어 기존 이름
+매핑·literal 검증을 적용하고 권한 0600인 새 후보 파일에 기록한다. 컨트롤러를 호출하기
+전에 단계 환경의 `MAIN_COM_*`와 이전 JSON 전송 변수를 unset한다.
 정상 종료·처리 가능한 실패·INT·TERM에서 후보 파일을 정리한다. SIGKILL·호스트 장애에서
 trap 실행은 보장되지 않으므로 운영자 점검이 필요하다.
 
-`toJSON(secrets)`는 runner에 전달되는 원본 Secrets의 범위를 줄이지 않는다. 필터는 앱에
-전달할 항목을 제한한다. 원문·값·파일 내용을 로그나 artifact로 출력하지 않는다.
+원문·값·파일 내용을 로그나 artifact로 출력하지 않는다.
 Docker 관리자 및 서버 snapshot 파일에는 평문 설정 접근이 가능하다.
+GitHub Environment 생성·Secret 위치 이동은 이 변경에 포함하지 않는다. 기존 Secret 이름과
+등록 위치를 유지하며, DEV workflow의 JSON 전송·자동 수집도 변경하지 않는다.
 
 ## 수집 규칙
 
@@ -54,10 +57,14 @@ Docker 관리자 및 서버 snapshot 파일에는 평문 설정 접근이 가능
 - `--environment`를 생략하면 기존 `dev` 동작이다.
 - Main은 `MAIN_COM_` 접두사를 한 번만 제거한다. `DEV_COM_`, `DEV_`, `AWS_`,
   접두사 없는 값, `MAIN_BLUE_`, `MAIN_GREEN_`을 앱 설정 fallback으로 사용하지 않는다.
-- 기존 별칭은 Main에서도 유지한다. 별칭과 직접 이름을 동시에 등록하면 충돌이다.
+- 기존 별칭은 Main에서도 유지한다. 별칭과 직접 이름 모두 값이 있으면 충돌이다.
+- 미등록 Secret은 GitHub에서 빈 문자열로 전달된다. MAIN은 빈 입력을 제외해 선택 항목의
+  앱 기본값을 유지한다. 필수 항목은 누락·빈 값·공백만 있는 값 모두 거부한다.
 - 입력은 단일 행 literal이다. 공백·달러·따옴표·등호는 자동 확장하지 않는다.
 - 후보는 기존 서버 .env 또는 현재 컨테이너의 설정과 합치지 않고 전체 교체한다.
-- 새 일반 앱 키는 자동 수집하지만 앱이 읽어야 하며, 새 필수 검증 목록은 별도 수정해야 한다.
+- 새 Secret을 등록하는 것만으로 앱에 자동 추가되지 않는다. 새 앱 키를 사용할 때는
+  `agent_env.py`의 `MAIN_RUNTIME_KEYS`와 MAIN workflow의 deploy·stage-bootstrap 두 단계
+  `env`에 같은 이름을 추가하고 검증한다. 새 필수 항목이면 필수 검증 목록도 수정한다.
 - Blue·Green의 컨테이너·내부 주소·배포 제어 설정은 Main 컨트롤러 소유다.
   이를 일반 앱 Secrets로 덮어쓰는 예약 이름과 동등한 underscore 변형을 거부한다.
 - Main Blue·Green은 Main 공통 설정을 배포 시 읽지만 각 색상 snapshot을 독립 보존한다.
@@ -118,8 +125,25 @@ Main 내부 토큰은 비어 있거나 공백만 있으면 거부한다. Main Ba
 등록한다. Main MCP의 gateway token과 일치해야 한다. `MAIN_COM_OTEL_EXPORTER_OTLP_ENDPOINT`는
 Main Phoenix의 Docker 내부 `/v1/traces` 주소를 사용한다. 실제 대화 수집은 별도 확인한다.
 
-`MAIN_COM_PLATFORM_GEMINI_API_KEY`, `MAIN_COM_TAVILY_API_KEY`, 자체 LLM 등 실제 사용하는
-앱 키도 같은 접두사로 수집할 수 있다. `BACKEND_BASE_URL`은 컨트롤러가 같은 색상의 Main
-Backend로 주입한다. 테스트용 MongoDB 키는 runtime 후보에서 제외한다.
+다음 선택 항목도 workflow에 명시되어 있다. 미등록·빈 값이면 후보에서 제외해 앱 기본값을
+사용한다. 이름은 `MAIN_COM_` 접두사를 제거한 앱 환경변수로 전달한다.
+
+| Secret | 용도 |
+|---|---|
+| `MAIN_COM_PLATFORM_GEMINI_API_KEY` | 서비스 공용 Gemini 키 |
+| `MAIN_COM_TAVILY_API_KEY` | 웹 검색 키 |
+| `MAIN_COM_SELF_HOSTED_LLM_BASE_URL` | 자체 LLM 주소 |
+| `MAIN_COM_SELF_HOSTED_LLM_MODEL` | 자체 LLM 모델 |
+| `MAIN_COM_SELF_HOSTED_LLM_API_KEY` | 자체 LLM 인증 키 |
+| `MAIN_COM_SELF_HOSTED_ALLOWED_ROLES` | 허용 권한 JSON 배열 |
+| `MAIN_COM_SUPPORTED_PROVIDERS` | 지원 공급자 JSON 배열 |
+| `MAIN_COM_AGENT_MAX_LLM_CALLS` | 도구 호출 루프 상한 |
+| `MAIN_COM_AGENT_TIMEOUT_SECONDS` | 실행 시간 상한(초) |
+
+MongoDB·포트·기본 모델·Notion MCP의 기존 `AGENT_` 별칭 8개와 직접 이름을 모두 지원한다.
+예를 들어 `MAIN_COM_AGENT_MONGODB_URL`과 `MAIN_COM_MONGODB_URL` 중 하나를 등록한다.
+두 이름이 모두 비어 있지 않으면 충돌로 거부하며 임의 우선순위를 적용하지 않는다.
+`BACKEND_BASE_URL`은 컨트롤러가 같은 색상의 Main Backend로 주입한다.
+테스트용 MongoDB 키는 runtime 후보에 전달하지 않는다.
 
 Main CI는 임시 MongoDB 서비스와 `ieum_test`만 사용하며 운영 MongoDB Secret으로 fallback하지 않는다.

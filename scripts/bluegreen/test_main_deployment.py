@@ -103,7 +103,7 @@ class MainEnvironmentTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             candidate = Path(directory) / 'candidate.env'
             candidate.touch(mode=0o600)
-            child_env = {'PATH': os.defpath, env.SECRETS_VARIABLE: payload()}
+            child_env = {'PATH': os.defpath, **json.loads(payload())}
             if 'LD_LIBRARY_PATH' in os.environ:
                 child_env['LD_LIBRARY_PATH'] = os.environ['LD_LIBRARY_PATH']
             result = subprocess.run([sys.executable, str(Path(env.__file__)), str(candidate), '--environment', 'main'],
@@ -230,12 +230,12 @@ class MainWorkflowBoundaryTest(unittest.TestCase):
 
     def test_main_secret_candidate_is_created_only_after_image_validation(self):
         marker = '      - name: Deploy with Main prefixed Secrets\n'
-        self.assertEqual(self.source.count('${{ toJSON(secrets) }}'), 2)
+        self.assertNotIn('toJSON(secrets)', self.source)
         before, step = self.source.split(marker, 1)
-        self.assertNotIn('toJSON(secrets)', before)
+        self.assertNotIn('secrets.MAIN_COM_AGENT_INTERNAL_TOKEN', before)
         self.assertIn('name: Verify archive and loaded image identity', before)
         self.assertIn('--environment main', step)
-        self.assertIn('unset ' + env.SECRETS_VARIABLE, step)
+        self.assertIn('unset secret_name ' + env.SECRETS_VARIABLE, step)
         self.assertIn('--service ' + APP + ' --image "$IMAGE_ID"', step)
 
     def test_bootstrap_staging_is_explicitly_gated_and_does_not_deploy(self):
@@ -243,14 +243,14 @@ class MainWorkflowBoundaryTest(unittest.TestCase):
         self.assertIn("inputs.operation == 'stage-bootstrap' && vars.MAIN_BOOTSTRAP_ENABLED == 'true'", stage)
         self.assertIn('--lock-timeout 30 stage-bootstrap', stage)
         self.assertIn('--environment main', stage)
-        self.assertEqual(stage.count('${{ toJSON(secrets) }}'), 1)
+        self.assertNotIn('toJSON(secrets)', stage)
         self.assertNotIn('--replace-env', stage)
         self.assertNotIn('--job-deadline-epoch', stage)
         self.assertNotIn('docker run', stage)
         self.assertIn('artifact-ids: ${{ needs.build.outputs.artifact_id }}', stage)
         self.assertIn('--image-id "$IMAGE_ID" --sha256 "$ARCHIVE_SHA256"', stage)
 
-    def test_main_secret_shell_preserves_values_cleans_candidate_and_strips_json(self):
+    def test_main_secret_shell_preserves_values_cleans_candidate_and_strips_inputs(self):
         body = self.source.split('      - name: Deploy with Main prefixed Secrets\n', 1)[1]
         body = body.split('      - name:', 1)[0].split('        run: |\n', 1)[1]
         shell = textwrap.dedent(body)
@@ -263,11 +263,15 @@ class MainWorkflowBoundaryTest(unittest.TestCase):
                 'path=pathlib.Path(args[args.index("--env-file")+1])\n'
                 'pathlib.Path(' + repr(str(result_file)) + ').write_text(json.dumps({'
                 '"values":path.read_text(),"json_inherited":' + repr(env.SECRETS_VARIABLE) + ' in os.environ,'
+                '"main_inputs_inherited":any(k.startswith("MAIN_COM_") for k in os.environ),'
                 '"deployment_environment":os.environ.get("IEUM_DEPLOY_ENVIRONMENT"),"args":args}))\n')
             shell = shell.replace('/home/kwung/deploy/bluegreen-main/bluegreen.py', shlex.quote(str(controller)))
             shell = shell.replace('scripts/bluegreen/' + APP + '_env.py', shlex.quote(str(Path(env.__file__))))
             child_env = {'PATH': str(Path(sys.executable).parent) + os.pathsep + os.defpath,
-                         'RUNNER_TEMP': str(root), env.SECRETS_VARIABLE: payload(), 'IMAGE_ID': IDENTITY,
+                         'RUNNER_TEMP': str(root), **json.loads(payload()), 'IMAGE_ID': IDENTITY,
+                         env.SECRETS_VARIABLE: 'must-not-be-read',
+                         'MAIN_COM_TAVILY_API_KEY': '  literal = $HOME `value`  ',
+                         'MAIN_COM_UNMAPPED_SECRET': SECRET,
                          'IEUM_DEPLOY_ENVIRONMENT': 'main', 'IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH': '9999999999'}
             if 'LD_LIBRARY_PATH' in os.environ:
                 child_env['LD_LIBRARY_PATH'] = os.environ['LD_LIBRARY_PATH']
@@ -276,8 +280,11 @@ class MainWorkflowBoundaryTest(unittest.TestCase):
             self.assertEqual((result.returncode, result.stdout, result.stderr), (0, '', ''))
             observed = json.loads(result_file.read_text())
             self.assertFalse(observed['json_inherited'])
+            self.assertFalse(observed['main_inputs_inherited'])
             self.assertEqual(observed['deployment_environment'], 'main')
             self.assertIn('DB_PASSWORD' if APP == 'backend' else 'MONGODB_URL', observed['values'])
+            self.assertIn('TAVILY_API_KEY=  literal = $HOME `value`  \n', observed['values'])
+            self.assertNotIn('UNMAPPED_SECRET', observed['values'])
             self.assertNotIn(SECRET, ' '.join(observed['args']))
             self.assertEqual(sorted(p.name for p in root.iterdir()), ['controller.py', 'result.json'])
 

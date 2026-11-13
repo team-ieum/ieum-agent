@@ -36,6 +36,14 @@ ALIASES = {
     'AGENT_GEMINI_DEFAULT_MODEL': 'GEMINI_DEFAULT_MODEL',
     'AGENT_NOTION_MCP_URL': 'NOTION_MCP_URL', 'AGENT_NOTION_MCP_AUTH_TOKEN': 'NOTION_MCP_AUTH_TOKEN',
 }
+# MAIN 전달 목록은 workflow의 명시적인 Secret 참조와 함께 변경한다.
+# 별칭과 직접 이름 모두 유지하지만, 미등록 Secret의 빈 값은 입력에서 제외한다.
+MAIN_RUNTIME_KEYS = tuple(sorted(set(ALIASES) | set(ALIASES.values()) | {
+    'AGENT_INTERNAL_TOKEN', 'SUPPORTED_PROVIDERS', 'SELF_HOSTED_ALLOWED_ROLES',
+    'SELF_HOSTED_LLM_BASE_URL', 'SELF_HOSTED_LLM_MODEL', 'SELF_HOSTED_LLM_API_KEY',
+    'PLATFORM_GEMINI_API_KEY', 'TAVILY_API_KEY', 'OTEL_EXPORTER_OTLP_ENDPOINT',
+    'AGENT_MAX_LLM_CALLS', 'AGENT_TIMEOUT_SECONDS',
+}))
 # CI credentials and fixed build metadata must not become runtime app settings.
 EXCLUDED_KEYS = frozenset((
     'AGENT_TEST_MONGODB_URL', 'AGENT_TEST_MONGODB_DB_NAME',
@@ -78,6 +86,17 @@ def unique_object(pairs):
 
 def invalid_json_constant(_value):
     raise AgentEnvironmentError('invalid_json')
+
+
+def main_environment_payload(environment):
+    """MAIN에서 명시적으로 전달한 값만 기존 literal 검증기로 연결한다."""
+    source = {}
+    for key in MAIN_RUNTIME_KEYS:
+        name = 'MAIN_COM_' + key
+        value = environment.get(name)
+        if value is not None and value != '':
+            source[name] = value
+    return json.dumps(source, ensure_ascii=True)
 
 
 def build_environment(payload, environment='dev'):
@@ -188,7 +207,9 @@ def main(argv=None):
     parser.add_argument('--environment', choices=tuple(ENVIRONMENT_PREFIXES), default='dev')
     arguments = parser.parse_args(argv)
     try:
-        write_candidate(arguments.candidate, os.environ.get(SECRETS_VARIABLE), arguments.environment)
+        payload = main_environment_payload(os.environ) if arguments.environment == 'main' \
+            else os.environ.get(SECRETS_VARIABLE)
+        write_candidate(arguments.candidate, payload, arguments.environment)
     except AgentEnvironmentError as failure:
         print('Agent environment rejected: ' + failure.code, file=sys.stderr)
         return 1

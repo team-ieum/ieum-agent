@@ -246,7 +246,33 @@ jobs:
       - name: Deploy with Main prefixed Secrets
         env:
           IMAGE_ID: ${{ steps.loaded_image.outputs.image_id }}
-          IEUM_AGENT_SECRETS_JSON: ${{ toJSON(secrets) }}
+          MAIN_COM_AGENT_CLAUDE_DEFAULT_MODEL: ${{ secrets.MAIN_COM_AGENT_CLAUDE_DEFAULT_MODEL }}
+          MAIN_COM_AGENT_GEMINI_DEFAULT_MODEL: ${{ secrets.MAIN_COM_AGENT_GEMINI_DEFAULT_MODEL }}
+          MAIN_COM_AGENT_INTERNAL_TOKEN: ${{ secrets.MAIN_COM_AGENT_INTERNAL_TOKEN }}
+          MAIN_COM_AGENT_MAX_LLM_CALLS: ${{ secrets.MAIN_COM_AGENT_MAX_LLM_CALLS }}
+          MAIN_COM_AGENT_MONGODB_DB_NAME: ${{ secrets.MAIN_COM_AGENT_MONGODB_DB_NAME }}
+          MAIN_COM_AGENT_MONGODB_URL: ${{ secrets.MAIN_COM_AGENT_MONGODB_URL }}
+          MAIN_COM_AGENT_NOTION_MCP_AUTH_TOKEN: ${{ secrets.MAIN_COM_AGENT_NOTION_MCP_AUTH_TOKEN }}
+          MAIN_COM_AGENT_NOTION_MCP_URL: ${{ secrets.MAIN_COM_AGENT_NOTION_MCP_URL }}
+          MAIN_COM_AGENT_OPENAI_DEFAULT_MODEL: ${{ secrets.MAIN_COM_AGENT_OPENAI_DEFAULT_MODEL }}
+          MAIN_COM_AGENT_PORT: ${{ secrets.MAIN_COM_AGENT_PORT }}
+          MAIN_COM_AGENT_TIMEOUT_SECONDS: ${{ secrets.MAIN_COM_AGENT_TIMEOUT_SECONDS }}
+          MAIN_COM_CLAUDE_DEFAULT_MODEL: ${{ secrets.MAIN_COM_CLAUDE_DEFAULT_MODEL }}
+          MAIN_COM_GEMINI_DEFAULT_MODEL: ${{ secrets.MAIN_COM_GEMINI_DEFAULT_MODEL }}
+          MAIN_COM_MONGODB_DB_NAME: ${{ secrets.MAIN_COM_MONGODB_DB_NAME }}
+          MAIN_COM_MONGODB_URL: ${{ secrets.MAIN_COM_MONGODB_URL }}
+          MAIN_COM_NOTION_MCP_AUTH_TOKEN: ${{ secrets.MAIN_COM_NOTION_MCP_AUTH_TOKEN }}
+          MAIN_COM_NOTION_MCP_URL: ${{ secrets.MAIN_COM_NOTION_MCP_URL }}
+          MAIN_COM_OPENAI_DEFAULT_MODEL: ${{ secrets.MAIN_COM_OPENAI_DEFAULT_MODEL }}
+          MAIN_COM_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.MAIN_COM_OTEL_EXPORTER_OTLP_ENDPOINT }}
+          MAIN_COM_PLATFORM_GEMINI_API_KEY: ${{ secrets.MAIN_COM_PLATFORM_GEMINI_API_KEY }}
+          MAIN_COM_PORT: ${{ secrets.MAIN_COM_PORT }}
+          MAIN_COM_SELF_HOSTED_ALLOWED_ROLES: ${{ secrets.MAIN_COM_SELF_HOSTED_ALLOWED_ROLES }}
+          MAIN_COM_SELF_HOSTED_LLM_API_KEY: ${{ secrets.MAIN_COM_SELF_HOSTED_LLM_API_KEY }}
+          MAIN_COM_SELF_HOSTED_LLM_BASE_URL: ${{ secrets.MAIN_COM_SELF_HOSTED_LLM_BASE_URL }}
+          MAIN_COM_SELF_HOSTED_LLM_MODEL: ${{ secrets.MAIN_COM_SELF_HOSTED_LLM_MODEL }}
+          MAIN_COM_SUPPORTED_PROVIDERS: ${{ secrets.MAIN_COM_SUPPORTED_PROVIDERS }}
+          MAIN_COM_TAVILY_API_KEY: ${{ secrets.MAIN_COM_TAVILY_API_KEY }}
         run: |
           set +x
           set -euo pipefail
@@ -256,7 +282,10 @@ jobs:
           trap 'exit 130' INT
           trap 'exit 143' TERM
           python3 scripts/bluegreen/agent_env.py "$candidate_env" --environment main
-          unset IEUM_AGENT_SECRETS_JSON
+          for secret_name in "${!MAIN_COM_@}"; do
+            unset "$secret_name"
+          done
+          unset secret_name IEUM_AGENT_SECRETS_JSON
           python3 /home/kwung/deploy/bluegreen-main/bluegreen.py --lock-timeout 14400 deploy \
             --job-deadline-epoch "$IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH" \
             --service agent --image "$IMAGE_ID" \
@@ -343,7 +372,33 @@ jobs:
       - name: Stage Main bootstrap settings
         env:
           IMAGE_ID: ${{ steps.loaded_image.outputs.image_id }}
-          IEUM_AGENT_SECRETS_JSON: ${{ toJSON(secrets) }}
+          MAIN_COM_AGENT_CLAUDE_DEFAULT_MODEL: ${{ secrets.MAIN_COM_AGENT_CLAUDE_DEFAULT_MODEL }}
+          MAIN_COM_AGENT_GEMINI_DEFAULT_MODEL: ${{ secrets.MAIN_COM_AGENT_GEMINI_DEFAULT_MODEL }}
+          MAIN_COM_AGENT_INTERNAL_TOKEN: ${{ secrets.MAIN_COM_AGENT_INTERNAL_TOKEN }}
+          MAIN_COM_AGENT_MAX_LLM_CALLS: ${{ secrets.MAIN_COM_AGENT_MAX_LLM_CALLS }}
+          MAIN_COM_AGENT_MONGODB_DB_NAME: ${{ secrets.MAIN_COM_AGENT_MONGODB_DB_NAME }}
+          MAIN_COM_AGENT_MONGODB_URL: ${{ secrets.MAIN_COM_AGENT_MONGODB_URL }}
+          MAIN_COM_AGENT_NOTION_MCP_AUTH_TOKEN: ${{ secrets.MAIN_COM_AGENT_NOTION_MCP_AUTH_TOKEN }}
+          MAIN_COM_AGENT_NOTION_MCP_URL: ${{ secrets.MAIN_COM_AGENT_NOTION_MCP_URL }}
+          MAIN_COM_AGENT_OPENAI_DEFAULT_MODEL: ${{ secrets.MAIN_COM_AGENT_OPENAI_DEFAULT_MODEL }}
+          MAIN_COM_AGENT_PORT: ${{ secrets.MAIN_COM_AGENT_PORT }}
+          MAIN_COM_AGENT_TIMEOUT_SECONDS: ${{ secrets.MAIN_COM_AGENT_TIMEOUT_SECONDS }}
+          MAIN_COM_CLAUDE_DEFAULT_MODEL: ${{ secrets.MAIN_COM_CLAUDE_DEFAULT_MODEL }}
+          MAIN_COM_GEMINI_DEFAULT_MODEL: ${{ secrets.MAIN_COM_GEMINI_DEFAULT_MODEL }}
+          MAIN_COM_MONGODB_DB_NAME: ${{ secrets.MAIN_COM_MONGODB_DB_NAME }}
+          MAIN_COM_MONGODB_URL: ${{ secrets.MAIN_COM_MONGODB_URL }}
+          MAIN_COM_NOTION_MCP_AUTH_TOKEN: ${{ secrets.MAIN_COM_NOTION_MCP_AUTH_TOKEN }}
+          MAIN_COM_NOTION_MCP_URL: ${{ secrets.MAIN_COM_NOTION_MCP_URL }}
+          MAIN_COM_OPENAI_DEFAULT_MODEL: ${{ secrets.MAIN_COM_OPENAI_DEFAULT_MODEL }}
+          MAIN_COM_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.MAIN_COM_OTEL_EXPORTER_OTLP_ENDPOINT }}
+          MAIN_COM_PLATFORM_GEMINI_API_KEY: ${{ secrets.MAIN_COM_PLATFORM_GEMINI_API_KEY }}
+          MAIN_COM_PORT: ${{ secrets.MAIN_COM_PORT }}
+          MAIN_COM_SELF_HOSTED_ALLOWED_ROLES: ${{ secrets.MAIN_COM_SELF_HOSTED_ALLOWED_ROLES }}
+          MAIN_COM_SELF_HOSTED_LLM_API_KEY: ${{ secrets.MAIN_COM_SELF_HOSTED_LLM_API_KEY }}
+          MAIN_COM_SELF_HOSTED_LLM_BASE_URL: ${{ secrets.MAIN_COM_SELF_HOSTED_LLM_BASE_URL }}
+          MAIN_COM_SELF_HOSTED_LLM_MODEL: ${{ secrets.MAIN_COM_SELF_HOSTED_LLM_MODEL }}
+          MAIN_COM_SUPPORTED_PROVIDERS: ${{ secrets.MAIN_COM_SUPPORTED_PROVIDERS }}
+          MAIN_COM_TAVILY_API_KEY: ${{ secrets.MAIN_COM_TAVILY_API_KEY }}
         run: |
           set +x
           set -euo pipefail
@@ -353,7 +408,10 @@ jobs:
           trap 'exit 130' INT
           trap 'exit 143' TERM
           python3 scripts/bluegreen/agent_env.py "$candidate_env" --environment main
-          unset IEUM_AGENT_SECRETS_JSON
+          for secret_name in "${!MAIN_COM_@}"; do
+            unset "$secret_name"
+          done
+          unset secret_name IEUM_AGENT_SECRETS_JSON
           python3 /home/kwung/deploy/bluegreen-main/bluegreen.py --lock-timeout 30 stage-bootstrap \
             --service agent --image "$IMAGE_ID" \
             --env-file "$candidate_env"
