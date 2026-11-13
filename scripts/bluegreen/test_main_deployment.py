@@ -13,6 +13,8 @@ import textwrap
 import unittest
 from unittest.mock import patch
 
+from test_main_image_archive import classic_archive_entries, oci_archive_entries, write_archive
+
 APP = 'agent'
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -130,13 +132,21 @@ class MainImageArtifactTest(unittest.TestCase):
     def test_load_checks_image_identity_after_loading(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'image.tar'
-            path.write_bytes(b'synthetic-image')
+            config_id, entries = classic_archive_entries(REFERENCE)
+            write_archive(path, entries)
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            with patch.object(image, 'run', return_value=''), patch.object(image, 'image_id', return_value=IDENTITY):
-                image.load_image(path, REFERENCE, IDENTITY, digest)
-            with patch.object(image, 'run', return_value=''), patch.object(image, 'image_id', return_value='sha256:' + 'c' * 64), \
+            with patch.object(image, 'run', return_value=''), patch.object(image, 'image_id', return_value=config_id):
+                self.assertEqual(image.load_image(path, REFERENCE, config_id, digest), config_id)
+            wrong_ids, wrong_entries = oci_archive_entries(REFERENCE, configuration={
+                'architecture': 'amd64', 'os': 'linux', 'config': {'Env': ['WRONG=true']}})
+            def docker(arguments):
+                if arguments[:3] == ['docker', 'image', 'save']:
+                    write_archive(Path(arguments[4]), wrong_entries)
+                return ''
+            with patch.object(image, 'run', side_effect=docker), \
+                    patch.object(image, 'image_id', return_value=wrong_ids['image_id']), \
                     self.assertRaisesRegex(ValueError, 'identity_mismatch'):
-                image.load_image(path, REFERENCE, IDENTITY, digest)
+                image.load_image(path, REFERENCE, config_id, digest)
 
     def test_symlink_archive_is_rejected_before_docker(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -153,13 +163,14 @@ class MainImageArtifactTest(unittest.TestCase):
             parent = Path(directory)
             parent.chmod(0o700)
             path = parent / 'image.tar'
+            config_id, entries = classic_archive_entries(REFERENCE)
             def save(arguments):
                 self.assertEqual(arguments, ['docker', 'image', 'save', '--output', str(path), REFERENCE])
-                path.write_bytes(b'synthetic-image')
+                write_archive(path, entries)
                 return ''
-            with patch.object(image, 'run', side_effect=save), patch.object(image, 'image_id', return_value=IDENTITY):
+            with patch.object(image, 'run', side_effect=save), patch.object(image, 'image_id', return_value=config_id):
                 metadata = image.package_image(path, REFERENCE)
-            self.assertEqual(metadata, {'image_id': IDENTITY,
+            self.assertEqual(metadata, {'image_id': config_id,
                                        'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
 
     def test_mutable_tags_and_replaced_image_are_rejected(self):
@@ -182,7 +193,8 @@ class MainWorkflowBoundaryTest(unittest.TestCase):
     def test_main_build_can_run_while_deploy_is_default_off(self):
         guard = "if: github.ref == 'refs/heads/main' && vars.MAIN_DEPLOY_ENABLED == 'true'"
         self.assertEqual(self.source.count(guard), 1)
-        self.assertIn("    if: github.ref == 'refs/heads/main'\n", self.source)
+        build = self.source.split("  deploy:\n", 1)[0]
+        self.assertIn("github.ref == 'refs/heads/main' ||", build)
         self.assertIn("github.event_name == 'push' || inputs.operation == 'deploy'", self.source)
         self.assertIn('options: [build, stage-bootstrap, deploy]', self.source)
         self.assertIn('default: build', self.source)

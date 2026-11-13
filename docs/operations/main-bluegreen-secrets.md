@@ -7,7 +7,9 @@
 ## 실행 조건
 
 - Main workflow는 `main` push 또는 수동 실행에서만 선택된다.
-- 모든 job은 `github.ref == 'refs/heads/main'` 조건을 요구한다. build는 배포 flag 없이 실행한다.
+- build는 배포 flag 없이 main에서 실행한다. 작업 브랜치 `infra/IEUM-AI-111`는
+  수동 `operation=build`일 때만 GitHub 빌드를 허용하며 main 배포와 concurrency를 분리한다.
+- 서버의 deploy·stage-bootstrap job은 계속 `github.ref == 'refs/heads/main'`을 요구한다.
 - 수동 operation은 `build`(기본), `stage-bootstrap`, `deploy`다. 기본 수동 실행은 배포하지 않는다.
 - 실제 deploy job은 `MAIN_DEPLOY_ENABLED == 'true'`이며 push 또는 명시적 deploy일 때만 실행한다.
 - bootstrap 입력 저장 job은 수동 stage-bootstrap과 `MAIN_BOOTSTRAP_ENABLED == 'true'`일 때만 실행한다.
@@ -24,13 +26,18 @@
 ## 이미지 전달과 설정 경계
 
 build job은 앱 Secrets 전체 JSON을 받지 않는다. 빌드 메타데이터 두 개만 읽는다.
-테스트 후 커밋 SHA 태그의 이미지를 생성하고 `docker save` 아카이브 한 파일만 업로드한다.
+테스트 후 커밋 SHA 태그의 이미지를 생성한다. GitHub 러너에서 `docker save` 아카이브를
+검증·재로드하는 검사까지 통과하면 아카이브 한 파일만 업로드한다. 이 검사는 서버에 접속하지 않는다.
 이미지 이름에는 `main` 구분자가 있어야 하고 `dev` 구분자는 허용하지 않는다.
 `latest` 같은 mutable tag로 전달하지 않는다.
 
 배포 job은 같은 run의 정확한 artifact ID로 다운로드하고, build job이 기록한 아카이브
-SHA-256을 확인한 뒤 Docker에 로드한다. 로드된 image ID까지 대조하며 컨트롤러에는
-검증한 `sha256:...` image ID를 전달한다. 앱 환경설정 파일·Secrets JSON은 artifact에 포함하지 않는다.
+SHA-256과 단일 MAIN 태그·linux/amd64 플랫폼을 확인한 뒤 Docker에 로드한다.
+classic Docker의 config ID와 containerd의 manifest/index ID를 구분해 참조 연결을 검증한다.
+저장 방식 변환으로 ID가 달라지면 실제 로드한 이미지를 확인하고, 필요한 경우 임시 tar로
+다시 저장해 config 해시가 같은지 검증한 뒤 정리한다. deploy와 stage-bootstrap은 모두
+검증 단계가 출력한 서버의 실제 `sha256:...` image ID를 컨트롤러에 전달한다.
+앱 환경설정 파일·Secrets JSON은 artifact에 포함하지 않는다.
 
 앱 Secrets는 배포 직전에만 `toJSON(secrets)`로 받고, 수집기가 `MAIN_COM_`만 선택한다.
 권한 0600인 새 후보 파일에 기록한 후 원본 JSON을 unset하고 컨트롤러를 호출한다.
