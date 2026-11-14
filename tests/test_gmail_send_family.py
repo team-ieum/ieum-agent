@@ -1,6 +1,8 @@
 """Gmail 답장·답장 초안·초안·전달·찾고 없으면 보내기(spec 2026-11-10 gmail-forms-9 §3). HTTP는 목으로 대신한다."""
 import asyncio, base64, email, email.policy, json, time
+from contextlib import asynccontextmanager
 from email.message import EmailMessage
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -569,12 +571,32 @@ async def test_발송_마감을_지나도_라벨_마감_전이면_라벨을_붙�
 
 
 @pytest.mark.asyncio
-async def test_라벨_마감이_다_되면_라벨은_건너뛰고_성공이다(monkeypatch):
-    _budget(monkeypatch, 0.3)
-    post = _fwd_post(block=0.4)   # 업로드가 루프를 막아 마감이 끊지 못한 채 2xx — 메일은 이미 나갔다
+@pytest.mark.parametrize("elapsed", [3.0, 4.0], ids=["at-deadline", "after-deadline"])
+async def test_라벨_마감이_다_되면_라벨은_건너뛰고_성공이다(monkeypatch, elapsed):
+    _budget(monkeypatch, 3.0)
+    clock = SimpleNamespace(now=100.0)
+    loop = SimpleNamespace(time=lambda: clock.now)
+    deadlines = []
+
+    @asynccontextmanager
+    async def timeout_at(deadline):
+        deadlines.append(deadline)
+        yield
+
+    # 실제 이벤트 루프와 MIME 스레드는 유지하고, 도구가 보는 시계·마감만 제어한다.
+    monkeypatch.setattr(gmail_module, "asyncio", SimpleNamespace(
+        get_running_loop=lambda: loop, timeout_at=timeout_at, to_thread=asyncio.to_thread))
+
+    async def sent(url, **kwargs):
+        assert url == UPLOAD
+        clock.now += elapsed
+        return _make_mock_response(200, {"id": "m-1", "threadId": "t-9", "labelIds": ["SENT"]})
+
+    post = AsyncMock(side_effect=sent)
     result = await _forward(_client(get=_fwd_get(_original()), post=post), label_ids=["L1"])
     assert result == {"success": True, "messageId": "m-1", "threadId": "t-9"}
     assert [c.args[0] for c in post.await_args_list] == [UPLOAD]
+    assert deadlines == [103.0]   # 발송 마감만 진입하며 라벨 처리 구간에는 들어가지 않는다.
 
 
 @pytest.mark.asyncio
