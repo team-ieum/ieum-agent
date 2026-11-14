@@ -8,7 +8,16 @@ import pytest
 from common.error_code import ToolErrorCode
 from tests.action_outputs import assert_matches_outputs
 from tests.test_google_tools import _make_async_client, _make_mock_response
-from tools.google_calendar import google_calendar_delete, google_calendar_find, google_calendar_update
+from tools.google_calendar import (
+    google_calendar_delete,
+    google_calendar_find,
+    google_calendar_find_busy,
+    google_calendar_find_or_create,
+    google_calendar_get_calendar,
+    google_calendar_get_event,
+    google_calendar_list_calendars,
+    google_calendar_update,
+)
 
 BASE = "https://www.googleapis.com/calendar/v3/calendars/primary"
 
@@ -759,3 +768,267 @@ async def test_update_all_day가_true_false가_아닌_문자열이면_호출_없
     result, body, _, _ = await _update({}, event_id="evt-1", all_day=given)
 
     assert "all_day" in result["error"] and body is None
+
+
+# --- 찾기 묶음: get_event·find_busy·list_calendars·get_calendar·find_or_create ------------------
+
+_EVENT = {"id": "evt-1", "summary": "회의", "status": "confirmed", "htmlLink": "https://cal/evt-1",
+          "start": {"dateTime": "2026-11-12T09:00:00+09:00"}, "end": {"dateTime": "2026-11-12T10:00:00+09:00"}}
+
+
+def _with_post(get=None, post=None):
+    client = _client(get=get)
+    client.post = post or AsyncMock(side_effect=AssertionError("POST 없음"))
+    return client
+
+
+@pytest.mark.asyncio
+async def test_get_event_일정을_찾기와_같은_모양으로_돌려준다():
+    result = await _run(google_calendar_get_event, _client(get=_gets({"/events/evt-1": _EVENT})), event_id="evt-1")
+    assert_matches_outputs("google_calendar.get_event", result)
+    assert (result["found"], result["total"], result["summary"], result["htmlLink"]) == (True, 1, "회의", "https://cal/evt-1")
+    assert result["items"][0]["start"] == "2026-11-12T09:00:00+09:00"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response", [_make_mock_response(404, {}), _make_mock_response(410, {}),
+                                      _make_mock_response(200, {**_EVENT, "status": "cancelled"})])
+async def test_get_event_없거나_지운_일정은_found_false_성공(response):
+    result = await _run(google_calendar_get_event, _client(get=AsyncMock(return_value=response)), event_id="evt-1")
+    assert_matches_outputs("google_calendar.get_event", result)
+    assert (result["found"], result["items"], result["summary"]) == (False, [], "")
+
+
+@pytest.mark.asyncio
+async def test_get_event_권한_오류는_실패다():
+    result = await _run(google_calendar_get_event,
+                        _client(get=AsyncMock(return_value=_make_mock_response(403, {"error": {"message": "x"}}))),
+                        event_id="evt-1")
+    assert "403" in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_id", ["", "  ", None])
+async def test_get_event_빈_ID는_호출_없이_실패(event_id):
+    result = await _run(google_calendar_get_event, _client(), event_id=event_id)
+    assert "error" in result
+
+
+def _busy(calendars: dict):
+    return AsyncMock(return_value=_make_mock_response(200, {"calendars": calendars}))
+
+
+_DAY = dict(time_min="2026-11-12T00:00:00Z", time_max="2026-11-13T00:00:00Z")
+
+
+@pytest.mark.asyncio
+async def test_find_busy_여러_캘린더를_시작순으로_합친다():
+    post = _busy({"a@x.com": {"busy": [{"start": "2026-11-12T03:00:00Z", "end": "2026-11-12T04:00:00Z"}]},
+                  "primary": {"busy": [{"start": "2026-11-12T01:00:00Z", "end": "2026-11-12T02:00:00Z"}]}})
+    result = await _run(google_calendar_find_busy, _with_post(post=post), calendar_ids=" primary, a%40x.com ,primary",
+                        **_DAY)
+    assert_matches_outputs("google_calendar.find_busy", result)
+    assert [(i["calendarId"], i["start"]) for i in result["items"]] == [
+        ("primary", "2026-11-12T01:00:00Z"), ("a@x.com", "2026-11-12T03:00:00Z")]
+    assert result["errors"] == []
+    body = post.call_args.kwargs["json"]
+    assert body["items"] == [{"id": "primary"}, {"id": "a@x.com"}]  # 중복은 한 번만
+    assert post.call_args.args[0].endswith("/freeBusy")
+
+
+@pytest.mark.asyncio
+async def test_find_busy_읽지_못한_캘린더는_errors에_담고_나머지는_돌려준다():
+    post = _busy({"primary": {"busy": [{"start": "2026-11-12T01:00:00Z", "end": "2026-11-12T02:00:00Z"}]},
+                  "b@x.com": {"busy": [], "errors": [{"domain": "global", "reason": "notFound"}]}})
+    result = await _run(google_calendar_find_busy, _with_post(post=post), calendar_ids="primary,b@x.com", **_DAY)
+    assert_matches_outputs("google_calendar.find_busy", result)
+    assert result["total"] == 1
+    assert result["errors"] == [{"calendarId": "b@x.com", "reason": "notFound"}]
+
+
+@pytest.mark.asyncio
+async def test_find_busy_응답에_키가_없는_캘린더는_notReturned로_알린다():
+    # 실호출(2026-11-12): primary + 다른 ID를 보내도 calendars엔 "primary" 하나만 올 수 있다.
+    post = _busy({"primary": {"busy": [{"start": "2026-11-12T01:00:00Z", "end": "2026-11-12T02:00:00Z"}]}})
+    result = await _run(google_calendar_find_busy, _with_post(post=post), calendar_ids="primary,someone@x.com", **_DAY)
+    assert_matches_outputs("google_calendar.find_busy", result)
+    assert result["total"] == 1
+    assert result["errors"] == [{"calendarId": "someone@x.com", "reason": "notReturned"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [
+    {"calendar_ids": "", **_DAY}, {"calendar_ids": " , ", **_DAY},
+    {"calendar_ids": "primary", "time_min": "", "time_max": "2026-11-13T00:00:00Z"},
+    {"calendar_ids": "primary", "time_min": "2026-11-12T00:00:00Z", "time_max": " "},
+    {"calendar_ids": ",".join(f"c{i}@x.com" for i in range(51)), **_DAY},
+])
+async def test_find_busy_필수칸이_비거나_캘린더_50개_초과면_호출_없이_실패(kwargs):
+    assert "error" in await _run(google_calendar_find_busy, _with_post(), **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_find_busy_JSON_목록_문자열도_받는다():
+    post = _busy({"primary": {"busy": []}, "a@x.com": {"busy": []}})
+    await _run(google_calendar_find_busy, _with_post(post=post), calendar_ids='["primary", "a@x.com"]', **_DAY)
+    assert post.call_args.kwargs["json"]["items"] == [{"id": "primary"}, {"id": "a@x.com"}]
+
+
+@pytest.mark.asyncio
+async def test_find_busy_종료가_시작보다_앞이면_호출_없이_0건():
+    result = await _run(google_calendar_find_busy, _with_post(), calendar_ids="primary",
+                        time_min="2026-11-13T00:00:00Z", time_max="2026-11-12T00:00:00Z")
+    assert (result["found"], result["items"], result["errors"]) == (False, [], [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("time_zone, offset, sent", [("Asia/Seoul", "+09:00", "Asia/Seoul"), ("", "+00:00", "UTC")])
+async def test_find_busy_오프셋_없는_시각은_시간대로_읽고_캘린더를_조회하지_않는다(time_zone, offset, sent):
+    post = _busy({"primary": {"busy": []}})
+    await _run(google_calendar_find_busy, _with_post(post=post), calendar_ids="primary", time_zone=time_zone,
+               time_min="2026-11-12T09:00:00", time_max="2026-11-12T18:00:00")
+    body = post.call_args.kwargs["json"]
+    assert (body["timeMin"], body["timeMax"], body["timeZone"]) == (
+        f"2026-11-12T09:00:00{offset}", f"2026-11-12T18:00:00{offset}", sent)
+
+
+def _cal(id_, role, **extra):
+    return {"id": id_, "summary": id_, "accessRole": role, "timeZone": "Asia/Seoul", **extra}
+
+
+@pytest.mark.asyncio
+async def test_list_calendars_페이지를_넘기고_바꾼_이름을_쓴다():
+    pages = [_make_mock_response(200, {"items": [_cal("me@x.com", "owner", primary=True, summaryOverride="내 일정")],
+                                       "nextPageToken": "p2"}),
+             _make_mock_response(200, {"items": [_cal("holiday", "reader", hidden=True)]})]
+    get = AsyncMock(side_effect=pages)
+    result = await _run(google_calendar_list_calendars, _client(get=get))
+    assert_matches_outputs("google_calendar.list_calendars", result)
+    assert [(i["id"], i["summary"], i["primary"], i["hidden"]) for i in result["items"]] == [
+        ("me@x.com", "내 일정", True, False), ("holiday", "holiday", False, True)]
+    assert [c.kwargs["params"].get("pageToken") for c in get.call_args_list] == [None, "p2"]
+    assert (get.call_args_list[0].kwargs["params"]["showHidden"],
+            get.call_args_list[0].kwargs["params"]["showDeleted"]) == ("false", "false")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role, ids", [
+    ("writer", ["a", "e"]), ("writerWithoutPrivateAccess", ["a", "c", "e"]), ("reader", ["a", "b", "c", "e"]),
+    ("", ["a", "b", "c", "d", "e"]),
+])
+async def test_list_calendars_최소_권한_이상만_남긴다(role, ids):
+    body = {"items": [_cal("a", "owner"), _cal("b", "reader"), _cal("c", "writerWithoutPrivateAccess"),
+                      _cal("d", "freeBusyReader"), _cal("e", "writer")]}
+    result = await _run(google_calendar_list_calendars, _client(get=AsyncMock(return_value=_make_mock_response(200, body))),
+                        min_access_role=role)
+    assert [i["id"] for i in result["items"]] == ids
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("given, sent", [(True, "true"), ("true", "true"), ("false", "false"), (False, "false")])
+async def test_list_calendars_토글은_문자열_false를_참으로_읽지_않는다(given, sent):
+    get = AsyncMock(return_value=_make_mock_response(200, {"items": []}))
+    await _run(google_calendar_list_calendars, _client(get=get), show_hidden=given, show_deleted=given)
+    params = get.call_args.kwargs["params"]
+    assert (params["showHidden"], params["showDeleted"]) == (sent, sent)
+
+
+@pytest.mark.asyncio
+async def test_list_calendars_모르는_권한과_API_오류는_실패다():
+    assert "error" in await _run(google_calendar_list_calendars, _client(), min_access_role="admin")
+    get = AsyncMock(return_value=_make_mock_response(401, {"error": {"message": "만료"}}))
+    assert "401" in (await _run(google_calendar_list_calendars, _client(get=get)))["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_calendar_내_목록_항목으로_권한_기본알림_Meet을_돌려준다():
+    entry = {"id": "me@x.com", "summary": "나", "timeZone": "Asia/Seoul", "accessRole": "owner", "primary": True,
+             "defaultReminders": [{"method": "popup", "minutes": 10}],
+             "conferenceProperties": {"allowedConferenceSolutionTypes": ["hangoutsMeet"]}}
+    get = _gets({"/users/me/calendarList/primary": entry})
+    result = await _run(google_calendar_get_calendar, _client(get=get), calendar_id="")
+    assert_matches_outputs("google_calendar.get_calendar", result)
+    item = result["items"][0]
+    assert (result["summary"], result["timeZone"], result["accessRole"]) == ("나", "Asia/Seoul", "owner")
+    assert (item["defaultReminders"], item["meetSupported"]) == ([{"method": "popup", "minutes": 10}], True)
+
+
+@pytest.mark.asyncio
+async def test_get_calendar_목록에_없으면_found_false_성공():
+    result = await _run(google_calendar_get_calendar, _client(get=AsyncMock(return_value=_make_mock_response(404, {}))),
+                        calendar_id="nope@x.com")
+    assert_matches_outputs("google_calendar.get_calendar", result)
+    assert (result["found"], result["summary"], result["accessRole"]) == (False, "", "")
+
+
+_NEW = dict(summary="주간 회의", start_datetime="2026-11-12T09:00:00+09:00", end_datetime="2026-11-12T10:00:00+09:00")
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_찾으면_만들지_않는다():
+    get = AsyncMock(return_value=_make_mock_response(200, {"items": [_EVENT]}))
+    result = await _run(google_calendar_find_or_create, _with_post(get=get), time_min="2026-11-01T00:00:00Z", **_NEW)
+    assert_matches_outputs("google_calendar.find_or_create", result)
+    assert (result["created"], result["eventId"]) == (False, "evt-1")
+    assert get.call_args.kwargs["params"]["q"] == "주간 회의"  # 검색어를 비우면 제목으로 찾는다
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_없으면_만든다():
+    get = AsyncMock(return_value=_make_mock_response(200, {"items": []}))
+    post = AsyncMock(return_value=_make_mock_response(200, {"id": "new-1", "htmlLink": "https://cal/new-1"}))
+    result = await _run(google_calendar_find_or_create, _with_post(get=get, post=post), query="회의",
+                        time_min="2026-11-01T00:00:00Z", **_NEW)
+    assert_matches_outputs("google_calendar.find_or_create", result)
+    assert (result["created"], result["eventId"]) == (True, "new-1")
+    assert get.call_args.kwargs["params"]["q"] == "회의"
+    assert post.call_args.kwargs["json"]["summary"] == "주간 회의"
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_기간을_고르면_찾기에_넘긴다():
+    get = _gets({"/calendars/primary": {"timeZone": "Asia/Seoul"},
+                 "/calendars/primary/events": {"items": [_EVENT]}})
+    with patch("tools.google_calendar._now", return_value=datetime(2026, 11, 12, 3, 0, tzinfo=timezone.utc)):
+        result = await _run(google_calendar_find_or_create, _with_post(get=get), period="today", **_NEW)
+    assert result["created"] is False
+    params = get.call_args.kwargs["params"]
+    assert (params["timeMin"], params["timeMax"]) == ("2026-11-12T00:00:00+09:00", "2026-11-13T00:00:00+09:00")
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_찾기_실패면_만들지_않는다():
+    get = AsyncMock(return_value=_make_mock_response(403, {"error": {"message": "권한"}}))
+    result = await _run(google_calendar_find_or_create, _with_post(get=get), time_min="2026-11-01T00:00:00Z", **_NEW)
+    assert "403" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_제목과_검색어가_모두_비면_호출_없이_실패():
+    result = await _run(google_calendar_find_or_create, _with_post(),
+                        **{**_NEW, "summary": " "}, query="")
+    assert "error" in result
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fn, kwargs", [
+    (google_calendar_get_event, {"event_id": ".."}),
+    (google_calendar_get_event, {"event_id": "evt-1", "calendar_id": ".."}),
+    (google_calendar_get_calendar, {"calendar_id": "%2E%2E"}),
+    (google_calendar_delete, {"event_id": "."}),
+])
+async def test_점_경로_ID는_호출_없이_실패(fn, kwargs):
+    result = await _run(fn, _with_post(), **kwargs)
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_create_HTML_5xx도_상태_코드를_남긴다():
+    resp = _make_mock_response(502, {})
+    resp.json.side_effect = ValueError("HTML")
+    with patch("tools.google_calendar.get_http_client", return_value=_with_post(post=AsyncMock(return_value=resp))):
+        from tools.google_calendar import google_calendar_create
+        result = json.loads(await google_calendar_create("token", summary="a", start_datetime="2026-11-12T09:00:00+09:00",
+                                                          end_datetime="2026-11-12T10:00:00+09:00"))
+    assert "502" in result["error"]

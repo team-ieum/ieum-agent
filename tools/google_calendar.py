@@ -14,10 +14,18 @@ _TIMEOUT = 30.0
 _FIND_MAX = 250  # 노드 칸 상한(spec §4.1). events.list 한 페이지 상한(2500)보다 작아 페이지당 요청은 남은 개수 그대로
 
 
+def _segment(value: str) -> str:
+    """경로 한 칸으로 인코딩한다. '/'는 인코딩되지만 '.'·'..'은 그대로라 httpx가 경로를 정규화해
+    다른 엔드포인트를 부른다 — 거절한다(도구가 잡아 실패 JSON이 된다)."""
+    if value in (".", ".."):
+        raise ValueError(f"잘못된 ID: {value}")
+    return quote(value, safe="")
+
+
 def _calendar_segment(calendar_id: Optional[str]) -> str:
     # 빈 값은 기본 캘린더(스키마 설명·BE 공급원과 동일). 임베드 링크에서 복사한 %23 id도 받도록
     # unquote 후 재인코딩한다 — 캘린더 id엔 리터럴 %가 없다.
-    return quote(unquote(str(calendar_id or "").strip() or "primary"), safe="")
+    return _segment(unquote(str(calendar_id or "").strip() or "primary"))
 
 
 def _headers(access_token: str) -> dict:
@@ -55,7 +63,7 @@ def _fail(tool: str, reason: str) -> str:
 
 
 def _event_url(cal: str, event_id) -> str:
-    return f"{_CALENDAR_API_BASE}/calendars/{cal}/events/{quote(str(event_id), safe='')}"
+    return f"{_CALENDAR_API_BASE}/calendars/{cal}/events/{_segment(str(event_id))}"
 
 
 async def _get_json(client, headers: dict, url: str) -> dict:
@@ -168,11 +176,9 @@ async def google_calendar_create(
             json=payload,
             timeout=_TIMEOUT,
         )
+        if not response.is_success:  # 본문은 실패일 때만 읽는다 — HTML 5xx에서도 상태 코드를 남긴다
+            return _api_error(response)
         data = response.json()
-        if not response.is_success:
-            return json.dumps({
-                "error": f"Google Calendar API 오류 ({response.status_code}): {data.get('error', {}).get('message', '알 수 없는 오류')}"
-            }, ensure_ascii=False)
 
         return json.dumps({
             "success": True,
@@ -502,3 +508,292 @@ async def google_calendar_delete(
         return _api_error(e.response)
     except Exception as e:
         return _fail("google_calendar_delete", str(e))
+
+
+# --- 찾기 묶음(IEUM 이슈 1: S2·S3·S4·S5·S6) ---------------------------------------------------
+
+_BUSY_MAX_CALENDARS = 50  # freeBusy.query calendarExpansionMax 상한
+_LIST_MAX = 250  # calendarList.list 한 페이지 상한
+
+
+def _empty(**flat) -> str:
+    return json.dumps({"success": True, "found": False, "total": 0, "items": [], **flat}, ensure_ascii=False)
+
+
+async def google_calendar_get_event(
+    access_token: str,
+    event_id: str,
+    calendar_id: str = "primary",
+) -> str:
+    """
+    Google Calendar 일정 하나를 ID로 가져옵니다. 없거나 지워진 일정이면 found가 거짓입니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        event_id: 가져올 일정 ID
+        calendar_id: 캘린더 ID (기본값: "primary")
+
+    Returns:
+        found·total·items와 summary·start·end·htmlLink를 담은 JSON 문자열
+    """
+    flat_empty = {"summary": "", "start": "", "end": "", "htmlLink": ""}
+    if _blank(event_id):
+        return _fail("google_calendar_get_event", "event_id가 비어 있습니다")
+    try:
+        client = get_http_client()
+        response = await client.get(_event_url(_calendar_segment(calendar_id), str(event_id).strip()),
+                                    headers=_headers(access_token), timeout=_TIMEOUT)
+        if response.status_code in (404, 410):
+            return _empty(**flat_empty)
+        if not response.is_success:
+            return _api_error(response)
+        event = response.json()
+        if event.get("status") == "cancelled":  # 지운 일정도 200으로 올 수 있다
+            return _empty(**flat_empty)
+        item = _item(event)
+        return json.dumps({"success": True, "found": True, "total": 1, "items": [item],
+                           **{k: item[k] for k in flat_empty}}, ensure_ascii=False)
+    except Exception as e:
+        return _fail("google_calendar_get_event", str(e))
+
+
+def _split_ids(value) -> list:
+    """쉼표 구분 문자열 또는 목록 → 공백 없는 ID 목록(순서 유지·중복 제거). 비면 빈 목록.
+    설정 URL에서 복사한 %23·%40 id는 _calendar_segment처럼 한 번 디코드한다(본문엔 원래 id가 들어간다)."""
+    raw = value
+    if not isinstance(raw, list):
+        text = str(raw or "").strip()
+        try:  # 참조식이 목록을 JSON 문자열로 넘긴다
+            raw = json.loads(text) if text.startswith("[") else text.split(",")
+        except ValueError:
+            raw = text.split(",")
+        if not isinstance(raw, list):
+            raw = [raw]
+    return list(dict.fromkeys(s for s in (unquote(str(v).strip()) for v in raw) if s))
+
+
+async def google_calendar_find_busy(
+    access_token: str,
+    calendar_ids: str,
+    time_min: str,
+    time_max: str,
+    time_zone: str = "",
+) -> str:
+    """
+    여러 캘린더에서 기간 안의 바쁜 시간대를 찾습니다(freeBusy). 시작 시각 순으로 돌려줍니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        calendar_ids: 캘린더 ID·이메일을 쉼표로 구분(최대 50개). JSON 목록 문자열도 받는다
+        time_min: 이 시각부터 찾는다 (ISO 8601)
+        time_max: 이 시각까지 찾는다 (ISO 8601)
+        time_zone: 오프셋 없는 시각을 읽고 결과를 줄 IANA 시간대. 비우면 UTC
+
+    Returns:
+        found·total·items([{calendarId, start, end}])·errors([{calendarId, reason}])를 담은 JSON 문자열.
+        읽지 못한 캘린더는 errors에 담고 실패시키지 않는다(설계 S3).
+    """
+    tool = "google_calendar_find_busy"
+    ids = _split_ids(calendar_ids)
+    if not ids:
+        return _fail(tool, "캘린더가 비어 있습니다")
+    if len(ids) > _BUSY_MAX_CALENDARS:
+        return _fail(tool, f"캘린더는 최대 {_BUSY_MAX_CALENDARS}개까지예요")
+    if _blank(time_min) or _blank(time_max):
+        return _fail(tool, "시작 시각과 종료 시각이 필요해요")
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        zone = _Zone(client, headers, "primary", "UTC" if _blank(time_zone) else time_zone)
+        begin, finish = await zone.parse(time_min), await zone.parse(time_max)
+        if finish <= begin:  # Google은 빈 구간을 400으로 거절한다
+            return _empty(errors=[])
+        body = {"timeMin": begin.isoformat(), "timeMax": finish.isoformat(), "timeZone": zone.explicit,
+                "items": [{"id": i} for i in ids]}
+        response = await client.post(f"{_CALENDAR_API_BASE}/freeBusy", headers=headers, json=body, timeout=_TIMEOUT)
+        if not response.is_success:
+            return _api_error(response)
+        calendars = response.json().get("calendars", {})
+        # 응답에 키가 없는 캘린더도 errors에 담는다(reason "notReturned"). 실호출(2026-11-12): primary와 내 이메일을
+        # 함께 넣으면 "primary" 하나만 오고, 없는 이메일을 넣었을 때도 키가 오지 않을 수 있다 — 조용히 넘기면
+        # 없는 캘린더가 '바쁜 시간 없음'으로 보여 겹치는 일정을 잡게 된다.
+        errors = []
+        for i in ids:
+            cal = calendars.get(i)
+            if cal is None:
+                errors.append({"calendarId": i, "reason": "notReturned"})
+            elif cal.get("errors"):
+                errors.append({"calendarId": i, "reason": ",".join(e.get("reason", "") for e in cal["errors"])})
+        items = sorted(({"calendarId": i, "start": b.get("start", ""), "end": b.get("end", "")}
+                        for i in ids for b in (calendars.get(i) or {}).get("busy", [])),
+                       key=lambda x: (x["start"], x["calendarId"]))
+        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items,
+                           "errors": errors}, ensure_ascii=False)
+    except _ApiError as e:
+        return _api_error(e.response)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+# calendarList accessRole 순서(낮음 → 높음). minAccessRole 파라미터엔 writerWithoutPrivateAccess가 없어
+# 전부 받은 뒤 이 순서로 직접 거른다(BE google.writable_calendars와 같은 이유). 모르는 역할은 가장 낮게 본다.
+_ROLE_RANK = {"freeBusyReader": 0, "reader": 1, "writerWithoutPrivateAccess": 2, "writer": 3, "owner": 4}
+
+
+def _flag(value) -> bool:
+    """토글 값. FE가 문자열 "true"/"false"로 보낼 수 있다 — "false"를 참으로 읽지 않는다."""
+    return value is True or str(value).strip().lower() == "true"
+
+
+def _calendar_item(cal: dict) -> dict:
+    """calendarList 항목 → 캘린더 항목. 목록에서 바꾼 이름(summaryOverride)이 있으면 그것을 쓴다."""
+    override = (cal.get("summaryOverride") or "").strip()
+    return {
+        "id": cal.get("id", ""),
+        "summary": override or cal.get("summary", ""),
+        "description": cal.get("description", ""),
+        "timeZone": cal.get("timeZone", ""),
+        "accessRole": cal.get("accessRole", ""),
+        "primary": bool(cal.get("primary")),
+    }
+
+
+async def google_calendar_list_calendars(
+    access_token: str,
+    min_access_role: str = "",
+    show_hidden: bool = False,
+    show_deleted: bool = False,
+) -> str:
+    """
+    사용자의 캘린더 목록을 가져옵니다(calendarList.list).
+
+    Args:
+        access_token: Google OAuth Access Token
+        min_access_role: 이 권한 이상만 — freeBusyReader·reader·writerWithoutPrivateAccess·writer·owner. 비우면 전부
+        show_hidden: 참이면 숨긴 캘린더도
+        show_deleted: 참이면 삭제된 캘린더도
+
+    Returns:
+        found·total·items([{id, summary, description, timeZone, accessRole, primary, hidden, deleted}])를 담은 JSON 문자열
+    """
+    tool = "google_calendar_list_calendars"
+    role = "" if _blank(min_access_role) else str(min_access_role).strip()
+    if role and role not in _ROLE_RANK:
+        return _fail(tool, f"모르는 권한: {role}")
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        params = {"maxResults": _LIST_MAX, "showHidden": str(_flag(show_hidden)).lower(),
+                  "showDeleted": str(_flag(show_deleted)).lower()}
+        items = []
+        while True:
+            data = await _get_json_params(client, headers, f"{_CALENDAR_API_BASE}/users/me/calendarList", params)
+            for cal in data.get("items", []):
+                if role and _ROLE_RANK.get(cal.get("accessRole"), -1) < _ROLE_RANK[role]:
+                    continue
+                items.append({**_calendar_item(cal), "hidden": bool(cal.get("hidden")),
+                              "deleted": bool(cal.get("deleted"))})
+            if not data.get("nextPageToken"):
+                break
+            params["pageToken"] = data["nextPageToken"]
+        return json.dumps({"success": True, "found": bool(items), "total": len(items), "items": items},
+                          ensure_ascii=False)
+    except _ApiError as e:
+        return _api_error(e.response)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def _get_json_params(client, headers: dict, url: str, params: dict) -> dict:
+    response = await client.get(url, headers=headers, params=dict(params), timeout=_TIMEOUT)
+    if not response.is_success:
+        raise _ApiError(response)
+    return response.json()
+
+
+async def google_calendar_get_calendar(
+    access_token: str,
+    calendar_id: str = "primary",
+) -> str:
+    """
+    내 캘린더 목록에 있는 캘린더 하나의 정보(시간대·내 권한·기본 알림·Meet 지원)를 가져옵니다(calendarList.get).
+    목록에 없거나 없는 캘린더면 found가 거짓입니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        calendar_id: 캘린더 ID (기본값: "primary")
+
+    Returns:
+        found·total·items와 summary·timeZone·accessRole을 담은 JSON 문자열
+    """
+    flat_empty = {"summary": "", "timeZone": "", "accessRole": ""}
+    try:
+        client = get_http_client()
+        response = await client.get(f"{_CALENDAR_API_BASE}/users/me/calendarList/{_calendar_segment(calendar_id)}",
+                                    headers=_headers(access_token), timeout=_TIMEOUT)
+        if response.status_code == 404:
+            return _empty(**flat_empty)
+        if not response.is_success:
+            return _api_error(response)
+        cal = response.json()
+        solutions = (cal.get("conferenceProperties") or {}).get("allowedConferenceSolutionTypes") or []
+        item = {**_calendar_item(cal),
+                "defaultReminders": [{"method": r.get("method", ""), "minutes": r.get("minutes", 0)}
+                                     for r in cal.get("defaultReminders") or []],
+                "meetSupported": "hangoutsMeet" in solutions}
+        return json.dumps({"success": True, "found": True, "total": 1, "items": [item],
+                           **{k: item[k] for k in flat_empty}}, ensure_ascii=False)
+    except Exception as e:
+        return _fail("google_calendar_get_calendar", str(e))
+
+
+async def google_calendar_find_or_create(
+    access_token: str,
+    summary: str,
+    start_datetime: str,
+    end_datetime: str,
+    description: str = "",
+    calendar_id: str = "primary",
+    query: str = "",
+    period: str = "",
+    time_min: str = "",
+    time_max: str = "",
+) -> str:
+    """
+    검색어에 맞는 일정을 찾고, 없으면 새 일정을 만듭니다. 여러 개면 가장 먼저 시작하는 일정을 돌려줍니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        summary: 만들 일정 제목. 검색어를 비우면 이 제목으로 찾는다
+        start_datetime: 만들 일정 시작 (ISO 8601)
+        end_datetime: 만들 일정 종료 (ISO 8601)
+        description: 만들 일정 설명
+        calendar_id: 찾고 만들 캘린더 ID (기본값: "primary")
+        query: 검색어(제목·설명·장소·참석자). 비우면 summary
+        period: 일정 찾기와 같은 기간(today·tomorrow·this_week·next_7_days). 고르면 time_min·time_max는 쓰지 않는다
+        time_min: 이 시각 이후에 끝나는 일정만 찾는다 (ISO 8601). 비우면 지금
+        time_max: 이 시각 전에 시작하는 일정만 찾는다 (ISO 8601). 비우면 제한 없음
+
+    Returns:
+        {created, eventId, htmlLink} JSON 문자열
+    """
+    tool = "google_calendar_find_or_create"
+    term = summary if _blank(query) else query
+    if _blank(term):  # 빈 검색어는 아무 일정이나 찾아 영영 만들지 않는다
+        return _fail(tool, "제목이나 검색어가 필요해요")
+    # ponytail: 찾기·만들기 도구를 그대로 부른다 — 칸 해석(시간대·기간·인코딩)이 두 노드와 어긋나지 않는다.
+    found = json.loads(await google_calendar_find(access_token, calendar_id=calendar_id, query=term,
+                                                  period=period, time_min=time_min, time_max=time_max, max_results=1))
+    if "error" in found:
+        return json.dumps(found, ensure_ascii=False)
+    if found["items"]:
+        event = found["items"][0]
+        return json.dumps({"success": True, "created": False, "eventId": event["id"], "htmlLink": event["htmlLink"]},
+                          ensure_ascii=False)
+    made = json.loads(await google_calendar_create(access_token, summary=summary, start_datetime=start_datetime,
+                                                   end_datetime=end_datetime, description=description,
+                                                   calendar_id=calendar_id))
+    if "error" in made:
+        return json.dumps(made, ensure_ascii=False)
+    return json.dumps({"success": True, "created": True, "eventId": made["eventId"], "htmlLink": made["htmlLink"]},
+                      ensure_ascii=False)
