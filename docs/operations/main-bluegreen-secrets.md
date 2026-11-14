@@ -1,149 +1,104 @@
-# Main 블루그린 배포 설정
+# Agent MAIN 배포 설정
 
-이 문서는 운영 도메인 `https://kiacms.co.kr`의 로컬 구현 계약이다. DEV 도메인
-`https://green.kiacms.co.kr`과 데이터·컨트롤러 상태·앱 컨테이너를 분리한다.
-현재 변경만으로 서버가 설치되거나 배포되지는 않는다.
+MAIN은 `https://kiacms.co.kr` 환경을 사용하며, DEV와 컨테이너·데이터·배포 상태를 분리합니다.
+필요한 Secrets만 명시적으로 전달하고, Blue·Green별 `.env` 스냅샷을 보관합니다.
 
-## 실행 조건
+## Secrets 등록
 
-- Main workflow는 `main` push 또는 수동 실행에서만 선택된다.
-- build는 배포 flag 없이 main에서 실행한다. 작업 브랜치 `infra/IEUM-AI-111`는
-  수동 `operation=build`일 때만 GitHub 빌드를 허용하며 main 배포와 concurrency를 분리한다.
-- 서버의 deploy·stage-bootstrap job은 계속 `github.ref == 'refs/heads/main'`을 요구한다.
-- 수동 operation은 `build`(기본), `stage-bootstrap`, `deploy`다. 기본 수동 실행은 배포하지 않는다.
-- 실제 deploy job은 `MAIN_DEPLOY_ENABLED == 'true'`이며 push 또는 명시적 deploy일 때만 실행한다.
-- bootstrap 입력 저장 job은 수동 stage-bootstrap과 `MAIN_BOOTSTRAP_ENABLED == 'true'`일 때만 실행한다.
-- build/test/image 생성은 `ubuntu-latest`에서 수행한다. 운영 DB나 DEV DB를 테스트에 사용하지 않는다.
-- 배포 job은 group `ieum_main_server`, labels
-  `[self-hosted, linux, x64, ieum-agent, main, deploy]`인 러너를 요구한다.
-- 배포 job은 `IEUM_DEPLOY_ENVIRONMENT=main`으로
-  `/home/kwung/deploy/bluegreen-main/bluegreen.py`를 호출한다.
-- Nginx helper는 `/usr/local/sbin/ieum-main-bluegreen-nginx`이다.
-- Repository Variables `MAIN_BLUEGREEN_CONTROLLER_SHA256`와
-  `MAIN_BLUEGREEN_HELPER_SHA256`를 실제 승인·설치한 파일의 SHA-256으로 등록한다.
-  DEV의 SHA 변수·제어 파일·잠금 파일·상태 파일을 덮어쓰지 않는다.
-
-## 이미지 전달과 설정 경계
-
-build job은 앱 Secrets 전체 JSON을 받지 않는다. 빌드 메타데이터 두 개만 읽는다.
-테스트 후 커밋 SHA 태그의 이미지를 생성한다. GitHub 러너에서 `docker save` 아카이브를
-검증·재로드하는 검사까지 통과하면 아카이브 한 파일만 업로드한다. 이 검사는 서버에 접속하지 않는다.
-이미지 이름에는 `main` 구분자가 있어야 하고 `dev` 구분자는 허용하지 않는다.
-`latest` 같은 mutable tag로 전달하지 않는다.
-
-배포 job은 같은 run의 정확한 artifact ID로 다운로드하고, build job이 기록한 아카이브
-SHA-256과 단일 MAIN 태그·linux/amd64 플랫폼을 확인한 뒤 Docker에 로드한다.
-classic Docker의 config ID와 containerd의 manifest/index ID를 구분해 참조 연결을 검증한다.
-저장 방식 변환으로 ID가 달라지면 실제 로드한 이미지를 확인하고, 필요한 경우 임시 tar로
-다시 저장해 config 해시가 같은지 검증한 뒤 정리한다. deploy와 stage-bootstrap은 모두
-검증 단계가 출력한 서버의 실제 `sha256:...` image ID를 컨트롤러에 전달한다.
-앱 환경설정 파일·Secrets JSON은 artifact에 포함하지 않는다.
-
-앱 Secrets는 배포 직전 단계의 `env`에서 필요한 `secrets.MAIN_COM_*`를 각각 명시해 전달한다.
-MAIN workflow는 전체 Secrets JSON을 읽지 않는다. 수집기는 명시된 이름만 읽어 기존 이름
-매핑·literal 검증을 적용하고 권한 0600인 새 후보 파일에 기록한다. 컨트롤러를 호출하기
-전에 단계 환경의 `MAIN_COM_*`와 이전 JSON 전송 변수를 unset한다.
-정상 종료·처리 가능한 실패·INT·TERM에서 후보 파일을 정리한다. SIGKILL·호스트 장애에서
-trap 실행은 보장되지 않으므로 운영자 점검이 필요하다.
-
-원문·값·파일 내용을 로그나 artifact로 출력하지 않는다.
-Docker 관리자 및 서버 snapshot 파일에는 평문 설정 접근이 가능하다.
-GitHub Environment 생성·Secret 위치 이동은 이 변경에 포함하지 않는다. 기존 Secret 이름과
-등록 위치를 유지하며, DEV workflow의 JSON 전송·자동 수집도 변경하지 않는다.
-
-## 수집 규칙
-
-- CLI: `python3 scripts/bluegreen/agent_env.py PRIVATE_EMPTY_FILE --environment main`
-- `--environment`를 생략하면 기존 `dev` 동작이다.
-- Main은 `MAIN_COM_` 접두사를 한 번만 제거한다. `DEV_COM_`, `DEV_`, `AWS_`,
-  접두사 없는 값, `MAIN_BLUE_`, `MAIN_GREEN_`을 앱 설정 fallback으로 사용하지 않는다.
-- 기존 별칭은 Main에서도 유지한다. 별칭과 직접 이름 모두 값이 있으면 충돌이다.
-- 미등록 Secret은 GitHub에서 빈 문자열로 전달된다. MAIN은 빈 입력을 제외해 선택 항목의
-  앱 기본값을 유지한다. 필수 항목은 누락·빈 값·공백만 있는 값 모두 거부한다.
-- 입력은 단일 행 literal이다. 공백·달러·따옴표·등호는 자동 확장하지 않는다.
-- 후보는 기존 서버 .env 또는 현재 컨테이너의 설정과 합치지 않고 전체 교체한다.
-- 새 Secret을 등록하는 것만으로 앱에 자동 추가되지 않는다. 새 앱 키를 사용할 때는
-  `agent_env.py`의 `MAIN_RUNTIME_KEYS`와 MAIN workflow의 deploy·stage-bootstrap 두 단계
-  `env`에 같은 이름을 추가하고 검증한다. 새 필수 항목이면 필수 검증 목록도 수정한다.
-- Blue·Green의 컨테이너·내부 주소·배포 제어 설정은 Main 컨트롤러 소유다.
-  이를 일반 앱 Secrets로 덮어쓰는 예약 이름과 동등한 underscore 변형을 거부한다.
-- Main Blue·Green은 Main 공통 설정을 배포 시 읽지만 각 색상 snapshot을 독립 보존한다.
-  retained release rollback은 당시 이미지와 설정을 사용한다.
-- Secret 수정만으로 실행 중인 컨테이너나 retained snapshot이 바뀌지 않는다.
-
-## 초기 운영 적용
-
-1. Main 전용 앱망·데이터망, DB·Redis·MongoDB 및 컨트롤러·helper를 준비한다.
-   DEV 서비스의 데이터나 상태를 그대로 공유하지 않는다. 실제 설치 SHA를 Main Variables에
-   등록하고 Main 러너 접근·라벨을 staging 전에 확인한다.
-2. main의 build 또는 수동 기본 build로 검증된 최초 이미지 artifact와 job summary의 identity를 확보한다.
-   `MAIN_BOOTSTRAP_ENABLED=true`를 잠시 허용하고 각 앱에서 stage-bootstrap을 명시 실행하면
-   검증한 이미지와 MAIN_COM_ 후보 설정을 Main 컨트롤러의 bootstrap 저장소에 보관한다.
-   이 단계는 컨테이너 시작·트래픽 전환을 수행하지 않으며 활성 Main이 있으면 거부된다.
-   앱 설정 파일은 artifact에 올리지 않으며 GitHub API에서 Secret 평문을 다시 조회하지 않는다.
-3. 세 앱의 bootstrap manifest·이미지·설정을 함께 검증한 후 init/prepare/switch로 첫 활성 환경을 만든다.
-   staging이 끝나면 `MAIN_BOOTSTRAP_ENABLED`를 끈다.
-   앱 workflow가 독자적으로 DB를 생성하거나 migration을 실행하지 않는다.
-4. 도메인/TLS, OAuth callback, DB·Redis·MongoDB 연결, 내부 토큰과 같은 색상의 호출 경로를 확인한다.
-5. 운영자가 준비 완료를 확인한 뒤에만 `MAIN_DEPLOY_ENABLED=true`를 설정한다.
-
-관리 flag를 켜거나 이 workflow를 머지하는 작업은 서버 bootstrap 완료의 증거가 아니다.
-실제 drain·트래픽 전환·rollback과 진행 중 요청 처리는 별도로 검증한다.
-
-## 로컬 검증
-
-```bash
-python3 -m unittest discover -s scripts/bluegreen -p 'test_*.py'
-```
-
-테스트는 합성 설정·가짜 Docker·가짜 컨트롤러와 임시 파일을 사용한다. 실제 Secrets,
-서버·Docker daemon·운영 DB에 접속하는 테스트로 표현하지 않는다.
-
-## Agent Main Secrets
-
-빌드 전용이며 runtime 후보에서 제외한다.
+### 빌드용
 
 | Secret | 조건 |
 |---|---|
-| `MAIN_COM_AGENT_PYTHON_VERSION` | Python 3.11 계열. 이미지도 기존 Python 3.11 launcher 사용 |
-| `MAIN_COM_AGENT_IMAGE_NAME` | Main 구분자가 있는 별도 이미지명, 예: ieum-agent-main |
+| `MAIN_COM_AGENT_PYTHON_VERSION` | Python 3.11 계열 |
+| `MAIN_COM_AGENT_IMAGE_NAME` | MAIN 전용 이미지명. 예: `ieum-agent-main` |
 
-앱 필수값은 기존 6개와 운영 내부 토큰이다.
+빌드용 값은 앱 `.env`에 넣지 않습니다.
+
+### 앱 필수값
 
 | Secret | 앱 환경변수 |
 |---|---|
-| MAIN_COM_AGENT_MONGODB_URL | MONGODB_URL |
-| MAIN_COM_AGENT_MONGODB_DB_NAME | MONGODB_DB_NAME |
-| MAIN_COM_AGENT_PORT | PORT (8000) |
-| MAIN_COM_AGENT_CLAUDE_DEFAULT_MODEL | CLAUDE_DEFAULT_MODEL |
-| MAIN_COM_AGENT_OPENAI_DEFAULT_MODEL | OPENAI_DEFAULT_MODEL |
-| MAIN_COM_AGENT_GEMINI_DEFAULT_MODEL | GEMINI_DEFAULT_MODEL |
-| MAIN_COM_AGENT_INTERNAL_TOKEN | AGENT_INTERNAL_TOKEN |
+| `MAIN_COM_AGENT_MONGODB_URL` | `MONGODB_URL` |
+| `MAIN_COM_AGENT_MONGODB_DB_NAME` | `MONGODB_DB_NAME` |
+| `MAIN_COM_AGENT_PORT` | `PORT` — `8000` 고정 |
+| `MAIN_COM_AGENT_CLAUDE_DEFAULT_MODEL` | `CLAUDE_DEFAULT_MODEL` |
+| `MAIN_COM_AGENT_OPENAI_DEFAULT_MODEL` | `OPENAI_DEFAULT_MODEL` |
+| `MAIN_COM_AGENT_GEMINI_DEFAULT_MODEL` | `GEMINI_DEFAULT_MODEL` |
+| `MAIN_COM_AGENT_INTERNAL_TOKEN` | `AGENT_INTERNAL_TOKEN` |
 
-Main 내부 토큰은 비어 있거나 공백만 있으면 거부한다. Main Backend와 같은 값을 쓰며 DEV와 분리한다.
-`MAIN_COM_AGENT_NOTION_MCP_URL`, `MAIN_COM_AGENT_NOTION_MCP_AUTH_TOKEN`은 사용하는 기능에 맞게
-등록한다. Main MCP의 gateway token과 일치해야 한다. `MAIN_COM_OTEL_EXPORTER_OTLP_ENDPOINT`는
-Main Phoenix의 Docker 내부 `/v1/traces` 주소를 사용한다. 실제 대화 수집은 별도 확인한다.
+MongoDB는 MAIN 전용 DB를 가리켜야 합니다. 내부 토큰은 MAIN Backend와 같게, DEV와는 다르게 설정합니다.
+`MAIN_COM_MONGODB_URL`처럼 앱 이름을 직접 써도 됩니다. 같은 설정의 별칭과 직접 이름을
+동시에 등록하면 충돌하므로 둘 중 하나만 사용합니다.
 
-다음 선택 항목도 workflow에 명시되어 있다. 미등록·빈 값이면 후보에서 제외해 앱 기본값을
-사용한다. 이름은 `MAIN_COM_` 접두사를 제거한 앱 환경변수로 전달한다.
+### 선택값
 
 | Secret | 용도 |
 |---|---|
+| `MAIN_COM_AGENT_NOTION_MCP_URL` | MAIN Notion MCP 주소 |
+| `MAIN_COM_AGENT_NOTION_MCP_AUTH_TOKEN` | MAIN MCP 서비스와 같은 인증 토큰 |
+| `MAIN_COM_OTEL_EXPORTER_OTLP_ENDPOINT` | MAIN Phoenix 트레이스 수집 주소 |
 | `MAIN_COM_PLATFORM_GEMINI_API_KEY` | 서비스 공용 Gemini 키 |
 | `MAIN_COM_TAVILY_API_KEY` | 웹 검색 키 |
 | `MAIN_COM_SELF_HOSTED_LLM_BASE_URL` | 자체 LLM 주소 |
 | `MAIN_COM_SELF_HOSTED_LLM_MODEL` | 자체 LLM 모델 |
 | `MAIN_COM_SELF_HOSTED_LLM_API_KEY` | 자체 LLM 인증 키 |
-| `MAIN_COM_SELF_HOSTED_ALLOWED_ROLES` | 허용 권한 JSON 배열 |
-| `MAIN_COM_SUPPORTED_PROVIDERS` | 지원 공급자 JSON 배열 |
+| `MAIN_COM_SELF_HOSTED_ALLOWED_ROLES` | 허용 역할 JSON 배열 |
+| `MAIN_COM_SUPPORTED_PROVIDERS` | 공급자 JSON 배열 |
 | `MAIN_COM_AGENT_MAX_LLM_CALLS` | 도구 호출 루프 상한 |
 | `MAIN_COM_AGENT_TIMEOUT_SECONDS` | 실행 시간 상한(초) |
 
-MongoDB·포트·기본 모델·Notion MCP의 기존 `AGENT_` 별칭 8개와 직접 이름을 모두 지원한다.
-예를 들어 `MAIN_COM_AGENT_MONGODB_URL`과 `MAIN_COM_MONGODB_URL` 중 하나를 등록한다.
-두 이름이 모두 비어 있지 않으면 충돌로 거부하며 임의 우선순위를 적용하지 않는다.
-`BACKEND_BASE_URL`은 컨트롤러가 같은 색상의 Main Backend로 주입한다.
-테스트용 MongoDB 키는 runtime 후보에 전달하지 않는다.
+Notion MCP 2개는 `AGENT_`를 뺀 직접 이름도 지원합니다. OTLP 주소는
+`http://ieum-main-phoenix:6006/v1/traces`처럼 MAIN 컨테이너 내부 주소를 사용합니다.
+해당 서비스 준비 후 실제 호출과 트레이스 수집 여부를 확인합니다.
 
-Main CI는 임시 MongoDB 서비스와 `ieum_test`만 사용하며 운영 MongoDB Secret으로 fallback하지 않는다.
+## 새 변수와 값 처리
+
+- MAIN은 Secrets 등록만으로 새 변수가 자동 추가되지 않습니다.
+- 새 키는 `agent_env.py`의 `MAIN_RUNTIME_KEYS`와 MAIN workflow의 deploy·stage-bootstrap
+  두 단계 `env`에 함께 추가합니다. 앱의 변수 처리와 필수값 검사도 필요에 따라 수정합니다.
+- `MAIN_COM_`을 제거하고 기존 별칭을 적용합니다. DEV·AWS·이전 서버 `.env`에서 값을 보충하지 않습니다.
+- 미등록·빈 선택값은 제외해 앱 기본값을 사용합니다. 필수값의 누락·빈 값·공백만 있는 값은 거부합니다.
+- 값은 줄바꿈 없는 문자열입니다. 공백·달러 기호·따옴표·등호를 자동으로 제거하거나 실행하지 않습니다.
+- 컨테이너·IP·배포 제어 설정과 같은 색상의 `BACKEND_BASE_URL`은 controller가 관리합니다.
+
+## 실행 작업과 허용 설정
+
+| 작업 | 동작 | 서버 실행 조건 |
+|---|---|---|
+| `build` | 테스트·이미지 빌드·검증·업로드 | 서버 작업 없음 |
+| `stage-bootstrap` | 최초 배포용 이미지·설정 보관 | `main` + `MAIN_BOOTSTRAP_ENABLED=true` |
+| `deploy` | MAIN Blue/Green 배포 | `main` + `MAIN_DEPLOY_ENABLED=true` |
+
+수동 실행 기본값은 `build`입니다. `main` push는 빌드 후 배포 허용 설정이 켜져 있을 때 배포합니다.
+작업 브랜치 `infra/IEUM-AI-111`는 수동 `build`만 허용합니다.
+`stage-bootstrap`은 앱을 시작하거나 트래픽을 바꾸지 않습니다.
+
+Repository Variables에는 위 허용 설정과 설치한 파일의 `MAIN_BLUEGREEN_CONTROLLER_SHA256`,
+`MAIN_BLUEGREEN_HELPER_SHA256`을 등록합니다. 검증값은 실제 설치본과 일치해야 합니다.
+서버 러너는 group `ieum_main_server`, labels `self-hosted, linux, x64, ieum-agent, main, deploy`를 사용합니다.
+
+## 빌드·배포 및 스냅샷
+
+1. GitHub `ubuntu-latest`에서 테스트와 이미지 빌드를 수행합니다.
+2. 검증한 이미지 아카이브만 업로드합니다. 앱 Secrets와 `.env`는 포함하지 않습니다.
+3. 서버 단계가 같은 실행의 결과물을 받아 해시·이미지 정보를 확인합니다.
+4. 명시한 MAIN Secrets로 새 비공개 `.env`를 만들고 MAIN controller에 전달합니다.
+5. controller가 색상별 설정을 보관하고, 임시 후보 파일은 종료 시 정리합니다.
+
+controller 경로는 `/home/kwung/deploy/bluegreen-main/bluegreen.py`이며 MAIN 환경을 명시해 호출합니다.
+색상별 설정은 `/home/kwung/deploy/bluegreen-main/runtime/{blue|green}/agent.env`에 보관합니다.
+이전 배포로 복구할 때는 당시 이미지와 설정을 사용합니다. Secret 수정만으로 현재 컨테이너나
+이전 스냅샷이 바뀌지는 않습니다. 실제 값은 Git·로그·아티팩트에 올리지 않습니다.
+서버 `.env`와 Docker 환경은 평문 설정이므로 서버 및 Docker 관리자 접근 권한으로 보호합니다.
+
+## 검증과 최초 운영 절차
+
+MAIN CI는 GitHub 러너의 임시 MongoDB와 `ieum_test`를 사용합니다. DEV 테스트용 Secrets나
+운영 MongoDB 연결값을 사용하지 않으며, `.env` 자동 로딩도 끕니다.
+
+```bash
+python3 -m unittest discover -s scripts/bluegreen -p 'test_*.py'
+```
+
+이 단위 테스트는 합성 값과 모의 실행을 사용합니다. 실제 DB·내부 인증·외부 연동은 별도 확인합니다.
+세 앱의 최초 기동·전환·복구 순서는 [인프라 MAIN 운영 절차](https://github.com/team-ieum/ieum-infra/blob/infra/IEUM-SRV-31/docs/main-bluegreen-rollout.md)를 따릅니다.
