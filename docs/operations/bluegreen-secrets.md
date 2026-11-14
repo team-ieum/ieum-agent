@@ -46,10 +46,7 @@ DEV Phoenix 내부 주소를 사용합니다. 실제 채팅 후 트레이스 수
 
 ## 새 변수와 값 처리
 
-- Secrets 등록만으로 새 변수가 자동 추가되지 않습니다. 새 키는 DEV workflow의 배포 단계 `env`와
-  `agent_env.py`의 `DEV_RUNTIME_KEYS` 허용 목록에 함께 추가합니다. 현재 MAIN과 앱 키 목록을
-  공유하므로 공용 목록을 늘릴 때는 MAIN workflow의 명시 목록도 맞춥니다.
-  앱이 해당 변수를 읽어야 기능에 반영됩니다. 새 필수값 검사는 필요에 따라 별도로 추가합니다.
+- Secrets 등록만으로 새 변수가 자동 추가되지 않습니다. 새 변수는 아래 절차로 추가합니다.
 - `DEV_`, `DEV_BLUE_`, `DEV_GREEN_`, `MAIN_`, `AWS_`, 접두사 없는 이름은 수집하지 않습니다.
 - 필수 6개 값은 누락·빈 문자열·공백만 있는 값을 허용하지 않습니다.
 - 미등록·빈 선택값은 생략해 앱 기본값을 사용합니다. 등록하지 않은 별칭의 빈 값은 충돌로 보지 않습니다.
@@ -58,6 +55,31 @@ DEV Phoenix 내부 주소를 사용합니다. 실제 채팅 후 트레이스 수
 - 명시된 이름만 수집하며, 같은 설정의 별칭과 직접 이름에 값을 모두 넣으면 중복으로 거부합니다.
 - 컨테이너·IP·같은 색상의 `BACKEND_BASE_URL`과 배포 제어 변수는 controller가 관리합니다.
   일반 앱 Secrets로 덮어쓰지 않습니다.
+
+### 새 앱 변수 추가 절차
+
+이미 지원하는 변수의 **값만 변경**할 때는 Secrets를 갱신하고 새 DEV 배포를 실행합니다.
+아래 절차는 **새 이름을 추가**하여 워크플로우·수집기·앱의 지원 범위를 늘릴 때 적용합니다.
+
+`DEV_COM_NEW_OPTION` → `NEW_OPTION`은 **선택 변수의 구현 예시이며, 현재 지원하는 키가 아닙니다.**
+
+- [ ] 앱에서 `NEW_OPTION`을 읽는 코드와 기본값을 준비합니다.
+- [ ] [agent_env.py](../../scripts/bluegreen/agent_env.py)의 `DEV_RUNTIME_KEYS`를 확장합니다.
+  현재 `DEV_RUNTIME_KEYS = MAIN_RUNTIME_KEYS`이므로 DEV에만 추가하려면
+  `DEV_RUNTIME_KEYS = MAIN_RUNTIME_KEYS + ('NEW_OPTION',)`으로 변경합니다.
+- [ ] [DEV 워크플로우](../../.github/workflows/agent-dev-server.yml)의
+  `Deploy with prefixed GitHub Secrets` 단계 `env`에 다음 한 항목을 추가합니다.
+
+```yaml
+env:
+  DEV_COM_NEW_OPTION: ${{ secrets.DEV_COM_NEW_OPTION }}
+```
+
+- [ ] 에이전트 저장소의 Secrets에 같은 이름을 등록하고, 아래 수집기 검증과 새 키의 전달·빈 값 테스트를 확인합니다.
+- [ ] 변경이 포함된 새 DEV Agent 배포로 반영합니다. Secret 등록만으로 기존 컨테이너는 바뀌지 않습니다.
+
+공유 `MAIN_RUNTIME_KEYS`에 직접 추가한다면 [MAIN 워크플로우](../../.github/workflows/agent-main-server.yml)의
+deploy·stage-bootstrap 단계에도 대응하는 `MAIN_COM_` 입력을 추가합니다. 공용 `REQUIRED_KEYS`를 바꿀 때도 MAIN 필수 검증에 미치는 영향을 확인합니다.
 
 ## CI 테스트용 MongoDB
 
