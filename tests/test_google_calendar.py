@@ -9,6 +9,7 @@ from common.error_code import ToolErrorCode
 from tests.action_outputs import assert_matches_outputs
 from tests.test_google_tools import _make_async_client, _make_mock_response
 from tools.google_calendar import (
+    google_calendar_create,
     google_calendar_delete,
     google_calendar_find,
     google_calendar_find_busy,
@@ -1032,3 +1033,35 @@ async def test_create_HTML_5xx도_상태_코드를_남긴다():
         result = json.loads(await google_calendar_create("token", summary="a", start_datetime="2026-11-12T09:00:00+09:00",
                                                           end_datetime="2026-11-12T10:00:00+09:00"))
     assert "502" in result["error"]
+
+
+# --- create: 오프셋 없는 시각 (dev e2e 2026-11-15) ---------------------------------------------
+
+@pytest.mark.asyncio
+async def test_create_오프셋_없는_시각은_캘린더_시간대로_읽어_보낸다():
+    # 빌더 날짜 칸 값 그대로. 오프셋 없이 보내면 Google이 'Missing time zone definition'으로 400을 낸다.
+    post = AsyncMock(return_value=_make_mock_response(200, {"id": "new-1", "htmlLink": "https://cal/new-1"}))
+    client = _with_post(get=_gets({"/calendars/primary": {"timeZone": "Asia/Seoul"}}), post=post)
+    result = await _run(google_calendar_create, client, summary="회의",
+                        start_datetime="2026-11-17T10:00", end_datetime="2026-11-17T11:00")
+    assert_matches_outputs("google_calendar.create", result)
+    body = post.call_args.kwargs["json"]
+    assert (body["start"], body["end"]) == ({"dateTime": "2026-11-17T10:00:00+09:00"},
+                                            {"dateTime": "2026-11-17T11:00:00+09:00"})
+
+
+@pytest.mark.asyncio
+async def test_create_오프셋_있으면_캘린더를_조회하지_않는다():
+    post = AsyncMock(return_value=_make_mock_response(200, {"id": "new-1", "htmlLink": "x"}))
+    await _run(google_calendar_create, _with_post(post=post), summary="회의",
+               start_datetime="2026-11-17T10:00:00+09:00", end_datetime="2026-11-17T11:00:00+09:00")
+    assert post.call_args.kwargs["json"]["start"] == {"dateTime": "2026-11-17T10:00:00+09:00"}
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_오프셋_없는_시각으로도_만든다():
+    get = _gets({"/calendars/primary": {"timeZone": "Asia/Seoul"}, "/calendars/primary/events": {"items": []}})
+    post = AsyncMock(return_value=_make_mock_response(200, {"id": "new-1", "htmlLink": "x"}))
+    result = await _run(google_calendar_find_or_create, _with_post(get=get, post=post), summary="IEUM e2e S6",
+                        start_datetime="2026-11-17T10:00", end_datetime="2026-11-17T11:00")
+    assert (result["created"], post.call_args.kwargs["json"]["start"]["dateTime"]) == (True, "2026-11-17T10:00:00+09:00")
