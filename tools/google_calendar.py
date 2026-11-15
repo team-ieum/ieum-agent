@@ -153,26 +153,30 @@ async def google_calendar_create(
     Args:
         access_token: Google OAuth Access Token
         summary: 일정 제목
-        start_datetime: 시작 일시 (ISO 8601, 예: "2026-05-13T09:00:00+09:00")
-        end_datetime: 종료 일시 (ISO 8601)
+        start_datetime: 시작 일시 (ISO 8601, 예: "2026-05-13T09:00:00+09:00"). 오프셋이 없으면 캘린더 시간대
+        end_datetime: 종료 일시 (ISO 8601). 오프셋이 없으면 캘린더 시간대
         description: 일정 설명 (optional)
         calendar_id: 캘린더 ID (기본값: "primary"). 공휴일 캘린더처럼 #·@가 든 id도 받는다(경로 인코딩).
 
     Returns:
         생성된 일정 ID, URL을 포함한 JSON 문자열
     """
-    payload = {
-        "summary": summary,
-        "description": description,
-        "start": {"dateTime": start_datetime},
-        "end": {"dateTime": end_datetime},
-    }
-
     try:
         client = get_http_client()
+        headers = _headers(access_token)
+        cal = _calendar_segment(calendar_id)
+        # 빌더 날짜 칸은 오프셋 없는 시각(2026-11-17T10:00)을 보내고 Google은 그걸 400으로 거절한다
+        # (dev e2e 2026-11-15) — 수정·찾기처럼 캘린더 기본 시간대의 벽시계 시각으로 읽는다.
+        zone = _Zone(client, headers, cal)
+        payload = {
+            "summary": summary,
+            "description": description,
+            "start": {"dateTime": (await zone.parse(start_datetime)).isoformat()},
+            "end": {"dateTime": (await zone.parse(end_datetime)).isoformat()},
+        }
         response = await client.post(
-            f"{_CALENDAR_API_BASE}/calendars/{_calendar_segment(calendar_id)}/events",
-            headers=_headers(access_token),
+            f"{_CALENDAR_API_BASE}/calendars/{cal}/events",
+            headers=headers,
             json=payload,
             timeout=_TIMEOUT,
         )
@@ -186,6 +190,8 @@ async def google_calendar_create(
             "htmlLink": data.get("htmlLink", ""),
         }, ensure_ascii=False)
 
+    except _ApiError as e:
+        return _api_error(e.response)
     except Exception as e:
         return json.dumps({
             "error": f"{ToolErrorCode.EXECUTION_FAILED.message} (google_calendar_create: {str(e)})"
