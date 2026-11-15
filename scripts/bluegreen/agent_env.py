@@ -22,7 +22,7 @@ MAIN_BUILD_KEYS = ('AGENT_PYTHON_VERSION', 'AGENT_IMAGE_NAME', 'PYTHON_VERSION',
 SECRETS_VARIABLE = 'IEUM_AGENT_SECRETS_JSON'
 FORBIDDEN_CHARACTERS = '\x00\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029'
 
-# Preserve existing Agent requirements while accepting new prefixed app keys.
+# Preserve the existing Agent requirements for explicitly selected app keys.
 REQUIRED_KEYS = (
     'MONGODB_URL', 'MONGODB_DB_NAME', 'PORT', 'CLAUDE_DEFAULT_MODEL',
     'OPENAI_DEFAULT_MODEL', 'GEMINI_DEFAULT_MODEL',
@@ -36,7 +36,7 @@ ALIASES = {
     'AGENT_GEMINI_DEFAULT_MODEL': 'GEMINI_DEFAULT_MODEL',
     'AGENT_NOTION_MCP_URL': 'NOTION_MCP_URL', 'AGENT_NOTION_MCP_AUTH_TOKEN': 'NOTION_MCP_AUTH_TOKEN',
 }
-# MAIN 전달 목록은 workflow의 명시적인 Secret 참조와 함께 변경한다.
+# 전달 목록은 각 workflow의 명시적인 Secret 참조와 함께 변경한다.
 # 별칭과 직접 이름 모두 유지하지만, 미등록 Secret의 빈 값은 입력에서 제외한다.
 MAIN_RUNTIME_KEYS = tuple(sorted(set(ALIASES) | set(ALIASES.values()) | {
     'AGENT_INTERNAL_TOKEN', 'SUPPORTED_PROVIDERS', 'SELF_HOSTED_ALLOWED_ROLES',
@@ -44,6 +44,8 @@ MAIN_RUNTIME_KEYS = tuple(sorted(set(ALIASES) | set(ALIASES.values()) | {
     'PLATFORM_GEMINI_API_KEY', 'TAVILY_API_KEY', 'OTEL_EXPORTER_OTLP_ENDPOINT',
     'AGENT_MAX_LLM_CALLS', 'AGENT_TIMEOUT_SECONDS',
 }))
+# DEV와 MAIN은 같은 앱 설정을 지원하지만 필수값과 입력 접두사는 분리한다.
+DEV_RUNTIME_KEYS = MAIN_RUNTIME_KEYS
 # CI credentials and fixed build metadata must not become runtime app settings.
 EXCLUDED_KEYS = frozenset((
     'AGENT_TEST_MONGODB_URL', 'AGENT_TEST_MONGODB_DB_NAME',
@@ -88,15 +90,23 @@ def invalid_json_constant(_value):
     raise AgentEnvironmentError('invalid_json')
 
 
-def main_environment_payload(environment):
-    """MAIN에서 명시적으로 전달한 값만 기존 literal 검증기로 연결한다."""
+def explicit_environment_payload(environment, prefix, keys):
+    """명시된 입력만 읽고 미등록 Secret의 빈 문자열은 제외한다."""
     source = {}
-    for key in MAIN_RUNTIME_KEYS:
-        name = 'MAIN_COM_' + key
+    for key in keys:
+        name = prefix + key
         value = environment.get(name)
         if value is not None and value != '':
             source[name] = value
     return json.dumps(source, ensure_ascii=True)
+
+
+def main_environment_payload(environment):
+    return explicit_environment_payload(environment, 'MAIN_COM_', MAIN_RUNTIME_KEYS)
+
+
+def dev_environment_payload(environment):
+    return explicit_environment_payload(environment, SECRET_PREFIX, DEV_RUNTIME_KEYS)
 
 
 def build_environment(payload, environment='dev'):
@@ -208,7 +218,7 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     try:
         payload = main_environment_payload(os.environ) if arguments.environment == 'main' \
-            else os.environ.get(SECRETS_VARIABLE)
+            else dev_environment_payload(os.environ)
         write_candidate(arguments.candidate, payload, arguments.environment)
     except AgentEnvironmentError as failure:
         print('Agent environment rejected: ' + failure.code, file=sys.stderr)

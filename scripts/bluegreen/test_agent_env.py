@@ -123,7 +123,7 @@ class BuildEnvironmentTest(unittest.TestCase):
                     else: values[key] = value
                     self.assert_rejected(secret_payload(values), 'missing_required_configuration')
 
-    def test_new_keys_and_explicit_new_empty_values_are_accepted_without_mapping_changes(self):
+    def test_literal_validator_preserves_additional_keys_and_empty_values(self):
         values = valid_env()
         values.update({'NEW_SERVICE_TOKEN':SECRET, 'NEW_EMPTY_OPTION':'', 'AGENT_TIMEOUT_SECONDS':'120'})
         self.assertEqual(records(agent_env.build_environment(secret_payload(values))), values)
@@ -274,7 +274,7 @@ class WriteCandidateTest(unittest.TestCase):
         if payload is DEFAULT_PAYLOAD:
             payload = secret_payload()
         if payload is not None:
-            environment[TRANSPORT] = payload
+            environment.update(json.loads(payload))
         return subprocess.run([sys.executable, str(SCRIPT), str(destination or self.candidate)],
             env=environment, text=True, capture_output=True, timeout=3)
 
@@ -324,7 +324,7 @@ class WriteCandidateTest(unittest.TestCase):
 
     def test_main_reports_io_failure_as_only_the_fixed_code(self):
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch.dict(agent_env.os.environ, {TRANSPORT: secret_payload()}, clear=True), \
+        with patch.dict(agent_env.os.environ, secret_data(), clear=True), \
                 patch.object(agent_env.os, 'write', side_effect=OSError(SECRET)), \
                 patch.object(agent_env.sys, 'stdout', stdout), patch.object(agent_env.sys, 'stderr', stderr):
             self.assertEqual(agent_env.main([str(self.candidate)]), 1)
@@ -400,7 +400,7 @@ class WriteCandidateTest(unittest.TestCase):
         self.assertNotIn(SECRET, result.stderr)
         self.assertEqual(self.candidate.read_bytes(), b'')
 
-    def test_missing_transport_has_no_traceback_or_destination_leak(self):
+    def test_missing_explicit_inputs_have_no_traceback_or_destination_leak(self):
         private_path = self.root / ('private-' + SECRET)
         result = self.invoke_cli(None, private_path)
         self.assertEqual(result.returncode, 1)
@@ -437,7 +437,8 @@ class AgentWorkflowTest(unittest.TestCase):
                 'candidate=pathlib.Path(args[args.index("--env-file")+1])\n'
                 'observed={"args":args,"path":str(candidate),"mode":stat.S_IMODE(candidate.stat().st_mode),'
                 '"content":candidate.read_text(),"transportInherited":' + repr(TRANSPORT) + ' in os.environ,'
-                '"appKeysInherited":[k for k in ' + repr(list(agent_env.REQUIRED_KEYS)) + ' if k in os.environ]}\n'
+                '"appKeysInherited":[k for k in ' + repr(list(agent_env.REQUIRED_KEYS)) + ' if k in os.environ],'
+                '"secretKeysInherited":[k for k in os.environ if k.startswith("DEV_COM_")]}\n'
                 'pathlib.Path(' + repr(str(log)) + ').write_text(json.dumps(observed))\n'
                 'sys.exit(' + str(controller_exit) + ')\n')
             script = self.shell.replace('/home/kwung/deploy/bluegreen/bluegreen.py', shlex.quote(str(controller)))
@@ -449,26 +450,32 @@ class AgentWorkflowTest(unittest.TestCase):
                 values = valid_env()
             elif callable(values):
                 values = values(marker)
-            if transport is DEFAULT_PAYLOAD:
-                transport = secret_payload(values, extra)
-            if transport is not None:
+            environment.update(secret_data(values))
+            environment.update(extra or {})
+            if transport is not DEFAULT_PAYLOAD and transport is not None:
                 environment[TRANSPORT] = transport
             command = ['bash'] + (['-x'] if start_xtrace else []) + ['-c', script]
             result = subprocess.run(command, cwd=root, env=environment, text=True, capture_output=True, timeout=5)
             observed = json.loads(log.read_text()) if log.exists() else None
             return result, observed, list(runner.iterdir()), marker.exists()
 
-    def test_prefixed_transport_is_step_scoped_and_no_secret_expression_enters_shell(self):
-        expected = TRANSPORT + ': ${{ toJSON(secrets) }}'
-        self.assertIn(expected, self.header)
-        self.assertEqual(self.source.count('${{ toJSON(secrets) }}'), 1)
-        self.assertNotIn('toJSON(secrets)', self.source.split('      - name: Deploy with prefixed GitHub Secrets\n', 1)[0])
-        self.assertNotIn('${{ secrets.', self.step)
+    def test_explicit_inputs_are_step_scoped_and_never_interpolated_into_shell(self):
+        expected = {PREFIX + key for key in agent_env.DEV_RUNTIME_KEYS}
+        pairs = re.findall(r'^          (DEV_COM_[A-Z0-9_]+): \$\{\{ secrets\.([A-Z0-9_]+) \}\}$',
+                           self.header, re.MULTILINE)
+        self.assertEqual(len(pairs), len(expected))
+        self.assertEqual({name for name, _ in pairs}, expected)
+        self.assertTrue(all(name == secret for name, secret in pairs))
+        self.assertNotIn('toJSON(secrets)', self.source)
+        self.assertNotIn(TRANSPORT + ':', self.source)
         self.assertNotIn('${{', self.shell)
         self.assertNotIn('/home/kwung/deploy/ieum-agent/.env', self.shell)
-        self.assertIn('unset ' + TRANSPORT, self.shell)
-        self.assertLess(self.shell.index('scripts/bluegreen/agent_env.py'), self.shell.index('unset ' + TRANSPORT))
-        self.assertLess(self.shell.index('unset ' + TRANSPORT), self.shell.index('/home/kwung/deploy/bluegreen/bluegreen.py'))
+        self.assertLess(self.shell.index('scripts/bluegreen/agent_env.py'),
+                        self.shell.index('for secret_name in "${!DEV_COM_@}"'))
+        self.assertLess(self.shell.index('unset secret_name ' + TRANSPORT),
+                        self.shell.index('/home/kwung/deploy/bluegreen/bluegreen.py'))
+        self.assertIn("  PYTHON_VERSION: '3.11'", self.source)
+        self.assertIn('  IMAGE_NAME: ieum-agent-dev', self.source)
 
     def test_success_forwards_private_full_candidate_and_cleans_it_after_deploy(self):
         values = valid_env()
@@ -479,6 +486,7 @@ class AgentWorkflowTest(unittest.TestCase):
         self.assertEqual(observed['mode'], 0o600)
         self.assertFalse(observed['transportInherited'])
         self.assertEqual(observed['appKeysInherited'], [])
+        self.assertEqual(observed['secretKeysInherited'], [])
         self.assertIn('--replace-env', observed['args'])
         self.assertEqual(observed['args'][observed['args'].index('--service') + 1], 'agent')
         self.assertEqual(observed['args'][observed['args'].index('--image') + 1], 'ieum-agent-dev:synthetic-sha')
@@ -486,12 +494,13 @@ class AgentWorkflowTest(unittest.TestCase):
         self.assertEqual(remaining, [])
         self.assertNotIn(SECRET, ' '.join(observed['args']))
 
-    def test_new_prefixed_secret_is_used_without_workflow_mapping_changes(self):
+    def test_unmapped_prefixed_secret_is_not_deployed_or_inherited(self):
         values = valid_env()
         values['NEW_SERVICE_TOKEN'] = SECRET
         result, observed, remaining, _ = self.invoke(values)
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(records(observed['content'].encode())['NEW_SERVICE_TOKEN'], SECRET)
+        self.assertNotIn('NEW_SERVICE_TOKEN', records(observed['content'].encode()))
+        self.assertEqual(observed['secretKeysInherited'], [])
         self.assertEqual(remaining, [])
 
     def test_unprefixed_other_credentials_never_enter_candidate(self):
@@ -523,16 +532,23 @@ class AgentWorkflowTest(unittest.TestCase):
                 self.assertEqual(result.stdout, '')
                 self.assertEqual(result.stderr, 'Agent environment rejected: missing_required_configuration\n')
 
-    def test_invalid_transport_prevents_controller_and_cleans_candidate(self):
-        for invalid in (None, '', '{' + SECRET, '[]', secret_payload(extra={PREFIX + 'TINI_KILL_PROCESS_GROUP': SECRET})):
-            with self.subTest(kind='invalid transport'):
-                result, observed, remaining, _ = self.invoke(transport=invalid)
+    def test_legacy_json_cannot_replace_missing_explicit_inputs(self):
+        for legacy in (None, '', '{' + SECRET, '[]', secret_payload()):
+            with self.subTest(kind='legacy transport'):
+                result, observed, remaining, _ = self.invoke(values={}, transport=legacy)
                 self.assertEqual(result.returncode, 1)
                 self.assertIsNone(observed)
                 self.assertEqual(remaining, [])
                 self.assertEqual(result.stdout, '')
-                self.assertRegex(result.stderr, r'\AAgent environment rejected: [A-Za-z0-9_-]+\n\Z')
-                self.assertNotIn(SECRET, result.stderr)
+                self.assertEqual(result.stderr, 'Agent environment rejected: missing_required_configuration\n')
+
+    def test_legacy_json_is_ignored_and_removed_before_controller(self):
+        result, observed, remaining, _ = self.invoke(transport='not-json-' + SECRET)
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, '', ''))
+        self.assertEqual(records(observed['content'].encode()), valid_env())
+        self.assertFalse(observed['transportInherited'])
+        self.assertEqual(observed['secretKeysInherited'], [])
+        self.assertEqual(remaining, [])
 
     def test_invalid_selected_value_prevents_controller_and_cleans_candidate(self):
         for invalid in (SECRET + '\rhidden', SECRET + '\nHIDDEN=extra', SECRET + '\u2028HIDDEN=extra',
@@ -551,32 +567,32 @@ class AgentWorkflowTest(unittest.TestCase):
     def test_values_with_shell_syntax_are_not_executed_or_expanded(self):
         def values(marker):
             output = valid_env()
-            output['NEW_SERVICE_TOKEN'] = SECRET + '$(touch ' + shlex.quote(str(marker)) + ')`touch ' + shlex.quote(str(marker)) + '`'
+            output['TAVILY_API_KEY'] = SECRET + '$(touch ' + shlex.quote(str(marker)) + ')`touch ' + shlex.quote(str(marker)) + '`'
             return output
         result, observed, remaining, expanded = self.invoke(values)
         self.assertEqual((result.returncode, result.stdout, result.stderr), (0, '', ''))
-        self.assertIn('$(touch ', records(observed['content'].encode())['NEW_SERVICE_TOKEN'])
-        self.assertIn('`touch ', records(observed['content'].encode())['NEW_SERVICE_TOKEN'])
+        self.assertIn('$(touch ', records(observed['content'].encode())['TAVILY_API_KEY'])
+        self.assertIn('`touch ', records(observed['content'].encode())['TAVILY_API_KEY'])
         self.assertFalse(expanded)
         self.assertFalse(observed['transportInherited'])
         self.assertEqual(remaining, [])
 
-    def test_each_new_run_removes_deleted_dynamic_and_empty_optional_values(self):
+    def test_each_new_run_removes_deleted_and_empty_optional_values(self):
         values = valid_env()
-        values.update({'NOTION_MCP_AUTH_TOKEN': SECRET, 'NEW_SERVICE_TOKEN': SECRET})
+        values.update({'NOTION_MCP_AUTH_TOKEN': SECRET, 'TAVILY_API_KEY': SECRET})
         _, first, _, _ = self.invoke(values)
-        del values['NOTION_MCP_AUTH_TOKEN']
-        del values['NEW_SERVICE_TOKEN']
+        values['NOTION_MCP_AUTH_TOKEN'] = ''
+        del values['TAVILY_API_KEY']
         result, second, remaining, _ = self.invoke(values)
         self.assertEqual(result.returncode, 0)
         self.assertIn('NOTION_MCP_AUTH_TOKEN', records(first['content'].encode()))
-        self.assertIn('NEW_SERVICE_TOKEN', records(first['content'].encode()))
+        self.assertIn('TAVILY_API_KEY', records(first['content'].encode()))
         self.assertNotIn('NOTION_MCP_AUTH_TOKEN', records(second['content'].encode()))
-        self.assertNotIn('NEW_SERVICE_TOKEN', records(second['content'].encode()))
+        self.assertNotIn('TAVILY_API_KEY', records(second['content'].encode()))
         self.assertIn('--replace-env', second['args'])
         self.assertEqual(remaining, [])
 
-    def test_xtrace_is_disabled_before_transport_processing(self):
+    def test_xtrace_is_disabled_before_secret_processing(self):
         result, observed, remaining, _ = self.invoke(start_xtrace=True)
         self.assertEqual(result.returncode, 0)
         self.assertIsNotNone(observed)
@@ -603,6 +619,10 @@ class AgentWorkflowTest(unittest.TestCase):
         self.assertIn('export MONGODB_DB_NAME="${TEST_MONGODB_DB_NAME:-ieum_test}"',self.source)
         self.assertIn('pytest tests/',self.source)
         self.assertNotIn('secrets.AGENT_',self.source)
+        self.assertNotIn('TEST_MONGODB', self.header)
+        for key in ('AGENT_TEST_MONGODB_URL', 'AGENT_TEST_MONGODB_DB_NAME',
+                    'TEST_MONGODB_URL', 'TEST_MONGODB_DB_NAME'):
+            self.assertNotIn(key, agent_env.DEV_RUNTIME_KEYS)
 
     def test_image_cannot_bake_a_stale_dotenv_source(self):
         ignore=(REPOSITORY/'.dockerignore').read_text().splitlines()

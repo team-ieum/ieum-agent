@@ -124,7 +124,33 @@ jobs:
       - name: Deploy with prefixed GitHub Secrets
         env:
           IMAGE_TAG: ${{ github.sha }}
-          IEUM_AGENT_SECRETS_JSON: ${{ toJSON(secrets) }}
+          DEV_COM_AGENT_CLAUDE_DEFAULT_MODEL: ${{ secrets.DEV_COM_AGENT_CLAUDE_DEFAULT_MODEL }}
+          DEV_COM_AGENT_GEMINI_DEFAULT_MODEL: ${{ secrets.DEV_COM_AGENT_GEMINI_DEFAULT_MODEL }}
+          DEV_COM_AGENT_INTERNAL_TOKEN: ${{ secrets.DEV_COM_AGENT_INTERNAL_TOKEN }}
+          DEV_COM_AGENT_MAX_LLM_CALLS: ${{ secrets.DEV_COM_AGENT_MAX_LLM_CALLS }}
+          DEV_COM_AGENT_MONGODB_DB_NAME: ${{ secrets.DEV_COM_AGENT_MONGODB_DB_NAME }}
+          DEV_COM_AGENT_MONGODB_URL: ${{ secrets.DEV_COM_AGENT_MONGODB_URL }}
+          DEV_COM_AGENT_NOTION_MCP_AUTH_TOKEN: ${{ secrets.DEV_COM_AGENT_NOTION_MCP_AUTH_TOKEN }}
+          DEV_COM_AGENT_NOTION_MCP_URL: ${{ secrets.DEV_COM_AGENT_NOTION_MCP_URL }}
+          DEV_COM_AGENT_OPENAI_DEFAULT_MODEL: ${{ secrets.DEV_COM_AGENT_OPENAI_DEFAULT_MODEL }}
+          DEV_COM_AGENT_PORT: ${{ secrets.DEV_COM_AGENT_PORT }}
+          DEV_COM_AGENT_TIMEOUT_SECONDS: ${{ secrets.DEV_COM_AGENT_TIMEOUT_SECONDS }}
+          DEV_COM_CLAUDE_DEFAULT_MODEL: ${{ secrets.DEV_COM_CLAUDE_DEFAULT_MODEL }}
+          DEV_COM_GEMINI_DEFAULT_MODEL: ${{ secrets.DEV_COM_GEMINI_DEFAULT_MODEL }}
+          DEV_COM_MONGODB_DB_NAME: ${{ secrets.DEV_COM_MONGODB_DB_NAME }}
+          DEV_COM_MONGODB_URL: ${{ secrets.DEV_COM_MONGODB_URL }}
+          DEV_COM_NOTION_MCP_AUTH_TOKEN: ${{ secrets.DEV_COM_NOTION_MCP_AUTH_TOKEN }}
+          DEV_COM_NOTION_MCP_URL: ${{ secrets.DEV_COM_NOTION_MCP_URL }}
+          DEV_COM_OPENAI_DEFAULT_MODEL: ${{ secrets.DEV_COM_OPENAI_DEFAULT_MODEL }}
+          DEV_COM_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.DEV_COM_OTEL_EXPORTER_OTLP_ENDPOINT }}
+          DEV_COM_PLATFORM_GEMINI_API_KEY: ${{ secrets.DEV_COM_PLATFORM_GEMINI_API_KEY }}
+          DEV_COM_PORT: ${{ secrets.DEV_COM_PORT }}
+          DEV_COM_SELF_HOSTED_ALLOWED_ROLES: ${{ secrets.DEV_COM_SELF_HOSTED_ALLOWED_ROLES }}
+          DEV_COM_SELF_HOSTED_LLM_API_KEY: ${{ secrets.DEV_COM_SELF_HOSTED_LLM_API_KEY }}
+          DEV_COM_SELF_HOSTED_LLM_BASE_URL: ${{ secrets.DEV_COM_SELF_HOSTED_LLM_BASE_URL }}
+          DEV_COM_SELF_HOSTED_LLM_MODEL: ${{ secrets.DEV_COM_SELF_HOSTED_LLM_MODEL }}
+          DEV_COM_SUPPORTED_PROVIDERS: ${{ secrets.DEV_COM_SUPPORTED_PROVIDERS }}
+          DEV_COM_TAVILY_API_KEY: ${{ secrets.DEV_COM_TAVILY_API_KEY }}
         run: |
           set +x
           set -euo pipefail
@@ -134,7 +160,10 @@ jobs:
           trap 'exit 130' INT
           trap 'exit 143' TERM
           python3 scripts/bluegreen/agent_env.py "$candidate_env"
-          unset IEUM_AGENT_SECRETS_JSON
+          for secret_name in "${!DEV_COM_@}"; do
+            unset "$secret_name"
+          done
+          unset secret_name IEUM_AGENT_SECRETS_JSON
           python3 /home/kwung/deploy/bluegreen/bluegreen.py --lock-timeout 14400 deploy \
             --job-deadline-epoch "$IEUM_BLUEGREEN_JOB_DEADLINE_EPOCH" \
             --service agent \

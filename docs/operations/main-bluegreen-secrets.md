@@ -1,7 +1,7 @@
 # Agent MAIN 배포 설정
 
 MAIN은 `https://kiacms.co.kr` 환경을 사용하며, DEV와 컨테이너·데이터·배포 상태를 분리합니다.
-필요한 Secrets만 명시적으로 전달하고, Blue·Green별 `.env` 스냅샷을 보관합니다.
+DEV와 마찬가지로 필요한 Secrets만 명시적으로 전달하고, Blue·Green별 `.env` 스냅샷을 보관합니다.
 
 ## Secrets 등록
 
@@ -56,6 +56,7 @@ Notion MCP 2개는 `AGENT_`를 뺀 직접 이름도 지원합니다. OTLP 주소
 - MAIN은 Secrets 등록만으로 새 변수가 자동 추가되지 않습니다.
 - 새 키는 `agent_env.py`의 `MAIN_RUNTIME_KEYS`와 MAIN workflow의 deploy·stage-bootstrap
   두 단계 `env`에 함께 추가합니다. 앱의 변수 처리와 필수값 검사도 필요에 따라 수정합니다.
+  현재 DEV와 앱 키 목록을 공유하므로 공용 목록을 늘릴 때는 DEV workflow의 명시 목록도 맞춥니다.
 - `MAIN_COM_`을 제거하고 기존 별칭을 적용합니다. DEV·AWS·이전 서버 `.env`에서 값을 보충하지 않습니다.
 - 미등록·빈 선택값은 제외해 앱 기본값을 사용합니다. 필수값의 누락·빈 값·공백만 있는 값은 거부합니다.
 - 값은 줄바꿈 없는 문자열입니다. 공백·달러 기호·따옴표·등호를 자동으로 제거하거나 실행하지 않습니다.
