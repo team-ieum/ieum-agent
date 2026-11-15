@@ -803,3 +803,253 @@ async def google_calendar_find_or_create(
         return json.dumps(made, ensure_ascii=False)
     return json.dumps({"success": True, "created": True, "eventId": made["eventId"], "htmlLink": made["htmlLink"]},
                       ensure_ascii=False)
+
+
+# --- 바꾸기 묶음(IEUM 이슈 2: C2·C5·C6·C7·C8) ---------------------------------------------------
+
+def _start_end(event: dict) -> tuple[str, str]:
+    start, end = event.get("start") or {}, event.get("end") or {}
+    return start.get("dateTime") or start.get("date", ""), end.get("dateTime") or end.get("date", "")
+
+
+async def google_calendar_quick_add(
+    access_token: str,
+    text: str,
+    calendar_id: str = "primary",
+    send_updates: Optional[str] = None,
+) -> str:
+    """
+    '내일 오후 3시 팀 회의'처럼 문장 하나로 Google Calendar 일정을 만듭니다(events.quickAdd).
+    요청 본문이 없는 API라 참석자는 넣을 수 없습니다 — 참석자 추가 도구를 이어서 씁니다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        text: 일정 문장 (예: "내일 오후 3시 팀 회의")
+        calendar_id: 캘린더 ID (기본값: "primary")
+        send_updates: 참석자 알림 "all" | "externalOnly" | "none". 비우면 Google 기본 동작
+
+    Returns:
+        {eventId, htmlLink, summary, start, end} JSON 문자열. 시각은 Google이 문장에서 읽어 낸 값이다.
+    """
+    tool = "google_calendar_quick_add"
+    if _blank(text):
+        return _fail(tool, "일정 문장이 비어 있습니다")
+    try:
+        client = get_http_client()
+        response = await client.post(
+            f"{_CALENDAR_API_BASE}/calendars/{_calendar_segment(calendar_id)}/events/quickAdd",
+            headers=_headers(access_token), params={"text": str(text).strip(), **_send_updates(send_updates)},
+            timeout=_TIMEOUT)
+        if not response.is_success:
+            return _api_error(response)
+        event = response.json()
+        start, end = _start_end(event)
+        return json.dumps({"success": True, "eventId": event.get("id", ""), "htmlLink": event.get("htmlLink", ""),
+                           "summary": event.get("summary", ""), "start": start, "end": end}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def _change_attendees(tool: str, access_token: str, event_id, attendees, calendar_id, scope, send_updates,
+                            add: bool) -> str:
+    """참석자 추가·빼기 공용. events.get으로 지금 참석자를 읽어 합치거나 뺀 뒤 patch한다
+    (patch의 attendees는 통째 교체라 그냥 보내면 다른 참석자가 지워진다 — 설계 C5·C6).
+    바뀌는 게 없으면 patch(와 알림 메일)를 보내지 않는다."""
+    if _blank(event_id):
+        return _fail(tool, "event_id가 비어 있습니다")
+    emails = [] if _blank(attendees) else _emails(attendees)
+    if not emails:
+        return _fail(tool, "참석자 이메일이 비어 있습니다")
+    bad = [e for e in emails if "@" not in e]
+    if bad:
+        return _fail(tool, "이메일 형식이 아니에요: " + ", ".join(bad))
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        cal = _calendar_segment(calendar_id)
+        target = await _resolve_target(client, headers, cal, event_id, scope)
+        target_id = target.get("id") or str(event_id)
+        if target.get("status") == "cancelled":
+            return _fail(tool, "삭제된 일정은 바꿀 수 없어요")
+        if scope != "all" and target.get("recurrence"):
+            # 원본 ID엔 회차 정보가 없어 '이 일정만'을 지킬 수 없다 — patch하면 시리즈 전체가 바뀐다.
+            return _fail(tool, "어느 회차인지 알 수 없어요. 회차를 고르거나 '반복 전체'를 선택하세요")
+        current = list(target.get("attendees") or [])  # 응답 상태·선택 참석자 같은 다른 속성을 그대로 둔다
+        have = {str(a.get("email", "")).lower() for a in current}
+        if add:
+            changed = list(dict.fromkeys(e for e in emails if e.lower() not in have))
+            new_list = current + [{"email": e} for e in changed]
+        else:
+            drop = {e.lower() for e in emails}
+            changed = [a["email"] for a in current if str(a.get("email", "")).lower() in drop]
+            new_list = [a for a in current if str(a.get("email", "")).lower() not in drop]
+        key = "added" if add else "removed"
+
+        def result(event: dict) -> str:
+            return json.dumps({"success": True, "eventId": target_id, "htmlLink": event.get("htmlLink", ""),
+                               "attendees": [a["email"] for a in event.get("attendees") or [] if a.get("email")],
+                               key: changed}, ensure_ascii=False)
+
+        if not changed:
+            return result(target)
+        response = await client.patch(_event_url(cal, target_id), headers=headers, json={"attendees": new_list},
+                                      params=_send_updates(send_updates), timeout=_TIMEOUT)
+        if not response.is_success:
+            return _api_error(response)
+        return result(response.json())
+    except _ApiError as e:
+        return _api_error(e.response)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_calendar_add_attendees(
+    access_token: str,
+    event_id: str,
+    attendees: str,
+    calendar_id: str = "primary",
+    scope: str = "this",
+    send_updates: Optional[str] = None,
+) -> str:
+    """
+    일정에 참석자를 더합니다(기존 참석자는 그대로). ACTION 노드 전용이라 AI 노드 도구 선택지에 싣지 않는다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        event_id: 일정 ID
+        attendees: 더할 참석자 이메일, 쉼표로 구분(JSON 목록 문자열도 받는다)
+        calendar_id: 캘린더 ID (기본값: "primary")
+        scope: "this"(이 일정만, 기본) 또는 "all"(반복 일정의 회차면 반복 전체)
+        send_updates: 참석자 알림 "all" | "externalOnly" | "none". 비우면 Google 기본 동작
+
+    Returns:
+        {eventId, htmlLink, attendees, added} JSON 문자열. 이미 있던 이메일은 added에서 빠지고, 비면 바꾸지 않았다.
+    """
+    return await _change_attendees("google_calendar_add_attendees", access_token, event_id, attendees, calendar_id,
+                                   scope, send_updates, add=True)
+
+
+async def google_calendar_remove_attendees(
+    access_token: str,
+    event_id: str,
+    attendees: str,
+    calendar_id: str = "primary",
+    scope: str = "this",
+    send_updates: Optional[str] = None,
+) -> str:
+    """
+    일정에서 참석자를 뺍니다(다른 참석자는 그대로). ACTION 노드 전용이라 AI 노드 도구 선택지에 싣지 않는다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        event_id: 일정 ID
+        attendees: 뺄 참석자 이메일, 쉼표로 구분(JSON 목록 문자열도 받는다). 대소문자는 가리지 않는다
+        calendar_id: 캘린더 ID (기본값: "primary")
+        scope: "this"(이 일정만, 기본) 또는 "all"(반복 일정의 회차면 반복 전체)
+        send_updates: 참석자 알림 "all" | "externalOnly" | "none". 비우면 Google 기본 동작
+
+    Returns:
+        {eventId, htmlLink, attendees, removed} JSON 문자열. 없던 이메일은 removed에서 빠지고, 비면 바꾸지 않았다.
+    """
+    return await _change_attendees("google_calendar_remove_attendees", access_token, event_id, attendees, calendar_id,
+                                   scope, send_updates, add=False)
+
+
+_MOVABLE_TYPES = {"default", ""}  # 생일·포커스 타임·부재중·근무 위치·Gmail 일정은 Google이 옮기지 못하게 한다
+
+
+async def google_calendar_move_event(
+    access_token: str,
+    event_id: str,
+    destination_calendar_id: str,
+    calendar_id: str = "primary",
+    send_updates: Optional[str] = None,
+) -> str:
+    """
+    일정을 다른 캘린더로 옮깁니다(events.move). 옮기면 주최자가 옮긴 캘린더로 바뀐다.
+    ACTION 노드 전용이라 AI 노드 도구 선택지에 싣지 않는다.
+
+    Args:
+        access_token: Google OAuth Access Token
+        event_id: 옮길 일정 ID
+        destination_calendar_id: 옮겨 넣을 캘린더 ID
+        calendar_id: 지금 일정이 있는 캘린더 ID (기본값: "primary")
+        send_updates: 참석자 알림 "all" | "externalOnly" | "none". 비우면 Google 기본 동작
+
+    Returns:
+        {eventId, htmlLink, calendarId} JSON 문자열. calendarId는 옮긴 캘린더 ID.
+    """
+    tool = "google_calendar_move_event"
+    if _blank(event_id) or _blank(destination_calendar_id):
+        return _fail(tool, "일정과 옮길 캘린더가 필요해요")
+    try:
+        client = get_http_client()
+        headers = _headers(access_token)
+        cal = _calendar_segment(calendar_id)
+        destination = unquote(str(destination_calendar_id).strip())
+        if _calendar_segment(destination) == cal:
+            return _fail(tool, "옮길 캘린더가 지금 캘린더와 같아요")
+        target = await _get_json(client, headers, _event_url(cal, str(event_id).strip()))
+        if target.get("status") == "cancelled":
+            return _fail(tool, "삭제된 일정은 옮길 수 없어요")
+        if str(target.get("eventType") or "") not in _MOVABLE_TYPES:
+            return _fail(tool, "일반 일정만 옮길 수 있어요 (생일·포커스 타임·부재중·근무 위치·Gmail 일정은 안 돼요)")
+        response = await client.post(_event_url(cal, target.get("id") or str(event_id).strip()) + "/move",
+                                     headers=headers,
+                                     params={"destination": destination, **_send_updates(send_updates)},
+                                     timeout=_TIMEOUT)
+        if not response.is_success:
+            return _api_error(response)
+        event = response.json()
+        return json.dumps({"success": True, "eventId": event.get("id", ""), "htmlLink": event.get("htmlLink", ""),
+                           "calendarId": destination}, ensure_ascii=False)
+    except _ApiError as e:
+        return _api_error(e.response)
+    except Exception as e:
+        return _fail(tool, str(e))
+
+
+async def google_calendar_create_calendar(
+    access_token: str,
+    summary: str,
+    description: str = "",
+    time_zone: str = "",
+    location: str = "",
+) -> str:
+    """
+    새 보조 캘린더를 만듭니다(calendars.insert).
+
+    Args:
+        access_token: Google OAuth Access Token
+        summary: 캘린더 이름
+        description: 설명
+        time_zone: IANA 시간대(예: Asia/Seoul). 비우면 계정 기본 시간대
+        location: 캘린더의 지역
+
+    Returns:
+        {calendarId, summary, timeZone} JSON 문자열
+    """
+    tool = "google_calendar_create_calendar"
+    if _blank(summary):
+        return _fail(tool, "캘린더 이름이 비어 있습니다")
+    body = {"summary": str(summary).strip()}
+    if not _blank(time_zone):
+        try:
+            ZoneInfo(str(time_zone).strip())  # 잘못된 이름은 Google 대신 여기서 알기 쉽게 거절한다
+        except Exception:
+            return _fail(tool, f"모르는 시간대예요: {str(time_zone).strip()} (예: Asia/Seoul)")
+        body["timeZone"] = str(time_zone).strip()
+    for key, value in (("description", description), ("location", location)):
+        if not _blank(value):
+            body[key] = str(value).strip()
+    try:
+        client = get_http_client()
+        response = await client.post(f"{_CALENDAR_API_BASE}/calendars", headers=_headers(access_token), json=body,
+                                     timeout=_TIMEOUT)
+        if not response.is_success:
+            return _api_error(response)
+        cal = response.json()
+        return json.dumps({"success": True, "calendarId": cal.get("id", ""), "summary": cal.get("summary", ""),
+                           "timeZone": cal.get("timeZone", "")}, ensure_ascii=False)
+    except Exception as e:
+        return _fail(tool, str(e))
