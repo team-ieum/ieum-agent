@@ -89,6 +89,10 @@
               "name": "캘린더 일정 만들기"
             },
             {
+              "id": "builtin:google_calendar_create_calendar",
+              "name": "캘린더 만들기"
+            },
+            {
               "id": "builtin:google_calendar_find",
               "name": "캘린더 일정 찾기"
             },
@@ -111,6 +115,10 @@
             {
               "id": "builtin:google_calendar_list_calendars",
               "name": "캘린더 목록"
+            },
+            {
+              "id": "builtin:google_calendar_quick_add",
+              "name": "문장으로 캘린더 일정 만들기"
             },
             {
               "id": "builtin:google_calendar_update",
@@ -7659,6 +7667,123 @@
     {
       "app": "google_calendar",
       "appTitle": "Google Calendar",
+      "description": "기존 참석자는 두고 참석자를 더해요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.add_attendees",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.add_attendees",
+      "inputFields": [
+        {
+          "description": "참석자를 더할 일정",
+          "key": "event_id",
+          "optionsInputs": [
+            "calendar_id"
+          ],
+          "optionsSource": "google.events",
+          "path": "config.event_id",
+          "required": true,
+          "title": "일정",
+          "type": "string"
+        },
+        {
+          "description": "쉼표로 구분해요. 예: a@x.com, b@x.com",
+          "key": "attendees",
+          "path": "config.attendees",
+          "required": true,
+          "title": "참석자 이메일",
+          "type": "string"
+        },
+        {
+          "default": "primary",
+          "description": "대상 캘린더 (비우면 기본 캘린더, 쓰기 권한이 있는 캘린더만)",
+          "key": "calendar_id",
+          "optionsSource": "google.writable_calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "this",
+              "name": "이 일정만"
+            },
+            {
+              "id": "all",
+              "name": "반복 전체"
+            }
+          ],
+          "default": "this",
+          "description": "반복 일정일 때 이 일정만 또는 반복 전체",
+          "key": "scope",
+          "path": "config.scope",
+          "ref": false,
+          "title": "적용 범위",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "all",
+              "name": "모두에게"
+            },
+            {
+              "id": "externalOnly",
+              "name": "외부 참석자에게만"
+            },
+            {
+              "id": "none",
+              "name": "보내지 않음"
+            }
+          ],
+          "description": "비우면 Google 기본 동작",
+          "key": "send_updates",
+          "path": "config.send_updates",
+          "ref": false,
+          "title": "참석자 알림",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "실제로 바꾼 일정(반복 전체면 원본) ID",
+          "key": "eventId",
+          "title": "일정 ID",
+          "type": "string"
+        },
+        {
+          "key": "htmlLink",
+          "title": "일정 링크",
+          "type": "string"
+        },
+        {
+          "description": "바꾼 뒤 참석자 이메일 목록",
+          "key": "attendees",
+          "list": true,
+          "title": "참석자",
+          "type": "string"
+        },
+        {
+          "description": "이미 있거나 없던 이메일은 빠져요. 비면 바꾸지 않았어요",
+          "key": "added",
+          "list": true,
+          "title": "추가한 참석자",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 일정에 참석자 추가",
+      "toolKey": "builtin:google_calendar_add_attendees"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
       "description": "구글 캘린더에 새 일정을 추가해요.",
       "fixed": {
         "config": {
@@ -7724,6 +7849,73 @@
       "provider": "google",
       "title": "캘린더 일정 만들기",
       "toolKey": "builtin:google_calendar_create"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
+      "description": "새 보조 캘린더를 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.create_calendar",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.create_calendar",
+      "inputFields": [
+        {
+          "key": "summary",
+          "path": "config.summary",
+          "required": true,
+          "title": "이름",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "key": "description",
+          "path": "config.description",
+          "title": "설명",
+          "type": "text"
+        },
+        {
+          "default": "",
+          "description": "IANA 이름(예: Asia/Seoul). 비우면 계정 기본 시간대",
+          "key": "time_zone",
+          "path": "config.time_zone",
+          "title": "시간대",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "description": "캘린더의 지역(예: 서울)",
+          "key": "location",
+          "path": "config.location",
+          "title": "장소",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "calendarId",
+          "title": "캘린더 ID",
+          "type": "string"
+        },
+        {
+          "key": "summary",
+          "title": "이름",
+          "type": "string"
+        },
+        {
+          "key": "timeZone",
+          "title": "시간대",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 만들기",
+      "toolKey": "builtin:google_calendar_create_calendar"
     },
     {
       "app": "google_calendar",
@@ -8358,7 +8550,7 @@
       "id": "google_calendar.get_event",
       "inputFields": [
         {
-          "description": "가져올 일정. 목록엔 앞으로의 일정만 나와요 — 지난 일정은 ID를 직접 넣거나 앞 노드 값을 참조해요",
+          "description": "가져올 일정",
           "key": "event_id",
           "optionsInputs": [
             "calendar_id"
@@ -8618,6 +8810,301 @@
       "provider": "google",
       "title": "캘린더 목록",
       "toolKey": "builtin:google_calendar_list_calendars"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
+      "description": "일정을 다른 캘린더로 옮겨요. 주최자가 옮긴 캘린더로 바뀌어요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.move_event",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.move_event",
+      "inputFields": [
+        {
+          "description": "옮길 일정 (일반 일정만 — 생일·포커스 타임·부재중·근무 위치·Gmail 일정은 옮길 수 없어요)",
+          "key": "event_id",
+          "optionsInputs": [
+            "calendar_id"
+          ],
+          "optionsSource": "google.events",
+          "path": "config.event_id",
+          "required": true,
+          "title": "일정",
+          "type": "string"
+        },
+        {
+          "description": "일정을 옮겨 넣을 캘린더 (쓰기 권한이 있는 캘린더만)",
+          "key": "destination_calendar_id",
+          "optionsSource": "google.writable_calendars",
+          "path": "config.destination_calendar_id",
+          "required": true,
+          "title": "옮길 캘린더",
+          "type": "string"
+        },
+        {
+          "default": "primary",
+          "description": "지금 일정이 있는 캘린더 (비우면 기본 캘린더)",
+          "key": "calendar_id",
+          "optionsSource": "google.writable_calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "all",
+              "name": "모두에게"
+            },
+            {
+              "id": "externalOnly",
+              "name": "외부 참석자에게만"
+            },
+            {
+              "id": "none",
+              "name": "보내지 않음"
+            }
+          ],
+          "description": "비우면 Google 기본 동작",
+          "key": "send_updates",
+          "path": "config.send_updates",
+          "ref": false,
+          "title": "참석자 알림",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "eventId",
+          "title": "일정 ID",
+          "type": "string"
+        },
+        {
+          "key": "htmlLink",
+          "title": "일정 링크",
+          "type": "string"
+        },
+        {
+          "key": "calendarId",
+          "title": "옮긴 캘린더 ID",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "다른 캘린더로 일정 옮기기",
+      "toolKey": "builtin:google_calendar_move_event"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
+      "description": "'내일 오후 3시 팀 회의'처럼 문장 하나로 일정을 만들어요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.quick_add",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.quick_add",
+      "inputFields": [
+        {
+          "description": "예: 내일 오후 3시 팀 회의. 참석자는 넣을 수 없어요 — 필요하면 '참석자 추가'를 이어 붙여요",
+          "key": "text",
+          "path": "config.text",
+          "required": true,
+          "title": "문장",
+          "type": "text"
+        },
+        {
+          "default": "primary",
+          "description": "일정을 만들 캘린더 (비우면 기본 캘린더, 쓰기 권한이 있는 캘린더만)",
+          "key": "calendar_id",
+          "optionsSource": "google.writable_calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "all",
+              "name": "모두에게"
+            },
+            {
+              "id": "externalOnly",
+              "name": "외부 참석자에게만"
+            },
+            {
+              "id": "none",
+              "name": "보내지 않음"
+            }
+          ],
+          "description": "비우면 Google 기본 동작",
+          "key": "send_updates",
+          "path": "config.send_updates",
+          "ref": false,
+          "title": "참석자 알림",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "key": "eventId",
+          "title": "일정 ID",
+          "type": "string"
+        },
+        {
+          "key": "htmlLink",
+          "title": "일정 링크",
+          "type": "string"
+        },
+        {
+          "description": "Google이 문장에서 읽어 낸 제목",
+          "key": "summary",
+          "title": "제목",
+          "type": "string"
+        },
+        {
+          "description": "종일 일정은 날짜(YYYY-MM-DD)",
+          "key": "start",
+          "title": "시작",
+          "type": "datetime"
+        },
+        {
+          "description": "종일 일정은 날짜이고, Google 규칙대로 끝나는 날의 다음 날이에요",
+          "key": "end",
+          "title": "종료",
+          "type": "datetime"
+        }
+      ],
+      "provider": "google",
+      "title": "문장으로 캘린더 일정 만들기",
+      "toolKey": "builtin:google_calendar_quick_add"
+    },
+    {
+      "app": "google_calendar",
+      "appTitle": "Google Calendar",
+      "description": "다른 참석자는 두고 고른 참석자만 빼요.",
+      "fixed": {
+        "config": {
+          "brand": "google"
+        },
+        "event": "google_calendar.remove_attendees",
+        "type": "ACTION"
+      },
+      "id": "google_calendar.remove_attendees",
+      "inputFields": [
+        {
+          "description": "참석자를 뺄 일정",
+          "key": "event_id",
+          "optionsInputs": [
+            "calendar_id"
+          ],
+          "optionsSource": "google.events",
+          "path": "config.event_id",
+          "required": true,
+          "title": "일정",
+          "type": "string"
+        },
+        {
+          "description": "쉼표로 구분해요. 예: a@x.com, b@x.com",
+          "key": "attendees",
+          "path": "config.attendees",
+          "required": true,
+          "title": "참석자 이메일",
+          "type": "string"
+        },
+        {
+          "default": "primary",
+          "description": "대상 캘린더 (비우면 기본 캘린더, 쓰기 권한이 있는 캘린더만)",
+          "key": "calendar_id",
+          "optionsSource": "google.writable_calendars",
+          "path": "config.calendar_id",
+          "title": "캘린더",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "this",
+              "name": "이 일정만"
+            },
+            {
+              "id": "all",
+              "name": "반복 전체"
+            }
+          ],
+          "default": "this",
+          "description": "반복 일정일 때 이 일정만 또는 반복 전체",
+          "key": "scope",
+          "path": "config.scope",
+          "ref": false,
+          "title": "적용 범위",
+          "type": "string"
+        },
+        {
+          "choices": [
+            {
+              "id": "all",
+              "name": "모두에게"
+            },
+            {
+              "id": "externalOnly",
+              "name": "외부 참석자에게만"
+            },
+            {
+              "id": "none",
+              "name": "보내지 않음"
+            }
+          ],
+          "description": "비우면 Google 기본 동작",
+          "key": "send_updates",
+          "path": "config.send_updates",
+          "ref": false,
+          "title": "참석자 알림",
+          "type": "string"
+        }
+      ],
+      "kind": "action",
+      "nodeType": "ACTION",
+      "outputFields": [
+        {
+          "description": "실제로 바꾼 일정(반복 전체면 원본) ID",
+          "key": "eventId",
+          "title": "일정 ID",
+          "type": "string"
+        },
+        {
+          "key": "htmlLink",
+          "title": "일정 링크",
+          "type": "string"
+        },
+        {
+          "description": "바꾼 뒤 참석자 이메일 목록",
+          "key": "attendees",
+          "list": true,
+          "title": "참석자",
+          "type": "string"
+        },
+        {
+          "description": "이미 있거나 없던 이메일은 빠져요. 비면 바꾸지 않았어요",
+          "key": "removed",
+          "list": true,
+          "title": "뺀 참석자",
+          "type": "string"
+        }
+      ],
+      "provider": "google",
+      "title": "캘린더 일정에서 참석자 빼기",
+      "toolKey": "builtin:google_calendar_remove_attendees"
     },
     {
       "app": "google_calendar",

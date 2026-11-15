@@ -9,6 +9,11 @@ from common.error_code import ToolErrorCode
 from tests.action_outputs import assert_matches_outputs
 from tests.test_google_tools import _make_async_client, _make_mock_response
 from tools.google_calendar import (
+    google_calendar_add_attendees,
+    google_calendar_create_calendar,
+    google_calendar_move_event,
+    google_calendar_quick_add,
+    google_calendar_remove_attendees,
     google_calendar_create,
     google_calendar_delete,
     google_calendar_find,
@@ -1065,3 +1070,145 @@ async def test_find_or_create_오프셋_없는_시각으로도_만든다():
     result = await _run(google_calendar_find_or_create, _with_post(get=get, post=post), summary="IEUM e2e S6",
                         start_datetime="2026-11-17T10:00", end_datetime="2026-11-17T11:00")
     assert (result["created"], post.call_args.kwargs["json"]["start"]["dateTime"]) == (True, "2026-11-17T10:00:00+09:00")
+
+
+# --- 바꾸기 묶음: quick_add·add/remove_attendees·move_event·create_calendar ----------------------
+
+@pytest.mark.asyncio
+async def test_quick_add_문장을_쿼리로_보내고_읽어낸_시각을_돌려준다():
+    post = AsyncMock(return_value=_make_mock_response(200, {**_EVENT, "summary": "팀 회의"}))
+    result = await _run(google_calendar_quick_add, _with_post(post=post), text=" 내일 오후 3시 팀 회의 ",
+                        send_updates="none")
+    assert_matches_outputs("google_calendar.quick_add", result)
+    assert (result["summary"], result["start"]) == ("팀 회의", "2026-11-12T09:00:00+09:00")
+    assert post.call_args.args[0].endswith("/calendars/primary/events/quickAdd")
+    assert post.call_args.kwargs["params"] == {"text": "내일 오후 3시 팀 회의", "sendUpdates": "none"}
+
+
+@pytest.mark.asyncio
+async def test_quick_add_빈_문장은_호출_없이_실패():
+    assert "error" in await _run(google_calendar_quick_add, _with_post(), text="  ")
+
+
+def _with_attendees(*emails, **extra):
+    return {**_EVENT, **extra, "attendees": [{"email": e, "responseStatus": "accepted"} for e in emails]}
+
+
+def _patch_echo():
+    """patch 본문의 attendees를 그대로 돌려주는 응답(Google도 바뀐 일정을 돌려준다)."""
+    async def patch(url, **kwargs):
+        return _make_mock_response(200, {**_EVENT, "attendees": kwargs["json"]["attendees"]})
+    return AsyncMock(side_effect=patch)
+
+
+@pytest.mark.asyncio
+async def test_add_attendees_기존_참석자와_응답_상태를_두고_새_이메일만_더한다():
+    patch_mock = _patch_echo()
+    client = _client(get=_gets({"/events/evt-1": _with_attendees("a@x.com")}), patch_mock=patch_mock)
+    result = await _run(google_calendar_add_attendees, client, event_id="evt-1",
+                        attendees="A@x.com, b@x.com, b@x.com", send_updates="all")
+    assert_matches_outputs("google_calendar.add_attendees", result)
+    sent = patch_mock.call_args.kwargs["json"]["attendees"]
+    assert sent == [{"email": "a@x.com", "responseStatus": "accepted"}, {"email": "b@x.com"}]
+    assert (result["added"], result["attendees"]) == (["b@x.com"], ["a@x.com", "b@x.com"])
+    assert patch_mock.call_args.kwargs["params"] == {"sendUpdates": "all"}
+
+
+@pytest.mark.asyncio
+async def test_add_attendees_이미_다_있으면_patch하지_않는다():
+    client = _client(get=_gets({"/events/evt-1": _with_attendees("a@x.com")}))
+    result = await _run(google_calendar_add_attendees, client, event_id="evt-1", attendees='["A@X.com"]')
+    assert (result["added"], result["attendees"]) == ([], ["a@x.com"])
+
+
+@pytest.mark.asyncio
+async def test_remove_attendees_대소문자_없이_빼고_나머지는_둔다():
+    patch_mock = _patch_echo()
+    client = _client(get=_gets({"/events/evt-1": _with_attendees("a@x.com", "B@x.com")}), patch_mock=patch_mock)
+    result = await _run(google_calendar_remove_attendees, client, event_id="evt-1", attendees="b@X.com, z@x.com")
+    assert_matches_outputs("google_calendar.remove_attendees", result)
+    assert patch_mock.call_args.kwargs["json"]["attendees"] == [{"email": "a@x.com", "responseStatus": "accepted"}]
+    assert (result["removed"], result["attendees"]) == (["B@x.com"], ["a@x.com"])
+
+
+@pytest.mark.asyncio
+async def test_remove_attendees_없던_이메일만이면_patch하지_않는다():
+    client = _client(get=_gets({"/events/evt-1": _with_attendees("a@x.com")}))
+    result = await _run(google_calendar_remove_attendees, client, event_id="evt-1", attendees="z@x.com")
+    assert result["removed"] == []
+
+
+@pytest.mark.asyncio
+async def test_attendees_all은_회차가_아니라_원본을_바꾼다():
+    patch_mock = _patch_echo()
+    client = _client(get=_gets({"/events/evt-1_20261020T000000Z": _INSTANCE, "/events/evt-1": _MASTER}),
+                     patch_mock=patch_mock)
+    result = await _run(google_calendar_add_attendees, client, event_id="evt-1_20261020T000000Z",
+                        attendees="b@x.com", scope="all")
+    assert result["eventId"] == "evt-1"
+    assert patch_mock.call_args.args[0].endswith("/events/evt-1")
+
+
+@pytest.mark.asyncio
+async def test_attendees_this에_원본_ID면_시리즈를_바꾸지_않고_실패():
+    client = _client(get=_gets({"/events/evt-1": _MASTER}))
+    result = await _run(google_calendar_add_attendees, client, event_id="evt-1", attendees="b@x.com")
+    assert "회차" in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [{"event_id": "", "attendees": "a@x.com"}, {"event_id": "evt-1", "attendees": " "},
+                                    {"event_id": "evt-1", "attendees": "not-an-email"}])
+async def test_attendees_빈_값과_형식_오류는_호출_없이_실패(kwargs):
+    assert "error" in await _run(google_calendar_add_attendees, _client(), **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_attendees_삭제된_일정은_실패():
+    client = _client(get=_gets({"/events/evt-1": {**_EVENT, "status": "cancelled"}}))
+    assert "error" in await _run(google_calendar_remove_attendees, client, event_id="evt-1", attendees="a@x.com")
+
+
+@pytest.mark.asyncio
+async def test_move_event_옮기고_옮긴_캘린더를_돌려준다():
+    post = AsyncMock(return_value=_make_mock_response(200, {**_EVENT, "htmlLink": "https://cal/moved"}))
+    client = _with_post(get=_gets({"/events/evt-1": _EVENT}), post=post)
+    result = await _run(google_calendar_move_event, client, event_id="evt-1",
+                        destination_calendar_id="team%40group.calendar.google.com", send_updates="none")
+    assert_matches_outputs("google_calendar.move_event", result)
+    assert result["calendarId"] == "team@group.calendar.google.com"
+    assert post.call_args.args[0].endswith("/calendars/primary/events/evt-1/move")
+    assert post.call_args.kwargs["params"] == {"destination": "team@group.calendar.google.com", "sendUpdates": "none"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_type", ["birthday", "focusTime", "outOfOffice", "workingLocation", "fromGmail"])
+async def test_move_event_일반_일정이_아니면_옮기지_않는다(event_type):
+    client = _with_post(get=_gets({"/events/evt-1": {**_EVENT, "eventType": event_type}}))
+    result = await _run(google_calendar_move_event, client, event_id="evt-1", destination_calendar_id="team@x.com")
+    assert "일반 일정만" in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [{"event_id": "evt-1", "destination_calendar_id": ""},
+                                    {"event_id": "evt-1", "destination_calendar_id": "primary"},
+                                    {"event_id": "evt-1", "destination_calendar_id": "a@x.com", "calendar_id": "a%40x.com"}])
+async def test_move_event_빈_대상이나_같은_캘린더는_호출_없이_실패(kwargs):
+    assert "error" in await _run(google_calendar_move_event, _with_post(), **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_create_calendar_채운_칸만_보낸다():
+    post = AsyncMock(return_value=_make_mock_response(200, {"id": "new@group.calendar.google.com", "summary": "팀",
+                                                             "timeZone": "Asia/Seoul"}))
+    result = await _run(google_calendar_create_calendar, _with_post(post=post), summary=" 팀 ", time_zone="Asia/Seoul",
+                        description="", location=" ")
+    assert_matches_outputs("google_calendar.create_calendar", result)
+    assert post.call_args.kwargs["json"] == {"summary": "팀", "timeZone": "Asia/Seoul"}
+    assert result["calendarId"] == "new@group.calendar.google.com"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [{"summary": " "}, {"summary": "팀", "time_zone": "Seoul"}])
+async def test_create_calendar_빈_이름과_모르는_시간대는_호출_없이_실패(kwargs):
+    assert "error" in await _run(google_calendar_create_calendar, _with_post(), **kwargs)

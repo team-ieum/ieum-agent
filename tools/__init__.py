@@ -31,12 +31,14 @@ from tools.google_sheets_sheets import (  # 시트·파일(레인 S)
 )
 from tools.google_calendar import (
     google_calendar_create,
+    google_calendar_create_calendar,
     google_calendar_find,
     google_calendar_find_busy,
     google_calendar_find_or_create,
     google_calendar_get_calendar,
     google_calendar_get_event,
     google_calendar_list_calendars,
+    google_calendar_quick_add,
     google_calendar_update,
 )
 from tools.google_drive import google_drive_read, google_drive_upload
@@ -121,6 +123,8 @@ _TOOL_MAP: dict = {
     "builtin:google_calendar_list_calendars": google_calendar_list_calendars,
     "builtin:google_calendar_get_calendar": google_calendar_get_calendar,
     "builtin:google_calendar_find_or_create": google_calendar_find_or_create,
+    "builtin:google_calendar_quick_add": google_calendar_quick_add,
+    "builtin:google_calendar_create_calendar": google_calendar_create_calendar,
     "builtin:google_drive_read": google_drive_read,
     "builtin:google_drive_upload": google_drive_upload,
     "builtin:workflow_context": workflow_context,

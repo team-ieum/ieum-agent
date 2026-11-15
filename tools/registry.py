@@ -53,7 +53,12 @@ from tools.gmail import (
     gmail_send_email,
     gmail_trash,
 )
-from tools.google_calendar import google_calendar_delete
+from tools.google_calendar import (
+    google_calendar_add_attendees,
+    google_calendar_delete,
+    google_calendar_move_event,
+    google_calendar_remove_attendees,
+)
 from tools.google_forms import (
     google_forms_get_form,
     google_forms_get_response,
@@ -137,6 +142,10 @@ _DYNAMIC_SERVICE_ACTIONS: dict[str, dict] = {
 # _DYNAMIC_SERVICE_ACTIONS에 넣지 않는 이유: 그 dict는 "동적 서브에이전트 서비스" 뜻이다.
 _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_calendar_delete": google_calendar_delete,
+    # 참석자·소속 캘린더를 바꾸면 초대·알림 메일이 나간다 — AI 노드의 일정 수정도 참석자를 숨긴다(_AI_DEFAULTS)
+    "builtin:google_calendar_add_attendees": google_calendar_add_attendees,
+    "builtin:google_calendar_remove_attendees": google_calendar_remove_attendees,
+    "builtin:google_calendar_move_event": google_calendar_move_event,
     "builtin:google_gmail_send_email": gmail_send_email,
     # Gmail 정리 노드 — 메일 본문 프롬프트 인젝션으로 AI 노드가 라벨·휴지통을 건드리지 못하게(spec 2026-11-10 Q1)
     "builtin:google_gmail_find_email": gmail_find_email,

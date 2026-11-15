@@ -157,6 +157,10 @@ def test_option_source_fields_fixed_set():
         ("google_calendar.delete", "calendar_id"), ("google_calendar.delete", "event_id"),
         ("google_calendar.get_event", "calendar_id"), ("google_calendar.get_event", "event_id"),
         ("google_calendar.get_calendar", "calendar_id"), ("google_calendar.find_or_create", "calendar_id"),
+        ("google_calendar.quick_add", "calendar_id"),
+        *[(f"google_calendar.{x}", k) for x in ("add_attendees", "remove_attendees", "move_event")
+          for k in ("event_id", "calendar_id")],
+        ("google_calendar.move_event", "destination_calendar_id"),
         ("google_drive.read", "file_id"), ("google_drive.upload", "folder_id"),
         ("notion.create_page", "parent_page_id"), ("notion.read_page", "page_id"),
         ("notion.update_page", "page_id"), ("notion.append_block", "page_id"),
@@ -423,6 +427,9 @@ EXPECTED_BRANDS = {
     "google_calendar.get_event": "google", "google_calendar.find_busy": "google",
     "google_calendar.list_calendars": "google", "google_calendar.get_calendar": "google",
     "google_calendar.find_or_create": "google",
+    "google_calendar.quick_add": "google", "google_calendar.add_attendees": "google",
+    "google_calendar.remove_attendees": "google", "google_calendar.move_event": "google",
+    "google_calendar.create_calendar": "google",
     "google_drive.upload": "google",
     "google_forms.set_accepting_responses": "google", "google_forms.get_form": "google",
     **{f"google_forms.{x}": "google" for x in (
@@ -536,7 +543,11 @@ def test_calendar_id_공급원은_찾기만_전체_캘린더다():
                    "google_calendar.delete": "google.writable_calendars",
                    "google_calendar.get_event": "google.calendars",
                    "google_calendar.get_calendar": "google.calendars",
-                   "google_calendar.find_or_create": "google.writable_calendars"}
+                   "google_calendar.find_or_create": "google.writable_calendars",
+                   "google_calendar.quick_add": "google.writable_calendars",
+                   "google_calendar.add_attendees": "google.writable_calendars",
+                   "google_calendar.remove_attendees": "google.writable_calendars",
+                   "google_calendar.move_event": "google.writable_calendars"}
 
 
 @pytest.mark.parametrize("entry, key", [
