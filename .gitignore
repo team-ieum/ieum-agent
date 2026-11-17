@@ -219,9 +219,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Claude
-CLAUDE.md
-.claude
+# Claude — .claude/CLAUDE.md·.claude/rules/만 체크인, 나머지(settings.local·agent-memory 등)는 로컬
+/.claude/*
+!/.claude/rules/
+!/.claude/CLAUDE.md
 .ai
 /docs/*
 
