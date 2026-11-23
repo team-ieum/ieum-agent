@@ -57,3 +57,5 @@ class BuildChatResponse(BaseModel):
     # 모델이 토큰을 보고하지 않으면 None (/v1/execute의 AgentExecutionResult.usage와 동일 규약).
     usage: Optional[UsageRecord] = None
     buildState: Literal["BUILDING", "DONE"] = "BUILDING"
+    # 실제 호출한 빌더 모델(bare id, 강등 반영). LLM을 안 탄 턴(완료 확인)·self-hosted 라우팅은 None
+    model: Optional[str] = None

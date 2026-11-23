@@ -13,6 +13,8 @@ from google.genai import types
 
 from core.builder import engine
 from core.builder.state import node_hash
+from core.config import settings
+from core.provider_config import resolve_model
 
 SECRET = "IGNORE-PREVIOUS-샘플값"
 
@@ -60,12 +62,13 @@ def env():
         yield svc, be, llm
 
 
-async def _turn(prompt, nodes=(), edges=(), script=None, llm=None):
+async def _turn(prompt, nodes=(), edges=(), script=None, llm=None, **kw):
     if script is not None:
         llm.script, llm.calls = script, 0
-    return await engine.build_turn(prompt=prompt, provider="GEMINI", api_key="k", user_id="u", workflow_id="wf",
-                                   current_nodes=[dict(n) for n in nodes], current_edges=[dict(e) for e in edges],
-                                   delegation_token="tok")
+    # 병합해 넘긴다 — api_key="k", **kw면 api_key=None을 넘길 때 multiple values TypeError
+    return await engine.build_turn(**{"prompt": prompt, "provider": "GEMINI", "api_key": "k", "user_id": "u",
+                                      "workflow_id": "wf", "current_nodes": [dict(n) for n in nodes],
+                                      "current_edges": [dict(e) for e in edges], "delegation_token": "tok", **kw})
 
 
 async def _state(svc):
@@ -240,6 +243,41 @@ async def test_완료_확인_턴은_LLM_없이_DONE과_전체_노드(env):
     assert resp.buildState == "DONE" and resp.type.value == "WORKFLOW_MODIFIED"
     assert resp.nodes == [TRIGGER, SLACK] and resp.edges == [EDGE]
     assert resp.model_dump(mode="json")["buildState"] == "DONE"
+    assert resp.model is None  # LLM을 안 탄 턴
+
+
+@pytest.mark.asyncio
+async def test_요청_model이_빌더_LLM_모델이_되고_응답에_실린다(env):
+    svc, be, llm = env
+    with patch.object(engine, "build_model_param", return_value=llm) as bmp:
+        resp = await _turn("안녕", llm=llm, script=["안녕하세요"], model="gemini-3.8-flash")
+    assert bmp.call_args.args[1] == "gemini-3.8-flash"
+    assert resp.model == "gemini-3.8-flash"
+
+
+@pytest.mark.asyncio
+async def test_model이_없으면_provider_기본_모델(env):
+    svc, be, llm = env
+    resp = await _turn("안녕", llm=llm, script=["안녕하세요"])
+    assert resp.model == resolve_model("GEMINI")
+
+
+@pytest.mark.asyncio
+async def test_강등되는_모델은_실제_호출_모델을_싣는다(env):
+    svc, be, llm = env
+    with patch.object(engine, "build_model_param", return_value=llm) as bmp:
+        resp = await _turn("안녕", llm=llm, script=["안녕하세요"], model="gemini-2.5-flash")
+    assert bmp.call_args.args[1] == resolve_model("GEMINI") and resp.model == resolve_model("GEMINI")
+
+
+@pytest.mark.asyncio
+async def test_self_hosted로_가면_응답_model은_None(env, monkeypatch):
+    svc, be, llm = env
+    monkeypatch.setattr(settings, "SELF_HOSTED_LLM_BASE_URL", "http://llm.local")
+    monkeypatch.setattr(settings, "SELF_HOSTED_LLM_MODEL", "m")
+    resp = await _turn("안녕", llm=llm, script=["안녕하세요"], api_key=None, user_role="ROLE_TESTER",
+                       model="gemini-3.8-flash")
+    assert resp.model is None
 
 
 @pytest.mark.asyncio

@@ -48,7 +48,7 @@ def test_응답은_buildState를_늘_싣고_기본은_BUILDING():
 def test_응답_모양은_계약_칸만이고_type은_두_가지():
     body = BuildChatResponse(message="m", type="CLARIFICATION_NEEDED", rawPrompt="p").model_dump(mode="json")
     assert set(body) == {"message", "type", "options", "nodes", "edges", "rawPrompt", "workflowName", "usage",
-                         "buildState"}
+                         "buildState", "model"}
     for retired in ("INTEGRATION_REQUIRED", "WORKFLOW_GENERATED"):
         with pytest.raises(ValidationError):
             BuildChatResponse(message="m", type=retired, rawPrompt="p")
