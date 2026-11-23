@@ -182,7 +182,7 @@ def _usage(plugin: UsageTrackingPlugin) -> UsageRecord | None:
 
 async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id: str, workflow_id: str | None,
                      current_nodes: list | None, current_edges: list | None, delegation_token: str | None,
-                     user_role: str | None = None) -> BuildChatResponse:
+                     user_role: str | None = None, model: str | None = None) -> BuildChatResponse:
     if not workflow_id:
         raise ValueError(NO_WORKFLOW_MESSAGE)
     nodes, edges = copy.deepcopy(current_nodes or []), copy.deepcopy(current_edges or [])
@@ -203,8 +203,9 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
     deadline = time.monotonic() + TURN_TIMEOUT_SECONDS  # Turn.deadline과 asyncio.timeout이 같은 시각을 본다
     turn = Turn(workflow_id=workflow_id, provider=provider, backend=Backend(delegation_token), nodes=nodes,
                 edges=edges, confirmed=judged["confirmed"], deadline=deadline)
-    model = resolve_model(provider)
-    usage = UsageTrackingPlugin(model=cost_model_name(provider, model, api_key, user_role))
+    model = resolve_model(provider, model)
+    cost_model = cost_model_name(provider, model, api_key, user_role)  # None이면 self-hosted로 라우팅된다
+    usage = UsageTrackingPlugin(model=cost_model)
     instruction = _instruction(provider, nodes, edges, {**session.state, **judged["delta"]})
     agent = LlmAgent(name="workflow_builder", model=build_model_param(provider, model, api_key, user_role),
                      # 문자열이면 ADK가 {이름}을 세션 state로 치환한다 — 노드 이름·개요의 "{날짜}"가 KeyError, "{pending}"은
@@ -259,7 +260,7 @@ async def build_turn(*, prompt: str, provider: str, api_key: str | None, user_id
         # 첫 노드가 생기는 턴에만(BE는 저장 전 버전 ≤1일 때만 이름을 반영한다)
         workflowName=(state.get("outline") or {}).get("workflowName") if changed and was_empty else None,
         options=options_of(turn.pending["choices"]) if (turn.pending or {}).get("kind") == "model_pick" else [],
-        usage=_usage(usage))
+        usage=_usage(usage), model=model if cost_model is not None else None)
     logger.info("[build] wf=%s type=%s nodes=%d calls_cut=%s", workflow_id, response.type.value, len(nodes), cut_short)
     return response
 

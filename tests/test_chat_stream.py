@@ -88,6 +88,63 @@ def test_chat_stream_위임_토큰이_없으면_None():
     assert captured["delegation_token"] is None
 
 
+def _post_model(model=..., credentials=None) -> dict:
+    """model 필드를 실어(... 이면 생략) 보내고 엔진에 넘어간 kwargs를 돌려준다."""
+    if credentials:
+        app.dependency_overrides[get_llm_credentials] = lambda: credentials
+    payload = CHAT_PAYLOAD if model is ... else {**CHAT_PAYLOAD, "model": model}
+    captured = {}
+    with patch("api.routes.chat.build_turn_stream", _fake_stream(captured)):
+        assert client.post("/v1/chat/stream", json=payload).status_code == 200
+    return captured
+
+
+def test_chat_stream은_model을_엔진에_넘긴다():
+    captured = _post_model("claude-sonnet-5-5")
+    assert captured["model"] == "claude-sonnet-5-5"
+    inspect.signature(build_turn).bind(**captured)
+
+
+def test_chat_stream_model_앞뒤_공백은_벗긴다():
+    assert _post_model(" claude-sonnet-5-5 ")["model"] == "claude-sonnet-5-5"
+
+
+def test_chat_stream_공백_model은_None():
+    assert _post_model("   ")["model"] is None
+
+
+def test_chat_stream_model_없으면_None():
+    assert _post_model()["model"] is None
+
+
+def test_chat_stream_명시_null_model은_None():
+    assert _post_model(None)["model"] is None
+
+
+def test_chat_stream_100자_model은_통과():
+    assert _post_model("a" * 100)["model"] == "a" * 100
+
+
+@pytest.mark.parametrize("model", [
+    "a" * 101,
+    "models/gemini-2.5-flash",
+    "anthropic/claude-sonnet-5-5",
+    "projects/p/locations/us-central1/endpoints/e",
+    "claude sonnet",
+    5,
+    ["claude-sonnet-5-5"],
+])
+def test_chat_stream_bare_id가_아닌_model은_422(model):
+    with patch("api.routes.chat.build_turn_stream") as fake:
+        assert client.post("/v1/chat/stream", json={**CHAT_PAYLOAD, "model": model}).status_code == 422
+    fake.assert_not_called()
+
+
+def test_chat_stream_platform_키면_model을_버린다():
+    creds = {**override_credentials(), "key_mode": "platform"}
+    assert _post_model("claude-sonnet-5-5", credentials=creds)["model"] is None
+
+
 def test_chat_stream_id_없는_노드는_422():
     payload = {**CHAT_PAYLOAD, "currentNodes": [{"id": " ", "event": "manual.run"}]}
     with patch("api.routes.chat.build_turn_stream") as fake:

@@ -48,7 +48,7 @@ def test_응답은_buildState를_늘_싣고_기본은_BUILDING():
 def test_응답_모양은_계약_칸만이고_type은_두_가지():
     body = BuildChatResponse(message="m", type="CLARIFICATION_NEEDED", rawPrompt="p").model_dump(mode="json")
     assert set(body) == {"message", "type", "options", "nodes", "edges", "rawPrompt", "workflowName", "usage",
-                         "buildState"}
+                         "buildState", "model"}
     for retired in ("INTEGRATION_REQUIRED", "WORKFLOW_GENERATED"):
         with pytest.raises(ValidationError):
             BuildChatResponse(message="m", type=retired, rawPrompt="p")
@@ -57,4 +57,5 @@ def test_응답_모양은_계약_칸만이고_type은_두_가지():
 def test_요청은_옛_BE가_보내던_칸을_무시한다():
     req = BuildChatRequest(prompt="x", workflowId="w", availableIntegrations=[{"provider": "GOOGLE"}],
                            mcpServers=[{"x": 1}], availableWebhooks=[])
-    assert req.model_dump() == {"prompt": "x", "workflowId": "w", "currentNodes": None, "currentEdges": None}
+    assert req.model_dump() == {"prompt": "x", "workflowId": "w", "currentNodes": None, "currentEdges": None,
+                               "model": None}
