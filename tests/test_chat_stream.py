@@ -117,6 +117,29 @@ def test_chat_stream_model_없으면_None():
     assert _post_model()["model"] is None
 
 
+def test_chat_stream_명시_null_model은_None():
+    assert _post_model(None)["model"] is None
+
+
+def test_chat_stream_100자_model은_통과():
+    assert _post_model("a" * 100)["model"] == "a" * 100
+
+
+@pytest.mark.parametrize("model", [
+    "a" * 101,
+    "models/gemini-2.5-flash",
+    "anthropic/claude-sonnet-5-5",
+    "projects/p/locations/us-central1/endpoints/e",
+    "claude sonnet",
+    5,
+    ["claude-sonnet-5-5"],
+])
+def test_chat_stream_bare_id가_아닌_model은_422(model):
+    with patch("api.routes.chat.build_turn_stream") as fake:
+        assert client.post("/v1/chat/stream", json={**CHAT_PAYLOAD, "model": model}).status_code == 422
+    fake.assert_not_called()
+
+
 def test_chat_stream_platform_키면_model을_버린다():
     creds = {**override_credentials(), "key_mode": "platform"}
     assert _post_model("claude-sonnet-5-5", credentials=creds)["model"] is None

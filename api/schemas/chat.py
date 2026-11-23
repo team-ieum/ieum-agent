@@ -42,14 +42,19 @@ class BuildChatRequest(BaseModel):
     currentNodes: Optional[List[LooseNode]] = None
     # 엣지도 모르는 키(BE 엣지 id 등)를 지우지 않고 돌려준다
     currentEdges: Optional[List[dict[str, Any]]] = None
-    # 사용자가 고른 빌더 모델(bare id). 없으면 provider 기본 모델 — 공백만 온 값도 "안 고름"으로 본다
-    model: Optional[str] = None
+    # 사용자가 고른 빌더 모델(bare id). 없으면 provider 기본 모델 — 공백만 온 값도 "안 고름"으로 본다.
+    # 상한 100은 BE @Size(max=100)·AiTokenUsage.model 컬럼과 같은 값. bare id 형식(/·공백 없음)은 사용자 입력이
+    # litellm 조회(길이 비례 비용)나 models/·projects/ 접두(강등 우회·Vertex 전환)로 가지 않게 한다.
+    # 카탈로그 정확 일치 검사는 BE 몫
+    model: Optional[str] = Field(None, max_length=100, pattern=r"^[^/\s]+$")
 
-    @field_validator("model")
+    @field_validator("model", mode="before")
     @classmethod
-    def _strip_model(cls, v: Optional[str]) -> Optional[str]:
-        v = (v or "").strip()
-        return v or None
+    def _strip_model(cls, v: Any) -> Any:
+        # strip이 길이·형식 검사보다 먼저 돌아야 앞뒤 공백 값이 통과한다. 비문자열은 그대로 넘겨 타입 검사로 422
+        if not isinstance(v, str):
+            return v
+        return v.strip() or None
 
 
 class BuildChatResponse(BaseModel):

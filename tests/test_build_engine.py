@@ -238,7 +238,7 @@ async def test_완료_확인_턴은_LLM_없이_DONE과_전체_노드(env):
     resp = await _turn("끝내자", [TRIGGER, SLACK], [EDGE], llm=llm, script=[("finish", {}), "확인해 주세요"])
     assert resp.type.value == "CLARIFICATION_NEEDED" and resp.message.endswith("완료할까요? (네 / 아니요)")
     calls = llm.calls
-    resp = await _turn("네", [TRIGGER, SLACK], [EDGE], llm=None)
+    resp = await _turn("네", [TRIGGER, SLACK], [EDGE], llm=None, model="gemini-3.8-flash")
     assert llm.calls == calls
     assert resp.buildState == "DONE" and resp.type.value == "WORKFLOW_MODIFIED"
     assert resp.nodes == [TRIGGER, SLACK] and resp.edges == [EDGE]
