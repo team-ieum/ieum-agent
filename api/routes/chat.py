@@ -34,6 +34,9 @@ async def chat_stream_endpoint(
         current_nodes=[n.model_dump() for n in request.currentNodes or []],
         current_edges=request.currentEdges or [],
         delegation_token=x_delegation_token,
+        # platform 키는 고른 모델을 버리고 provider 기본 모델로 강제한다 — core/agent.py:93과 같은 규칙.
+        # 엔진은 key_mode를 모르므로 여기서 거른다
+        model=None if credentials.get("key_mode") == "platform" else request.model,
     )
 
     async def event_publisher():

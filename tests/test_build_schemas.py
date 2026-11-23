@@ -57,4 +57,5 @@ def test_응답_모양은_계약_칸만이고_type은_두_가지():
 def test_요청은_옛_BE가_보내던_칸을_무시한다():
     req = BuildChatRequest(prompt="x", workflowId="w", availableIntegrations=[{"provider": "GOOGLE"}],
                            mcpServers=[{"x": 1}], availableWebhooks=[])
-    assert req.model_dump() == {"prompt": "x", "workflowId": "w", "currentNodes": None, "currentEdges": None}
+    assert req.model_dump() == {"prompt": "x", "workflowId": "w", "currentNodes": None, "currentEdges": None,
+                               "model": None}

@@ -42,6 +42,14 @@ class BuildChatRequest(BaseModel):
     currentNodes: Optional[List[LooseNode]] = None
     # 엣지도 모르는 키(BE 엣지 id 등)를 지우지 않고 돌려준다
     currentEdges: Optional[List[dict[str, Any]]] = None
+    # 사용자가 고른 빌더 모델(bare id). 없으면 provider 기본 모델 — 공백만 온 값도 "안 고름"으로 본다
+    model: Optional[str] = None
+
+    @field_validator("model")
+    @classmethod
+    def _strip_model(cls, v: Optional[str]) -> Optional[str]:
+        v = (v or "").strip()
+        return v or None
 
 
 class BuildChatResponse(BaseModel):
