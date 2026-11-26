@@ -59,6 +59,12 @@ from tools.google_calendar import (
     google_calendar_move_event,
     google_calendar_remove_attendees,
 )
+from tools.notion_read import (
+    notion_get_block,
+    notion_get_block_children,
+    notion_get_page,
+    notion_get_property,
+)
 from tools.google_forms import (
     google_forms_get_form,
     google_forms_get_response,
@@ -183,6 +189,11 @@ _ACTION_ONLY_TOOLS: dict = {
     "builtin:google_sheets_find_or_create_spreadsheet": google_sheets_find_or_create_spreadsheet,
     "builtin:google_sheets_find_or_create_worksheet": google_sheets_find_or_create_worksheet,
     # 폼 내용이 AI 프롬프트로 들어가는 경로를 막으려 조회(get_form)도 ACTION 전용(lane-forms 확정 결정 Q3)
+    # 페이지·속성·블록 본문은 다른 사람이 쓴 글 — 프롬프트 인젝션 차단(IEUM-AI-118, 규칙 security.md)
+    "builtin:notion_get_page": notion_get_page,
+    "builtin:notion_get_property": notion_get_property,
+    "builtin:notion_get_block": notion_get_block,
+    "builtin:notion_get_block_children": notion_get_block_children,
     "builtin:google_forms_set_accepting_responses": google_forms_set_accepting_responses,
     "builtin:google_forms_get_form": google_forms_get_form,
     "builtin:google_forms_list_responses": google_forms_list_responses,

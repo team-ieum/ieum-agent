@@ -19,6 +19,7 @@ from tools.notion import (
     notion_append_block,
     notion_query_database,
 )
+from tools.notion_read import notion_get_user
 from tools.notion_rows import notion_create_row, notion_update_row
 from tools.google_sheets import (
     google_sheets_read, google_sheets_append, google_sheets_lookup_row, google_sheets_lookup_rows,
@@ -96,6 +97,7 @@ _TOOL_MAP: dict = {
     "builtin:web_search": web_search,
     "builtin:notion_create_page": notion_create_page,
     "builtin:notion_read_page": notion_read_page,
+    "builtin:notion_get_user": notion_get_user,
     "builtin:notion_search": notion_search,
     "builtin:notion_update_page": notion_update_page,
     "builtin:notion_append_block": notion_append_block,
